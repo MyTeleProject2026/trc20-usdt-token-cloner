@@ -31,15 +31,15 @@ contract NativeTRXPayoutTreasury is MetaTxContext {
     function isTrustedForwarder(address forwarder) external view returns (bool) { return forwarder == trustedForwarder; }
     function availableBalance() external view returns (uint256) { return address(this).balance; }
 
-    function pay(address payable recipient, uint256 amount, bytes32 reference) external {
+    function pay(address payable recipient, uint256 amount, bytes32 payoutReference) external {
         require(msg.sender == payoutRouter && payoutRouter != address(0), "router-only");
-        require(recipient != address(0) && amount > 0 && reference != bytes32(0), "invalid-payout");
-        require(!paidReferences[reference], "duplicate-reference");
+        require(recipient != address(0) && amount > 0 && payoutReference != bytes32(0), "invalid-payout");
+        require(!paidReferences[payoutReference], "duplicate-payoutReference");
         require(address(this).balance >= amount, "insufficient-native-trx-treasury");
-        paidReferences[reference] = true;
+        paidReferences[payoutReference] = true;
         (bool sent,) = recipient.call{value: amount}("");
         require(sent, "native-trx-transfer-failed");
-        emit NativeTRXPaid(recipient, amount, reference);
+        emit NativeTRXPaid(recipient, amount, payoutReference);
     }
 
     receive() external payable { emit Funded(msg.sender, msg.value); }
