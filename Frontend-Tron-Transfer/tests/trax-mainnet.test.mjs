@@ -180,7 +180,8 @@ test('Mainnet deployment flags are enabled and wallet-approved deployment comple
     },
     raw_data_hex: '0a01',
   }
-  const signed = { ...unsigned, signature: ['a'.repeat(130)] }
+  // TronLink Android may return only txID + signature; omitted raw payload is restored from the immutable validated request.
+  const signed = { txID: unsigned.txID, signature: ['a'.repeat(130)] }
   let signCalls = 0
   let broadcastCalls = 0
   let receiptCalls = 0
@@ -207,12 +208,18 @@ test('Mainnet deployment flags are enabled and wallet-approved deployment comple
     toUtf8: value => value,
     trx: {
       getSignWeight: async tx => {
-        assert.equal(tx, signed)
+        assert.equal(tx.txID, unsigned.txID)
+        assert.equal(tx.raw_data_hex, unsigned.raw_data_hex)
+        assert.deepEqual(tx.raw_data, unsigned.raw_data)
+        assert.deepEqual(tx.signature, signed.signature)
         return { result: { code: 'ENOUGH_PERMISSION' } }
       },
       sendRawTransaction: async tx => {
         broadcastCalls++
-        assert.equal(tx, signed)
+        assert.equal(tx.txID, unsigned.txID)
+        assert.equal(tx.raw_data_hex, unsigned.raw_data_hex)
+        assert.deepEqual(tx.raw_data, unsigned.raw_data)
+        assert.deepEqual(tx.signature, signed.signature)
         return { result: true }
       },
     },
