@@ -30,7 +30,7 @@ function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
 }
 
-export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
+export default function TRXMainnetPanel({ wallet, onConnect }) {
   const initial = useMemo(() => {
     const saved = loadSavedContracts()
     // Never reuse the prefilled recipient wallet or numeric form values as contract addresses.
