@@ -318,3 +318,31 @@ test('TRON permission errors explain multisignature threshold and weight', async
     },
   )
 })
+
+
+test('TRON permission preflight accepts complete sufficient weight evidence when Android omits result.code', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: {}, raw_data_hex: '01', signature: ['b'.repeat(130)] }
+  const response = {
+    current_weight: 1,
+    permission: { id: 2, threshold: 1 },
+    approved_list: ['418bedec556c0b3179c8d86debf512c69ac28d74a4'],
+  }
+  const accepted = await assertTransactionPermission({
+    trx: { getSignWeight: async () => response },
+  }, transaction)
+  assert.strictEqual(accepted, response)
+})
+
+test('TRON permission preflight still rejects insufficient weight when result.code is omitted', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: {}, raw_data_hex: '01', signature: ['b'.repeat(130)] }
+  await assert.rejects(
+    () => assertTransactionPermission({
+      trx: { getSignWeight: async () => ({
+        current_weight: 1,
+        permission: { id: 2, threshold: 2 },
+        approved_list: ['418bedec556c0b3179c8d86debf512c69ac28d74a4'],
+      }) },
+    }, transaction),
+    /permission threshold/,
+  )
+})
