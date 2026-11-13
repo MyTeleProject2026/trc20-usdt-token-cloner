@@ -371,7 +371,7 @@ test('TRON permission preflight rejects a connected signer missing from permissi
       ...TEST_TRONWEB,
       trx: { getSignWeight: async () => permissionResponse({ keys: [{ address: '418888888888888888888888888888888888888888', weight: 1 }] }) },
     }, transaction, TEST_SIGNER),
-    /approved_list|permission key/,
+    /not a key in the selected permission/,
   )
 })
 
