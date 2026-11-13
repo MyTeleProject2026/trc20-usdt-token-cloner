@@ -86,7 +86,7 @@ contract TronMetaTxForwarder {
         require(request.from != address(0), "zero-signer");
         require(allowedTargets[request.to], "target-not-allowed");
         require(request.value == 0 && msg.value == 0, "value-not-supported");
-        require(block.timestamp <= request.deadline, "request-expired");
+        require(block.timestamp <= request.deadline && request.deadline <= block.timestamp + 15 minutes, "invalid-request-deadline");
         require(request.nonce == nonces[request.from], "invalid-nonce");
         require(request.gasLimit >= 25000 && request.gasLimit <= 5_000_000, "invalid-gas-limit");
         require(_recover(requestDigest(request), signature) == request.from, "invalid-signature");
