@@ -204,24 +204,23 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   const hasValidSignature = Array.isArray(signatures)
     && signatures.length > 0
     && signatures.every(value => typeof value === 'string' && /^[0-9a-f]{130}$/i.test(value))
-  // txID and raw_data_hex are the canonical transaction identity and exact
-  // protobuf bytes. Do not compare JSON.stringify(raw_data): harmless object
-  // key ordering/normalization by wallet providers can differ without changing
-  // the signed transaction bytes.
-  if (!signed || !hasValidSignature
-    || signed.txID !== walletTransaction.txID
-    || signed.raw_data_hex !== walletTransaction.raw_data_hex
-    || !signed.raw_data || !Array.isArray(signed.raw_data.contract)) {
+  // TronLink providers may normalize or omit raw_data/raw_data_hex in their
+  // returned object. The signature is over txID, so require the exact original
+  // txID and a well-formed signature, then rebuild the broadcast object from
+  // the node-generated transaction. Never broadcast wallet-returned mutations.
+  if (!signed || !hasValidSignature || signed.txID !== walletTransaction.txID) {
     const reason = !signed ? 'missing signed transaction'
       : !hasValidSignature ? 'missing or malformed 65-byte signature'
-      : signed.txID !== walletTransaction.txID ? 'transaction ID changed'
-      : signed.raw_data_hex !== walletTransaction.raw_data_hex ? 'serialized transaction bytes changed'
-      : 'signed transaction body missing'
+      : 'transaction ID changed'
     throw new Error('TronLink signing result failed validation (' + reason + '). Nothing was broadcast.')
+  }
+  const signedCanonicalTransaction = {
+    ...walletTransaction,
+    signature: signatures,
   }
   let broadcast
   try {
-    broadcast = await tronWeb.trx.sendRawTransaction(signed)
+    broadcast = await tronWeb.trx.sendRawTransaction(signedCanonicalTransaction)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment broadcast request failed') + ' Check TRONSCAN for transaction ' + unsigned.txID + ' before retrying.')
   }
