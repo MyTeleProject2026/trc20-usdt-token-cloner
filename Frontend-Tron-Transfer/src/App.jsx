@@ -56,6 +56,7 @@ export default function App() {
   const [oneTraxMintBusy,setOneTraxMintBusy]=useState(false)
   const [oneTraxMintResult,setOneTraxMintResult]=useState(null)
   const [oneTraxPrepared,setOneTraxPrepared]=useState(null)
+  const [oneTraxEnablePrepared,setOneTraxEnablePrepared]=useState(null)
   const [notice,setNotice]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
@@ -203,6 +204,53 @@ export default function App() {
       await loadOneTraxAccounting()
     } catch(e) { setOneTraxError(e instanceof Error?e.message:'Mainnet mint request failed.'); throw e }
     finally { setOneTraxMintBusy(false) }
+  }
+  async function prepareOneTraxActivation(approved=false) {
+    if (!unlocked?.tronWeb || !unlocked?.address) throw new Error('Connect the configured owner wallet in TronLink on TRON Mainnet first.')
+    if (!oneTraxAccounting?.configured || !oneTraxAccounting?.liability?.contractAddress || !oneTraxAccounting?.reserve?.address) throw new Error('Verified Mainnet token and reserve configuration is required.')
+    const tokenAddress=oneTraxAccounting.liability.contractAddress, vaultAddress=oneTraxAccounting.reserve.address, tronWeb=unlocked.tronWeb
+    let walletNodeHost=''; try { walletNodeHost=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
+    if (walletNodeHost!=='api.trongrid.io') throw new Error('Wallet network is not confirmed as TRON Mainnet.')
+    const abi=[
+      {constant:true,inputs:[],name:'owner',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'name',outputs:[{name:'',type:'string'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'symbol',outputs:[{name:'',type:'string'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'decimals',outputs:[{name:'',type:'uint8'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'paused',outputs:[{name:'',type:'bool'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'mintingEnabled',outputs:[{name:'',type:'bool'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'reserveVault',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'totalSupply',outputs:[{name:'',type:'uint256'}],stateMutability:'view',type:'function'},
+      {constant:false,inputs:[{name:'value',type:'bool'}],name:'setPaused',outputs:[],stateMutability:'nonpayable',type:'function'},
+      {constant:false,inputs:[{name:'value',type:'bool'}],name:'setMintingEnabled',outputs:[],stateMutability:'nonpayable',type:'function'}
+    ]
+    setOneTraxMintBusy(true); setOneTraxError('')
+    try {
+      const token=await tronWeb.contract(abi).at(tokenAddress)
+      const vault=await tronWeb.contract([{constant:true,inputs:[],name:'authorizedToken',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'}]).at(vaultAddress)
+      const [owner,name,symbol,decimals,paused,mintingEnabled,linkedVault,supply,authorizedToken,reserveSun]=await Promise.all([
+        token.owner().call(),token.name().call(),token.symbol().call(),token.decimals().call(),token.paused().call(),token.mintingEnabled().call(),token.reserveVault().call(),token.totalSupply().call(),vault.authorizedToken().call(),tronWeb.trx.getBalance(vaultAddress)
+      ])
+      if(name!=='TRӾ'||symbol!=='TRX'||Number(decimals)!==6) throw new Error('Token metadata does not match TRӾ / TRX / 6 decimals.')
+      if(tronWeb.address.toHex(owner)!==tronWeb.address.toHex(unlocked.address)) throw new Error('Connected wallet is not the token owner.')
+      if(tronWeb.address.toHex(linkedVault)!==tronWeb.address.toHex(vaultAddress)||tronWeb.address.toHex(authorizedToken)!==tronWeb.address.toHex(tokenAddress)) throw new Error('Token and reserve vault links do not match.')
+      if(!paused||mintingEnabled) throw new Error('Activation is only available while the token is paused and minting is disabled.')
+      if(BigInt(String(reserveSun))<BigInt(String(supply))) throw new Error('Reserve is below current outstanding TRӾ supply.')
+      if(!approved) {
+        setOneTraxEnablePrepared({tokenAddress,vaultAddress,owner:unlocked.address,reserveSun:String(reserveSun),supply:String(supply)})
+        setNotice('Activation preflight passed. No transaction has been signed or sent.')
+        return
+      }
+      if(!oneTraxEnablePrepared||oneTraxEnablePrepared.tokenAddress!==tokenAddress||oneTraxEnablePrepared.vaultAddress!==vaultAddress||oneTraxEnablePrepared.owner!==unlocked.address) throw new Error('Activation review expired or changed. Run preflight again.')
+      const unpauseTx=await token.setPaused(false).send({feeLimit:100000000,callValue:0,shouldPollResponse:true,keepTxID:true})
+      const enableTx=await token.setMintingEnabled(true).send({feeLimit:100000000,callValue:0,shouldPollResponse:true,keepTxID:true})
+      const [pausedAfter,enabledAfter]=await Promise.all([token.paused().call(),token.mintingEnabled().call()])
+      if(pausedAfter!==false||enabledAfter!==true) throw new Error('Activation transactions returned but on-chain state did not verify.')
+      setOneTraxEnablePrepared(null)
+      setNotice('TRӾ issuance is enabled on Mainnet. Minting still requires a separate preflight and explicit wallet signature.')
+      setOneTraxMintResult({txid:String(enableTx),recipient:'—',amount:'—',status:'Activation confirmed; unpause transaction: '+String(unpauseTx)})
+      await loadOneTraxAccounting()
+    } catch(e) {setOneTraxError(e instanceof Error?e.message:'TRӾ activation failed.');throw e}
+    finally {setOneTraxMintBusy(false)}
   }
   async function inspectAddress(address=monitorAddress) {
     if(!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet address.')
@@ -407,9 +455,11 @@ export default function App() {
             <label>Amount (TRӾ)<input value={oneTraxAmount} onChange={e=>setOneTraxAmount(e.target.value)} inputMode="decimal"/></label>
             <div className="button-row">
               {!unlocked&&<button className="secondary-button" onClick={()=>perform(connectTronLink)}><Wallet size={15}/> Connect owner TronLink</button>}
+              <button className="secondary-button" disabled={oneTraxMintBusy||!unlocked||!oneTraxAccounting?.configured} onClick={()=>perform(()=>prepareOneTraxActivation(false))}><ShieldCheck size={15}/> Prepare owner activation</button>
               <button className="primary-button" disabled={oneTraxMintBusy||!unlocked||!oneTraxAccounting?.configured||!isValidAddress(oneTraxRecipient)||!oneTraxAmount.trim()} onClick={()=>perform(()=>prepareAndMintOneTrax(false))}><LockKeyhole size={15}/>{oneTraxMintBusy?"Checking Mainnet…":"Run issuance preflight"}</button>
             </div>
-<div className="issuance-review"><div><span className="eyebrow">PREFLIGHT PASSED · NO TRANSACTION SENT</span><h3>Review exact issuance</h3><p>Recipient: <b>{oneTraxPrepared?.recipient}</b></p><p>Amount: <b>{oneTraxPrepared?.amount} TRӾ</b> · Raw units: {oneTraxPrepared?.amountUnits}</p><p>Token: <b>{oneTraxPrepared?.tokenAddress}</b></p><p>Reserve vault: <b>{oneTraxPrepared?.vaultAddress}</b></p><p>Owner wallet: <b>{oneTraxPrepared?.owner}</b></p></div><div className="button-row"><button className="primary-button" disabled={oneTraxMintBusy||!oneTraxPrepared||!unlocked||oneTraxPrepared.owner!==unlocked.address} onClick={()=>perform(()=>prepareAndMintOneTrax(true))}><LockKeyhole size={15}/> I approve; open TronLink signature</button><button className="outline-button" onClick={()=>setOneTraxPrepared(null)}>Cancel</button></div></div>
+            {oneTraxEnablePrepared&&<div className="issuance-review"><div><span className="eyebrow">OWNER ACTIVATION REVIEW · NO TRANSACTION SENT</span><h3>Enable TRӾ issuance?</h3><p>Token: <b>{oneTraxEnablePrepared.tokenAddress}</b></p><p>Reserve vault: <b>{oneTraxEnablePrepared.vaultAddress}</b></p><p>Native TRX reserve: <b>{formatUnits(oneTraxEnablePrepared.reserveSun,6)} TRX</b></p><p>Outstanding TRӾ: <b>{formatUnits(oneTraxEnablePrepared.supply,6)} TRӾ</b></p><p>Owner wallet: <b>{oneTraxEnablePrepared.owner}</b></p><p>This submits two owner transactions: unpause, then enable minting. New mints still require a separate approval.</p></div><div className="button-row"><button className="primary-button" disabled={oneTraxMintBusy||!unlocked||oneTraxEnablePrepared.owner!==unlocked.address} onClick={()=>perform(()=>prepareOneTraxActivation(true))}><ShieldCheck size={15}/> I approve activation in TronLink</button><button className="outline-button" onClick={()=>setOneTraxEnablePrepared(null)}>Cancel</button></div></div>}
+            {oneTraxPrepared&&<div className="issuance-review"><div><span className="eyebrow">PREFLIGHT PASSED · NO TRANSACTION SENT</span><h3>Review exact issuance</h3><p>Recipient: <b>{oneTraxPrepared.recipient}</b></p><p>Amount: <b>{oneTraxPrepared.amount} TRӾ</b> · Raw units: {oneTraxPrepared.amountUnits}</p><p>Token: <b>{oneTraxPrepared.tokenAddress}</b></p><p>Reserve vault: <b>{oneTraxPrepared.vaultAddress}</b></p><p>Owner wallet: <b>{oneTraxPrepared.owner}</b></p></div><div className="button-row"><button className="primary-button" disabled={oneTraxMintBusy||!unlocked||oneTraxPrepared.owner!==unlocked.address} onClick={()=>perform(()=>prepareAndMintOneTrax(true))}><LockKeyhole size={15}/> I approve; open TronLink signature</button><button className="outline-button" onClick={()=>setOneTraxPrepared(null)}>Cancel</button></div></div>}
                         {oneTraxMintResult&&<div className="notice notice-warning"><CheckCircle2 size={17}/><div><b>Transaction submitted — confirmation pending</b><p>{oneTraxMintResult.amount} TRӾ to {oneTraxMintResult.recipient}</p><a href={"https://tronscan.org/#/transaction/"+oneTraxMintResult.txid} target="_blank" rel="noreferrer">View transaction on TRONSCAN <ExternalLink size={12}/></a><p className="fine-print">{oneTraxMintResult.status}</p></div></div>}
             {oneTraxMintBusy&&<p className="fine-print">Review the exact recipient and amount in TronLink before signing.</p>}
           </div>
