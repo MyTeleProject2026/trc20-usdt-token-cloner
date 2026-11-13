@@ -198,7 +198,7 @@ test('Mainnet deployment flags are enabled and wallet-approved deployment comple
   const tronWeb = {
     version: '6.5.1',
     transactionBuilder: { createSmartContract: async () => unsigned },
-    address: { fromHex: () => ownerAddress },
+    address: { fromHex: () => ownerAddress, toHex: value => String(value).toLowerCase() },
     isAddress: value => typeof value === 'string' && value.startsWith('T'),
     utils: {
       transaction: { txCheck: () => true },
@@ -256,7 +256,7 @@ test('TRON deployment never broadcasts if signer recovery rejects the connected 
   const walletTronWeb = { trx: { sign: async () => signed }, isAddress: value => value.startsWith('T'), fullNode: { host: 'https://api.trongrid.io' } }
   const tronWeb = {
     transactionBuilder: { createSmartContract: async () => unsigned },
-    address: { fromHex: () => ownerAddress },
+    address: { fromHex: () => ownerAddress, toHex: value => String(value).toLowerCase() },
     isAddress: value => value.startsWith('T'),
     utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => '41' + '2'.repeat(40) } },
     trx: { getSignWeight: async () => ({ result: { code: 'ENOUGH_PERMISSION' } }), sendRawTransaction: async () => { broadcasts++; return { result: true } } },
