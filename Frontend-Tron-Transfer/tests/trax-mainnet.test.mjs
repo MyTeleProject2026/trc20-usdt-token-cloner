@@ -56,7 +56,7 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
-test('TRӾ deployment signs the original builder object and broadcasts the returned signed object', async () => {
+test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLink provider', async () => {
   const originalFetch = globalThis.fetch
   const originalWindow = globalThis.window
   const unsigned = {
@@ -69,6 +69,7 @@ test('TRӾ deployment signs the original builder object and broadcasts the retur
   const signed = { ...unsigned, signature: ['c'.repeat(130)] }
   let signedInput
   let broadcastInput
+  let clientCreated = false
   globalThis.window = { setTimeout: (fn) => setTimeout(fn, 0) }
   globalThis.fetch = async (url) => ({
     ok: true,
@@ -76,13 +77,18 @@ test('TRӾ deployment signs the original builder object and broadcasts the retur
       ? { txID: unsigned.txID, raw_data: unsigned.raw_data }
       : { id: unsigned.txID, receipt: { result: 'SUCCESS' } },
   })
-  const tronWeb = {
+  const walletTronWeb = {
+    version: 'wallet-bundled-version',
     fullNode: { host: 'https://api.trongrid.io' },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    address: { fromHex: () => 'T' + '1'.repeat(33) },
+    trx: { sign: async (tx) => { signedInput = tx; return signed } },
+  }
+  const builderClient = {
+    version: '6.5.1',
     transactionBuilder: { createSmartContract: async () => unsigned },
+    address: { fromHex: () => 'T' + '1'.repeat(33) },
+    isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
     trx: {
-      sign: async (tx) => { signedInput = tx; return signed },
       sendRawTransaction: async (tx) => { broadcastInput = tx; return { result: true } },
       getContract: async () => ({ bytecode: '6000' }),
     },
@@ -90,11 +96,13 @@ test('TRӾ deployment signs the original builder object and broadcasts the retur
   try {
     const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
     const result = await deployContractFromTronLink(
-      { tronWeb, address: 'T' + '2'.repeat(33) },
+      { tronWeb: walletTronWeb, address: 'T' + '2'.repeat(33) },
       { abi: [], bytecode: '6000' },
       'TestVault',
       300000000,
+      { createClient: () => { clientCreated = true; return builderClient } },
     )
+    assert.equal(clientCreated, true)
     assert.notStrictEqual(signedInput, unsigned)
     assert.deepEqual(signedInput, { visible: false, txID: unsigned.txID, raw_data: unsigned.raw_data, raw_data_hex: unsigned.raw_data_hex })
     assert.equal(Object.hasOwn(signedInput, 'contract_address'), false)
