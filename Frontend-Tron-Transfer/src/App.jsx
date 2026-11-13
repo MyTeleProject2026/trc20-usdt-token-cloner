@@ -292,174 +292,28 @@ export default function App() {
     </div>
   )
 
-  return <div className="app-shell">
-    <aside className="sidebar">
-      <button type="button" className="brand brand-home" aria-label="Go to dashboard home" onClick={()=>{setTab('overview');setMoreOpen(false)}}><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>MAINNET USDT PAYOUTS</small></span></button>
-      <div className="network-card"><span className="eyebrow">PRODUCTION NETWORK</span><div className="network-chip"><i/> TRON Mainnet</div><span className="network-dot"><i/> OFFICIAL TETHER USDT TRC20</span></div>
-      <nav aria-label="Desktop navigation">{nav.map(item=><button type="button" key={item.id} className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><item.icon size={17}/>{item.label}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
-    </aside>
-    <nav className="mobile-bottom-nav" aria-label="Primary navigation">
-      {mobilePrimaryNav.map(item=><button type="button" key={item.id} className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><item.icon size={19} strokeWidth={2}/><span>{({overview:'Home',assets:'Assets',recipients:'Recipients',withdrawals:'Withdraw'})[item.id]}</span></button>)}
-      <button ref={moreTriggerRef} type="button" className={moreOpen||mobileMoreNav.some(item=>item.id===tab)?'active':''} aria-haspopup="true" aria-expanded={moreOpen} aria-controls="mobile-more-menu" aria-label={mobileMoreNav.some(item=>item.id===tab)?`More menu, current section ${mobileMoreNav.find(item=>item.id===tab).label}`:'Open more sections'} onClick={()=>setMoreOpen(open=>!open)}><MoreHorizontal size={20} strokeWidth={2}/><span>More</span></button>
-    </nav>
-    <main className="main-content">
-      {moreOpen&&<button type="button" className="mobile-more-backdrop" aria-label="Close more navigation" onClick={()=>setMoreOpen(false)}/>}
-      {moreOpen&&<section ref={moreMenuRef} className="mobile-more-menu" id="mobile-more-menu" role="region" aria-label="More navigation sections" aria-labelledby="mobile-more-title">
-        <div className="mobile-more-heading"><div><span className="eyebrow">MORE WORKSPACE</span><h2 id="mobile-more-title">More sections</h2></div><button type="button" className="icon-button" aria-label="Close menu" onClick={()=>setMoreOpen(false)}><X size={17}/></button></div>
-        <div className="mobile-more-grid">{mobileMoreNav.map(item=><button type="button" key={item.id} className={tab===item.id?'selected':''} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><span className="mobile-more-icon"><item.icon size={18}/></span><span className="mobile-more-copy"><b>{item.label}</b><small>{mobileMoreDescriptions[item.id]}</small></span><span className="mobile-more-arrow">›</span></button>)}</div>
-      </section>}
-      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal',provider:'Funding source & payout readiness',sponsors:'Sponsor approvals',transactions:'Sponsored payout history',settings:'Platform settings','1trax':'TRӾ Mainnet'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
-      <div className="content">
-        <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal uses the sponsor-direct route: an owner-approved individual sponsor wallet must hold the actual USDT and cover TRON network resources, then sign the exact recipient and amount in its own TronLink wallet. Tatum supplies blockchain infrastructure and independent chain verification, not payout funds.</p></div></section>
-        {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
-        {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
-
-        {tab==='overview'&&<>
-          <section className="wallet-summary">
-            <div className="panel balance-card"><div className="panel-heading"><div><span className="eyebrow">MONITORED MAINNET ADDRESS</span><h2>{shorten(monitorAddress)}</h2>{addressLink&&<a href={addressLink} target="_blank" rel="noreferrer">Open TRONSCAN <ExternalLink size={13}/></a>}</div><div className="panel-icon"><Wallet/></div></div><div className="balance-number">{monitorData?.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'—'} <small>USDT</small></div><div className="balance-footer"><span>Official TRC20 USDT · Mainnet</span><button className="icon-button" disabled={monitorBusy} onClick={()=>perform(()=>inspectAddress())}><RefreshCw size={16}/> Refresh</button></div></div>
-            <div className="panel quick-card"><span className="eyebrow">PAYOUT MODEL</span><strong className="status-live"><i/> Owner-requested · sponsor-funded</strong><p>Your wallet is used for identity only. A separate, approved sponsor wallet must hold the requested official USDT, cover its own TRON resources and sign the exact transfer before any funds move.</p><button className="secondary-button" onClick={()=>setTab('sponsors')}>Review sponsor wallets</button></div>
-          </section>
-          <section className="panel"><div className="section-heading"><div><span className="eyebrow">OFFICIAL ASSET</span><h2>Tether USD · TRC20</h2><p>The production asset is pinned to the official TRON Mainnet token contract.</p></div><div className="panel-icon"><ShieldCheck/></div></div><div className="asset-row"><div className="asset-symbol token-symbol">US</div><div className="asset-name"><b>Official Tether USD</b><small>{MAINNET_USDT}</small></div><strong>{monitorData?.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'Not loaded'} <small>USDT</small></strong></div><p className="fine-print">Only the official Mainnet contract is supported. This dashboard displays only actual Mainnet balances for the monitored address and does not display simulated tokens.</p></section>
-          <section className="panel wallet-access">
-            <div className="panel-heading"><div><span className="eyebrow">REQUESTER WALLET · TRONLINK</span><h2>{unlocked?'TronLink connected':'Connect your TronLink wallet'}</h2><p>Your personal TronLink account establishes the configured owner identity. It is not used as the source of payout USDT or TRX.</p></div><div className="panel-icon"><Wallet/></div></div>
-            {unlocked?<div className="form-stack"><div className="address-box"><span>Connected TRON Mainnet account</span><b>{unlocked.address}</b></div><div className="button-row"><button className="secondary-button" disabled={busy} onClick={()=>perform(connectTronLink)}><RefreshCw size={15}/> Refresh connection</button><button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Disconnect</button></div></div>:<div className="form-stack"><p className="fine-print">Open this application in the TronLink DApp browser on Android, unlock your wallet, then connect. Never paste a private key or recovery phrase into this website.</p><button className="primary-button" disabled={busy} onClick={()=>perform(connectTronLink)}><Wallet size={16}/> Connect TronLink</button></div>}
-            <p className="fine-print">Wallet connection alone does not authorize a payout. You sign only an identity message. A connected owner wallet does not authorize spending or create payout funds; each payout must be funded and signed by a separately approved sponsor wallet.</p>
-          </section>
-        </>}
-
-        {tab==='recipients'&&<section className="panel recipient-panel">
-          <div className="section-heading"><div><span className="eyebrow">READ-ONLY MAINNET INSPECTION</span><h2>Recipient balance & incoming activity</h2><p>Inspect an exchange or wallet on TRON Mainnet without its private key.</p></div><div className="panel-icon"><ArrowDownLeft/></div></div>
-          <div className="transfer-form"><div className="address-box"><span>Network / asset</span><b>TRON Mainnet · Official Tether USDT TRC20</b></div><label className="wide-field">Monitored recipient address<input value={monitorAddress} onChange={e=>{setMonitorAddress(e.target.value);setMonitorData(null);setMonitorError('')}} placeholder="TRON Mainnet address (T…)" autoComplete="off" spellCheck="false"/></label><label className="wide-field">Official USDT contract<input value={MAINNET_USDT} readOnly/></label><div className="button-row wide-field"><button className="primary-button" disabled={monitorBusy||!monitorAddress.trim()} onClick={()=>perform(()=>inspectAddress())}><RefreshCw size={16}/>{monitorBusy?'Checking…':'Inspect Mainnet recipient'}</button><button className="secondary-button" onClick={()=>{setMonitorAddress(MAINNET_MONITORED_ADDRESS);setMonitorData(null);void perform(()=>inspectAddress(MAINNET_MONITORED_ADDRESS))}}>My monitored address</button></div></div>
-          {monitorError&&<div className="notice notice-error"><AlertTriangle size={16}/><span>{monitorError}</span></div>}
-          {monitorData&&<div className="recipient-results">
-            <div className="recipient-balance-grid">
-              <article className="metric-card"><span>Native TRX balance</span><strong>{monitorData.nativeBalanceTRX??'Unavailable'} <small>TRX</small></strong></article>
-              <article className="metric-card"><span>Official USDT balance</span><strong>{monitorData.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'Unavailable'} <small>USDT</small></strong></article>
-              <article className="metric-card"><span>Account state</span><strong>{monitorData.accountExists?'Account found':'Not activated / not found'}</strong></article>
-              <article className="metric-card"><span>Incoming history</span><strong>{monitorData.historyStatus||'Unavailable'}</strong></article>
-            </div>
-            <div className="section-heading"><div><span className="eyebrow">CONFIRMED MAINNET ACCOUNT HISTORY</span><h3>Incoming TRC20 activity</h3><p>{monitorData.historyStatus==='complete'?'Mainnet incoming history was retrieved.':monitorData.historyStatus==='partial'?'Only part of the history feed was available.':'History provider did not return a complete result.'}</p></div></div>
-            {!monitorData.incomingHistory?.length?<div className="empty-state"><ArrowDownLeft size={25}/><b>No incoming transfers returned</b><p>This provider response is not proof that the address has never received funds.</p></div>:monitorData.incomingHistory.map((item,index)=><article className="history-item" key={item.txid||index}><div className="history-icon incoming"><ArrowDownLeft size={17}/></div><div className="history-main"><b>{item.amountBaseUnits&&item.decimals!==null?formatUnits(item.amountBaseUnits,item.decimals):'Amount unavailable'} {item.symbol||item.asset}</b><small>From {shorten(item.from)} · {item.timestamp?new Date(item.timestamp).toLocaleString():'Timestamp unavailable'}</small><span className={'status-text '+(item.confirmed?'good':'')}>{item.confirmed?'Confirmed':'History candidate'}</span>{item.txid&&<a href={'https://tronscan.org/#/transaction/'+item.txid} target="_blank" rel="noreferrer">View on TRONSCAN <ExternalLink size={12}/></a>}</div></article>)}
-          </div>}
-          <p className="fine-print">Balance and history reads are Mainnet-only. A withdrawal is not marked complete until Tatum confirms the exact solidified Tether Transfer on Mainnet.</p>
-        </section>}
-
-        
-        {tab==='assets'&&<section className="assets-page">
-          <div className="section-heading"><div><span className="eyebrow">OFFICIAL TRON MAINNET ASSETS</span><h2>Wallet assets</h2><p>Read-only holdings for the monitored address. These balances are not assumed to fund external payouts.</p></div><button className="secondary-button" disabled={busy} onClick={()=>perform(()=>inspectAddress(MAINNET_MONITORED_ADDRESS))}><RefreshCw size={15}/> Refresh monitored balance</button></div>
-          <div className="asset-source-grid">
-            <article className="panel asset-source-card">
-              <span className="eyebrow">MONITORED ADDRESS · READ ONLY</span>
-              <h3>{shorten(MAINNET_MONITORED_ADDRESS)}</h3>
-              <strong className="asset-large">{monitorData?.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'—'} <small>USDT</small></strong>
-              <span className="fine-print">Official Tether TRC20 balance from Tatum Mainnet. This read-only card is not a separate treasury and is not added to any other balance.</span>
-              <div className="asset-source-meta"><span>TRX: {monitorData?.nativeBalanceTRX??'Not loaded'}</span><span>Account: {monitorData?monitorData.accountExists?'Found':'Not activated / not found':'Not checked'}</span></div>
-              <a href={'https://tronscan.org/#/address/'+MAINNET_MONITORED_ADDRESS} target="_blank" rel="noreferrer">Open monitored address on TRONSCAN <ExternalLink size={12}/></a>
-            </article>
-            <article className="panel asset-source-card">
-              <span className="eyebrow">SELF-CUSTODY SPONSOR FUNDING</span>
-              <h3>Actual payout funding</h3>
-              <p>No sponsor wallet has yet been owner-approved and verified with sufficient live USDT and TRON resources. Your personal wallet remains identity-only. Open Sponsor approvals to review a voluntary sponsor wallet.</p>
-              <button className="primary-button" onClick={()=>setTab('sponsors')}><ShieldCheck size={16}/> Review sponsor wallets</button>
-            </article>
-          </div>
-          <div className="panel assets-total-panel">
-            <div><span className="eyebrow">OFFICIAL TOKEN IDENTITY</span><h2>USDT · TRON TRC20</h2><p>Only the official Tether Mainnet contract is supported: {MAINNET_USDT}. Test tokens and simulated balances are not included.</p></div>
-            <div className="panel-icon"><ShieldCheck/></div>
-          </div>
-        </section>}
-
-        {tab==='withdrawals'&&<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw" />}
-
-        {tab==='transactions'&&<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="history" />}
-
-        {tab==='sponsors'&&<section className="panel provider-panel">
-          <div className="section-heading"><div><span className="eyebrow">PRIVATE OWNER · SPONSOR WALLET REVIEW</span><h2>Approved sponsor wallets</h2><p>Invite a separate wallet owner to the sponsor portal. You review each wallet and set its per-payout and daily caps; every Mainnet transfer still requires that sponsor to sign the exact transaction.</p><a href="#/sponsor" target="_blank" rel="noreferrer">Open the separate sponsor portal <ExternalLink size={12}/></a></div><div className="panel-icon"><ShieldCheck/></div></div>
-          <SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="sponsor" />
-        </section>}
-
-        {tab==='provider'&&<section className="panel provider-panel funding-status-page">
-          <div className="section-heading"><div><span className="eyebrow">PRIVATE OWNER · INDEPENDENT MANAGED TREASURY</span><h2>Funding status & payout requirements · Managed treasury</h2><p>Your owner wallet is used for identity and transaction-specific authorization. An approved Fireblocks vault can custody and sign payouts under its own transaction policy, without an individual sponsor signing each transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
-          <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Managed custody is not free USDT liquidity</b><p>The Fireblocks vault must be opened, authorized and genuinely funded with official TRON USDT and sufficient TRX. Provider policy approvals may still apply. This build exposes read-only readiness; real-value submission remains deliberately disabled.</p></div></div>
-          <div className="funding-status-grid">
-            <article className="funding-status-item"><span className="eyebrow">OWNER USDT DEPOSIT</span><strong className="status-text good">Not required</strong><p>The owner wallet proves identity and authorizes exact requests; it is not the treasury funding source.</p></article>
-            <article className="funding-status-item"><span className="eyebrow">PAYOUT SIGNER</span><strong>Managed Fireblocks vault</strong><p>The provider's custody system signs under its configured transaction policy; individual sponsor signatures are not part of this mode.</p></article>
-            <article className="funding-status-item"><span className="eyebrow">USDT PRINCIPAL</span><strong>Genuinely funded treasury</strong><p>The configured vault must hold official TRON USDT before any payout can be considered.</p></article>
-            <article className="funding-status-item"><span className="eyebrow">TRON NETWORK RESOURCES</span><strong>Treasury-funded TRX</strong><p>Provider-available and on-chain TRX must cover the fee cap and all unresolved payout reservations.</p></article>
-          </div>
-          <div className="funding-flow-panel managed-treasury-readiness" aria-live="polite">
-            <div className="section-heading compact"><div><span className="eyebrow">READ-ONLY PROVIDER PREFLIGHT</span><h3>Fireblocks treasury connection</h3><p>Refresh checks provider configuration, vault asset identity, actual Mainnet balances, fee reserves and database readiness. It never creates, signs or broadcasts a transaction.</p></div><button type="button" className="secondary-button" disabled={managedTreasuryReadinessBusy} onClick={()=>void refreshManagedTreasuryReadiness()}><RefreshCw size={15}/>{managedTreasuryReadinessBusy?'Checking…':'Refresh readiness'}</button></div>
-            {managedTreasuryReadinessError&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/><span>{managedTreasuryReadinessError}</span></div>}
-            {!managedTreasuryReadiness&&!managedTreasuryReadinessError&&<p className="fine-print">{managedTreasuryReadinessBusy?'Checking the configured provider and public TRON Mainnet balances…':'No readiness snapshot loaded yet.'}</p>}
-            {managedTreasuryReadiness&&<>
-              <div className="funding-status-grid">
-                <article className="funding-status-item"><span className="eyebrow">PROVIDER CONFIGURATION</span><strong>{managedTreasuryReadiness.configuration?.configurationComplete?'Complete':'Incomplete'}</strong><p>{managedTreasuryReadiness.configuration?.providerConfigured?'Fireblocks credentials detected':'Fireblocks credentials not configured'}</p></article>
-                <article className="funding-status-item"><span className="eyebrow">DATABASE LEDGER</span><strong>{managedTreasuryReadiness.databaseReady?'Ready':'Not ready'}</strong><p>Persistent idempotency and pending-fee reservations</p></article>
-                <article className="funding-status-item"><span className="eyebrow">PROVIDER USDT AVAILABLE</span><strong>{managedTreasuryReadiness.providerAvailableUsdtBaseUnits!=null?formatUnits(managedTreasuryReadiness.providerAvailableUsdtBaseUnits):'Unavailable'}</strong><p>Provider-reported available balance, not a credit line</p></article>
-                <article className="funding-status-item"><span className="eyebrow">ON-CHAIN USDT BALANCE</span><strong>{managedTreasuryReadiness.treasuryUsdtBalanceBaseUnits!=null?formatUnits(managedTreasuryReadiness.treasuryUsdtBalanceBaseUnits):'Unavailable'}</strong><p>Official USDT balance at the configured treasury address</p></article>
-                <article className="funding-status-item"><span className="eyebrow">ON-CHAIN TRX BALANCE</span><strong>{managedTreasuryReadiness.treasuryTrxBalanceSun!=null?formatUnits(managedTreasuryReadiness.treasuryTrxBalanceSun,6):'Unavailable'} TRX</strong><p>Network fee reserve observed on TRON Mainnet</p></article>
-                <article className="funding-status-item"><span className="eyebrow">ASSET / VAULT IDENTITY</span><strong>{managedTreasuryReadiness.providerAssetIdentityVerified&&managedTreasuryReadiness.providerVaultAddressVerified&&managedTreasuryReadiness.providerVaultAccountVerified?'Verified':'Not verified'}</strong><p>Official TRON USDT asset, vault account and source address mapping</p></article>
-              </div>
-              <div className="notice notice-warning"><AlertTriangle size={16}/><div><b>Real-value payout execution is disabled in this build</b><p>{managedTreasuryReadiness.executionBlocker||'Preflight is diagnostic only. A successful balance check does not authorize spending.'}</p></div></div>
-              <p className="fine-print">Preflight: {managedTreasuryReadiness.preflightChecksPassed?'all configured checks passed':'one or more checks are blocked'} · Payout execution: {managedTreasuryReadiness.executionEnabled?'enabled':'disabled'} · Treasury: {managedTreasuryReadiness.treasuryAddress||'not configured'}</p>
-              {Array.isArray(managedTreasuryReadiness.payoutBlockers)&&managedTreasuryReadiness.payoutBlockers.length>0&&<ul className="funding-flow-list">{managedTreasuryReadiness.payoutBlockers.map(code=><li key={code}><b>{code}</b></li>)}</ul>}
-            </>}
-          </div>
-          <div className="funding-pathway-heading">
-            <span className="eyebrow">TWO INDEPENDENT FUNDING PATHS</span>
-            <h3>Build funding without pretending it is already available</h3>
-            <p>Grant applications support eligible development work. Individual sponsors separately volunteer their own wallet assets for specific payouts. Neither route is assumed approved or funded.</p>
-          </div>
-          <div className="funding-pathway-grid">
-            <article className="funding-pathway-card">
-              <span className="eyebrow">PATH 1 · DEVELOPMENT FUNDING</span>
-              <h3>TRON ecosystem grants</h3>
-              <p>Prepare a milestone-based application for eligible product development, security, documentation and ecosystem work. Funding decisions, eligibility, award size and permitted expenses are determined by the program.</p>
-              <a href="https://trondao.org/tron-builders-league" target="_blank" rel="noreferrer">TRON Builders League <ExternalLink size={13}/></a>
-              <a href="https://tether.dev" target="_blank" rel="noreferrer">Tether developer grants <ExternalLink size={13}/></a>
-              <small>Application status: not submitted / not verified here. Do not count a proposed or awarded development grant as withdrawal liquidity unless its written terms expressly allow that use and the funds have actually been disbursed.</small>
-            </article>
-            <article className="funding-pathway-card">
-              <span className="eyebrow">PATH 2 · PER-TRANSFER PAYOUT FUNDING</span>
-              <h3>Sponsor-funded fallback (optional)</h3><span className="eyebrow">SPONSOR-FUNDED PAYOUTS · VOLUNTARY INDIVIDUAL SPONSORS</span>
-              <p>Voluntary individual sponsors remain an optional fallback: a separate wallet owner applies, is reviewed by the platform owner, checks live Mainnet USDT and fee resources, and signs each exact recipient-and-amount transaction in their own TronLink wallet.</p>
-              <button type="button" className="secondary-button" onClick={()=>setTab('sponsors')}><ShieldCheck size={15}/> Review sponsor wallets</button>
-              <small>Approval is not proof of current funds. A payout remains blocked until the sponsor has sufficient real USDT and network resources and the signed transfer passes Mainnet verification.</small>
-            </article>
-          </div>
-          <div className="funding-pathway-note">
-            <b>Wallet tooling is not funding:</b> Tether WDK can support wallet and signing integration, but it does not provide USDT, a credit line or access to Tether treasury funds.
-            <a href="https://wdk.tether.io/" target="_blank" rel="noreferrer">WDK documentation <ExternalLink size={13}/></a>
-          </div>
-          <div className="funding-flow-panel">
-            <div className="section-heading compact"><div><span className="eyebrow">HOW A REQUEST COMPLETES</span><h3>Four clear steps</h3></div></div>
-            <ol className="funding-flow-list">
-              <li><b>Owner submits</b><span>Enter the external TRON address, amount and request details.</span></li>
-              <li><b>Platform checks</b><span>Match an approved sponsor and verify live USDT and fee coverage.</span></li>
-              <li><b>Sponsor signs</b><span>The sponsor reviews the exact recipient and amount in its own TronLink wallet.</span></li>
-              <li><b>Platform verifies</b><span>Confirm the official USDT Transfer on the solidified TRON Mainnet transaction.</span></li>
-            </ol>
-          </div>
-          <p className="fine-print">Wallet approval in this platform is not KYC, KYB, sanctions screening or source-of-funds verification. It does not waive any legal or compliance obligations that may apply to the parties.</p>
-          <div className="button-row funding-status-actions">
-            <button type="button" className="secondary-button" onClick={()=>setTab('sponsors')}><ShieldCheck size={16}/> Manage sponsor wallets</button>
-            <button type="button" className="primary-button" onClick={()=>setTab('withdrawals')}><ArrowUpRight size={16}/> Open withdrawal request</button>
-          </div>
-        </section>}
-
-        {tab==='1trax'&&<TRXMainnetPanel wallet={unlocked} expectedOwner={ownerSession.address} onConnect={()=>perform(connectTronLink)}/>}
-
-        {tab==='settings'&&<section className="panel settings-page">
-          <div className="section-heading"><div><span className="eyebrow">PRODUCTION CONFIGURATION</span><h2>Tron Transfer settings</h2><p>Mainnet-only configuration and operator access. Provider secrets remain on the backend and are never stored in this browser.</p></div><div className="panel-icon"><Settings/></div></div>
-          <div className="settings-group"><span className="eyebrow">MONITORED ADDRESS</span><div className="address-box"><span>Read-only Mainnet identity</span><b>{MAINNET_MONITORED_ADDRESS}</b></div><a href={'https://tronscan.org/#/address/'+MAINNET_MONITORED_ADDRESS} target="_blank" rel="noreferrer">Open address on TRONSCAN <ExternalLink size={12}/></a><p className="fine-print">Your TronLink wallet is an identity wallet only. It is not the payout funding source; sponsor funding requirements are shown on the Funding status page.</p></div>
-          <div className="settings-group"><span className="eyebrow">TATUM MAINNET</span><p>Tatum provides TRON Mainnet balance reads, transaction construction/broadcast and solidified-transfer verification. It does not supply USDT or pay fees. A separate sponsor wallet supplies the exact USDT principal and network resources, and its owner signs every transfer.</p><p className="fine-print">Provider credentials and authorization remain server-side. Never place provider secrets, wallet private keys or recovery phrases in this frontend.</p><button className="secondary-button" onClick={()=>setTab('provider')}><ShieldCheck size={15}/> Open funding status</button></div>
-          <div className="settings-group"><span className="eyebrow">WALLET SIGNING</span><p>{unlocked?'TronLink is connected to '+shorten(unlocked.address)+'.':'No TronLink wallet is connected.'}</p><p className="fine-print">The site never asks for a private key or recovery phrase. Connecting TronLink does not authorize the platform to spend from your wallet and does not create payout funds. External provider execution needs separate provider authorization.</p>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Disconnect wallet</button>}</div>
-        </section>}
-
-
-      </div>
-      <footer className="app-footer">TRON TRANSFER · PRIVATE OWNER-ONLY WORKSPACE · TRON MAINNET · OFFICIAL USDT TRC20</footer>
-    </main>
-  </div>
+  return (
+    <div className="app-shell trax-only-shell">
+      <header className="topbar">
+        <div>
+          <span className="eyebrow">TRON TRANSFER · PRIVATE OWNER WORKSPACE · TRON MAINNET</span>
+          <h1>TRӾ smart-contract manager</h1>
+        </div>
+        <div className="topbar-actions">
+          <span className="network-chip"><i/> TRON Mainnet</span>
+          <span className="muted small">Owner {shorten(ownerSession.address)}</span>
+          <button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>
+          {unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}
+        </div>
+      </header>
+      <main className="main-content">
+        <div className="content">
+          {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
+          {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
+          <TRXMainnetPanel wallet={unlocked} expectedOwner={ownerSession.address} onConnect={()=>perform(connectTronLink)} />
+          <p className="fine-print trax-only-footer">TRON TRANSFER · PRIVATE OWNER-ONLY WORKSPACE · TRON MAINNET · TRӾ SMART CONTRACT</p>
+        </div>
+      </main>
+    </div>
+  )
 }
