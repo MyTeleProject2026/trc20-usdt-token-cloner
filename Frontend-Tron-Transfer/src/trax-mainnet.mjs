@@ -227,6 +227,8 @@ export async function assertTransactionPermission(tronWeb, signedTransaction) {
   return result
 }
 
+export const MAINNET_DEPLOYMENT_BROADCAST_ENABLED = false
+
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
   createClient = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
@@ -326,6 +328,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // Ask the node to independently evaluate the recovered signer against the
   // account's active permission and threshold before any broadcast.
   await assertTransactionPermission(tronWeb, signed)
+  if (!MAINNET_DEPLOYMENT_BROADCAST_ENABLED) {
+    throw new Error('Mainnet deployment broadcast is disabled by the release safety hold. The signed transaction was not broadcast.')
+  }
   // TronWeb 6.5.1 requires broadcasting the exact object returned by trx.sign().
   // Do not rebuild it: wallet/provider-specific transaction fields and signature
   // encoding must remain intact. The node performs cryptographic validation.
