@@ -45,8 +45,9 @@ test('TronLink deployment payload preserves the exact createSmartContract transa
   const raw_data = { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 }
   const tx = { visible: false, txID: 'a'.repeat(64), raw_data, raw_data_hex: '0a01', contract_address: 'T' + '1'.repeat(33) }
   const payload = toWalletSignableTransaction(tx)
-  assert.strictEqual(payload, tx)
+  assert.notStrictEqual(payload, tx)
   assert.deepEqual(payload, tx)
+  assert.notStrictEqual(payload.raw_data, tx.raw_data)
   assert.equal(payload.contract_address, tx.contract_address)
 })
 
@@ -94,7 +95,8 @@ test('TRӾ deployment signs the original builder object and broadcasts the retur
       'TestVault',
       300000000,
     )
-    assert.strictEqual(signedInput, unsigned)
+    assert.notStrictEqual(signedInput, unsigned)
+    assert.deepEqual(signedInput, unsigned)
     assert.strictEqual(broadcastInput, signed)
     assert.equal(result.txID, unsigned.txID)
     assert.equal(result.address, 'T' + '1'.repeat(33))
