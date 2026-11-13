@@ -90,9 +90,15 @@ contract Restricted1TRAXMeta is MetaTxContext {
 
     function transferOwnership(address nextOwner) external onlyOwner {
         require(nextOwner != address(0) && nextOwner != owner, "invalid-owner");
-        address old = owner;
-        owner = nextOwner;
-        emit OwnershipTransferred(old, nextOwner);
+        pendingOwner = nextOwner;
+    }
+
+    function acceptOwnership() external {
+        require(_msgSender() == pendingOwner && pendingOwner != address(0), "not-pending-owner");
+        address previous = owner;
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(previous, owner);
     }
 
     function setPaused(bool value) external onlyOwner {
