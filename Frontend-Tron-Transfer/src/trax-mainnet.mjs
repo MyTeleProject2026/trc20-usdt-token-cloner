@@ -208,6 +208,25 @@ export function verifyTransactionSigner(tronWeb, transaction, expectedAddress) {
   return { ownerAddress: transactionOwner, recoveredAddress: recoveredSigner }
 }
 
+export async function assertTransactionPermission(tronWeb, signedTransaction) {
+  if (typeof tronWeb?.trx?.getSignWeight !== 'function') {
+    throw new Error('TRON permission preflight is unavailable; refusing to broadcast.')
+  }
+  let result
+  try {
+    result = await tronWeb.trx.getSignWeight(signedTransaction)
+  } catch (error) {
+    throw new Error('TRON permission preflight failed; refusing to broadcast. ' + (error?.message || String(error)))
+  }
+  const code = result?.result?.code
+  if (code !== 'ENOUGH_PERMISSION') {
+    let message = result?.result?.message || code || 'missing permission result'
+    try { if (typeof message === 'string' && /^(?:[0-9a-f]{2})+$/i.test(message)) message = tronWeb.toUtf8(message) } catch {}
+    throw new Error('TRON signer does not satisfy the account permission threshold (' + code + '). Nothing was broadcast. ' + message)
+  }
+  return result
+}
+
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
   createClient = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
@@ -304,6 +323,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // Independently recover the signer from txID + 65-byte signature. A well-formed
   // signature is not proof that the connected wallet signed this transaction.
   verifyTransactionSigner(tronWeb, signed, wallet.address)
+  // Ask the node to independently evaluate the recovered signer against the
+  // account's active permission and threshold before any broadcast.
+  await assertTransactionPermission(tronWeb, signed)
   // TronWeb 6.5.1 requires broadcasting the exact object returned by trx.sign().
   // Do not rebuild it: wallet/provider-specific transaction fields and signature
   // encoding must remain intact. The node performs cryptographic validation.
