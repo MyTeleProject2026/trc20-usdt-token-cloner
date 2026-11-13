@@ -87,7 +87,7 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
-test('any valid TronLink Mainnet wallet can prepare deployment while safety hold prevents signing and broadcast', async () => {
+test('any valid TronLink Mainnet wallet can sign and deploy after explicit wallet approval', async () => {
   const unsigned = {
     visible: false,
     txID: 'b'.repeat(64),
@@ -95,32 +95,40 @@ test('any valid TronLink Mainnet wallet can prepare deployment while safety hold
     raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 },
     raw_data_hex: '0a01',
   }
+  const signed = { ...unsigned, signature: ['wallet-signature'] }
   let signCalls = 0
   let broadcastCalls = 0
+  let receiptCalls = 0
+  let verifiedAddress = ''
   const walletTronWeb = {
     version: 'wallet-bundled-version',
     fullNode: { host: 'https://api.trongrid.io' },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sign: async () => { signCalls++; throw new Error('sign must not be called') } },
+    trx: { sign: async (payload) => { signCalls++; assert.equal(payload.txID, unsigned.txID); return signed } },
   }
   const builderClient = {
     version: '6.5.1',
     transactionBuilder: { createSmartContract: async () => unsigned },
     address: { fromHex: () => 'T' + '1'.repeat(33) },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sendRawTransaction: async () => { broadcastCalls++; return { result: true } } },
+    trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.equal(payload, signed); return { result: true } } },
   }
   const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
-  await assert.rejects(
-    deployContractFromTronLink(
-      { tronWeb: walletTronWeb, address: 'T' + '2'.repeat(33) },
-      { abi: [], bytecode: '6000' },
-      'TestVault',
-      300000000,
-      { createClient: () => builderClient },
-    ),
-    /Deployment safety hold.*No transaction was sent/,
+  const result = await deployContractFromTronLink(
+    { tronWeb: walletTronWeb, address: 'T' + '2'.repeat(33) },
+    { abi: [], bytecode: '6000' },
+    'TestVault',
+    300000000,
+    {
+      createClient: () => builderClient,
+      waitForReceipt: async (_client, txID) => { receiptCalls++; assert.equal(txID, unsigned.txID); return { id: txID, receipt: { result: 'SUCCESS' } } },
+      verifyDeployedContract: async (_client, address) => { verifiedAddress = address; return { bytecode: '6000' } },
+    },
   )
-  assert.equal(signCalls, 0)
-  assert.equal(broadcastCalls, 0)
+  assert.equal(signCalls, 1)
+  assert.equal(broadcastCalls, 1)
+  assert.equal(receiptCalls, 1)
+  assert.equal(verifiedAddress, result.address)
+  assert.equal(result.txID, unsigned.txID)
+  assert.equal(result.receipt.receipt.result, 'SUCCESS')
 })
