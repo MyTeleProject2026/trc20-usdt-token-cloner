@@ -31,7 +31,16 @@ function shorten(value) {
 }
 
 export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
-  const initial = useMemo(() => loadSavedContracts(), [])
+  const initial = useMemo(() => {
+    const saved = loadSavedContracts()
+    // Never reuse the prefilled recipient wallet or numeric form values as contract addresses.
+    const isPlausibleContractAddress = value => typeof value === 'string'
+      && value !== DEFAULT_RECIPIENT && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value.trim())
+    return {
+      tokenAddress: isPlausibleContractAddress(saved.tokenAddress) ? saved.tokenAddress.trim() : '',
+      vaultAddress: isPlausibleContractAddress(saved.vaultAddress) ? saved.vaultAddress.trim() : '',
+    }
+  }, [])
   const [tokenAddress,setTokenAddress] = useState(initial.tokenAddress)
   const [vaultAddress,setVaultAddress] = useState(initial.vaultAddress)
   const [snapshot,setSnapshot] = useState(null)
@@ -269,7 +278,8 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     {step&&<div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
     <div className="trax-addresses">
       <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
-      <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Deploy vault or paste verified Mainnet vault"/></label>
+      <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Automatically filled after vault deployment"/></label>
+      <div className="button-row"><button type="button" className="outline-button" disabled={busy||(!tokenAddress&&!vaultAddress)} onClick={()=>{setTokenAddress('');setVaultAddress('');setSnapshot(null);setLastTx('');setError('');setNotice('Contract address fields cleared. Deploy or enter verified Mainnet contract addresses.') ;try{saveContractAddresses({tokenAddress:'',vaultAddress:''})}catch{}}}>Clear contract addresses</button></div>
       <div className="button-row"><button type="button" className="secondary-button" disabled={!configuredOwnerMatches||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy reserve vault</button><button type="button" className="secondary-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ token</button></div>
       <div className="button-row"><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={authorizeVault}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={linkToken}>2. Link vault in token</button></div>
       <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The deploying wallet becomes the vault owner and initial token owner; do not deploy from an unintended account.</p>
