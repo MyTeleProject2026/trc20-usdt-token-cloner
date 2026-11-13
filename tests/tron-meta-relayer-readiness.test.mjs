@@ -46,3 +46,25 @@ test('invalid sponsor and contract addresses remain blocked', () => {
   assert.equal(result.checks.trustedForwarderAddressConfigured, false)
   assert.equal(result.submissionEnabled, false)
 })
+
+import express from 'express'
+import { once } from 'node:events'
+import { createTronMetaRelayerRouter } from '../server/routes/tron-meta-relayer.mjs'
+
+test('POST submit is hard-disabled and cannot broadcast', async (t) => {
+  const app = express()
+  app.use('/api/trax-relayer', createTronMetaRelayerRouter({ env: {} }))
+  const server = app.listen(0, '127.0.0.1')
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  await once(server, 'listening')
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/trax-relayer/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ arbitrary: 'request' }),
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 503)
+  assert.equal(payload.status, 'relayer-submission-disabled')
+  assert.equal(payload.submissionEnabled, false)
+  assert.equal(payload.transactionBroadcastingAvailable, false)
+})
