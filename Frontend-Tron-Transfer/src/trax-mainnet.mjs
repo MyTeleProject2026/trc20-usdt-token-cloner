@@ -302,36 +302,44 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   const signatures = signed?.signature
   const hasValidSignature = Array.isArray(signatures)
-    && signatures.length > 0
-    && signatures.every(value => typeof value === 'string' && /^[0-9a-f]{130}$/i.test(value))
-  // TronLink providers may normalize or omit raw_data/raw_data_hex in their
-  // returned object. The signature is over txID, so require the exact original
-  // txID and a well-formed signature, then rebuild the broadcast object from
-  // the node-generated transaction. Never broadcast wallet-returned mutations.
-  const signedRawDataHexMatches = typeof signed?.raw_data_hex === 'string'
-    && signed.raw_data_hex.toLowerCase() === walletTransaction.raw_data_hex.toLowerCase()
-  const signedRawDataMatches = Boolean(signed?.raw_data)
-    && canonicalJson(signed.raw_data) === canonicalJson(walletTransaction.raw_data)
-  const signedTxIDMatchesRawData = signedRawDataHexMatches
-    && (await sha256HexFromBytes(signed.raw_data_hex)).toLowerCase() === String(signed.txID || '').toLowerCase()
-  if (!signed || !hasValidSignature || signed.txID !== walletTransaction.txID
-    || !signedRawDataHexMatches || !signedRawDataMatches || !signedTxIDMatchesRawData) {
+    && signatures.length === 1
+    && typeof signatures[0] === 'string'
+    && /^[0-9a-f]{130}$/i.test(signatures[0])
+  // Some TronLink Android provider versions return only txID + signature.
+  // A signature cryptographically authorizes txID (SHA-256 of raw_data bytes),
+  // so safely restore omitted raw_data/raw_data_hex from our already-validated
+  // node payload. If the provider supplies either field, it must match exactly.
+  const returnedRawDataHex = signed?.raw_data_hex
+  const returnedRawData = signed?.raw_data
+  const rawDataHexMatches = returnedRawDataHex == null
+    || (typeof returnedRawDataHex === 'string'
+      && returnedRawDataHex.toLowerCase() === walletTransaction.raw_data_hex.toLowerCase())
+  const rawDataMatches = returnedRawData == null
+    || canonicalJson(returnedRawData) === canonicalJson(walletTransaction.raw_data)
+  if (!signed || !hasValidSignature
+    || String(signed.txID || '').toLowerCase() !== walletTransaction.txID.toLowerCase()
+    || !rawDataHexMatches || !rawDataMatches) {
     const reason = !signed ? 'missing signed transaction'
       : !hasValidSignature ? 'missing or malformed 65-byte signature'
-      : signed.txID !== walletTransaction.txID ? 'transaction ID changed'
-      : !signedRawDataHexMatches ? 'wallet changed or omitted raw_data_hex'
-      : !signedRawDataMatches ? 'wallet changed raw_data fields after signing'
-      : 'signed txID does not match SHA-256(raw_data_hex)'
+      : String(signed.txID || '').toLowerCase() !== walletTransaction.txID.toLowerCase() ? 'transaction ID changed'
+      : !rawDataHexMatches ? 'wallet changed raw_data_hex'
+      : 'wallet changed raw_data fields after signing'
     throw new Error('TronLink signing result failed cryptographic payload consistency validation (' + reason + '). Nothing was broadcast.')
   }
+  // Reconstitute the exact original transaction bytes with only the wallet's
+  // signature attached. Never broadcast a provider-mutated or partial payload.
+  const signedTransaction = {
+    ...walletTransaction,
+    signature: [...signatures],
+  }
   // Verify the signed object still serializes to the same protobuf bytes and txID.
-  assertTransactionIntegrity(tronWeb, signed, 'Signed deployment transaction')
+  assertTransactionIntegrity(tronWeb, signedTransaction, 'Signed deployment transaction')
   // Independently recover the signer from txID + 65-byte signature. A well-formed
   // signature is not proof that the connected wallet signed this transaction.
-  verifyTransactionSigner(tronWeb, signed, wallet.address)
+  verifyTransactionSigner(tronWeb, signedTransaction, wallet.address)
   // Ask the node to independently evaluate the recovered signer against the
   // account's active permission and threshold before any broadcast.
-  await assertTransactionPermission(tronWeb, signed)
+  await assertTransactionPermission(tronWeb, signedTransaction)
   if (!MAINNET_DEPLOYMENT_BROADCAST_ENABLED) {
     throw new Error('Mainnet deployment broadcasting is disabled. Signature was validated, but the transaction was not broadcast.')
   }
@@ -340,7 +348,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // encoding must remain intact. The node performs cryptographic validation.
   let broadcast
   try {
-    broadcast = await tronWeb.trx.sendRawTransaction(signed)
+    broadcast = await tronWeb.trx.sendRawTransaction(signedTransaction)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment broadcast request failed') + ' Check TRONSCAN for transaction ' + unsigned.txID + ' before retrying.')
   }
