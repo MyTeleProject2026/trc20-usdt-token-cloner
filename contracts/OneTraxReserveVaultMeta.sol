@@ -19,6 +19,7 @@ contract OneTraxReserveVaultMeta is MetaTxContext {
         owner = initialOwner;
     }
 
+    function isTrustedForwarder(address forwarder) external view returns (bool) { return forwarder == trustedForwarder; }
     function reserveBalance() external view returns (uint256) { return address(this).balance; }
 
     function setAuthorizedToken(address tokenContract) external onlyOwner {
