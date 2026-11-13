@@ -115,6 +115,15 @@ function explainTronLinkError(error, stage) {
   return stage + ': ' + raw
 }
 
+export async function sha256HexFromBytes(hex) {
+  const value = String(hex || '')
+  if (!/^(?:[0-9a-f]{2})+$/i.test(value)) throw new Error('Malformed raw_data_hex; refusing to sign or broadcast.')
+  if (!globalThis.crypto?.subtle) throw new Error('Secure SHA-256 verification is unavailable in this browser; refusing to sign or broadcast.')
+  const bytes = new Uint8Array(value.match(/../g).map(byte => Number.parseInt(byte, 16)))
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 export function toWalletSignableTransaction(transaction) {
   if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) {
     throw new Error('TRON node returned a malformed deployment transaction.')
@@ -166,8 +175,14 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
   if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
+  // TRON txID is SHA-256(raw_data bytes). Check the node payload before exposing it
+  // to a wallet signer; this catches malformed or mismatched node responses locally.
+  const computedUnsignedTxID = await sha256HexFromBytes(unsigned.raw_data_hex)
+  if (computedUnsignedTxID.toLowerCase() !== String(unsigned.txID).toLowerCase()) {
+    throw new Error('TRON node txID does not match SHA-256(raw_data_hex). Nothing was signed or broadcast.')
+  }
   // Validate the plain protocol transaction, then ask the injected wallet signer.
-  // TronWeb 6.5.1 returns a new signed object; broadcast that exact return value.
+  // TronLink must preserve the exact signed raw_data_hex and txID.
   const walletTransaction = toWalletSignableTransaction(unsigned)
   if (!walletTransaction.raw_data_hex || !walletTransaction.raw_data
     || !Array.isArray(walletTransaction.raw_data.contract)
@@ -208,11 +223,18 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // returned object. The signature is over txID, so require the exact original
   // txID and a well-formed signature, then rebuild the broadcast object from
   // the node-generated transaction. Never broadcast wallet-returned mutations.
-  if (!signed || !hasValidSignature || signed.txID !== walletTransaction.txID) {
+  const signedRawDataHexMatches = typeof signed?.raw_data_hex === 'string'
+    && signed.raw_data_hex.toLowerCase() === walletTransaction.raw_data_hex.toLowerCase()
+  const signedTxIDMatchesRawData = signedRawDataHexMatches
+    && (await sha256HexFromBytes(signed.raw_data_hex)).toLowerCase() === String(signed.txID || '').toLowerCase()
+  if (!signed || !hasValidSignature || signed.txID !== walletTransaction.txID
+    || !signedRawDataHexMatches || !signedTxIDMatchesRawData) {
     const reason = !signed ? 'missing signed transaction'
       : !hasValidSignature ? 'missing or malformed 65-byte signature'
-      : 'transaction ID changed'
-    throw new Error('TronLink signing result failed validation (' + reason + '). Nothing was broadcast.')
+      : signed.txID !== walletTransaction.txID ? 'transaction ID changed'
+      : !signedRawDataHexMatches ? 'wallet changed or omitted raw_data_hex'
+      : 'signed txID does not match SHA-256(raw_data_hex)'
+    throw new Error('TronLink signing result failed cryptographic payload consistency validation (' + reason + '). Nothing was broadcast.')
   }
   // TronWeb 6.5.1 requires broadcasting the exact object returned by trx.sign().
   // Do not rebuild it: wallet/provider-specific transaction fields and signature
