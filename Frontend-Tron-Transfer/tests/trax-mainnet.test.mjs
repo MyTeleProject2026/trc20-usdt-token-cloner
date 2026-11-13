@@ -84,7 +84,7 @@ test('TronLink deployment payload contains only the documented protocol transact
 
 test('TronLink signed transaction retains its transaction identity', () => {
   const unsigned = {
-    txID: 'c'.repeat(64),
+    txID: '426e75c2b5c719ae46005abc57144fde1b70294c0d2adf82a36a4de6e0578830',
     raw_data_hex: '0a01',
     raw_data: { contract: [{ type: 'CreateSmartContract' }], timestamp: 1, fee_limit: 300000000 },
   }
@@ -113,7 +113,7 @@ test('any valid TronLink Mainnet wallet broadcasts the exact signed object retur
     raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: { owner_address: '41' + '1'.repeat(40) } } }], timestamp: 1 },
     raw_data_hex: '0a01',
   }
-  const signed = { ...unsigned, raw_data: { timestamp: 1, contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }] }, raw_data_hex: '0a01', signature: ['a'.repeat(130)] }
+  const signed = { ...unsigned, signature: ['a'.repeat(130)] }
   let signCalls = 0
   let broadcastCalls = 0
   let receiptCalls = 0
