@@ -22,6 +22,7 @@ import { createOwnerTreasuryFundingLedgerRouter } from './routes/owner-treasury-
 import { createTreasuryWithdrawalsRouter } from './routes/treasury-withdrawals.mjs'
 import { createSponsorIntegrationReadinessRouter } from './routes/sponsor-integration-readiness.mjs'
 import { createTronMetaRelayerRouter } from './routes/tron-meta-relayer.mjs'
+import { createTronDirectFeePreflightRouter } from './routes/tron-direct-fee-preflight.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
 import { createCorsPolicy } from './cors-policy.mjs'
@@ -148,6 +149,8 @@ app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())
 app.use('/api/tron', createSponsorIntegrationReadinessRouter())
 app.use('/api/trax-relayer', createTronMetaRelayerRouter())
+// Direct owner-paid Mainnet preflight: automatic Energy/Bandwidth estimation and unsigned transaction preparation only.
+app.use('/api/tron', createTronDirectFeePreflightRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
 app.use('/api/treasury/owner', createOwnerTreasuryFundingLedgerRouter())
