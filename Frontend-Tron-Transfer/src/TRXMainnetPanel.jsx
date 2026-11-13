@@ -193,17 +193,17 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     const deployed = []
     if (!verifiedVault) {
       const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
+      verifiedVault = result.address
+      setVaultAddress(verifiedVault); setLastTx(result.txID); deployed.push('reserve vault')
       const checked = await verifyTrxReserveVaultContract(wallet, result.address, expectedOwner)
-      verifiedVault = checked.address
-      setVaultAddress(verifiedVault); setContractVerification(previous=>({...previous,vault:checked}))
-      setLastTx(result.txID); deployed.push('reserve vault')
+      setContractVerification(previous=>({...previous,vault:checked}))
     }
     if (!verifiedToken) {
       const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
+      verifiedToken = result.address
+      setTokenAddress(verifiedToken); setLastTx(result.txID); deployed.push('TRӾ token')
       const checked = await verifyTrxTokenContract(wallet, result.address, expectedOwner)
-      verifiedToken = checked.address
-      setTokenAddress(verifiedToken); setContractVerification(previous=>({...previous,token:checked}))
-      setLastTx(result.txID); deployed.push('TRӾ token')
+      setContractVerification(previous=>({...previous,token:checked}))
     }
     saveContractAddresses({ tokenAddress: verifiedToken, vaultAddress: verifiedVault })
     setNotice(deployed.length
@@ -215,8 +215,8 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
     if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
     const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
-    const verified = await verifyTrxReserveVaultContract(wallet, result.address, expectedOwner)
     setVaultAddress(result.address); setLastTx(result.txID)
+    const verified = await verifyTrxReserveVaultContract(wallet, result.address, expectedOwner)
     setContractVerification(previous=>({...previous,vault:verified}))
     saveContractAddresses({ tokenAddress, vaultAddress: result.address })
     setNotice('Reserve vault deployed, solidified, and independently verified. Continue by deploying the TRӾ token.')
@@ -226,8 +226,8 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
     if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
     const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
-    const verified = await verifyTrxTokenContract(wallet, result.address, expectedOwner)
     setTokenAddress(result.address); setLastTx(result.txID)
+    const verified = await verifyTrxTokenContract(wallet, result.address, expectedOwner)
     setContractVerification(previous=>({...previous,token:verified}))
     saveContractAddresses({ tokenAddress: result.address, vaultAddress })
     setNotice('TRӾ token deployed, solidified, and independently verified. Next authorize the token in the vault.')
