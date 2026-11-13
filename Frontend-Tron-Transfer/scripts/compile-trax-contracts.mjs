@@ -55,23 +55,25 @@ const metaArtifacts = {
 }
 const outputDir = path.join(frontendRoot, 'src', 'generated')
 await fs.mkdir(outputDir, { recursive: true })
-const artifact = {
+
+const legacyArtifacts = {
   compiler: 'TRON solc 0.8.25',
   optimizer: { enabled: true, runs: 200 },
   token,
   vault,
 }
-await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.js'), 'export default ' + JSON.stringify(artifact) + ';\n')
-console.log('TRӾ and native TRX reserve vault compiled with TRON solc 0.8.25.')
-await fs.writeFile(path.join(outputDir, 'tron-sponsored-payout-artifacts.js'), 'export default ' + JSON.stringify({
+await fs.writeFile(
+  path.join(outputDir, 'trax-contract-artifacts.js'),
+  'export default ' + JSON.stringify(legacyArtifacts) + ';\\n',
+)
+
+const sponsoredArtifacts = {
   compiler: 'TRON solc 0.8.25',
   optimizer: { enabled: true, runs: 200 },
   ...metaArtifacts,
-})
-const metaArtifactText = 'export default ' + JSON.stringify({
-  compiler: 'TRON solc 0.8.25',
-  optimizer: { enabled: true, runs: 200 },
-  ...metaArtifacts,
-}) + ';' + String.fromCharCode(10)
-await fs.writeFile(path.join(outputDir, 'tron-sponsored-payout-artifacts.js'), metaArtifactText)
-console.log('TRӾ meta-aware token, trusted forwarder, reserve vault, native treasury, and dual-asset payout router compiled.')
+}
+await fs.writeFile(
+  path.join(outputDir, 'tron-sponsored-payout-artifacts.js'),
+  'export default ' + JSON.stringify(sponsoredArtifacts) + ';\\n',
+)
+console.log('TRӾ legacy and meta-aware token, forwarder, reserve vault, treasury, and atomic dual-asset payout contracts compiled with TRON solc 0.8.25.')
