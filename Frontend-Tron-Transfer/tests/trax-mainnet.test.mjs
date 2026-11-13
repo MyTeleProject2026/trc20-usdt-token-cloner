@@ -219,7 +219,12 @@ test('Mainnet deployment flags are enabled and wallet-approved deployment comple
         assert.equal(tx.raw_data_hex, unsigned.raw_data_hex)
         assert.deepEqual(tx.raw_data, unsigned.raw_data)
         assert.deepEqual(tx.signature, signed.signature)
-        return { result: { code: 'ENOUGH_PERMISSION' } }
+        return {
+          result: { code: 'ENOUGH_PERMISSION' },
+          current_weight: 1,
+          permission: { id: 0, permission_name: 'owner', threshold: 1, keys: [{ address: ownerAddress, weight: 1 }] },
+          approved_list: [ownerAddress],
+        }
       },
       sendRawTransaction: async tx => {
         broadcastCalls++
