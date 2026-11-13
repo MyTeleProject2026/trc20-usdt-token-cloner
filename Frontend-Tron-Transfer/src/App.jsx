@@ -184,7 +184,7 @@ export default function App() {
       {constant:true,inputs:[],name:'authorizedToken',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'},
       {constant:false,inputs:[{name:'recipient',type:'address'},{name:'amount',type:'uint256'}],name:'mint',outputs:[],stateMutability:'nonpayable',type:'function'}
     ]
-    setOneTraxMintBusy(true); setOneTraxMintResult(null); setOneTraxError(''); setOneTraxPrepared(null)
+    setOneTraxMintBusy(true); setOneTraxMintResult(null); setOneTraxError(''); if (!approved) setOneTraxPrepared(null)
     try {
       const token=await tronWeb.contract(abi).at(tokenAddress)
       const [contractOwner,tokenName,tokenSymbol,tokenDecimals,paused,mintingEnabled,linkedVault,supply,vaultToken]=await Promise.all([token.owner().call(),token.name().call(),token.symbol().call(),token.decimals().call(),token.paused().call(),token.mintingEnabled().call(),token.reserveVault().call(),token.totalSupply().call(),(await tronWeb.contract([{constant:true,inputs:[],name:'authorizedToken',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'}]).at(vaultAddress)).authorizedToken().call()])
