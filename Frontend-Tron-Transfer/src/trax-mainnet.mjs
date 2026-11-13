@@ -200,11 +200,24 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     }
     throw new Error(explainTronLinkError(error, 'TronLink signing failed') + ' Payload diagnostics: ' + JSON.stringify(diagnostic))
   }
-  if (!signed || !Array.isArray(signed.signature) || signed.signature.length === 0
+  const signatures = signed?.signature
+  const hasValidSignature = Array.isArray(signatures)
+    && signatures.length > 0
+    && signatures.every(value => typeof value === 'string' && /^[0-9a-f]{130}$/i.test(value))
+  // txID and raw_data_hex are the canonical transaction identity and exact
+  // protobuf bytes. Do not compare JSON.stringify(raw_data): harmless object
+  // key ordering/normalization by wallet providers can differ without changing
+  // the signed transaction bytes.
+  if (!signed || !hasValidSignature
     || signed.txID !== walletTransaction.txID
     || signed.raw_data_hex !== walletTransaction.raw_data_hex
-    || JSON.stringify(signed.raw_data) !== JSON.stringify(walletTransaction.raw_data)) {
-    throw new Error('TronLink did not return a valid signature for the exact deployment transaction. Nothing was broadcast.')
+    || !signed.raw_data || !Array.isArray(signed.raw_data.contract)) {
+    const reason = !signed ? 'missing signed transaction'
+      : !hasValidSignature ? 'missing or malformed 65-byte signature'
+      : signed.txID !== walletTransaction.txID ? 'transaction ID changed'
+      : signed.raw_data_hex !== walletTransaction.raw_data_hex ? 'serialized transaction bytes changed'
+      : 'signed transaction body missing'
+    throw new Error('TronLink signing result failed validation (' + reason + '). Nothing was broadcast.')
   }
   let broadcast
   try {
