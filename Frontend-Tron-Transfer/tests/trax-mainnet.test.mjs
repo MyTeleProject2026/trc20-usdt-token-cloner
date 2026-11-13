@@ -188,7 +188,7 @@ test('any valid TronLink Mainnet wallet broadcasts the exact signed object retur
     address: { fromHex: () => 'T' + '1'.repeat(33), toHex: (value) => String(value).toLowerCase() },
     utils: { crypto: { ecRecover: () => '41' + '1'.repeat(40) }, transaction: { txCheck: () => true } },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.equal(payload, signed); assert.deepEqual(payload, signed); return { result: true } } },
+    trx: { getSignWeight: async (payload) => { assert.equal(payload, signed); return { result: { code: 'ENOUGH_PERMISSION' } } }, sendRawTransaction: async (payload) => { broadcastCalls++; assert.equal(payload, signed); assert.deepEqual(payload, signed); return { result: true } } },
   }
   const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
   const result = await deployContractFromTronLink(
