@@ -256,8 +256,8 @@ test('TRON deployment never broadcasts if signer recovery rejects the connected 
   const walletTronWeb = { trx: { sign: async () => signed }, isAddress: value => value.startsWith('T'), fullNode: { host: 'https://api.trongrid.io' } }
   const tronWeb = {
     transactionBuilder: { createSmartContract: async () => unsigned },
-    address: { fromHex: () => ownerAddress, toHex: value => String(value).toLowerCase() },
-    isAddress: value => value.startsWith('T'),
+    address: { fromHex: value => String(value).toLowerCase() === ownerHex ? ownerAddress : 'T' + '2'.repeat(33), toHex: value => String(value).toLowerCase() },
+    isAddress: value => typeof value === 'string' && value.startsWith('T'),
     utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => '41' + '2'.repeat(40) } },
     trx: { getSignWeight: async () => ({ result: { code: 'ENOUGH_PERMISSION' } }), sendRawTransaction: async () => { broadcasts++; return { result: true } } },
   }
