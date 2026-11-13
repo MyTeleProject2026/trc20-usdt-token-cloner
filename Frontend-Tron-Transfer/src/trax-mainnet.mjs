@@ -128,12 +128,20 @@ export function toWalletSignableTransaction(transaction) {
   if (!/^[0-9a-f]{64}$/i.test(txID) || !/^[0-9a-f]+$/i.test(rawDataHex)) {
     throw new Error('TRON node returned incomplete transaction signing fields.')
   }
-  // Keep the exact object returned by createSmartContract intact. TronLink
-  // validates CreateSmartContract transactions and may require the predicted
-  // contract_address field in addition to the protobuf transaction fields.
-  // Rebuilding a reduced object here can make an otherwise valid deployment
-  // fail in the wallet with "Invalid transaction provided".
-  return transaction
+  // Normalize the injected-provider result into plain JSON data before
+  // crossing the TronLink signing boundary. Some wallet builds attach
+  // non-plain/proxy metadata to builder results; trx.sign validates plain
+  // transaction data. JSON cloning preserves the protocol fields and the
+  // predicted contract_address while dropping non-serializable decorations.
+  let signable
+  try { signable = JSON.parse(JSON.stringify(transaction)) }
+  catch { throw new Error('TRON deployment transaction contains non-serializable data.') }
+  if (!signable || signable.txID !== txID || signable.raw_data_hex !== rawDataHex
+    || JSON.stringify(signable.raw_data) !== JSON.stringify(rawData)
+    || signable.contract_address !== transaction.contract_address) {
+    throw new Error('TRON deployment transaction changed during plain-data normalization.')
+  }
+  return signable
 }
 
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun) {
@@ -164,7 +172,22 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   try {
     signed = await tronWeb.trx.sign(walletTransaction)
   } catch (error) {
-    throw new Error(explainTronLinkError(error, 'TronLink signing failed'))
+    const contract = walletTransaction.raw_data.contract[0]
+    const value = contract?.parameter?.value || {}
+    const newContract = value.new_contract || {}
+    const diagnostic = {
+      walletTronWebVersion: String(tronWeb.version || 'unknown'),
+      transactionType: contract?.type || 'unknown',
+      parameterTypeUrl: contract?.parameter?.type_url || 'missing',
+      hasContractAddress: Boolean(walletTransaction.contract_address),
+      hasOwnerAddress: Boolean(value.owner_address),
+      hasNewContract: Boolean(value.new_contract),
+      bytecodeLength: String(newContract.bytecode || '').length,
+      abiEntries: Array.isArray(newContract.abi) ? newContract.abi.length : null,
+      feeLimitSun: walletTransaction.raw_data.fee_limit ?? null,
+      rawDataHexLength: walletTransaction.raw_data_hex.length,
+    }
+    throw new Error(explainTronLinkError(error, 'TronLink signing failed') + ' Payload diagnostics: ' + JSON.stringify(diagnostic))
   }
   if (!signed || !Array.isArray(signed.signature) || signed.signature.length === 0
     || signed.txID !== walletTransaction.txID
