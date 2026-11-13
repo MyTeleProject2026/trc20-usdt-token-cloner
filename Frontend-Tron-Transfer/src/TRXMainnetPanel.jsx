@@ -163,7 +163,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   })
 
   const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
-    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet.')
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
     setVaultAddress(result.address); setLastTx(result.txID)
