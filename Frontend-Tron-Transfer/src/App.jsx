@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import SponsorDirectPayouts from './SponsorDirectPayouts.jsx'
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import { TronWeb } from 'tronweb'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
@@ -37,7 +36,6 @@ async function api(path, options = {}) {
 
 export default function App() {
   const [tab,setTab]=useState('overview')
-  const [isSponsorPortal,setIsSponsorPortal]=useState(() => window.location.hash === '#/sponsor')
   const [moreOpen,setMoreOpen]=useState(false)
   const moreTriggerRef=useRef(null)
   const moreMenuRef=useRef(null)
@@ -57,12 +55,6 @@ export default function App() {
   const [managedTreasuryReadiness,setManagedTreasuryReadiness]=useState(null)
   const [managedTreasuryReadinessError,setManagedTreasuryReadinessError]=useState('')
   const [managedTreasuryReadinessBusy,setManagedTreasuryReadinessBusy]=useState(false)
-
-  useEffect(() => {
-    const syncPortalRoute = () => setIsSponsorPortal(window.location.hash === '#/sponsor')
-    window.addEventListener('hashchange', syncPortalRoute)
-    return () => window.removeEventListener('hashchange', syncPortalRoute)
-  }, [])
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -252,23 +244,6 @@ export default function App() {
     <div className="app-shell auth-shell">
       <main className="main-content">
         <div className="content"><section className="panel"><div className="section-heading"><div><span className="eyebrow">PRIVATE OWNER WORKSPACE</span><h2>Checking owner session</h2><p>Verifying the configured platform-owner session before opening Tron Transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div></section></div>
-      </main>
-    </div>
-  )
-
-  if (isSponsorPortal) return (
-    <div className="app-shell auth-shell sponsor-portal-shell">
-      <main className="main-content">
-        <div className="content">
-          <section className="panel provider-panel">
-            <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · INDEPENDENT SPONSOR PORTAL</span><h2>Voluntary sponsor participation</h2><p>This separate portal is for wallet owners who choose to apply. It does not grant access to the private owner console or guarantee approval, funding, or payout requests.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
-            {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span></div>}
-            {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span></div>}
-            <div className="button-row"><button type="button" className="primary-button" disabled={busy||Boolean(unlocked)} onClick={()=>perform(connectTronLink)}><Wallet size={16}/>{unlocked?'TronLink connected':'Connect sponsor TronLink wallet'}</button><a className="outline-button" href="#/">Return to owner sign-in</a></div>
-            <p className="fine-print">Use only your own self-custody wallet. Never provide a private key or recovery phrase. You decide whether to apply and whether to sign each exact payout.</p>
-          </section>
-          <SponsorDirectPayouts wallet={unlocked} ownerSession={null} mode="sponsor" />
-        </div>
       </main>
     </div>
   )
