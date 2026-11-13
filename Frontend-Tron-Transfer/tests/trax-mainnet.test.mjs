@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
 
 
 test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
@@ -31,6 +31,18 @@ test('TRӾ address comparison normalizes TRON address forms', () => {
     addressesEqual(tronWeb, 'TABC', 'tabc'),
     true,
   )
+})
+
+
+test('TRӾ wallet validation accepts a non-configured valid Mainnet wallet', () => {
+  const wallet = {
+    address: 'T' + '2'.repeat(33),
+    tronWeb: {
+      fullNode: { host: 'https://api.trongrid.io' },
+      isAddress: (value) => typeof value === 'string' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value),
+    },
+  }
+  assert.equal(assertMainnetWallet(wallet), wallet.tronWeb)
 })
 
 test('TRӾ deployment options pass ABI as structured array, not JSON text', () => {
@@ -65,7 +77,7 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
-test('TRӾ deployment safety hold validates payload but never signs or broadcasts', async () => {
+test('any valid TronLink Mainnet wallet can prepare deployment while safety hold prevents signing and broadcast', async () => {
   const unsigned = {
     visible: false,
     txID: 'b'.repeat(64),
