@@ -159,6 +159,19 @@ export function toWalletSignableTransaction(transaction) {
   return signable
 }
 
+export function assertTransactionIntegrity(tronWeb, transaction, stage = 'TRON transaction') {
+  const check = tronWeb?.utils?.transaction?.txCheck
+  if (typeof check !== 'function') {
+    throw new Error('TronWeb transaction integrity checker is unavailable; refusing to sign or broadcast.')
+  }
+  let valid = false
+  try { valid = check(transaction) === true } catch {}
+  if (!valid) {
+    throw new Error(stage + ' failed TronWeb protobuf integrity validation: raw_data, raw_data_hex and txID do not describe the same transaction. Nothing was signed or broadcast.')
+  }
+  return true
+}
+
 export function verifyTransactionSigner(tronWeb, transaction, expectedAddress) {
   const contract = transaction?.raw_data?.contract?.[0]
   const ownerHex = contract?.parameter?.value?.owner_address
@@ -219,7 +232,10 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
   if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
-  // TRON txID is SHA-256(raw_data bytes). Check the node payload before exposing it
+  // Verify the structured transaction object serializes to the exact protobuf bytes
+  // and txID. Matching raw_data_hex to txID alone does not prove raw_data matches.
+  assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned deployment transaction')
+    // TRON txID is SHA-256(raw_data bytes). Check the node payload before exposing it
   // to a wallet signer; this catches malformed or mismatched node responses locally.
   const computedUnsignedTxID = await sha256HexFromBytes(unsigned.raw_data_hex)
   if (computedUnsignedTxID.toLowerCase() !== String(unsigned.txID).toLowerCase()) {
@@ -283,6 +299,8 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       : 'signed txID does not match SHA-256(raw_data_hex)'
     throw new Error('TronLink signing result failed cryptographic payload consistency validation (' + reason + '). Nothing was broadcast.')
   }
+  // Verify the signed object still serializes to the same protobuf bytes and txID.
+  assertTransactionIntegrity(tronWeb, signed, 'Signed deployment transaction')
   // Independently recover the signer from txID + 65-byte signature. A well-formed
   // signature is not proof that the connected wallet signed this transaction.
   verifyTransactionSigner(tronWeb, signed, wallet.address)
