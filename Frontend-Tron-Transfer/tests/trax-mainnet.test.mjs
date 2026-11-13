@@ -30,6 +30,8 @@ test('public TRӾ workspace bypasses private platform login but keeps on-chain o
   assert.ok(panel.includes('vault.owner().call()'))
   assert.ok(panel.includes('addressesEqual(tronWeb, owner, connectedAddress)'))
   assert.ok(panel.includes('addressesEqual(tronWeb, vaultOwner, connectedAddress)'))
+  assert.ok(panel.includes('existingToken.owner().call()'))
+  assert.ok(panel.includes('existingVault.owner().call()'))
   assert.ok(token.includes('constructor() {\n        owner = msg.sender;'))
   assert.ok(vault.includes('constructor() { owner = msg.sender; }'))
   assert.ok(token.includes('modifier onlyOwner() { require(msg.sender == owner, "owner-only"); _; }'))
