@@ -7,7 +7,7 @@ interface IRestrictedTraxPayout {
     function mintForPayout(address recipient, uint256 amount, bytes32 payoutReference) external;
 }
 interface INativeTrxPayoutTreasury {
-    function pay(address payable recipient, uint256 amount, bytes32 reference) external;
+    function pay(address payable recipient, uint256 amount, bytes32 payoutReference) external;
 }
 
 /// @notice Performs native TRX payout and TRӾ issuance atomically.
@@ -20,7 +20,7 @@ contract TronTransferPayoutRouter is MetaTxContext {
     mapping(bytes32 => bool) public processedReferences;
     bool private _entered;
 
-    event CombinedPayout(address indexed recipient, uint256 nativeTrxAmount, uint256 traxAmount, bytes32 indexed reference);
+    event CombinedPayout(address indexed recipient, uint256 nativeTrxAmount, uint256 traxAmount, bytes32 indexed payoutReference);
 
     modifier onlyOwner() { require(_msgSender() == owner, "owner-only"); _; }
     modifier nonReentrant() { require(!_entered, "reentrant"); _entered = true; _; _entered = false; }
@@ -37,17 +37,17 @@ contract TronTransferPayoutRouter is MetaTxContext {
 
     function isTrustedForwarder(address forwarder) external view returns (bool) { return forwarder == trustedForwarder; }
 
-    function payoutBoth(address recipient, uint256 nativeTrxAmount, uint256 traxAmount, bytes32 reference)
+    function payoutBoth(address recipient, uint256 nativeTrxAmount, uint256 traxAmount, bytes32 payoutReference)
         external onlyOwner nonReentrant
     {
         require(recipient != address(0), "zero-recipient");
         require(nativeTrxAmount > 0 && traxAmount > 0, "zero-amount");
-        require(reference != bytes32(0) && !processedReferences[reference], "invalid-or-duplicate-reference");
-        processedReferences[reference] = true;
+        require(payoutReference != bytes32(0) && !processedReferences[payoutReference], "invalid-or-duplicate-payoutReference");
+        processedReferences[payoutReference] = true;
 
         // If either external call reverts, all state and native-TRX movement reverts.
-        INativeTrxPayoutTreasury(nativeTreasury).pay(payable(recipient), nativeTrxAmount, reference);
-        IRestrictedTraxPayout(traxToken).mintForPayout(recipient, traxAmount, reference);
-        emit CombinedPayout(recipient, nativeTrxAmount, traxAmount, reference);
+        INativeTrxPayoutTreasury(nativeTreasury).pay(payable(recipient), nativeTrxAmount, payoutReference);
+        IRestrictedTraxPayout(traxToken).mintForPayout(recipient, traxAmount, payoutReference);
+        emit CombinedPayout(recipient, nativeTrxAmount, traxAmount, payoutReference);
     }
 }
