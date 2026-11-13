@@ -218,11 +218,24 @@ export async function assertTransactionPermission(tronWeb, signedTransaction) {
   } catch (error) {
     throw new Error('TRON permission preflight failed; refusing to broadcast. ' + (error?.message || String(error)))
   }
-  const code = result?.result?.code
-  if (code !== 'ENOUGH_PERMISSION') {
-    let message = result?.result?.message || code || 'missing permission result'
+  const weight = result?.current_weight
+  const permission = result?.permission
+  const threshold = permission?.threshold
+  const permissionId = permission?.id
+  const approved = Array.isArray(result?.approved_list) ? result.approved_list : []
+  if (result?.result?.code !== 'ENOUGH_PERMISSION') {
+    let message = result?.result?.message || result?.result?.code || 'missing permission result'
     try { if (typeof message === 'string' && /^(?:[0-9a-f]{2})+$/i.test(message)) message = tronWeb.toUtf8(message) } catch {}
-    throw new Error('TRON signer does not satisfy the account permission threshold (' + code + '). Nothing was broadcast. ' + message)
+    const details = [
+      Number.isFinite(Number(weight)) ? 'collected weight ' + weight : '',
+      Number.isFinite(Number(threshold)) ? 'required threshold ' + threshold : '',
+      permissionId !== undefined ? 'permission ID ' + permissionId : '',
+      approved.length ? 'approved signers ' + approved.join(', ') : '',
+    ].filter(Boolean).join('; ')
+    const nextStep = /NOT_ENOUGH_PERMISSION/.test(String(result?.result?.code || ''))
+      ? ' The connected wallet signature alone is insufficient for this account permission. Check the active permission threshold and authorized key weights; any additional required key must separately approve the same transaction through the wallet’s supported multisignature flow.'
+      : ''
+    throw new Error('TRON signer does not satisfy the account permission threshold (' + (result?.result?.code || 'unknown') + '). Nothing was broadcast. ' + message + (details ? ' Permission diagnostics: ' + details + '.' : '') + nextStep)
   }
   return result
 }
