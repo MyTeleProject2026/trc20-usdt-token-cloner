@@ -310,20 +310,22 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // so safely restore omitted raw_data/raw_data_hex from our already-validated
   // node payload. If the provider supplies either field, it must match exactly.
   const returnedRawDataHex = signed?.raw_data_hex
-  const returnedRawData = signed?.raw_data
   const rawDataHexMatches = returnedRawDataHex == null
     || (typeof returnedRawDataHex === 'string'
       && returnedRawDataHex.toLowerCase() === walletTransaction.raw_data_hex.toLowerCase())
-  const rawDataMatches = returnedRawData == null
-    || canonicalJson(returnedRawData) === canonicalJson(walletTransaction.raw_data)
+  // Do not compare the provider's raw_data JavaScript object byte-for-byte.
+  // Wallet SDKs may normalize protobuf-derived JSON (for example, numeric/hex
+  // fields or omitted defaults) without changing the signed transaction ID.
+  // The signature authorizes txID, and txID was independently checked against
+  // the original node-provided raw_data_hex above. We broadcast only that
+  // immutable original payload, never the provider's returned raw_data object.
   if (!signed || !hasValidSignature
     || String(signed.txID || '').toLowerCase() !== walletTransaction.txID.toLowerCase()
-    || !rawDataHexMatches || !rawDataMatches) {
+    || !rawDataHexMatches) {
     const reason = !signed ? 'missing signed transaction'
       : !hasValidSignature ? 'missing or malformed 65-byte signature'
       : String(signed.txID || '').toLowerCase() !== walletTransaction.txID.toLowerCase() ? 'transaction ID changed'
-      : !rawDataHexMatches ? 'wallet changed raw_data_hex'
-      : 'wallet changed raw_data fields after signing'
+      : 'wallet changed raw_data_hex'
     throw new Error('TronLink signing result failed cryptographic payload consistency validation (' + reason + '). Nothing was broadcast.')
   }
   // Reconstitute the exact original transaction bytes with only the wallet's
