@@ -1,5 +1,5 @@
 import artifacts from './generated/trax-contract-artifacts.js'
-import TronWeb from 'tronweb'
+import { TronWeb } from 'tronweb'
 
 export const TRON_MAINNET_HOST = 'https://api.trongrid.io'
 export const TRAX_STORAGE_KEY = 'tron-transfer:trax-mainnet-contracts:v1'
