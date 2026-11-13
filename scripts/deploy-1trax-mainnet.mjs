@@ -82,19 +82,26 @@ const vault = await tronWeb.contract(vaultArtifact.abi, vaultDeployment.address)
 const token = await tronWeb.contract(tokenArtifact.abi, tokenDeployment.address)
 const authorizeTx = await sendAndConfirm(vault.setAuthorizedToken(tokenDeployment.address), 'Authorize 1TRAX token in reserve vault')
 const linkVaultTx = await sendAndConfirm(token.setReserveVault(vaultDeployment.address), 'Link reserve vault in 1TRAX token')
-const [authorizedToken, linkedVault, paused, mintingEnabled] = await Promise.all([
+const [authorizedToken, linkedVault, paused, mintingEnabled, tokenOwner, tokenName, tokenSymbol, tokenDecimals] = await Promise.all([
   vault.authorizedToken().call(),
   token.reserveVault().call(),
   token.paused().call(),
   token.mintingEnabled().call(),
+  token.owner().call(),
+  token.name().call(),
+  token.symbol().call(),
+  token.decimals().call(),
 ])
 if (tronWeb.address.toHex(authorizedToken) !== tronWeb.address.toHex(tokenDeployment.address)) throw new Error('Reserve vault authorization did not verify.')
 if (tronWeb.address.toHex(linkedVault) !== tronWeb.address.toHex(vaultDeployment.address)) throw new Error('1TRAX reserve-vault link did not verify.')
+if (tronWeb.address.toHex(tokenOwner) !== tronWeb.address.toHex(deployer)) throw new Error('TRӾ owner does not match the dedicated deployment wallet.')
+if (tokenName !== 'TRӾ' || tokenSymbol !== 'TRX' || Number(tokenDecimals) !== 6) throw new Error('Deployed token metadata does not match TRӾ / TRX / 6 decimals.')
 if (paused !== true || mintingEnabled !== false) throw new Error('1TRAX did not remain paused with minting disabled.')
 console.log(JSON.stringify({
   network, deployer,
   reserveVault: { address: vaultDeployment.address, deploymentTx: vaultDeployment.txID, authorizationTx: authorizeTx },
   token: { address: tokenDeployment.address, deploymentTx: tokenDeployment.txID, vaultLinkTx: linkVaultTx },
+  owner: tokenOwner, metadata: { name: tokenName, symbol: tokenSymbol, decimals: Number(tokenDecimals) },
   initialTotalSupply: '0', mintingEnabled: false, paused: true,
   warning: 'This deploys irreversible Mainnet contracts. No reserve TRX was transferred. Minting remains disabled. Independent audit, owner approval, and reserve funding are required before enabling issuance.',
 }, null, 2))
