@@ -179,20 +179,13 @@ test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow a
   assert.ok(sponsorFrontend.includes('/broadcast'))
 })
 
-test('private owner console exposes sponsor withdrawals and keeps provider readiness separate', async () => {
+test('private owner console is scoped to TRӾ smart-contract deployment and administration only', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
-  const portal = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorPortal.jsx', import.meta.url), 'utf8')
-  const providerPage = await readFile(new URL('../Frontend-Tron-Transfer/src/ProviderPayoutReadiness.jsx', import.meta.url), 'utf8')
-  assert.match(app, /SponsorDirectPayouts/)
-  assert.match(app, /id:'sponsors',label:'Sponsor approvals'/)
-  assert.match(app, /mode="withdraw"/)
-  assert.match(app, /mode="history"/)
-  assert.match(app, /mode="sponsor"/)
-  assert.doesNotMatch(app, /FincraWithdrawals|SponsorOrganizationOnboarding/)
-  assert.ok(portal.includes('ownerSession={null}'))
-  assert.match(providerPage, /provider-readiness/)
-  assert.match(providerPage, /No approved payout funding source/)
-  assert.match(providerPage, /provider-owned USDT liquidity/)
+  assert.match(app, /import TRXMainnetPanel from '\.\/TRXMainnetPanel\.jsx'/)
+  assert.match(app, /<TRXMainnetPanel wallet=\{unlocked\} expectedOwner=\{ownerSession\.address\}/)
+  assert.match(app, /trax-only-shell/)
+  assert.doesNotMatch(app, /SponsorDirectPayouts|SponsorPortal|OwnerWithdrawals|FincraWithdrawals|ProviderPayoutReadiness|SponsorOrganizationOnboarding/)
+  assert.match(app, /TRӾ smart-contract manager/)
 })
 
 test('Fincra payout statuses remain conservative for historical reconciliation', () => {
