@@ -32,8 +32,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: Frontend-Tron-Transfer/package-lock.json
-      - run: npm ci --prefix Frontend-Tron-Transfer --no-audit --no-fund
+      - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
       - run: npm run test --prefix Frontend-Tron-Transfer
       - run: npm run build --prefix Frontend-Tron-Transfer
