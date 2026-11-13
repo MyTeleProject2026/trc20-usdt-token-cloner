@@ -383,9 +383,9 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
     {step&&<div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
     <div className="trax-addresses">
-      <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
-      <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Automatically filled after vault deployment"/></label>
-      <div className="button-row"><button type="button" className="outline-button" disabled={busy||(!tokenAddress&&!vaultAddress)} onClick={()=>{setTokenAddress('');setVaultAddress('');setSnapshot(null);setLastTx('');setError('');setNotice('Contract address fields cleared. Deploy or enter verified Mainnet contract addresses.') ;try{saveContractAddresses({tokenAddress:'',vaultAddress:''})}catch{}}}>Clear contract addresses</button></div>
+      <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>{setTokenAddress(e.target.value.trim());setSnapshot(null);setContractVerification(previous=>({...previous,token:null,reciprocalLinksValid:null}))}} placeholder="Deploy token or paste verified Mainnet contract"/></label>
+      <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>{setVaultAddress(e.target.value.trim());setSnapshot(null);setContractVerification(previous=>({...previous,vault:null,reciprocalLinksValid:null}))}} placeholder="Automatically filled after vault deployment"/></label>
+      <div className="button-row"><button type="button" className="outline-button" disabled={busy||(!tokenAddress&&!vaultAddress)} onClick={()=>{setTokenAddress('');setVaultAddress('');setSnapshot(null);setContractVerification({token:null,vault:null,reciprocalLinksValid:null});setLastTx('');setError('');setNotice('Contract address fields cleared. Deploy or enter verified Mainnet contract addresses.') ;try{saveContractAddresses({tokenAddress:'',vaultAddress:''})}catch{}}}>Clear contract addresses</button></div>
       <div className="button-row">
         <button type="button" className="secondary-button" disabled={!configuredOwnerMatches||busy||(!tokenAddress&&!vaultAddress)} onClick={verifyEnteredContracts}><ShieldCheck size={15}/> Verify entered contracts</button>
       </div>
