@@ -1,4 +1,5 @@
 import artifacts from './generated/trax-contract-artifacts.js'
+import TronWeb from 'tronweb'
 
 export const TRON_MAINNET_HOST = 'https://api.trongrid.io'
 export const TRAX_STORAGE_KEY = 'tron-transfer:trax-mainnet-contracts:v1'
@@ -141,8 +142,14 @@ export function toWalletSignableTransaction(transaction) {
   return signable
 }
 
-export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun) {
-  const tronWeb = assertMainnetWallet(wallet)
+export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, { createClient = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }) } = {}) {
+  // Use the app-pinned TronWeb 6.5.1 instance to build and broadcast. TronLink's
+  // injected TronWeb is only the wallet signer: its bundled version can differ.
+  const walletTronWeb = assertMainnetWallet(wallet)
+  const tronWeb = createClient()
+  if (!tronWeb?.transactionBuilder?.createSmartContract || !tronWeb?.trx?.sendRawTransaction) {
+    throw new Error('The pinned TRON Mainnet transaction client could not be initialized.')
+  }
   const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
   let unsigned
   try {
@@ -155,9 +162,8 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
   if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
-  // Validate, then pass the original builder result unchanged to TronLink.
-  // TronWeb 6.5.1 returns the signed transaction as a new object; always use
-  // that returned object for broadcast (never assume sign() mutates unsigned).
+  // Validate the plain protocol transaction, then ask the injected wallet signer.
+  // TronWeb 6.5.1 returns a new signed object; broadcast that exact return value.
   const walletTransaction = toWalletSignableTransaction(unsigned)
   if (!walletTransaction.raw_data_hex || !walletTransaction.raw_data
     || !Array.isArray(walletTransaction.raw_data.contract)
@@ -167,13 +173,14 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   let signed
   try {
-    signed = await tronWeb.trx.sign(walletTransaction)
+    signed = await walletTronWeb.trx.sign(walletTransaction)
   } catch (error) {
     const contract = walletTransaction.raw_data.contract[0]
     const value = contract?.parameter?.value || {}
     const newContract = value.new_contract || {}
     const diagnostic = {
-      walletTronWebVersion: String(tronWeb.version || 'unknown'),
+      walletTronWebVersion: String(walletTronWeb.version || 'unknown'),
+      builderTronWebVersion: String(tronWeb.version || 'unknown'),
       transactionType: contract?.type || 'unknown',
       parameterTypeUrl: contract?.parameter?.type_url || 'missing',
       hasContractAddress: Boolean(walletTransaction.contract_address),
