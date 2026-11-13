@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.25;
+pragma solidity ^0.8.25;
 
 /// @notice EIP-712 forwarder for explicit owner-authorized TRON transactions.
 /// @dev Relayers pay network fees. This contract never holds the owner's key.
