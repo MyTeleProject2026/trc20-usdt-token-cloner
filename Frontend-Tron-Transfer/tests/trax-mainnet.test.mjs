@@ -141,7 +141,11 @@ test('TRON signer recovery verifies a real locally generated secp256k1 transacti
     raw_data_hex: '0a01',
     raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: { owner_address: ownerHex } } }] },
   }
-  const signed = await signerClient.trx.sign(unsigned)
+  const signature = signerClient.utils.crypto.ECKeySign(
+    Buffer.from(txID, 'hex'),
+    Buffer.from(privateKey, 'hex'),
+  )
+  const signed = { ...unsigned, signature: [signature] }
   assert.equal(verifyTransactionSigner(signerClient, signed, signerAddress).recoveredAddress, signerAddress)
   assert.throws(() => verifyTransactionSigner(signerClient, signed, 'T' + '1'.repeat(33)), /does not match/)
 })
