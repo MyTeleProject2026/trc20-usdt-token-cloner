@@ -67,5 +67,11 @@ await fs.writeFile(path.join(outputDir, 'tron-sponsored-payout-artifacts.js'), '
   compiler: 'TRON solc 0.8.25',
   optimizer: { enabled: true, runs: 200 },
   ...metaArtifacts,
-}) + ';\\n')
+})
+const metaArtifactText = 'export default ' + JSON.stringify({
+  compiler: 'TRON solc 0.8.25',
+  optimizer: { enabled: true, runs: 200 },
+  ...metaArtifacts,
+}) + ';' + String.fromCharCode(10)
+await fs.writeFile(path.join(outputDir, 'tron-sponsored-payout-artifacts.js'), metaArtifactText)
 console.log('TRӾ meta-aware token, trusted forwarder, reserve vault, native treasury, and dual-asset payout router compiled.')
