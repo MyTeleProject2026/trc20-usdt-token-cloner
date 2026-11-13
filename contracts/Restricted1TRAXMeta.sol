@@ -54,6 +54,7 @@ contract Restricted1TRAXMeta is MetaTxContext {
         emit MintingStatusChanged(false);
     }
 
+    function isTrustedForwarder(address forwarder) external view returns (bool) { return forwarder == trustedForwarder; }
     function totalSupply() external view returns (uint256) { return _totalSupply; }
     function balanceOf(address account) external view returns (uint256) { return _balances[account]; }
     function isLocked(address account) public view returns (bool) { return !_unlocked[account]; }
