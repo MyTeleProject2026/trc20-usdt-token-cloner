@@ -173,19 +173,24 @@ export default function App() {
     if (walletNodeHost!=='api.trongrid.io') throw new Error('Wallet network is not confirmed as TRON Mainnet.')
     const abi=[
       {constant:true,inputs:[],name:'owner',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'name',outputs:[{name:'',type:'string'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'symbol',outputs:[{name:'',type:'string'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'decimals',outputs:[{name:'',type:'uint8'}],stateMutability:'view',type:'function'},
       {constant:true,inputs:[],name:'paused',outputs:[{name:'',type:'bool'}],stateMutability:'view',type:'function'},
       {constant:true,inputs:[],name:'mintingEnabled',outputs:[{name:'',type:'bool'}],stateMutability:'view',type:'function'},
       {constant:true,inputs:[],name:'reserveVault',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'},
       {constant:true,inputs:[],name:'totalSupply',outputs:[{name:'',type:'uint256'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'authorizedToken',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'},
       {constant:false,inputs:[{name:'recipient',type:'address'},{name:'amount',type:'uint256'}],name:'mint',outputs:[],stateMutability:'nonpayable',type:'function'}
     ]
     setOneTraxMintBusy(true); setOneTraxMintResult(null); setOneTraxError('')
     try {
       const token=await tronWeb.contract(abi).at(tokenAddress)
-      const [contractOwner,paused,mintingEnabled,linkedVault,supply]=await Promise.all([token.owner().call(),token.paused().call(),token.mintingEnabled().call(),token.reserveVault().call(),token.totalSupply().call()])
+      const [contractOwner,tokenName,tokenSymbol,tokenDecimals,paused,mintingEnabled,linkedVault,supply,vaultToken]=await Promise.all([token.owner().call(),token.name().call(),token.symbol().call(),token.decimals().call(),token.paused().call(),token.mintingEnabled().call(),token.reserveVault().call(),token.totalSupply().call(),(await tronWeb.contract([{constant:true,inputs:[],name:'authorizedToken',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'}]).at(vaultAddress)).authorizedToken().call()])
+      if (tokenName!=='TRӾ' || tokenSymbol!=='TRX' || Number(tokenDecimals)!==6) throw new Error('Deployed contract metadata does not match the approved TRӾ / TRX six-decimal specification.')
       if (tronWeb.address.toHex(contractOwner)!==tronWeb.address.toHex(unlocked.address)) throw new Error('Connected TronLink account is not the token contract owner.')
       if (paused!==false || mintingEnabled!==true) throw new Error('Minting is not enabled and unpaused on-chain. Do not bypass this safety lock.')
-      if (tronWeb.address.toHex(linkedVault)!==tronWeb.address.toHex(vaultAddress)) throw new Error('Token contract vault does not match the configured reserve vault.')
+      if (tronWeb.address.toHex(linkedVault)!==tronWeb.address.toHex(vaultAddress) || tronWeb.address.toHex(vaultToken)!==tronWeb.address.toHex(tokenAddress)) throw new Error('Token and reserve-vault authorization links do not match the configured Mainnet contracts.')
       const reserveSun=BigInt(String(await tronWeb.trx.getBalance(vaultAddress))), outstanding=BigInt(String(supply))
       if (reserveSun < outstanding+BigInt(amountUnits)) throw new Error('Insufficient native TRX reserve for this issuance.')
       const txid=await token.mint(oneTraxRecipient.trim(),amountUnits).send({feeLimit:100000000,callValue:0,shouldPollResponse:true,keepTxID:true})
