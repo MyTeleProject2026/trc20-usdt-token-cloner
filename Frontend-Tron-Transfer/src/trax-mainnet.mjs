@@ -11,6 +11,13 @@ export function assertMainnetWallet(wallet) {
   try { host = new URL(String(wallet.tronWeb.fullNode?.host || '')).hostname.toLowerCase() } catch {}
   if (host !== 'api.trongrid.io') throw new Error('Wrong network. Switch TronLink to TRON Mainnet and reconnect.')
   if (!wallet.tronWeb.isAddress(wallet.address)) throw new Error('TronLink returned an invalid TRON address.')
+  const activeAddress = wallet.tronWeb.defaultAddress?.base58
+    || (wallet.tronWeb.defaultAddress?.hex && wallet.tronWeb.address?.fromHex
+      ? wallet.tronWeb.address.fromHex(wallet.tronWeb.defaultAddress.hex)
+      : '')
+  if (activeAddress && !addressesEqual(wallet.tronWeb, activeAddress, wallet.address)) {
+    throw new Error('The active TronLink account changed. Reconnect the intended owner wallet before continuing.')
+  }
   return wallet.tronWeb
 }
 
@@ -87,6 +94,75 @@ export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 1800
     await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
   }
   throw new Error('Transaction has not been verified in the solidified Mainnet chain. Keep its ID and check again: ' + txID + (lastError ? ' (' + lastError.message + ')' : ''))
+}
+
+async function getDeployedBytecode(tronWeb, address, label) {
+  if (!tronWeb.isAddress(address)) throw new Error('Invalid ' + label + ' TRON Mainnet address.')
+  const contract = await tronWeb.trx.getContract(address)
+  const bytecode = String(contract?.bytecode || '').replace(/^0x/, '')
+  if (!/^[0-9a-f]+$/i.test(bytecode) || bytecode.length < 2) {
+    throw new Error(label + ' address has no deployed contract bytecode on TRON Mainnet.')
+  }
+  return bytecode
+}
+
+export async function verifyTrxTokenContract(wallet, address, expectedOwner) {
+  const tronWeb = assertMainnetWallet(wallet)
+  if (addressesEqual(tronWeb, address, wallet.address)) throw new Error('The token address is your wallet, not a smart contract.')
+  await getDeployedBytecode(tronWeb, address, 'TRӾ token')
+  const token = await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(address)
+  const [owner, name, symbol, decimals, totalSupply, reserveVault, paused, mintingEnabled] = await Promise.all([
+    token.owner().call(), token.name().call(), token.symbol().call(), token.decimals().call(),
+    token.totalSupply().call(), token.reserveVault().call(), token.paused().call(), token.mintingEnabled().call(),
+  ])
+  if (expectedOwner && !addressesEqual(tronWeb, owner, expectedOwner)) {
+    throw new Error('TRӾ token owner does not match the configured platform owner.')
+  }
+  if (name !== 'TRӾ' || symbol !== 'TRX' || Number(decimals) !== 6) {
+    throw new Error('Contract bytecode exists, but its metadata is not the expected TRӾ / TRX / 6 decimals.')
+  }
+  return {
+    address,
+    owner: String(owner),
+    name,
+    symbol,
+    decimals: Number(decimals),
+    totalSupply: String(totalSupply),
+    reserveVault: String(reserveVault),
+    paused: Boolean(paused),
+    mintingEnabled: Boolean(mintingEnabled),
+    bytecodeVerified: true,
+    metadataVerified: true,
+    ownerVerified: true,
+  }
+}
+
+export async function verifyTrxReserveVaultContract(wallet, address, expectedOwner) {
+  const tronWeb = assertMainnetWallet(wallet)
+  if (addressesEqual(tronWeb, address, wallet.address)) throw new Error('The vault address is your wallet, not a smart contract.')
+  await getDeployedBytecode(tronWeb, address, 'Native TRX reserve vault')
+  const vault = await tronWeb.contract(TRAX_VAULT_ARTIFACT.abi).at(address)
+  const [owner, authorizedToken, reserveBalance, nativeBalance] = await Promise.all([
+    vault.owner().call(),
+    vault.authorizedToken().call(),
+    vault.reserveBalance().call(),
+    tronWeb.trx.getBalance(address),
+  ])
+  if (expectedOwner && !addressesEqual(tronWeb, owner, expectedOwner)) {
+    throw new Error('Native TRX reserve-vault owner does not match the configured platform owner.')
+  }
+  if (String(reserveBalance) !== String(nativeBalance)) {
+    throw new Error('Vault reserveBalance() does not match the verified native TRX account balance.')
+  }
+  return {
+    address,
+    owner: String(owner),
+    authorizedToken: String(authorizedToken),
+    reserveSun: String(nativeBalance),
+    bytecodeVerified: true,
+    ownerVerified: true,
+    reserveVerified: true,
+  }
 }
 
 export function buildDeploymentOptions(artifact, contractName, feeLimitSun) {
@@ -245,7 +321,12 @@ export async function sendNativeTrxFromTronLink(wallet, toAddress, amountSun) {
   if (amount <= 0n || amount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Invalid TRX funding amount.')
   const unsigned = await tronWeb.transactionBuilder.sendTrx(toAddress, Number(amount), wallet.address)
   const signed = await tronWeb.trx.sign(unsigned)
-  if (!signed?.signature?.length) throw new Error('TronLink did not sign the native TRX funding transaction.')
+  if (!signed?.signature?.length
+    || signed.txID !== unsigned.txID
+    || signed.raw_data_hex !== unsigned.raw_data_hex
+    || JSON.stringify(signed.raw_data) !== JSON.stringify(unsigned.raw_data)) {
+    throw new Error('TronLink did not sign the exact native TRX funding transaction. Nothing was broadcast.')
+  }
   const broadcast = await tronWeb.trx.sendRawTransaction(signed)
   if (broadcast?.result !== true) throw new Error('TRON Mainnet rejected the TRX funding transfer.')
   const receipt = await waitForSolidifiedReceipt(tronWeb, unsigned.txID)
