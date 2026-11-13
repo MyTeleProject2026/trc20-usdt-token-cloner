@@ -26,7 +26,7 @@ test('TRӾ frontend uses Mainnet deployment gates and validates the signer befor
     'MAINNET_DEPLOYMENT_BROADCAST_ENABLED = true',
     'assertTransactionIntegrity(tronWeb, unsigned',
     'verifyTransactionSigner(tronWeb, signedTransaction, wallet.address)',
-    'assertTransactionPermission(tronWeb, signedTransaction)',
+    'assertTransactionPermission(tronWeb, signedTransaction, wallet.address)',
     'sendRawTransaction(signedTransaction)',
   ]) assert.ok(client.includes(value), 'missing deployment guard: ' + value)
   assert.ok(client.indexOf('assertTransactionPermission(tronWeb, signedTransaction)')
