@@ -6,7 +6,7 @@ on:
       - 'Frontend-Tron-Transfer/**'
       - 'contracts/Restricted1TRAX.sol'
       - 'contracts/OneTraxReserveVault.sol'
-      - 'tronbox-config.cjs'
+      - 'Frontend-Tron-Transfer/trax-build/tronbox-config.js'
       - 'server/routes/tron-transfer.mjs'
       - 'tests/tron-transfer-integration-source.test.mjs'
       - '.github/workflows/tron-transfer-frontend.yml'
