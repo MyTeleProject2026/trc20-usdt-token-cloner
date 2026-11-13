@@ -59,10 +59,6 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   const [lastTx,setLastTx] = useState('')
   const [step,setStep] = useState('')
 
-  useEffect(() => {
-    try { saveContractAddresses({ tokenAddress, vaultAddress }) } catch {}
-  }, [tokenAddress,vaultAddress])
-
   const run = useCallback(async (label, action) => {
     setBusy(true); setError(''); setNotice(''); setStep(label)
     try { return await action() }
@@ -163,7 +159,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     setContractVerification(result)
     if (result.token?.bytecodeVerified && result.token?.metadataVerified && result.token?.ownerVerified
       && (!result.vault || (result.vault.bytecodeVerified && result.vault.ownerVerified && result.vault.reserveVerified))) {
-      saveContractAddresses({ tokenAddress: result.token?.address || '', vaultAddress: result.vault?.address || '' })
+      saveContractAddresses({ tokenAddress: result.token?.address || tokenAddress, vaultAddress: result.vault?.address || vaultAddress })
     }
     if (result.reciprocalLinksValid === false) failures.push('The two contracts are deployed, but reciprocal authorization is incomplete or incorrect.')
     if (failures.length) throw new Error(failures.join(' '))
@@ -187,18 +183,27 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
       const deployedContract = await wallet.tronWeb.trx.getContract(address)
       if (!deployedContract?.bytecode) throw new Error('The saved '+label+' address has no verified deployed contract bytecode. Clear it and deploy the contract; do not use a wallet address here.')
     }
+    let verifiedVault = vaultAddress
+    let verifiedToken = tokenAddress
     const deployed = []
-    if (!vaultAddress) {
+    if (!verifiedVault) {
       const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
-      setVaultAddress(result.address); setLastTx(result.txID); deployed.push('reserve vault')
+      const checked = await verifyTrxReserveVaultContract(wallet, result.address, expectedOwner)
+      verifiedVault = checked.address
+      setVaultAddress(verifiedVault); setContractVerification(previous=>({...previous,vault:checked}))
+      setLastTx(result.txID); deployed.push('reserve vault')
     }
-    if (!tokenAddress) {
+    if (!verifiedToken) {
       const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
-      setTokenAddress(result.address); setLastTx(result.txID); deployed.push('TRӾ token')
+      const checked = await verifyTrxTokenContract(wallet, result.address, expectedOwner)
+      verifiedToken = checked.address
+      setTokenAddress(verifiedToken); setContractVerification(previous=>({...previous,token:checked}))
+      setLastTx(result.txID); deployed.push('TRӾ token')
     }
+    saveContractAddresses({ tokenAddress: verifiedToken, vaultAddress: verifiedVault })
     setNotice(deployed.length
-      ? 'Deployment complete and solidified: '+deployed.join(' and ')+'. Both contract addresses have been saved automatically. Continue with the two reciprocal authorization steps.'
-      : 'Both contract addresses are already present. Continue with reciprocal authorization.')
+      ? 'Deployment complete: '+deployed.join(' and ')+'. Each deployed contract passed bytecode, metadata and owner checks. Addresses saved locally; perform reciprocal linking next.'
+      : 'Both contract addresses are already present. Verify them on Mainnet before reciprocal authorization.')
   })
 
   const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
