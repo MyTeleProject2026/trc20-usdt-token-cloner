@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 
 const tokenSource = await fs.readFile(new URL('../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
 const vaultSource = await fs.readFile(new URL('../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8')
-const tronboxConfig = await fs.readFile(new URL('../tronbox-config.cjs', import.meta.url), 'utf8')
+const tronboxConfig = await fs.readFile(new URL('../Frontend-Tron-Transfer/trax-build/tronbox-config.js', import.meta.url), 'utf8')
 
 test('TRӾ source pins the exact TRON Solidity compiler release and metadata', () => {
   assert.ok(tokenSource.includes('pragma solidity 0.8.25;'))
