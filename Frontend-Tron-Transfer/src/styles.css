@@ -813,3 +813,17 @@ h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -.035em; 
   .prepared-details { grid-template-columns: minmax(0, 1fr); }
   .owner-withdrawals-page .section-heading { align-items: flex-start; }
 }
+
+
+/* TRӾ asset separation and owner issuance review */
+.token-separation-panel{display:grid;gap:18px;border-color:rgba(101,223,161,.28);background:linear-gradient(145deg,rgba(17,54,34,.86),rgba(8,22,15,.94))}
+.token-balance-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.token-balance-pair article{display:grid;gap:8px;min-width:0;padding:17px;border:1px solid var(--line-strong);border-radius:14px;background:rgba(3,16,10,.48)}
+.token-balance-pair article span{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.token-balance-pair article strong{color:var(--mint);font:600 clamp(17px,2.3vw,23px) 'Space Grotesk',sans-serif;overflow-wrap:anywhere}
+.token-balance-pair article small{color:var(--muted);font-size:10px;line-height:1.5}
+.issuance-review{display:grid;gap:14px;margin-top:16px;padding:18px;border:1px solid rgba(242,200,121,.34);border-radius:15px;background:linear-gradient(145deg,rgba(69,49,19,.42),rgba(23,26,16,.65))}
+.issuance-review h3{margin:5px 0 10px;color:var(--ink);font:600 19px 'Space Grotesk',sans-serif}
+.issuance-review p{margin:5px 0;color:var(--ink-soft);font-size:11px;line-height:1.6;overflow-wrap:anywhere}
+.issuance-review p b{color:var(--mint)}
+@media(max-width:640px){.token-balance-pair{grid-template-columns:1fr}.token-separation-panel .section-heading{align-items:flex-start;gap:12px}.issuance-review{padding:14px}.issuance-review .button-row{display:grid;grid-template-columns:1fr}.issuance-review button{width:100%}}
