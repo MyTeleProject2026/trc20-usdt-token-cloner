@@ -90,19 +90,22 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
       token.balanceOf(connectedAddress).call(), tronWeb.trx.getBalance(connectedAddress),
     ])
     const metadataValid = name === 'TRӾ' && symbol === 'TRX' && Number(decimals) === 6
-    const linksValid = addressesEqual(tronWeb, tokenVault, vaultAddress) && addressesEqual(tronWeb, authorizedToken, tokenAddress)
+    const ownerMatches = addressesEqual(tronWeb, owner, expectedOwner)
+    const vaultOwnerMatches = addressesEqual(tronWeb, vaultOwner, expectedOwner)
+    const linksValid = addressesEqual(tronWeb, tokenVault, vaultAddress) && addressesEqual(tronWeb, authorizedToken, tokenAddress) && ownerMatches && vaultOwnerMatches
     const backed = BigInt(String(reserveSun)) >= BigInt(String(totalSupply))
     const next = {
       owner:String(owner),vaultOwner:String(vaultOwner),name,symbol,decimals:Number(decimals),totalSupply:String(totalSupply),
       tokenVault:String(tokenVault),authorizedToken:String(authorizedToken),paused:Boolean(paused),
       mintingEnabled:Boolean(mintingEnabled),reserveSun:String(reserveSun),
       ownerBalance:String(ownerBalance),ownerTrxSun:String(ownerTrxSun),
-      metadataValid,linksValid,backed,
+      metadataValid,ownerMatches,vaultOwnerMatches,linksValid,backed,
       shortfall: backed ? '0' : (BigInt(String(totalSupply))-BigInt(String(reserveSun))).toString(),
       surplus: backed ? (BigInt(String(reserveSun))-BigInt(String(totalSupply))).toString() : '0',
     }
     setSnapshot(next)
     if (!metadataValid) throw new Error('The deployed contract metadata does not match TRӾ / TRX / 6 decimals.')
+    if (!ownerMatches || !vaultOwnerMatches) throw new Error('The TRӾ token owner and reserve-vault owner must both match the configured platform owner.')
     if (!linksValid) throw new Error('The token and reserve vault are not linked to each other correctly.')
     setNotice('Mainnet contracts read successfully. Metadata and reciprocal reserve authorization are verified at the latest node state.')
     return next
@@ -184,13 +187,14 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     await assertOwner(token,tronWeb)
     if(!tronWeb.isAddress(recipient)) throw new Error('Enter a valid TRON Mainnet recipient address.')
     const units = parseTokenUnits(amount)
-    const [paused,enabled,supply,reserve,tokenVault,authorizedToken,recipientLocked] = await Promise.all([
+    const [paused,enabled,supply,reserve,tokenVault,authorizedToken,recipientLocked,vaultOwner] = await Promise.all([
       token.paused().call(),token.mintingEnabled().call(),token.totalSupply().call(),
       tronWeb.trx.getBalance(vaultAddress),token.reserveVault().call(),vault.authorizedToken().call(),
-      token.isLocked(recipient).call(),
+      token.isLocked(recipient).call(),vault.owner().call(),
     ])
     if(paused||!enabled) throw new Error('Minting is paused or disabled. Complete the owner activation step first.')
     if(recipientLocked!==true) throw new Error('Recipient must be locked before minting. Use Lock recipient, then refresh and retry.')
+    if(!addressesEqual(tronWeb,vaultOwner,expectedOwner)) throw new Error('Reserve vault owner does not match the configured platform owner.')
     if(!addressesEqual(tronWeb,tokenVault,vaultAddress)||!addressesEqual(tronWeb,authorizedToken,tokenAddress)) throw new Error('Token/vault authorization is not valid.')
     if(BigInt(String(reserve))<BigInt(String(supply))+BigInt(units)) throw new Error('Insufficient uncommitted native TRX reserve for this mint.')
     const result = await sendAndVerifyContractCall(tronWeb,token.mint(recipient,units),feeCapSun)
