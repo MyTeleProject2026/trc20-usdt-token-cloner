@@ -118,14 +118,14 @@ export default function App() {
 
   async function connectTronLink() {
     const provider=await discoverTronLinkProvider(window)
-    if(!provider) throw new Error('TronLink was not detected. Open this page in the TronLink DApp browser, unlock your wallet, and connect again.')
+    if(!provider) throw new Error('No compatible injected TRON wallet was detected. Open this page in your wallet's DApp browser or enable its browser extension, then reconnect.')
     const {address,tronWeb}=await requestTronLinkConnection(provider,window)
-    if(!isValidAddress(address)) throw new Error('TronLink returned an invalid account address. Select a valid TRON account and retry.')
+    if(!isValidAddress(address)) throw new Error('The selected wallet returned an invalid TRON account address. Select a valid account and retry.')
     let node=''
     try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
     if(node!=='api.trongrid.io') throw new Error('Network mismatch. Tron Transfer requires TRON Mainnet. Switch TronLink to Mainnet, then reconnect.')
     setUnlocked({address,tronWeb,provider})
-    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink. Mainnet deployment is enabled; this connected wallet becomes the owner of contracts it deploys after separately approving each deployment in TronLink.')
+    setNotice('TRON wallet connected to TRON Mainnet. Your private key stays in your wallet. Mainnet deployment is enabled; this connected wallet becomes the owner of contracts it deploys after separately approving each deployment in TronLink.')
   }
   useEffect(()=>{
     const provider=unlocked?.provider
@@ -149,7 +149,7 @@ export default function App() {
     setUnlocked(null)
     setTab('overview')
     setMoreOpen(false)
-    setNotice('TronLink disconnected from this application. Your wallet remains in TronLink.')
+    setNotice('TRON wallet disconnected from this application. Your wallet remains in your wallet application.')
   }
   async function inspectAddress(address=monitorAddress) {
     if(!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet address.')
