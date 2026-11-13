@@ -2,7 +2,7 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner } from '../src/trax-mainnet.mjs'
 
 
 
@@ -105,6 +105,29 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
+test('TRON deployment signature must recover the connected contract owner', () => {
+  const expected = 'T' + '1'.repeat(33)
+  const tronWeb = {
+    address: { fromHex: () => expected, toHex: value => String(value).toLowerCase() },
+    isAddress: value => typeof value === 'string' && value.startsWith('T'),
+    utils: { crypto: { ecRecover: (txID, signature) => {
+      assert.equal(txID, 'a'.repeat(64))
+      assert.equal(signature, 'b'.repeat(130))
+      return expected
+    } } },
+  }
+  const transaction = {
+    txID: 'a'.repeat(64),
+    raw_data: { contract: [{ parameter: { value: { owner_address: '41' + '1'.repeat(40) } } }] },
+    signature: ['b'.repeat(130)],
+  }
+  assert.deepEqual(verifyTransactionSigner(tronWeb, transaction, expected), {
+    ownerAddress: expected, recoveredAddress: expected,
+  })
+  assert.throws(() => verifyTransactionSigner(tronWeb, transaction, 'T' + '2'.repeat(33)), /does not match/)
+  assert.throws(() => verifyTransactionSigner(tronWeb, { ...transaction, signature: [] }, expected), /exactly one/)
+})
+
 test('any valid TronLink Mainnet wallet broadcasts the exact signed object returned by trx.sign', async () => {
   const unsigned = {
     visible: false,
@@ -128,7 +151,7 @@ test('any valid TronLink Mainnet wallet broadcasts the exact signed object retur
     version: '6.5.1',
     transactionBuilder: { createSmartContract: async () => unsigned },
     address: { fromHex: () => 'T' + '1'.repeat(33), toHex: (value) => String(value).toLowerCase() },
-    utils: { crypto: { ecRecover: () => '41' + '1'.repeat(40) } },
+    utils: { crypto: { ecRecover: () => 'T' + '1'.repeat(33) } },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
     trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.equal(payload, signed); assert.deepEqual(payload, signed); return { result: true } } },
   }
