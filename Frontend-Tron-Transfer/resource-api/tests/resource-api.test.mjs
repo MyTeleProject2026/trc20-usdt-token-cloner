@@ -7,6 +7,8 @@ test('accepts TRON Base58 addresses and rejects malformed or non-TRON addresses'
   assert.equal(isMainnetAddress('0x' + '1'.repeat(40)), false)
   assert.equal(isMainnetAddress('not-a-wallet'), false)
   assert.equal(isMainnetAddress('T' + '0'.repeat(33)), false)
+  assert.equal(isMainnetAddress('TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'), true)
+  assert.equal(isMainnetAddress('TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'), true)
 })
 
 test('calculates free Bandwidth, staked/delegated Bandwidth, and Energy separately', () => {
