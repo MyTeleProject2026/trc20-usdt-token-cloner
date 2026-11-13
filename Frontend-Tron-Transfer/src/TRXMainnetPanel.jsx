@@ -59,6 +59,21 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [resourceStatus,setResourceStatus] = useState(null)
   const [resourceLoading,setResourceLoading] = useState(false)
   const [resourceError,setResourceError] = useState('')
+
+  useEffect(() => {
+    try { saveContractAddresses({ tokenAddress, vaultAddress }) } catch {}
+  }, [tokenAddress,vaultAddress])
+
+  const run = useCallback(async (label, action) => {
+    setBusy(true); setError(''); setNotice(''); setStep(label)
+    try { return await action() }
+    catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); return null }
+    finally { setBusy(false); setStep('') }
+  }, [])
+
+  const connectedAddress = wallet?.address || ''
+  const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
+
   const resourceApi = 'https://tron-transfer-resource-api.onrender.com'
 
   const refreshWalletResources = useCallback(async () => {
@@ -83,20 +98,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   }, [walletReady, connectedAddress])
 
   useEffect(() => { refreshWalletResources() }, [refreshWalletResources])
-
-  useEffect(() => {
-    try { saveContractAddresses({ tokenAddress, vaultAddress }) } catch {}
-  }, [tokenAddress,vaultAddress])
-
-  const run = useCallback(async (label, action) => {
-    setBusy(true); setError(''); setNotice(''); setStep(label)
-    try { return await action() }
-    catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); return null }
-    finally { setBusy(false); setStep('') }
-  }, [])
-
-  const connectedAddress = wallet?.address || ''
-  const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
   const configuredOwnerMatches = walletReady
   const feeCapSun = useMemo(() => {
     try { return toSun(feeCap) } catch { return 0 }
