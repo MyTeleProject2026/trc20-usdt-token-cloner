@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, CircleHelp, Copy, ExternalLink, Fuel, LockKeyhole, RefreshCw, Rocket, ShieldCheck, Unlock, Wallet } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Coins, ExternalLink, LockKeyhole, RefreshCw, Rocket, ShieldCheck, Unlock, Wallet } from 'lucide-react'
+import './trax-mainnet.css'
 import {
   TRON_MAINNET_HOST, TRAX_TOKEN_ARTIFACT, TRAX_VAULT_ARTIFACT,
   addressesEqual, assertMainnetWallet, deployContractFromTronLink,
@@ -90,7 +91,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     const linksValid = addressesEqual(tronWeb, tokenVault, vaultAddress) && addressesEqual(tronWeb, authorizedToken, tokenAddress)
     const backed = BigInt(String(reserveSun)) >= BigInt(String(totalSupply))
     const next = {
-      owner:String(owner),name,symbol,decimals:Number(decimals),totalSupply:String(totalSupply),
+      owner:String(owner),vaultOwner:String(vaultOwner),name,symbol,decimals:Number(decimals),totalSupply:String(totalSupply),
       tokenVault:String(tokenVault),authorizedToken:String(authorizedToken),paused:Boolean(paused),
       mintingEnabled:Boolean(mintingEnabled),reserveSun:String(reserveSun),
       ownerBalance:String(ownerBalance),ownerTrxSun:String(ownerTrxSun),
@@ -120,14 +121,18 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   })
 
   const authorizeVault = () => run('Authorizing TRӾ in reserve vault · approve in TronLink', async () => {
-    const {tronWeb,vault} = await getContracts()
+    const {tronWeb,token,vault} = await getContracts()
+    await assertOwner(token,tronWeb)
+    if (!addressesEqual(tronWeb,await vault.owner().call(),connectedAddress)) throw new Error('Connected TronLink wallet is not the reserve-vault owner.')
     const abiMethod = vault.setAuthorizedToken(tokenAddress)
     const result = await sendAndVerifyContractCall(tronWeb,abiMethod,feeCapSun)
     setLastTx(result.txID); setNotice('Vault authorization is confirmed. Next link the vault in the TRӾ token contract.')
   })
 
   const linkToken = () => run('Linking reserve vault in TRӾ token · approve in TronLink', async () => {
-    const {tronWeb,token} = await getContracts()
+    const {tronWeb,token,vault} = await getContracts()
+    await assertOwner(token,tronWeb)
+    if (!addressesEqual(tronWeb,await vault.authorizedToken().call(),tokenAddress)) throw new Error('Authorize this TRӾ token in the vault first.')
     const result = await sendAndVerifyContractCall(tronWeb,token.setReserveVault(vaultAddress),feeCapSun)
     setLastTx(result.txID); setNotice('Token-to-vault link is confirmed. Refresh the on-chain status before funding or enabling minting.')
   })
@@ -135,7 +140,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const fundVault = () => run('Funding native TRX reserve · approve in TronLink', async () => {
     const {tronWeb,vault} = await getContracts()
     await assertOwner(await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress),tronWeb)
-    const [authorizedToken, linkedVault] = await Promise.all([vault.authorizedToken().call(),(await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)).reserveVault().call()])
+    const [vaultOwner,authorizedToken, linkedVault] = await Promise.all([vault.owner().call(),vault.authorizedToken().call(),(await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)).reserveVault().call()])
+    if (!addressesEqual(tronWeb,vaultOwner,connectedAddress)) throw new Error('Connected TronLink wallet is not the reserve-vault owner.')
     if (!addressesEqual(tronWeb,authorizedToken,tokenAddress)||!addressesEqual(tronWeb,linkedVault,vaultAddress)) throw new Error('Complete and verify both one-time vault links before funding.')
     const result = await sendNativeTrxFromTronLink(wallet,vaultAddress,toSun(fundAmount))
     setLastTx(result.txID); setNotice('Native TRX reserve deposit is solidified. Refresh to verify the actual vault balance.')
@@ -144,13 +150,14 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const activate = () => run('Enabling TRӾ issuance · two owner approvals', async () => {
     const {tronWeb,token,vault} = await getContracts()
     await assertOwner(token,tronWeb)
-    const [name,symbol,decimals,tokenVault,authorizedToken,supply,reserve,paused,enabled] = await Promise.all([
+    const [name,symbol,decimals,tokenVault,authorizedToken,supply,reserve,paused,enabled,vaultOwner] = await Promise.all([
       token.name().call(),token.symbol().call(),token.decimals().call(),token.reserveVault().call(),
       vault.authorizedToken().call(),token.totalSupply().call(),tronWeb.trx.getBalance(vaultAddress),
-      token.paused().call(),token.mintingEnabled().call(),
+      token.paused().call(),token.mintingEnabled().call(),vault.owner().call(),
     ])
     if(name!=='TRӾ'||symbol!=='TRX'||Number(decimals)!==6) throw new Error('Token identity mismatch.')
     if(!addressesEqual(tronWeb,tokenVault,vaultAddress)||!addressesEqual(tronWeb,authorizedToken,tokenAddress)) throw new Error('Reserve links are incomplete or incorrect.')
+    if(!addressesEqual(tronWeb,vaultOwner,connectedAddress)) throw new Error('Connected TronLink wallet is not the reserve-vault owner.')
     if(BigInt(String(reserve))<BigInt(String(supply))) throw new Error('Native TRX reserve is below outstanding TRӾ liability.')
     if(!paused||enabled) throw new Error('Token is not in the expected initial paused/disabled state.')
     const unpause=await sendAndVerifyContractCall(tronWeb,token.setPaused(false),feeCapSun)
@@ -225,12 +232,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const copy = async value => { try { await navigator.clipboard.writeText(value); setNotice('Copied to clipboard.') } catch { setError('Clipboard access was unavailable.') } }
 
-  const stepDone = {
-    vault: Boolean(vaultAddress && snapshot?.vaultAddressVerified),
-    token: Boolean(tokenAddress && snapshot?.tokenAddressVerified),
-    vaultAuth: Boolean(snapshot?.linksValid),
-  }
-
   return <section className="trax-workspace">
     <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ONLY · MAINNET</span><h2>TRӾ smart-contract manager</h2><p>Deploy, link, fund and administer the restricted TRӾ token using your connected TronLink owner wallet. Every state change requires a separate wallet signature.</p></div><div className="panel-icon"><Coins/></div></div>
     <div className="trax-notice"><AlertTriangle size={18}/><div><b>TRӾ is a custom TRC-20 asset, not native TRX.</b><p>It is displayed as a separate token. Native TRX reserve, TRӾ supply and internal platform records are separate balances. No market price or Bitpie automatic listing is implied.</p></div></div>
@@ -241,13 +242,13 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     <div className="trax-addresses">
       <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
       <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Deploy vault or paste verified Mainnet vault"/></label>
-      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady||busy} onClick={()=>run('Deploying native TRX reserve vault',deployVault)}><Rocket size={15}/> Deploy reserve vault</button><button type="button" className="secondary-button" disabled={!walletReady||busy||!vaultAddress} onClick={()=>run('Deploying TRӾ token',deployToken)}><Rocket size={15}/> Deploy TRӾ token</button></div>
-      <div className="button-row"><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={()=>run('Authorize token in vault',authorizeVault)}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={()=>run('Link vault in token',linkToken)}>2. Link vault in token</button></div>
-      <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The deployer becomes the immutable vault owner and initial token owner; do not deploy from an unintended account.</p>
+      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy reserve vault</button><button type="button" className="secondary-button" disabled={!walletReady||busy||Boolean(tokenAddress)} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ token</button></div>
+      <div className="button-row"><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={authorizeVault}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={linkToken}>2. Link vault in token</button></div>
+      <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The deploying wallet becomes the vault owner and initial token owner; do not deploy from an unintended account.</p>
     </div>
 
     <div className="trax-actions">
-      <div className="trax-actions-heading"><h3>On-chain verification</h3><button type="button" className="secondary-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={()=>run('Reading TRON Mainnet contracts',refresh)}><RefreshCw size={15}/> Refresh</button></div>
+      <div className="trax-actions-heading"><h3>On-chain verification</h3><button type="button" className="secondary-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={refresh}><RefreshCw size={15}/> Refresh</button></div>
       {snapshot&&<div className="trax-stats">
         <article><span>Native TRX in vault</span><b>{formatTokenUnits(snapshot.reserveSun)} TRX</b></article>
         <article><span>Outstanding TRӾ</span><b>{formatTokenUnits(snapshot.totalSupply)} TRӾ</b></article>
@@ -255,6 +256,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         <article><span>Minting</span><b>{snapshot.mintingEnabled?'Enabled':'Disabled'}</b></article>
         <article><span>Contract pause</span><b>{snapshot.paused?'Paused':'Unpaused'}</b></article>
         <article><span>Owner TRX for fees</span><b>{formatTokenUnits(snapshot.ownerTrxSun)} TRX</b></article>
+        <article><span>Token owner</span><b>{addressesEqual(wallet.tronWeb,snapshot.owner,connectedAddress)?'Connected owner':'Different owner'}</b></article>
+        <article><span>Vault owner</span><b>{addressesEqual(wallet.tronWeb,snapshot.vaultOwner,connectedAddress)?'Connected owner':'Different owner'}</b></article>
       </div>}
       {snapshot&&<div className="trax-checks">
         <span className={snapshot.metadataValid?'ok':'bad'}>{snapshot.metadataValid?'✓':'!'} Exact TRӾ / TRX / 6 decimals</span>
@@ -277,13 +280,13 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     <div className="trax-actions">
       <h3>Fund the native TRX reserve</h3>
       <label>TRX amount<input value={fundAmount} onChange={e=>setFundAmount(e.target.value)} inputMode="decimal"/></label>
-      <button type="button" className="primary-button" disabled={!walletReady||busy||!snapshot?.linksValid||!snapshot?.backed} onClick={()=>run('Sending native TRX to reserve vault',fundVault)}><Wallet size={15}/> Fund reserve from connected owner wallet</button>
+      <button type="button" className="primary-button" disabled={!walletReady||busy||!snapshot?.linksValid} onClick={fundVault}><Wallet size={15}/> Fund reserve from connected owner wallet</button>
       <p className="fine-print">This sends actual native TRX from the connected owner wallet to the vault. It is not a token mint. Verify the destination address in TronLink before signing.</p>
     </div>
 
     <div className="trax-actions">
       <h3>Activate or stop issuance</h3>
-      <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady||busy||!snapshot?.linksValid||!snapshot?.backed||snapshot?.mintingEnabled} onClick={()=>run('Preparing owner activation',activate)}><ShieldCheck size={15}/> Unpause and enable minting</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!snapshot?.mintingEnabled} onClick={()=>run('Disabling minting',disableMinting)}>Disable minting</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||snapshot?.paused} onClick={()=>run('Emergency pause',()=>setPauseState(true))}>Emergency pause</button></div>
+      <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady||busy||!snapshot?.linksValid||!snapshot?.backed||snapshot?.mintingEnabled} onClick={activate}><ShieldCheck size={15}/> Unpause and enable minting</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!snapshot?.mintingEnabled} onClick={disableMinting}>Disable minting</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||snapshot?.paused} onClick={()=>setPauseState(true)}>Emergency pause</button></div>
       <p className="fine-print">Activation is two separate owner-signed transactions. It verifies exact metadata, owner, reciprocal vault links and that reserve TRX covers all existing TRӾ supply. Minting can be disabled and the token paused independently.</p>
     </div>
 
@@ -292,16 +295,16 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <label>Recipient TRON address<input value={recipient} onChange={e=>setRecipient(e.target.value)} autoComplete="off" spellCheck="false"/></label>
       <label>Amount (TRӾ)<input value={amount} onChange={e=>setAmount(e.target.value)} inputMode="decimal"/></label>
       <div className="trax-balance-note">Raw token units: {(()=>{try{return parseTokenUnits(amount)}catch{return '—'}})()}</div>
-      <button type="button" className="primary-button" disabled={!walletReady||busy||!snapshot?.linksValid||!snapshot?.mintingEnabled||snapshot?.paused} onClick={()=>run('Minting restricted TRӾ to recipient',issue)}><LockKeyhole size={15}/> Review and mint TRӾ</button>
+      <button type="button" className="primary-button" disabled={!walletReady||busy||!snapshot?.linksValid||!snapshot?.mintingEnabled||snapshot?.paused} onClick={issue}><LockKeyhole size={15}/> Review and mint TRӾ</button>
       <p className="fine-print">Every newly minted recipient starts locked. The owner wallet must sign the mint, and the contract independently enforces reserve backing.</p>
     </div>
 
     <div className="trax-actions">
       <h3>Recipient lock controls and balances</h3>
       <label>Recipient / holder address<input value={holder} onChange={e=>setHolder(e.target.value)} autoComplete="off" spellCheck="false"/></label>
-      <button type="button" className="secondary-button" disabled={!walletReady||busy||!tokenAddress} onClick={()=>run('Reading recipient TRӾ balance',readRecipient)}>Read recipient balance and lock state</button>
+      <button type="button" className="secondary-button" disabled={!walletReady||busy||!tokenAddress} onClick={readRecipient}>Read recipient balance and lock state</button>
       {snapshot?.recipient&&<div className="trax-recipient-result"><b>{formatTokenUnits(snapshot.recipientBalance)} TRӾ</b><span>{snapshot.recipient}</span><span>{snapshot.recipientLocked?'LOCKED':'UNLOCKED'}</span></div>}
-      <div className="button-row"><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress} onClick={()=>run('Locking recipient',()=>setLock(true))}><LockKeyhole size={15}/> Lock recipient</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress} onClick={()=>run('Unlocking recipient',()=>setLock(false))}><Unlock size={15}/> Unlock recipient</button></div>
+      <div className="button-row"><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress} onClick={()=>setLock(true)}><LockKeyhole size={15}/> Lock recipient</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress} onClick={()=>setLock(false)}><Unlock size={15}/> Unlock recipient</button></div>
       <p className="fine-print">All accounts start locked. Unlocking is an explicit owner-only on-chain change. Locked balances remain visible through balanceOf but cannot transfer or approve spending.</p>
     </div>
 
@@ -310,7 +313,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <label>Holder address<input value={holder} onChange={e=>setHolder(e.target.value)} autoComplete="off" spellCheck="false"/></label>
       <label>Native TRX payout recipient<input value={redeemRecipient} onChange={e=>setRedeemRecipient(e.target.value)} autoComplete="off" spellCheck="false"/></label>
       <label>Amount (TRӾ / TRX)<input value={redeemAmount} onChange={e=>setRedeemAmount(e.target.value)} inputMode="decimal"/></label>
-      <button type="button" className="outline-button" disabled={!walletReady||busy||!snapshot?.linksValid||snapshot?.paused} onClick={()=>run('Redeeming restricted TRӾ',redeem)}><Wallet size={15}/> Review owner redemption</button>
+      <button type="button" className="outline-button" disabled={!walletReady||busy||!snapshot?.linksValid||snapshot?.paused} onClick={redeem}><Wallet size={15}/> Review owner redemption</button>
       <p className="fine-print">Redemption burns TRӾ and releases the same amount of native TRX atomically. The holder cannot initiate redemption; the connected contract owner signs it.</p>
     </div>
 
