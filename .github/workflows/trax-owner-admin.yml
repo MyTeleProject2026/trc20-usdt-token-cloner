@@ -1,0 +1,31 @@
+name: TRӾ owner-admin regression
+
+on:
+  push:
+    branches:
+      - feature/trax-owner-admin-hardening
+  pull_request:
+    branches:
+      - ui/modern-crypto-dashboard-theme
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tron-mainnet-frontend:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - name: Install frontend dependencies
+        run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
+      - name: Run TRӾ owner-admin tests and compile contracts
+        run: npm run test --prefix Frontend-Tron-Transfer
+      - name: Build production frontend
+        run: npm run build --prefix Frontend-Tron-Transfer

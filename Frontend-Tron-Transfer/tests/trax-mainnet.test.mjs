@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, verifyTrxTokenContract, verifyTrxReserveVaultContract } from '../src/trax-mainnet.mjs'
 
 
 test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
@@ -65,20 +65,26 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
-test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLink provider', async () => {
+test('TRӾ deployment builds, signs and broadcasts through the same injected TronLink TronWeb instance', async () => {
   const originalFetch = globalThis.fetch
   const originalWindow = globalThis.window
   const unsigned = {
     visible: false,
     txID: 'b'.repeat(64),
     contract_address: '41' + '1'.repeat(40),
-    raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 },
+    raw_data: {
+      contract: [{
+        type: 'CreateSmartContract',
+        parameter: { value: { owner_address: '41' + '2'.repeat(40), new_contract: { bytecode: '6000', abi: [] } } },
+      }],
+      timestamp: 1,
+    },
     raw_data_hex: '0a01',
   }
   const signed = { ...unsigned, signature: ['c'.repeat(130)] }
   let signedInput
   let broadcastInput
-  let clientCreated = false
+  let clientArgument
   globalThis.window = { setTimeout: (fn) => setTimeout(fn, 0) }
   globalThis.fetch = async (url) => ({
     ok: true,
@@ -86,18 +92,23 @@ test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLin
       ? { txID: unsigned.txID, raw_data: unsigned.raw_data }
       : { id: unsigned.txID, receipt: { result: 'SUCCESS' } },
   })
+  const walletAddress = 'T' + '2'.repeat(33)
   const walletTronWeb = {
-    version: 'wallet-bundled-version',
-    fullNode: { host: 'https://api.trongrid.io' },
-    isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sign: async (tx) => { signedInput = tx; return signed } },
-  }
-  const builderClient = {
     version: '6.5.1',
-    transactionBuilder: { createSmartContract: async () => unsigned },
-    address: { fromHex: () => 'T' + '1'.repeat(33) },
+    fullNode: { host: 'https://api.trongrid.io' },
+    defaultAddress: { base58: walletAddress },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
+    address: {
+      fromHex: (value) => value === unsigned.contract_address ? 'T' + '1'.repeat(33) : walletAddress,
+      toHex: (value) => value === walletAddress ? '41' + '2'.repeat(40) : String(value).toLowerCase(),
+    },
+    transactionBuilder: { createSmartContract: async (options, owner) => {
+      assert.equal(owner, walletAddress)
+      assert.equal(options.name, 'TestVault')
+      return unsigned
+    } },
     trx: {
+      sign: async (tx) => { signedInput = tx; return signed },
       sendRawTransaction: async (tx) => { broadcastInput = tx; return { result: true } },
       getContract: async () => ({ bytecode: '6000' }),
     },
@@ -105,15 +116,20 @@ test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLin
   try {
     const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
     const result = await deployContractFromTronLink(
-      { tronWeb: walletTronWeb, address: 'T' + '2'.repeat(33) },
+      { tronWeb: walletTronWeb, address: walletAddress },
       { abi: [], bytecode: '6000' },
       'TestVault',
       300000000,
-      { createClient: () => { clientCreated = true; return builderClient } },
+      { createClient: (injected) => { clientArgument = injected; return injected } },
     )
-    assert.equal(clientCreated, true)
+    assert.strictEqual(clientArgument, walletTronWeb)
     assert.notStrictEqual(signedInput, unsigned)
-    assert.deepEqual(signedInput, { visible: false, txID: unsigned.txID, raw_data: unsigned.raw_data, raw_data_hex: unsigned.raw_data_hex })
+    assert.deepEqual(signedInput, {
+      visible: false,
+      txID: unsigned.txID,
+      raw_data: unsigned.raw_data,
+      raw_data_hex: unsigned.raw_data_hex,
+    })
     assert.equal(Object.hasOwn(signedInput, 'contract_address'), false)
     assert.strictEqual(broadcastInput, signed)
     assert.equal(result.txID, unsigned.txID)
@@ -123,4 +139,84 @@ test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLin
     if (originalWindow === undefined) delete globalThis.window
     else globalThis.window = originalWindow
   }
+})
+
+const TEST_OWNER = 'T' + '2'.repeat(33)
+const TEST_TOKEN = 'T' + '3'.repeat(33)
+const TEST_VAULT = 'T' + '4'.repeat(33)
+
+function makeReadOnlyWallet({ tokenOwner = TEST_OWNER, vaultOwner = TEST_OWNER, reserve = '120000000', totalSupply = '100000000', tokenVault = TEST_VAULT, authorizedToken = TEST_TOKEN } = {}) {
+  const call = (value) => ({ call: async () => value })
+  const token = {
+    owner: () => call(tokenOwner),
+    name: () => call('TRӾ'),
+    symbol: () => call('TRX'),
+    decimals: () => call(6),
+    totalSupply: () => call(totalSupply),
+    reserveVault: () => call(tokenVault),
+    paused: () => call(true),
+    mintingEnabled: () => call(false),
+  }
+  const vault = {
+    owner: () => call(vaultOwner),
+    authorizedToken: () => call(authorizedToken),
+    reserveBalance: () => call(reserve),
+  }
+  const tronWeb = {
+    fullNode: { host: 'https://api.trongrid.io' },
+    defaultAddress: { base58: TEST_OWNER },
+    isAddress: (value) => /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(String(value)),
+    address: { toHex: (value) => String(value).toLowerCase() },
+    trx: {
+      getContract: async () => ({ bytecode: '60006000' }),
+      getBalance: async () => Number(reserve),
+    },
+    contract: () => ({ at: async (address) => address === TEST_TOKEN ? token : vault }),
+  }
+  return { tronWeb, address: TEST_OWNER }
+}
+
+test('owner wallet freshness check rejects a changed active TronLink account', () => {
+  const wallet = makeReadOnlyWallet()
+  wallet.tronWeb.defaultAddress.base58 = TEST_TOKEN
+  assert.throws(() => assertMainnetWallet(wallet), /active TronLink account changed/)
+})
+
+test('independent TRӾ token verification checks code, metadata and owner without writes', async () => {
+  const wallet = makeReadOnlyWallet()
+  const result = await verifyTrxTokenContract(wallet, TEST_TOKEN, TEST_OWNER)
+  assert.equal(result.bytecodeVerified, true)
+  assert.equal(result.metadataVerified, true)
+  assert.equal(result.ownerVerified, true)
+  assert.equal(result.totalSupply, '100000000')
+  assert.equal(result.paused, true)
+  assert.equal(result.mintingEnabled, false)
+})
+
+test('TRӾ token verification rejects owner mismatch and wallet-as-contract address', async () => {
+  const wallet = makeReadOnlyWallet({ tokenOwner: TEST_TOKEN })
+  await assert.rejects(() => verifyTrxTokenContract(wallet, TEST_TOKEN, TEST_OWNER), /owner does not match/)
+  await assert.rejects(() => verifyTrxTokenContract(wallet, TEST_OWNER, TEST_OWNER), /your wallet/)
+})
+
+test('independent reserve-vault verification reconciles contract reserve with native TRX balance', async () => {
+  const wallet = makeReadOnlyWallet({ reserve: '120000000' })
+  const result = await verifyTrxReserveVaultContract(wallet, TEST_VAULT, TEST_OWNER)
+  assert.equal(result.bytecodeVerified, true)
+  assert.equal(result.ownerVerified, true)
+  assert.equal(result.reserveVerified, true)
+  assert.equal(result.reserveSun, '120000000')
+})
+
+test('reserve-vault verification rejects reserve getter/balance mismatch', async () => {
+  const wallet = makeReadOnlyWallet({ reserve: '100000000' })
+  const call = (value) => ({ call: async () => value })
+  const originalContract = wallet.tronWeb.contract
+  wallet.tronWeb.contract = () => ({ at: async () => ({
+    owner: () => call(TEST_OWNER),
+    authorizedToken: () => call(TEST_TOKEN),
+    reserveBalance: () => call('120000000'),
+  }) })
+  await assert.rejects(() => verifyTrxReserveVaultContract(wallet, TEST_VAULT, TEST_OWNER), /does not match/)
+  wallet.tronWeb.contract = originalContract
 })

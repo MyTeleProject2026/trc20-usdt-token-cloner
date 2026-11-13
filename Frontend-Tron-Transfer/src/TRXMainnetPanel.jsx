@@ -6,6 +6,7 @@ import {
   addressesEqual, assertMainnetWallet, deployContractFromTronLink,
   formatTokenUnits, loadSavedContracts, parseTokenUnits, saveContractAddresses,
   sendAndVerifyContractCall, sendNativeTrxFromTronLink,
+  verifyTrxTokenContract, verifyTrxReserveVaultContract,
 } from './trax-mainnet.mjs'
 
 const ZERO = '0x0000000000000000000000000000000000000000'
@@ -44,6 +45,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   const [tokenAddress,setTokenAddress] = useState(initial.tokenAddress)
   const [vaultAddress,setVaultAddress] = useState(initial.vaultAddress)
   const [snapshot,setSnapshot] = useState(null)
+  const [contractVerification,setContractVerification] = useState({ token: null, vault: null, reciprocalLinksValid: null })
   const [recipient,setRecipient] = useState(DEFAULT_RECIPIENT)
   const [amount,setAmount] = useState('100')
   const [fundAmount,setFundAmount] = useState('100')
@@ -56,10 +58,6 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   const [notice,setNotice] = useState('')
   const [lastTx,setLastTx] = useState('')
   const [step,setStep] = useState('')
-
-  useEffect(() => {
-    try { saveContractAddresses({ tokenAddress, vaultAddress }) } catch {}
-  }, [tokenAddress,vaultAddress])
 
   const run = useCallback(async (label, action) => {
     setBusy(true); setError(''); setNotice(''); setStep(label)
@@ -92,23 +90,24 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
 
   const refresh = useCallback(async () => run('Reading solidified Mainnet state', async () => {
     const {tronWeb,token,vault} = await getContracts()
-    const [owner,vaultOwner,name,symbol,decimals,totalSupply,tokenVault,authorizedToken,paused,mintingEnabled,reserveSun,ownerBalance,ownerTrxSun] = await Promise.all([
+    const [owner,vaultOwner,name,symbol,decimals,totalSupply,tokenVault,authorizedToken,paused,mintingEnabled,reserveSun,reserveGetterSun,ownerBalance,ownerTrxSun] = await Promise.all([
       token.owner().call(), vault.owner().call(), token.name().call(), token.symbol().call(), token.decimals().call(),
       token.totalSupply().call(), token.reserveVault().call(), vault.authorizedToken().call(),
-      token.paused().call(), token.mintingEnabled().call(), tronWeb.trx.getBalance(vaultAddress),
+      token.paused().call(), token.mintingEnabled().call(), tronWeb.trx.getBalance(vaultAddress), vault.reserveBalance().call(),
       token.balanceOf(connectedAddress).call(), tronWeb.trx.getBalance(connectedAddress),
     ])
     const metadataValid = name === 'TRӾ' && symbol === 'TRX' && Number(decimals) === 6
     const ownerMatches = addressesEqual(tronWeb, owner, expectedOwner)
     const vaultOwnerMatches = addressesEqual(tronWeb, vaultOwner, expectedOwner)
     const linksValid = addressesEqual(tronWeb, tokenVault, vaultAddress) && addressesEqual(tronWeb, authorizedToken, tokenAddress) && ownerMatches && vaultOwnerMatches
-    const backed = BigInt(String(reserveSun)) >= BigInt(String(totalSupply))
+    const reserveReadingConsistent = BigInt(String(reserveSun)) === BigInt(String(reserveGetterSun))
+    const backed = reserveReadingConsistent && BigInt(String(reserveSun)) >= BigInt(String(totalSupply))
     const next = {
       owner:String(owner),vaultOwner:String(vaultOwner),name,symbol,decimals:Number(decimals),totalSupply:String(totalSupply),
       tokenVault:String(tokenVault),authorizedToken:String(authorizedToken),paused:Boolean(paused),
-      mintingEnabled:Boolean(mintingEnabled),reserveSun:String(reserveSun),
+      mintingEnabled:Boolean(mintingEnabled),reserveSun:String(reserveSun),reserveGetterSun:String(reserveGetterSun),
       ownerBalance:String(ownerBalance),ownerTrxSun:String(ownerTrxSun),
-      metadataValid,ownerMatches,vaultOwnerMatches,linksValid,backed,
+      metadataValid,ownerMatches,vaultOwnerMatches,linksValid,reserveReadingConsistent,backed,
       shortfall: backed ? '0' : (BigInt(String(totalSupply))-BigInt(String(reserveSun))).toString(),
       surplus: backed ? (BigInt(String(reserveSun))-BigInt(String(totalSupply))).toString() : '0',
     }
@@ -116,7 +115,8 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     if (!metadataValid) throw new Error('The deployed contract metadata does not match TRӾ / TRX / 6 decimals.')
     if (!ownerMatches || !vaultOwnerMatches) throw new Error('The TRӾ token owner and reserve-vault owner must both match the configured platform owner.')
     if (!linksValid) throw new Error('The token and reserve vault are not linked to each other correctly.')
-    setNotice('Mainnet contracts read successfully. Metadata and reciprocal reserve authorization are verified at the latest node state.')
+    if (!reserveReadingConsistent) throw new Error('The reserve vault getter does not match the actual native TRX balance. Minting and activation must remain disabled.')
+    setNotice('Mainnet contracts read successfully. Metadata, ownership, reciprocal links and the actual native TRX reserve reading are verified.')
     return next
   }), [run,getContracts,connectedAddress,vaultAddress])
 
@@ -132,6 +132,43 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     refresh()
   }, [walletReady, configuredOwnerMatches, tokenAddress, vaultAddress, wallet, refresh])
 
+  const verifyEnteredContracts = () => run('Verifying entered contract addresses against TRON Mainnet', async () => {
+    if (!walletReady) throw new Error('Connect TronLink to TRON Mainnet first.')
+    if (!configuredOwnerMatches) throw new Error('Connected wallet is not the configured platform owner.')
+    if (!tokenAddress && !vaultAddress) throw new Error('Enter at least one contract address to verify.')
+    const result = { token: null, vault: null, reciprocalLinksValid: null }
+    const failures = []
+    if (tokenAddress) {
+      try {
+        result.token = await verifyTrxTokenContract(wallet, tokenAddress, expectedOwner)
+      } catch (cause) {
+        result.token = { address: tokenAddress, verified: false, error: cause.message || String(cause) }
+        failures.push('TRӾ token: ' + result.token.error)
+      }
+    }
+    if (vaultAddress) {
+      try {
+        result.vault = await verifyTrxReserveVaultContract(wallet, vaultAddress, expectedOwner)
+      } catch (cause) {
+        result.vault = { address: vaultAddress, verified: false, error: cause.message || String(cause) }
+        failures.push('Reserve vault: ' + result.vault.error)
+      }
+    }
+    if (result.token && result.vault) {
+      result.reciprocalLinksValid = addressesEqual(wallet.tronWeb, result.token.reserveVault, vaultAddress)
+        && addressesEqual(wallet.tronWeb, result.vault.authorizedToken, tokenAddress)
+    }
+    setContractVerification(result)
+    if (result.token?.bytecodeVerified && result.token?.metadataVerified && result.token?.ownerVerified
+      && (!result.vault || (result.vault.bytecodeVerified && result.vault.ownerVerified && result.vault.reserveVerified))) {
+      saveContractAddresses({ tokenAddress: result.token?.address || tokenAddress, vaultAddress: result.vault?.address || vaultAddress })
+    }
+    if (result.reciprocalLinksValid === false) failures.push('The two contracts are deployed, but reciprocal authorization is incomplete or incorrect.')
+    if (failures.length) throw new Error(failures.join(' '))
+    setNotice('Every entered contract passed its on-chain bytecode, owner and metadata checks. Addresses saved locally.')
+    return result
+  })
+
   const deployMissingContracts = () => run('Deploying missing TRӾ contracts · approve each prompt in TronLink', async () => {
     if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
     if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
@@ -143,23 +180,35 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     if (vaultAddress && (addressesEqual(wallet.tronWeb,vaultAddress,connectedAddress) || addressesEqual(wallet.tronWeb,vaultAddress,expectedOwner))) {
       throw new Error('The reserve-vault field contains your owner wallet address, not a smart-contract address. Clear that field so the reserve vault can be deployed.')
     }
-    for (const [label,address] of [['TRӾ token',tokenAddress],['reserve vault',vaultAddress]]) {
-      if (!address) continue
-      const deployedContract = await wallet.tronWeb.trx.getContract(address)
-      if (!deployedContract?.bytecode) throw new Error('The saved '+label+' address has no verified deployed contract bytecode. Clear it and deploy the contract; do not use a wallet address here.')
+    let verifiedVault = vaultAddress
+    let verifiedToken = tokenAddress
+    if (verifiedVault) {
+      const checked = await verifyTrxReserveVaultContract(wallet, verifiedVault, expectedOwner)
+      setContractVerification(previous=>({...previous,vault:checked}))
+    }
+    if (verifiedToken) {
+      const checked = await verifyTrxTokenContract(wallet, verifiedToken, expectedOwner)
+      setContractVerification(previous=>({...previous,token:checked}))
     }
     const deployed = []
-    if (!vaultAddress) {
+    if (!verifiedVault) {
       const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
-      setVaultAddress(result.address); setLastTx(result.txID); deployed.push('reserve vault')
+      verifiedVault = result.address
+      setVaultAddress(verifiedVault); setLastTx(result.txID); deployed.push('reserve vault')
+      const checked = await verifyTrxReserveVaultContract(wallet, result.address, expectedOwner)
+      setContractVerification(previous=>({...previous,vault:checked}))
     }
-    if (!tokenAddress) {
+    if (!verifiedToken) {
       const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
-      setTokenAddress(result.address); setLastTx(result.txID); deployed.push('TRӾ token')
+      verifiedToken = result.address
+      setTokenAddress(verifiedToken); setLastTx(result.txID); deployed.push('TRӾ token')
+      const checked = await verifyTrxTokenContract(wallet, result.address, expectedOwner)
+      setContractVerification(previous=>({...previous,token:checked}))
     }
+    saveContractAddresses({ tokenAddress: verifiedToken, vaultAddress: verifiedVault })
     setNotice(deployed.length
-      ? 'Deployment complete and solidified: '+deployed.join(' and ')+'. Both contract addresses have been saved automatically. Continue with the two reciprocal authorization steps.'
-      : 'Both contract addresses are already present. Continue with reciprocal authorization.')
+      ? 'Deployment complete: '+deployed.join(' and ')+'. Each deployed contract passed bytecode, metadata and owner checks. Addresses saved locally; perform reciprocal linking next.'
+      : 'Both contract addresses are already present. Verify them on Mainnet before reciprocal authorization.')
   })
 
   const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
@@ -167,7 +216,10 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
     const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
     setVaultAddress(result.address); setLastTx(result.txID)
-    setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
+    const verified = await verifyTrxReserveVaultContract(wallet, result.address, expectedOwner)
+    setContractVerification(previous=>({...previous,vault:verified}))
+    saveContractAddresses({ tokenAddress, vaultAddress: result.address })
+    setNotice('Reserve vault deployed, solidified, and independently verified. Continue by deploying the TRӾ token.')
   })
 
   const deployToken = () => run('Deploying TRӾ token · approve in TronLink', async () => {
@@ -175,7 +227,10 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
     const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
     setTokenAddress(result.address); setLastTx(result.txID)
-    setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
+    const verified = await verifyTrxTokenContract(wallet, result.address, expectedOwner)
+    setContractVerification(previous=>({...previous,token:verified}))
+    saveContractAddresses({ tokenAddress: result.address, vaultAddress })
+    setNotice('TRӾ token deployed, solidified, and independently verified. Next authorize the token in the vault.')
   })
 
   const authorizeVault = () => run('Authorizing TRӾ in reserve vault · approve in TronLink', async () => {
@@ -220,6 +275,8 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     if(name!=='TRӾ'||symbol!=='TRX'||Number(decimals)!==6) throw new Error('Token identity mismatch.')
     if(!addressesEqual(tronWeb,tokenVault,vaultAddress)||!addressesEqual(tronWeb,authorizedToken,tokenAddress)) throw new Error('Reserve links are incomplete or incorrect.')
     if(!addressesEqual(tronWeb,vaultOwner,connectedAddress)) throw new Error('Connected TronLink wallet is not the reserve-vault owner.')
+    const reserveGetter = await vault.reserveBalance().call()
+    if(BigInt(String(reserve))!==BigInt(String(reserveGetter))) throw new Error('Native TRX reserve getter does not match the actual vault balance.')
     if(BigInt(String(reserve))<BigInt(String(supply))) throw new Error('Native TRX reserve is below outstanding TRӾ liability.')
     if(enabled) throw new Error('Minting is already enabled. Use Disable minting to turn it off.')
     if(paused) {
@@ -238,15 +295,16 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     await assertOwner(token,tronWeb)
     if(!tronWeb.isAddress(recipient)) throw new Error('Enter a valid TRON Mainnet recipient address.')
     const units = parseTokenUnits(amount)
-    const [paused,enabled,supply,reserve,tokenVault,authorizedToken,recipientLocked,vaultOwner] = await Promise.all([
+    const [paused,enabled,supply,reserve,reserveGetter,tokenVault,authorizedToken,recipientLocked,vaultOwner] = await Promise.all([
       token.paused().call(),token.mintingEnabled().call(),token.totalSupply().call(),
-      tronWeb.trx.getBalance(vaultAddress),token.reserveVault().call(),vault.authorizedToken().call(),
+      tronWeb.trx.getBalance(vaultAddress),vault.reserveBalance().call(),token.reserveVault().call(),vault.authorizedToken().call(),
       token.isLocked(recipient).call(),vault.owner().call(),
     ])
     if(paused||!enabled) throw new Error('Minting is paused or disabled. Complete the owner activation step first.')
     if(recipientLocked!==true) throw new Error('Recipient must be locked before minting. Use Lock recipient, then refresh and retry.')
     if(!addressesEqual(tronWeb,vaultOwner,expectedOwner)) throw new Error('Reserve vault owner does not match the configured platform owner.')
     if(!addressesEqual(tronWeb,tokenVault,vaultAddress)||!addressesEqual(tronWeb,authorizedToken,tokenAddress)) throw new Error('Token/vault authorization is not valid.')
+    if(BigInt(String(reserve))!==BigInt(String(reserveGetter))) throw new Error('Vault reserve getter does not match the actual native TRX balance.')
     if(BigInt(String(reserve))<BigInt(String(supply))+BigInt(units)) throw new Error('Insufficient uncommitted native TRX reserve for this mint.')
     const result = await sendAndVerifyContractCall(tronWeb,token.mint(recipient,units),feeCapSun)
     setLastTx(result.txID); setNotice(amount+' TRӾ issued to '+recipient+'. The recipient starts locked by contract default.')
@@ -325,9 +383,21 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
     {step&&<div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
     <div className="trax-addresses">
-      <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
-      <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Automatically filled after vault deployment"/></label>
-      <div className="button-row"><button type="button" className="outline-button" disabled={busy||(!tokenAddress&&!vaultAddress)} onClick={()=>{setTokenAddress('');setVaultAddress('');setSnapshot(null);setLastTx('');setError('');setNotice('Contract address fields cleared. Deploy or enter verified Mainnet contract addresses.') ;try{saveContractAddresses({tokenAddress:'',vaultAddress:''})}catch{}}}>Clear contract addresses</button></div>
+      <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>{setTokenAddress(e.target.value.trim());setSnapshot(null);setContractVerification(previous=>({...previous,token:null,reciprocalLinksValid:null}))}} placeholder="Deploy token or paste verified Mainnet contract"/></label>
+      <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>{setVaultAddress(e.target.value.trim());setSnapshot(null);setContractVerification(previous=>({...previous,vault:null,reciprocalLinksValid:null}))}} placeholder="Automatically filled after vault deployment"/></label>
+      <div className="button-row"><button type="button" className="outline-button" disabled={busy||(!tokenAddress&&!vaultAddress)} onClick={()=>{setTokenAddress('');setVaultAddress('');setSnapshot(null);setContractVerification({token:null,vault:null,reciprocalLinksValid:null});setLastTx('');setError('');setNotice('Contract address fields cleared. Deploy or enter verified Mainnet contract addresses.') ;try{saveContractAddresses({tokenAddress:'',vaultAddress:''})}catch{}}}>Clear contract addresses</button></div>
+      <div className="button-row">
+        <button type="button" className="secondary-button" disabled={!configuredOwnerMatches||busy||(!tokenAddress&&!vaultAddress)} onClick={verifyEnteredContracts}><ShieldCheck size={15}/> Verify entered contracts</button>
+      </div>
+      {contractVerification.token&&<div className="trax-balance-note">
+        TRӾ token: {contractVerification.token.metadataVerified&&contractVerification.token.ownerVerified?'VERIFIED': 'NOT VERIFIED'} · {shorten(contractVerification.token.address)}
+        {contractVerification.token.error?' · '+contractVerification.token.error:''}
+      </div>}
+      {contractVerification.vault&&<div className="trax-balance-note">
+        Reserve vault: {contractVerification.vault.bytecodeVerified&&contractVerification.vault.ownerVerified&&contractVerification.vault.reserveVerified?'VERIFIED':'NOT VERIFIED'} · {shorten(contractVerification.vault.address)}
+        {contractVerification.vault.error?' · '+contractVerification.vault.error:''}
+      </div>}
+      {contractVerification.reciprocalLinksValid!==null&&<div className="trax-balance-note">Reciprocal links: {contractVerification.reciprocalLinksValid?'VERIFIED':'NOT LINKED'}</div>}
       <div className="button-row"><button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress&&vaultAddress)} onClick={deployMissingContracts}><Rocket size={15}/> {tokenAddress||vaultAddress?'Deploy missing contract':'Deploy both contracts automatically'}</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy vault only</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy token only</button></div>
       <p className="trax-help">The combined action deploys the vault first and the token second. TronLink asks you to review and sign each deployment separately. Confirmed contract addresses are saved automatically; no transaction is sent without your wallet approval.</p>
       <div className="button-row"><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={authorizeVault}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={linkToken}>2. Link vault in token</button></div>
@@ -349,6 +419,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
       {snapshot&&<div className="trax-checks">
         <span className={snapshot.metadataValid?'ok':'bad'}>{snapshot.metadataValid?'✓':'!'} Exact TRӾ / TRX / 6 decimals</span>
         <span className={snapshot.linksValid?'ok':'bad'}>{snapshot.linksValid?'✓':'!'} Reciprocal vault authorization</span>
+        <span className={snapshot.reserveReadingConsistent?'ok':'bad'}>{snapshot.reserveReadingConsistent?'✓':'!'} Reserve getter matches native balance</span>
         <span className={snapshot.backed?'ok':'bad'}>{snapshot.backed?'✓':'!'} Reserve covers total supply</span>
       </div>}
     </div>
