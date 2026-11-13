@@ -282,67 +282,110 @@ test('TRON deployment never broadcasts if signer recovery rejects the connected 
   assert.equal(broadcasts, 0)
 })
 
-test('TRON permission preflight requires ENOUGH_PERMISSION before broadcast', async () => {
-  const transaction = { txID: 'a'.repeat(64), raw_data: {}, raw_data_hex: '01', signature: ['b'.repeat(130)] }
-  const accepted = await assertTransactionPermission({
-    trx: { getSignWeight: async () => ({ result: { code: 'ENOUGH_PERMISSION' } }) },
-  }, transaction)
-  assert.equal(accepted.result.code, 'ENOUGH_PERMISSION')
-  await assert.rejects(
-    () => assertTransactionPermission({ trx: { getSignWeight: async () => ({ result: { code: 'NOT_ENOUGH_PERMISSION' } }) } }, transaction),
-    /permission threshold/,
-  )
-  await assert.rejects(
-    () => assertTransactionPermission({ trx: { getSignWeight: async () => ({ result: { code: 'PERMISSION_ERROR', message: 'bad permission' } }) } }, transaction),
-    /PERMISSION_ERROR/,
-  )
-  await assert.rejects(() => assertTransactionPermission({}, transaction), /preflight is unavailable/)
-})
+const TEST_SIGNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const TEST_SIGNER_HEX = '418bedec556c0b3179c8d86debf512c69ac28d74a4'
+const TEST_TRONWEB = {
+  isAddress: value => value === TEST_SIGNER,
+  address: { toHex: value => value === TEST_SIGNER ? TEST_SIGNER_HEX : String(value).toLowerCase() },
+}
 
-test('TRON permission errors explain multisignature threshold and weight', async () => {
-  await assert.rejects(
-    () => assertTransactionPermission({
-      trx: { getSignWeight: async () => ({
-        result: { code: 'NOT_ENOUGH_PERMISSION', message: 'insufficient weight' },
-        current_weight: 1,
-        permission: { id: 2, threshold: 2 },
-        approved_list: ['T' + '1'.repeat(33)],
-      }) },
-    }, { txID: 'a'.repeat(64), raw_data: {}, raw_data_hex: '01', signature: ['b'.repeat(130)] }),
-    error => {
-      assert.match(error.message, /NOT_ENOUGH_PERMISSION/)
-      assert.match(error.message, /collected weight 1/)
-      assert.match(error.message, /required threshold 2/)
-      assert.match(error.message, /multisignature flow/)
-      return true
-    },
-  )
-})
-
-
-test('TRON permission preflight accepts complete sufficient weight evidence when Android omits result.code', async () => {
-  const transaction = { txID: 'a'.repeat(64), raw_data: {}, raw_data_hex: '01', signature: ['b'.repeat(130)] }
-  const response = {
-    current_weight: 1,
-    permission: { id: 2, threshold: 1 },
-    approved_list: ['418bedec556c0b3179c8d86debf512c69ac28d74a4'],
+function permissionResponse({ code, weight = 1, threshold = 1, permissionId = 0, keys = [{ address: TEST_SIGNER_HEX, weight: 1 }], approved = [TEST_SIGNER_HEX] } = {}) {
+  const result = {}
+  if (code !== undefined) result.code = code
+  return {
+    result,
+    current_weight: weight,
+    permission: { id: permissionId, permission_name: permissionId === 0 ? 'owner' : 'active', threshold, keys },
+    approved_list: approved,
   }
+}
+
+test('TRON permission preflight accepts explicit ENOUGH_PERMISSION with matching signer and key', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: { contract: [{}] }, signature: ['b'.repeat(130)] }
+  const response = permissionResponse({ code: 'ENOUGH_PERMISSION' })
   const accepted = await assertTransactionPermission({
+    ...TEST_TRONWEB,
     trx: { getSignWeight: async () => response },
-  }, transaction)
+  }, transaction, TEST_SIGNER)
   assert.strictEqual(accepted, response)
 })
 
-test('TRON permission preflight still rejects insufficient weight when result.code is omitted', async () => {
-  const transaction = { txID: 'a'.repeat(64), raw_data: {}, raw_data_hex: '01', signature: ['b'.repeat(130)] }
+test('TRON permission preflight accepts proto3 result:{} when node weight and authorized key prove threshold', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: { contract: [{}] }, signature: ['b'.repeat(130)] }
+  const response = permissionResponse()
+  const accepted = await assertTransactionPermission({
+    ...TEST_TRONWEB,
+    trx: { getSignWeight: async () => response },
+  }, transaction, TEST_SIGNER)
+  assert.strictEqual(accepted, response)
+})
+
+test('TRON permission preflight accepts explicit numeric proto enum zero as ENOUGH_PERMISSION', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: { contract: [{}] }, signature: ['b'.repeat(130)] }
+  const response = permissionResponse({ code: 0 })
+  const accepted = await assertTransactionPermission({
+    ...TEST_TRONWEB,
+    trx: { getSignWeight: async () => response },
+  }, transaction, TEST_SIGNER)
+  assert.strictEqual(accepted, response)
+})
+
+test('TRON permission preflight rejects explicit insufficient weight and unknown errors', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: { contract: [{}] }, signature: ['b'.repeat(130)] }
   await assert.rejects(
     () => assertTransactionPermission({
-      trx: { getSignWeight: async () => ({
-        current_weight: 1,
-        permission: { id: 2, threshold: 2 },
-        approved_list: ['418bedec556c0b3179c8d86debf512c69ac28d74a4'],
-      }) },
-    }, transaction),
-    /permission threshold/,
+      ...TEST_TRONWEB,
+      trx: { getSignWeight: async () => permissionResponse({ code: 'NOT_ENOUGH_PERMISSION', weight: 1, threshold: 2, permissionId: 0 }) },
+    }, transaction, TEST_SIGNER),
+    /NOT_ENOUGH_PERMISSION/,
+  )
+  await assert.rejects(
+    () => assertTransactionPermission({
+      ...TEST_TRONWEB,
+      trx: { getSignWeight: async () => permissionResponse({ code: 'PERMISSION_ERROR' }) },
+    }, transaction, TEST_SIGNER),
+    /PERMISSION_ERROR/,
+  )
+})
+
+test('TRON permission preflight rejects missing signer approval even if reported weight meets threshold', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: { contract: [{}] }, signature: ['b'.repeat(130)] }
+  await assert.rejects(
+    () => assertTransactionPermission({
+      ...TEST_TRONWEB,
+      trx: { getSignWeight: async () => permissionResponse({ approved: [] }) },
+    }, transaction, TEST_SIGNER),
+    /approved key/,
+  )
+})
+
+test('TRON permission preflight rejects a connected signer missing from permission.keys', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: { contract: [{}] }, signature: ['b'.repeat(130)] }
+  await assert.rejects(
+    () => assertTransactionPermission({
+      ...TEST_TRONWEB,
+      trx: { getSignWeight: async () => permissionResponse({ keys: [{ address: '418888888888888888888888888888888888888888', weight: 1 }] }) },
+    }, transaction, TEST_SIGNER),
+    /approved key/,
+  )
+})
+
+test('TRON permission preflight rejects a permission ID mismatch', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: { contract: [{ Permission_id: 2 }] }, signature: ['b'.repeat(130)] }
+  await assert.rejects(
+    () => assertTransactionPermission({
+      ...TEST_TRONWEB,
+      trx: { getSignWeight: async () => permissionResponse({ permissionId: 0 }) },
+    }, transaction, TEST_SIGNER),
+    /permission ID/,
+  )
+})
+
+test('TRON permission preflight requires a valid connected signer and provider method', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: { contract: [{}] }, signature: ['b'.repeat(130)] }
+  await assert.rejects(() => assertTransactionPermission({}, transaction, TEST_SIGNER), /preflight is unavailable/)
+  await assert.rejects(
+    () => assertTransactionPermission({ trx: { getSignWeight: async () => permissionResponse() } }, transaction, TEST_SIGNER),
+    /Expected connected TRON signer/,
   )
 })
