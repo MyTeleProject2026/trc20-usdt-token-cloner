@@ -39,5 +39,5 @@ test('native TRX reserve vault permits releases only through the authorized toke
   assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
   assert.ok(vaultSource.includes('address(this).balance >= amount'))
   assert.ok(vaultSource.includes('constructor() { owner = msg.sender; }'))
-  assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\\(/i.test(vaultSource))
+  assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
 })
