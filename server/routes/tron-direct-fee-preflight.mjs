@@ -169,22 +169,13 @@ export function createTronDirectFeePreflightRouter({
       return res.status(400).json({ success: false, status: 'native-trx-amount-too-large', message: 'Native TRX amount must fit the safe SUN amount range.' })
     }
 
-    const routerAddress = clean(env.TRON_DIRECT_PAYOUT_ROUTER_ADDRESS, 64)
-    const configuredToken = clean(env.TRON_DIRECT_TRAX_TOKEN_ADDRESS, 64)
-    const configuredVault = clean(env.TRON_DIRECT_TRAX_VAULT_ADDRESS, 64)
-    const configuredNativeTreasury = clean(env.TRON_DIRECT_NATIVE_TREASURY_ADDRESS, 64)
-    if (![routerAddress, configuredToken, configuredVault, configuredNativeTreasury].every((address) =>
-      ADDRESS_RE.test(address) && isValidTronAddress(address))) {
+      const routerAddress = clean(env.TRON_DIRECT_PAYOUT_ROUTER_ADDRESS, 64)
+    if (!ADDRESS_RE.test(routerAddress) || !isValidTronAddress(routerAddress)) {
       return res.status(503).json({
         success: false,
-        status: 'direct-payout-contracts-not-configured',
-        requiredEnvironment: [
-          'TRON_DIRECT_PAYOUT_ROUTER_ADDRESS',
-          'TRON_DIRECT_TRAX_TOKEN_ADDRESS',
-          'TRON_DIRECT_TRAX_VAULT_ADDRESS',
-          'TRON_DIRECT_NATIVE_TREASURY_ADDRESS',
-        ],
-        message: 'The direct owner-paid payout contracts have not been configured for Mainnet. No transaction was prepared.',
+        status: 'direct-payout-router-not-configured',
+        requiredEnvironment: ['TRON_DIRECT_PAYOUT_ROUTER_ADDRESS'],
+        message: 'Configure the deployed direct dual-asset payout router Mainnet address. The backend reads its token and treasury links from chain state.',
       })
     }
 
@@ -226,11 +217,28 @@ export function createTronDirectFeePreflightRouter({
       }
 
       const rpcBase = { owner_address: ownerHex, contract_address: routerHex, function_selector: PAYOUT_SELECTOR, parameter, call_value: 0, visible: false }
-      const [simulation, resourcesPayload, accountPayload, chainParameters] = await Promise.all([
+      const readRouterAddress = async (functionSelector) => {
+        const result = await post('walletsolidity/triggerconstantcontract', {
+          owner_address: ownerHex,
+          contract_address: routerHex,
+          function_selector: functionSelector,
+          parameter: '',
+          visible: false,
+        })
+        const encoded = Array.isArray(result?.constant_result) ? String(result.constant_result[0] || '') : ''
+        const hex = encoded.replace(/^0x/i, '').toLowerCase()
+        if (result?.result?.result !== true || !/^[0-9a-f]{64}$/.test(hex)) throw new Error('router-link-read-failed')
+        const base58 = tronWeb.address.fromHex('41' + hex.slice(-40))
+        if (!isValidTronAddress(base58)) throw new Error('router-link-address-invalid')
+        return base58
+      }
+      const [simulation, resourcesPayload, accountPayload, chainParameters, tokenAddress, nativeTreasuryAddress] = await Promise.all([
         post('walletsolidity/triggerconstantcontract', rpcBase),
         post('walletsolidity/getaccountresource', { address: ownerHex, visible: false }),
         post('walletsolidity/getaccount', { address: ownerHex, visible: false }),
         post('walletsolidity/getchainparameters', {}),
+        readRouterAddress('traxToken()'),
+        readRouterAddress('nativeTreasury()'),
       ])
 
       if (simulation?.result?.result !== true) {
@@ -313,6 +321,8 @@ export function createTronDirectFeePreflightRouter({
         ownerAddress: auth.address,
         recipientAddress,
         routerAddress,
+        tokenAddress,
+        nativeTreasuryAddress,
         nativeTrxAmountSun: nativeTrxAmount.toString(),
         nativeTrxAmount: trxDecimal(nativeTrxAmount),
         traxAmountBaseUnits: traxAmount.toString(),
