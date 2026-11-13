@@ -60,3 +60,45 @@ test('direct signed-byte estimate includes transaction envelope and 65-byte owne
   assert.equal(bytes, 100 + 1 + 1 + 1 + 1 + 65)
   assert.throws(() => estimateDirectSignedTransactionBytes('abc'), /length|invalid/i)
 })
+
+import express from 'express'
+import { once } from 'node:events'
+import { readFile } from 'node:fs/promises'
+import { createTronDirectFeePreflightRouter } from '../server/routes/tron-direct-fee-preflight.mjs'
+
+test('direct preflight has no sponsor-wallet configuration dependency', async () => {
+  const source = await readFile(new URL('../server/routes/tron-direct-fee-preflight.mjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /SPONSOR_[A-Z_]+_ADDRESS|feeSponsorAddress|assetSponsorAddress/)
+})
+
+test('direct owner fee-preflight requires the private owner session and makes no provider call before authentication', async (t) => {
+  let providerCalls = 0
+  const app = express()
+  app.use(express.json())
+  app.use('/api/tron', createTronDirectFeePreflightRouter({
+    env: {
+      FRONTEND_ORIGIN: 'https://owner.example',
+      OWNER_WALLET_ADDRESS: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+    },
+    fetchImpl: async () => { providerCalls += 1; throw new Error('must-not-call-provider') },
+  }))
+  const server = app.listen(0, '127.0.0.1')
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  await once(server, 'listening')
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/tron/direct-fee-preflight', {
+    method: 'POST',
+    headers: {
+      Origin: 'https://owner.example',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      recipientAddress: 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk',
+      nativeTrxAmountSun: '1000000',
+      traxAmountBaseUnits: '100000000',
+      payoutReference: '0x' + '1'.repeat(64),
+    }),
+  })
+  assert.equal(response.status, 401)
+  assert.equal((await response.json()).error, 'owner-session-required')
+  assert.equal(providerCalls, 0)
+})
