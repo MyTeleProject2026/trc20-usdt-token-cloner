@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.25;
+pragma solidity ^0.8.25;
 
 /// @notice ERC-2771-style context for owner-signed TRON meta-transactions.
 /// @dev A forwarder must be explicitly trusted; the final 20 calldata bytes are
