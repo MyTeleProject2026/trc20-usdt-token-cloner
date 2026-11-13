@@ -56,6 +56,33 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [notice,setNotice] = useState('')
   const [lastTx,setLastTx] = useState('')
   const [step,setStep] = useState('')
+  const [resourceStatus,setResourceStatus] = useState(null)
+  const [resourceLoading,setResourceLoading] = useState(false)
+  const [resourceError,setResourceError] = useState('')
+  const resourceApi = 'https://tron-transfer-resource-api.onrender.com'
+
+  const refreshWalletResources = useCallback(async () => {
+    if (!walletReady || !connectedAddress) return
+    setResourceLoading(true)
+    setResourceError('')
+    try {
+      const response = await fetch(resourceApi + '/v1/resources/' + encodeURIComponent(connectedAddress), {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(12000),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.message || payload.error || 'Resource API request failed (' + response.status + ').')
+      if (payload.network !== 'TRON Mainnet' || payload.address !== connectedAddress) throw new Error('Resource API returned a mismatched network or wallet address.')
+      setResourceStatus(payload)
+    } catch (cause) {
+      setResourceError(cause instanceof Error ? cause.message : String(cause))
+      setResourceStatus(null)
+    } finally {
+      setResourceLoading(false)
+    }
+  }, [walletReady, connectedAddress])
+
+  useEffect(() => { refreshWalletResources() }, [refreshWalletResources])
 
   useEffect(() => {
     try { saveContractAddresses({ tokenAddress, vaultAddress }) } catch {}
@@ -334,6 +361,29 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     </div>
 
     <div className="trax-actions">
+    <div className="trax-actions trax-resource-panel">
+      <div className="trax-actions-heading">
+        <div><h3>Automatic TRON Energy &amp; Bandwidth check</h3><p className="trax-resource-subtitle">Live Mainnet account resources for the connected wallet</p></div>
+        <button type="button" className="secondary-button" disabled={!walletReady||resourceLoading} onClick={refreshWalletResources}><RefreshCw size={15}/> {resourceLoading?'Checking…':'Refresh resources'}</button>
+      </div>
+      {resourceError&&<div className="notice notice-error"><AlertTriangle size={15}/><div><b>Live resource check unavailable</b><p>{resourceError}</p></div></div>}
+      {resourceStatus&&<div className="trax-stats">
+        <article><span>Available Energy</span><b>{Number(resourceStatus.energy.available).toLocaleString()}</b></article>
+        <article><span>Free Bandwidth available</span><b>{Number(resourceStatus.bandwidth.freeAvailable).toLocaleString()}</b></article>
+        <article><span>Staked / delegated Bandwidth</span><b>{Number(resourceStatus.bandwidth.stakedOrDelegatedAvailable).toLocaleString()}</b></article>
+        <article><span>Wallet native TRX</span><b>{formatTokenUnits(resourceStatus.balanceSun)} TRX</b></article>
+        <article><span>Energy fee parameter</span><b>{resourceStatus.chainParameters.energyFeeSunPerUnit==null?'Unavailable':Number(resourceStatus.chainParameters.energyFeeSunPerUnit).toLocaleString()+' SUN'}</b></article>
+        <article><span>Bandwidth fee parameter</span><b>{resourceStatus.chainParameters.bandwidthFeeSunPerByte==null?'Unavailable':Number(resourceStatus.chainParameters.bandwidthFeeSunPerByte).toLocaleString()+' SUN'}</b></article>
+      </div>}
+      {resourceStatus&&<p className="fine-print">Checked {new Date(resourceStatus.checkedAt).toLocaleString()}. {resourceStatus.estimateNote} Deployment energy is not guessed from transfer estimates.</p>}
+      <div className="trax-resource-offer">
+        <b>Public promotional Energy source (manual claim)</b>
+        <p>TronRental advertises a one-time 131,000 Energy allocation, but requires an account and access code from provider support. The offer is described for a USDT transfer and is not verified as sufficient for deploying these contracts. No API or secret-free server-to-server claim is published.</p>
+        <a href="https://tronrental.com/en/free-tron-energy" target="_blank" rel="noreferrer">Review provider terms and claim requirements <ExternalLink size={12}/></a>
+      </div>
+      <p className="fine-print">This service is read-only. It cannot create Energy or Bandwidth, delegate resources, sponsor fees, sign, or broadcast transactions. Free Bandwidth is a protocol allowance; TRON has no equivalent protocol-level free Energy quota.</p>
+    </div>
+
       <div className="trax-actions-heading"><h3>On-chain verification</h3><button type="button" className="secondary-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={refresh}><RefreshCw size={15}/> Refresh</button></div>
       {snapshot&&<div className="trax-stats">
         <article><span>Native TRX in vault</span><b>{formatTokenUnits(snapshot.reserveSun)} TRX</b></article>
