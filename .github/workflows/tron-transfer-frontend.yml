@@ -1,9 +1,12 @@
 name: Tron Transfer Frontend
 on:
   push:
-    branches: [main]
+    branches: [main, ui/modern-crypto-dashboard-theme]
     paths:
       - 'Frontend-Tron-Transfer/**'
+      - 'contracts/Restricted1TRAX.sol'
+      - 'contracts/OneTraxReserveVault.sol'
+      - 'tronbox-config.cjs'
       - 'server/routes/tron-transfer.mjs'
       - 'tests/tron-transfer-integration-source.test.mjs'
       - '.github/workflows/tron-transfer-frontend.yml'
