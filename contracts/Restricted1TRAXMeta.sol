@@ -36,7 +36,7 @@ contract Restricted1TRAXMeta is MetaTxContext {
     event Approval(address indexed tokenOwner, address indexed spender, uint256 value);
     event RecipientLockChanged(address indexed account, bool locked);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event OwnerRedemption(address indexed holder, address indexed recipient, uint256 amount, bytes32 indexed reference);
+    event OwnerRedemption(address indexed holder, address indexed recipient, uint256 amount, bytes32 indexed redemptionReference);
     event MintingStatusChanged(bool enabled);
     event PauseStatusChanged(bool paused);
     event ReserveVaultConfigured(address indexed vault);
@@ -119,7 +119,7 @@ contract Restricted1TRAXMeta is MetaTxContext {
     /// @notice Called only by the configured atomic payout router.
     function mintForPayout(address recipient, uint256 amount, bytes32 payoutReference) external {
         require(msg.sender == payoutRouter && payoutRouter != address(0), "router-only");
-        require(payoutReference != bytes32(0), "reference-required");
+        require(payoutReference != bytes32(0), "redemptionReference-required");
         _mintRestricted(recipient, amount);
         emit PayoutMint(recipient, amount, payoutReference);
     }
@@ -136,17 +136,17 @@ contract Restricted1TRAXMeta is MetaTxContext {
         emit Transfer(address(0), recipient, amount);
     }
 
-    function redeemForOwner(address holder, address payable recipient, uint256 amount, bytes32 reference)
+    function redeemForOwner(address holder, address payable recipient, uint256 amount, bytes32 redemptionReference)
         external onlyOwner nonReentrant
     {
         require(!paused && reserveVault != address(0), "redemption-disabled");
-        require(holder != address(0) && recipient != address(0) && amount > 0 && reference != bytes32(0), "invalid-redemption");
+        require(holder != address(0) && recipient != address(0) && amount > 0 && redemptionReference != bytes32(0), "invalid-redemption");
         require(_balances[holder] >= amount, "insufficient-holder-balance");
         _balances[holder] -= amount;
         _totalSupply -= amount;
-        require(IOneTraxReserveVaultMeta(reserveVault).releaseForRedemption(recipient, amount, reference), "reserve-release-failed");
+        require(IOneTraxReserveVaultMeta(reserveVault).releaseForRedemption(recipient, amount, redemptionReference), "reserve-release-failed");
         emit Transfer(holder, address(0), amount);
-        emit OwnerRedemption(holder, recipient, amount, reference);
+        emit OwnerRedemption(holder, recipient, amount, redemptionReference);
     }
 
     function transfer(address to, uint256 amount) external returns (bool) {
