@@ -91,6 +91,8 @@ contract TronMetaTxForwarder {
         require(request.gasLimit >= 25000 && request.gasLimit <= 5_000_000, "invalid-gas-limit");
         require(_recover(requestDigest(request), signature) == request.from, "invalid-signature");
 
+        require(gasleft() > request.gasLimit + request.gasLimit / 63 + 5000, "insufficient-forwarder-gas");
+
         // Increment before the external call to prevent replay/reentrancy.
         nonces[request.from] = request.nonce + 1;
         (success, returnData) = request.to.call{gas: request.gasLimit}(
