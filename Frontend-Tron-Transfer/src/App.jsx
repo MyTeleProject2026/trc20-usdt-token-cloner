@@ -118,7 +118,7 @@ export default function App() {
 
   async function connectTronLink() {
     const provider=await discoverTronLinkProvider(window)
-    if(!provider) throw new Error('No compatible injected TRON wallet was detected. Open this page in your wallet's DApp browser or enable its browser extension, then reconnect.')
+    if(!provider) throw new Error("No compatible injected TRON wallet was detected. Open this page in your wallet's DApp browser or enable its browser extension, then reconnect.")
     const {address,tronWeb}=await requestTronLinkConnection(provider,window)
     if(!isValidAddress(address)) throw new Error('The selected wallet returned an invalid TRON account address. Select a valid account and retry.')
     let node=''
