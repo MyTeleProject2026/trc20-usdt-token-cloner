@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, verifyTrxTokenContract, verifyTrxReserveVaultContract } from '../src/trax-mainnet.mjs'
 
 
 test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
@@ -139,4 +139,84 @@ test('TRӾ deployment builds, signs and broadcasts through the same injected Tro
     if (originalWindow === undefined) delete globalThis.window
     else globalThis.window = originalWindow
   }
+})
+
+const TEST_OWNER = 'T' + '2'.repeat(33)
+const TEST_TOKEN = 'T' + '3'.repeat(33)
+const TEST_VAULT = 'T' + '4'.repeat(33)
+
+function makeReadOnlyWallet({ tokenOwner = TEST_OWNER, vaultOwner = TEST_OWNER, reserve = '120000000', totalSupply = '100000000', tokenVault = TEST_VAULT, authorizedToken = TEST_TOKEN } = {}) {
+  const call = (value) => ({ call: async () => value })
+  const token = {
+    owner: () => call(tokenOwner),
+    name: () => call('TRӾ'),
+    symbol: () => call('TRX'),
+    decimals: () => call(6),
+    totalSupply: () => call(totalSupply),
+    reserveVault: () => call(tokenVault),
+    paused: () => call(true),
+    mintingEnabled: () => call(false),
+  }
+  const vault = {
+    owner: () => call(vaultOwner),
+    authorizedToken: () => call(authorizedToken),
+    reserveBalance: () => call(reserve),
+  }
+  const tronWeb = {
+    fullNode: { host: 'https://api.trongrid.io' },
+    defaultAddress: { base58: TEST_OWNER },
+    isAddress: (value) => /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(String(value)),
+    address: { toHex: (value) => String(value).toLowerCase() },
+    trx: {
+      getContract: async () => ({ bytecode: '60006000' }),
+      getBalance: async () => Number(reserve),
+    },
+    contract: () => ({ at: async (address) => address === TEST_TOKEN ? token : vault }),
+  }
+  return { tronWeb, address: TEST_OWNER }
+}
+
+test('owner wallet freshness check rejects a changed active TronLink account', () => {
+  const wallet = makeReadOnlyWallet()
+  wallet.tronWeb.defaultAddress.base58 = TEST_TOKEN
+  assert.throws(() => assertMainnetWallet(wallet), /active TronLink account changed/)
+})
+
+test('independent TRӾ token verification checks code, metadata and owner without writes', async () => {
+  const wallet = makeReadOnlyWallet()
+  const result = await verifyTrxTokenContract(wallet, TEST_TOKEN, TEST_OWNER)
+  assert.equal(result.bytecodeVerified, true)
+  assert.equal(result.metadataVerified, true)
+  assert.equal(result.ownerVerified, true)
+  assert.equal(result.totalSupply, '100000000')
+  assert.equal(result.paused, true)
+  assert.equal(result.mintingEnabled, false)
+})
+
+test('TRӾ token verification rejects owner mismatch and wallet-as-contract address', async () => {
+  const wallet = makeReadOnlyWallet({ tokenOwner: TEST_TOKEN })
+  await assert.rejects(() => verifyTrxTokenContract(wallet, TEST_TOKEN, TEST_OWNER), /owner does not match/)
+  await assert.rejects(() => verifyTrxTokenContract(wallet, TEST_OWNER, TEST_OWNER), /your wallet/)
+})
+
+test('independent reserve-vault verification reconciles contract reserve with native TRX balance', async () => {
+  const wallet = makeReadOnlyWallet({ reserve: '120000000' })
+  const result = await verifyTrxReserveVaultContract(wallet, TEST_VAULT, TEST_OWNER)
+  assert.equal(result.bytecodeVerified, true)
+  assert.equal(result.ownerVerified, true)
+  assert.equal(result.reserveVerified, true)
+  assert.equal(result.reserveSun, '120000000')
+})
+
+test('reserve-vault verification rejects reserve getter/balance mismatch', async () => {
+  const wallet = makeReadOnlyWallet({ reserve: '100000000' })
+  const call = (value) => ({ call: async () => value })
+  const originalContract = wallet.tronWeb.contract
+  wallet.tronWeb.contract = () => ({ at: async () => ({
+    owner: () => call(TEST_OWNER),
+    authorizedToken: () => call(TEST_TOKEN),
+    reserveBalance: () => call('120000000'),
+  }) })
+  await assert.rejects(() => verifyTrxReserveVaultContract(wallet, TEST_VAULT, TEST_OWNER), /does not match/)
+  wallet.tronWeb.contract = originalContract
 })
