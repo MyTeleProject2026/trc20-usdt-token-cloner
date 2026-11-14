@@ -7,6 +7,11 @@ const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 test('TRӾ workspace renders the dedicated Mainnet contract manager', async () => {
   const app = await read('../src/App.jsx')
   const panel = await read('../src/TRXMainnetPanel.jsx')
+  assert.ok(panel.includes("const DEFAULT_FEE_CAP = '60'"))
+  const combinedStart = panel.indexOf('const deployMissingContracts')
+  const combinedEnd = panel.indexOf('const deployVault =', combinedStart)
+  const combined = panel.slice(combinedStart, combinedEnd)
+  assert.equal([...combined.matchAll(/feeLimitSun: feeCapSun/g)].length, 2)
   for (const value of ['TRXMainnetPanel']) assert.ok(app.includes(value))
   for (const value of [
     'TRӾ smart-contract manager',
