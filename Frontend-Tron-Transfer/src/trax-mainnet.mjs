@@ -466,14 +466,16 @@ export function decodeTronBroadcastFailure(tronWeb, broadcast, txID) {
 }
 
 export function formatTronLinkError(error, stage = 'TRON operation failed') {
+  // Prefer serializing structured provider payloads so code/slug/status are
+  // not lost when a convenience .message field is also present.
   const candidates = [
+    error?.response?.data,
+    error?.data,
+    error,
     error?.message,
     error?.response?.data?.message,
     error?.response?.data?.Error,
-    error?.response?.data,
-    error?.data,
     error?.error,
-    error,
   ]
   let raw = ''
   for (const candidate of candidates) {
