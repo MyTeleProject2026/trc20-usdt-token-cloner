@@ -110,8 +110,8 @@ async function postNode(tronWeb, path, body) {
     })
     if (response.ok) return response.json()
     if (response.status === 429 && attempt < NODE_MAX_RETRIES_429) {
-      // The shared queue also blocks other app requests during this cooldown.
-      await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs(response, attempt, detail)))
+      // Re-enqueue immediately; the shared queue enforces the provider cooldown
+      // once for this tab and prevents other app requests from bypassing it.
       continue
     }
     throw new Error('TRON Mainnet node returned HTTP ' + response.status + ' for ' + path
