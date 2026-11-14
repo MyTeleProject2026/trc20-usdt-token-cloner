@@ -58,6 +58,7 @@ test('connection waits for TronWeb signer readiness after account approval', asy
         provider.tronWeb = {
           ready: true,
           defaultAddress: { base58: ownerAddress },
+          isAddress: value => value === ownerAddress,
           trx: { sign: async () => ({}) },
         }
       }, 30)
