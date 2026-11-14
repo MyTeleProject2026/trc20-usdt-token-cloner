@@ -11,7 +11,7 @@ const ZERO = '0x0000000000000000000000000000000000000000'
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const DEFAULT_RECIPIENT = 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk'
-const DEFAULT_FEE_CAP = '300'
+const DEFAULT_FEE_CAP = '60'
 
 function toSun(value) {
   const units = parseTokenUnits(value)
