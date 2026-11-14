@@ -530,6 +530,10 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
   verifyDeployedContract = async (client, address) => client.trx.getContract(address),
+  verifyDeployedOwner = async (client, artifact, address) => {
+    const instance = await client.contract(artifact.abi).at(address)
+    return instance.owner().call()
+  },
   readResources = getMainnetAccountResourceSnapshot,
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
@@ -665,7 +669,14 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   if (receipt?.receipt?.result !== 'SUCCESS') throw new Error('Deployment transaction is not confirmed successful. Transaction: ' + unsigned.txID)
   const deployed = await verifyDeployedContract(tronWeb, predictedAddress)
   if (!deployed?.bytecode) throw new Error('Deployment receipt succeeded, but deployed contract bytecode could not be verified. Transaction: ' + unsigned.txID)
-  return { address: predictedAddress, txID: unsigned.txID, receipt, resourceBudget }
+  let deployedOwner
+  try { deployedOwner = await verifyDeployedOwner(tronWeb, artifact, predictedAddress) } catch (error) {
+    throw new Error('Deployment receipt and bytecode were verified, but the deployed contract owner could not be read. Transaction: ' + unsigned.txID + '. ' + (error?.message || String(error)))
+  }
+  if (!addressesEqual(tronWeb, deployedOwner, wallet.address)) {
+    throw new Error('Deployment receipt succeeded, but on-chain owner() does not match the TronLink deployer. Expected ' + wallet.address + '; received ' + deployedOwner + '. Transaction: ' + unsigned.txID)
+  }
+  return { address: predictedAddress, txID: unsigned.txID, receipt, resourceBudget, owner: deployedOwner }
 }
 
 export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000) {
