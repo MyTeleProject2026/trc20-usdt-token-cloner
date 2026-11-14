@@ -234,11 +234,16 @@ export async function getMainnetAccountPermissionSnapshot(tronWeb, address) {
 
 export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
   if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet wallet address.')
-  const [accountResources, chainParameters, nativeBalanceSun] = await Promise.all([
-    postNode(tronWeb, '/wallet/getaccountresource', { address, visible: true }),
-    getCachedChainParameters(tronWeb),
-    tronWeb.trx.getBalance(address),
-  ])
+  // Read through the same paced public-node queue as every other preflight call.
+  // TronWeb's convenience getBalance() bypasses this queue and can create an
+  // extra concurrent request against the same unauthenticated 3-RPS allowance.
+  const accountResources = await postNode(tronWeb, '/wallet/getaccountresource', { address, visible: true })
+  const chainParameters = await getCachedChainParameters(tronWeb)
+  const account = await postNode(tronWeb, '/wallet/getaccount', { address, visible: true })
+  if (!account || typeof account !== 'object' || account.Error) {
+    throw new Error('TRON Mainnet could not return the connected account balance.')
+  }
+  const nativeBalanceSun = account.balance ?? 0
   return normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun)
 }
 
