@@ -350,6 +350,7 @@ test('Mainnet deployment uses one injected TronLink client and completes only af
     'TestVault',
     300000000,
     {
+      createVerifier: () => tronWeb,
       readResources: async client => {
         readResourceClient = client
         return {
@@ -421,6 +422,7 @@ test('TRON deployment never broadcasts if signer recovery rejects the connected 
       'TestVault',
       300000000,
       {
+        createVerifier: () => tronWeb,
         readResources: async () => ({
           energyAvailable: '500000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
           nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
