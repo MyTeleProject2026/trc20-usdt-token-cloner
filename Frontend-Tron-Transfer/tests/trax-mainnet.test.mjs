@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, normalizeMainnetAccountResources } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot } from '../src/trax-mainnet.mjs'
 
 
 
@@ -106,6 +106,55 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
+
+test('TRON owner permission preflight detects a second signer when one key is below threshold', () => {
+  const signer = 'T' + '2'.repeat(33)
+  const other = 'T' + '3'.repeat(33)
+  const tronWeb = { address: { toHex: (value) => String(value).toLowerCase() } }
+  const snapshot = normalizeMainnetPermissionSnapshot({
+    owner_permission: {
+      id: 0,
+      permission_name: 'owner',
+      threshold: 2,
+      keys: [
+        { address: signer, weight: 1 },
+        { address: other, weight: 1 },
+      ],
+    },
+    active_permission: [{ id: 2, permission_name: 'active', threshold: 1, keys: [{ address: signer, weight: 1 }] }],
+  }, signer, tronWeb)
+  assert.equal(snapshot.permissionId, 0)
+  assert.equal(snapshot.threshold, '2')
+  assert.equal(snapshot.connectedSignerWeight, '1')
+  assert.equal(snapshot.requiredAdditionalWeight, '1')
+  assert.equal(snapshot.connectedSignerCanAuthorizeAlone, false)
+  assert.equal(snapshot.otherOwnerKeyCount, 1)
+  assert.deepEqual(snapshot.activePermissions, [{ id: 2, name: 'active', threshold: '1', keyCount: 1 }])
+})
+
+test('TRON owner permission preflight recognizes a connected key whose weight meets threshold', () => {
+  const signer = 'T' + '2'.repeat(33)
+  const tronWeb = { address: { toHex: (value) => String(value).toLowerCase() } }
+  const snapshot = normalizeMainnetPermissionSnapshot({
+    owner_permission: {
+      id: 0,
+      threshold: 2,
+      keys: [{ address: signer, weight: 2 }],
+    },
+  }, signer, tronWeb)
+  assert.equal(snapshot.connectedSignerWeight, '2')
+  assert.equal(snapshot.requiredAdditionalWeight, '0')
+  assert.equal(snapshot.connectedSignerCanAuthorizeAlone, true)
+})
+
+test('TRON owner permission preflight rejects missing and malformed thresholds', () => {
+  const signer = 'T' + '2'.repeat(33)
+  const tronWeb = { address: { toHex: (value) => String(value).toLowerCase() } }
+  assert.throws(() => normalizeMainnetPermissionSnapshot({}, signer, tronWeb), /owner permission/)
+  assert.throws(() => normalizeMainnetPermissionSnapshot({
+    owner_permission: { threshold: 'bad', keys: [{ address: signer, weight: 1 }] },
+  }, signer, tronWeb), /invalid owner permission threshold/)
+})
 
 test('TRON Mainnet resource snapshot computes remaining Energy and Bandwidth from limits minus usage', () => {
   const snapshot = normalizeMainnetAccountResources(
