@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Coins, ExternalLink, LockKeyhole, RefreshC
 import './trax-mainnet.css'
 import {
   TRON_MAINNET_HOST, TRAX_TOKEN_ARTIFACT, TRAX_VAULT_ARTIFACT,
-  addressesEqual, assertMainnetWallet, deployContractFromTronLink,
+  addressesEqual, assertMainnetWallet, deployContractFromTronLink, preflightContractDeployments,
   formatTokenUnits, getMainnetAccountPermissionSnapshot, getMainnetAccountResourceSnapshot,
   loadSavedContracts, parseTokenUnits, saveContractAddresses,
   sendAndVerifyContractCall, sendNativeTrxFromTronLink,
@@ -229,6 +229,20 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       if (!address) continue
       const deployedContract = await wallet.tronWeb.trx.getContract(address)
       if (!deployedContract?.bytecode) throw new Error('The saved '+label+' address has no verified deployed contract bytecode. Clear it and deploy the contract; do not use a wallet address here.')
+    }
+    const pendingDeployments = []
+    if (!vaultAddress) pendingDeployments.push({
+      artifact: TRAX_VAULT_ARTIFACT, contractName: 'OneTraxReserveVault', feeLimitSun: feeCapSun,
+    })
+    if (!tokenAddress) pendingDeployments.push({
+      artifact: TRAX_TOKEN_ARTIFACT, contractName: 'Restricted1TRAX', feeLimitSun: feeCapSun,
+    })
+    if (pendingDeployments.length) {
+      const preflight = await preflightContractDeployments(wallet, pendingDeployments)
+      setNotice('Combined preflight passed. Conservative estimated wallet-funded fees: '
+        + (Number(preflight.requiredTrxSun) / 1e6).toFixed(6) + ' TRX; available: '
+        + (Number(preflight.availableTrxSun) / 1e6).toFixed(6)
+        + ' TRX. TronLink will request separate approval for each deployment.')
     }
     const deployed = []
     if (!vaultAddress) {
