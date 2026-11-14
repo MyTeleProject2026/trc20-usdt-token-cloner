@@ -77,3 +77,43 @@ test('free-delegation route is Mainnet-wallet restricted and returns injected li
   assert.equal(denied.status, 403)
   assert.equal(calls, 1)
 })
+
+test('TEnergy promo routes are Mainnet-only, wallet-restricted, and use a message signature rather than a transaction', async (t) => {
+  const { createServer } = await import('../server.js')
+  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const calls = []
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url, options })
+    let payload
+    if (url.endsWith('/promo')) payload = { network: 'mainnet', state: 'active', left_today: 5, grant: { resource: 'energy', amount: 50000, duration_seconds: 3600 } }
+    else if (url.endsWith('/promo/redeem/challenge')) payload = { address, nonce: 'nonce-12345678', message: 'Sign this exact TEnergy promo message' }
+    else if (url.endsWith('/promo/redeem')) payload = { address, status: 'granting', energy: 50000, method: 'signature' }
+    else if (url.endsWith('/promo/redemptions/' + address)) payload = { address, status: 'delegated', energy: 50000, method: 'signature' }
+    else throw new Error('unexpected provider URL ' + url)
+    return new Response(JSON.stringify(payload), { status: url.endsWith('/promo/redeem/challenge') || url.endsWith('/promo/redeem') ? 201 : 200, headers: { 'content-type': 'application/json' } })
+  }
+  const server = createServer({ allowedAddress: address, fetchImpl })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port + '/api/tron/resources/free-delegation/tenergy'
+  const challenge = await fetch(base + '/challenge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address }) })
+  assert.equal(challenge.status, 201)
+  assert.equal((await challenge.json()).challenge.message, 'Sign this exact TEnergy promo message')
+  const redeem = await fetch(base + '/redeem', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address, nonce: 'nonce-12345678', signature: 'a'.repeat(130) }) })
+  assert.equal(redeem.status, 201)
+  assert.equal((await redeem.json()).redemption.status, 'granting')
+  assert.equal(calls.every(call => call.url.startsWith('https://api.tenergy.me/v1/')), true)
+})
+
+test('TEnergy promo routes reject other wallets and malformed signatures before contacting the provider', async (t) => {
+  const { createServer } = await import('../server.js')
+  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const server = createServer({ allowedAddress: address, fetchImpl: async () => { throw new Error('provider must not be called') } })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port + '/api/tron/resources/free-delegation/tenergy/redeem'
+  const denied = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address: 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL', nonce: 'nonce-12345678', signature: 'a'.repeat(130) }) })
+  assert.equal(denied.status, 403)
+  const malformed = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address, nonce: 'nonce-12345678', signature: 'not-a-signature' }) })
+  assert.equal(malformed.status, 400)
+})
