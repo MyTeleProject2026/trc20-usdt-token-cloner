@@ -25,6 +25,12 @@ test('production frontend is TRON Mainnet-only and pins official Tether USDT', (
   const contractCalls = [...traxPanel.matchAll(/sendAndVerifyContractCall\([^\n]+/g)].map((match) => match[0])
   assert.equal(contractCalls.length, 9)
   assert.ok(contractCalls.every((call) => call.includes('feeCapSun,connectedAddress')))
+  const combinedStart = traxPanel.indexOf('const deployBoth =')
+  const combinedEnd = traxPanel.indexOf('const authorizeVault =', combinedStart)
+  const combinedDeploy = traxPanel.slice(combinedStart, combinedEnd)
+  assert.equal([...combinedDeploy.matchAll(/feeLimitSun: feeCapSun/g)].length, 2)
+  assert.ok(combinedDeploy.includes("deployContractFromTronLink(wallet, TRAX_VAULT_ARTIFACT, 'OneTraxReserveVault', feeCapSun)"))
+  assert.ok(combinedDeploy.includes("deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun)"))
 })
 
 test('only official Mainnet Tether USDT is exposed as the payout asset', () => {
