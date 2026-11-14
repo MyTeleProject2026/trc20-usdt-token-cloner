@@ -466,31 +466,63 @@ export function decodeTronBroadcastFailure(tronWeb, broadcast, txID) {
 }
 
 export function formatTronLinkError(error, stage = 'TRON operation failed') {
-  // Prefer serializing structured provider payloads so code/slug/status are
-  // not lost when a convenience .message field is also present.
-  const candidates = [
+  // Preserve enumerable and non-enumerable provider fields. Axios/TronLink
+  // frequently wrap JSON details inside Error instances whose JSON.stringify()
+  // output is empty and whose .message alone loses provider code/status values.
+  const details = {}
+  const sources = [
     error?.response?.data,
     error?.data,
     error,
-    error?.message,
-    error?.response?.data?.message,
-    error?.response?.data?.Error,
+    error?.cause,
     error?.error,
   ]
-  let raw = ''
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) { raw = candidate.trim(); break }
-    if (candidate && typeof candidate === 'object') {
+  const fields = ['name', 'message', 'code', 'slug', 'status', 'statusCode', 'field', 'retryable', 'Error']
+  for (const source of sources) {
+    if (typeof source === 'string' && source.trim()) {
+      if (!details.providerText) details.providerText = source.trim()
+      continue
+    }
+    if (!source || typeof source !== 'object') continue
+    for (const field of fields) {
       try {
-        const serialized = JSON.stringify(candidate)
-        if (serialized && serialized !== '{}' && serialized !== '[object Object]') { raw = serialized; break }
+        const value = source[field]
+        if (value !== undefined && value !== null && value !== '') {
+          if (details[field] === undefined) details[field] = value
+        }
       } catch {}
+    }
+    try {
+      if (source.response?.status !== undefined && details.httpStatus === undefined) {
+        details.httpStatus = source.response.status
+      }
+      if (source.response?.statusText && details.statusText === undefined) {
+        details.statusText = source.response.statusText
+      }
+      if (typeof source.response?.data === 'string' && !details.providerText) {
+        details.providerText = source.response.data
+      }
+    } catch {}
+  }
+  let raw = ''
+  if (Object.keys(details).length) {
+    try { raw = JSON.stringify(details) } catch {}
+  }
+  if (!raw) {
+    for (const source of sources) {
+      if (typeof source === 'string' && source.trim()) { raw = source.trim(); break }
+      if (source && typeof source === 'object') {
+        try {
+          const serialized = JSON.stringify(source)
+          if (serialized && serialized !== '{}' && serialized !== '[object Object]') { raw = serialized; break }
+        } catch {}
+      }
     }
   }
   if (!raw) raw = 'Unknown wallet or provider error'
-  if (/Confirmation declined by user|User rejected|code.?4001/i.test(raw)) return stage + ': transaction was declined in TronLink. No retry was attempted.'
+  if (/Confirmation declined by user|User rejected|code.?4001/i.test(raw)) return stage + ': transaction was declined in TronLink. No retry was attempted. Details: ' + raw
   if (/Invalid transaction provided/i.test(raw)) return stage + ': TronLink rejected the unsigned deployment transaction as invalid. Check the transaction payload and wallet/network connection. Details: ' + raw
-  if (/User has not unlocked wallet/i.test(raw)) return stage + ': unlock TronLink and reconnect before trying again.'
+  if (/User has not unlocked wallet/i.test(raw)) return stage + ': unlock TronLink and reconnect before trying again. Details: ' + raw
   return stage + ': ' + raw
 }
 
