@@ -384,22 +384,23 @@ export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, art
   if (!tronWeb?.isAddress?.(ownerAddress)) throw new Error('Enter a valid TRON Mainnet deployment owner address.')
   const bytecode = String(artifact?.bytecode || '').replace(/^0x/, '')
   if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled contract init bytecode is missing or invalid.')
+  if (typeof tronWeb?.transactionBuilder?.deployConstantContract !== 'function') {
+    throw new Error('This TronWeb version does not support deployConstantContract simulation. Update TronWeb before deploying. No wallet signature or broadcast was attempted.')
+  }
 
-  // Contract creation is not a constant-contract invocation. triggerconstantcontract
-  // requires an existing contract address and selector; using it with init bytecode
-  // produces missing-TVM-execution-result errors and is not a valid deployment estimate.
-  // Only accept the dedicated Mainnet estimateenergy deployment endpoint.
+  // Simulate contract creation with TronWeb's deployment-constant API.
+  // estimateenergy and triggerconstantcontract are contract-call estimators.
   try {
-    const response = await postNode(tronWeb, '/wallet/estimateenergy', {
-      owner_address: ownerAddress,
-      data: bytecode,
-      visible: true,
-    })
+    const response = await enqueueNodeRequest(() => tronWeb.transactionBuilder.deployConstantContract({
+      ownerAddress,
+      input: '0x' + bytecode,
+      confirmed: false,
+    }))
     return normalizeDeploymentEnergyEstimate(response)
   } catch (error) {
-    throw new Error('TRON Mainnet contract-deployment Energy estimation is unavailable: '
+    throw new Error('TRON Mainnet contract-creation simulation is unavailable: '
       + String(error?.message || error || 'unknown node error')
-      + '. This deployment requires the dedicated /wallet/estimateenergy endpoint; no constant-contract fallback is valid for init bytecode. No wallet signature or broadcast was attempted.')
+      + '. TronWeb deployConstantContract simulation must succeed before deployment. No wallet signature or broadcast was attempted.')
   }
 }
 
