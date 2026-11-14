@@ -211,6 +211,9 @@ export function calculateDeploymentResourceBudget({
   const balance = BigInt(resourceSnapshot.nativeBalanceSun)
   const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
   if (energyFee <= 0n || balance < 0n) throw new Error('Mainnet returned invalid Energy price or TRX balance.')
+  if (maxFeeLimit === null || maxFeeLimit <= 0n) {
+    throw new Error('TRON Mainnet did not return getMaxFeeLimit. Cannot validate the deployment fee cap safely.')
+  }
   const bufferedEnergy = (energy * BigInt(safetyMarginBps) + 9999n) / 10000n
   const requiredFeeLimit = bufferedEnergy * energyFee
   if (maxFeeLimit !== null && feeLimit > maxFeeLimit) {
