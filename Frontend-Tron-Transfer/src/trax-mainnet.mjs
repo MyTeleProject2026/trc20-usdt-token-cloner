@@ -534,9 +534,10 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
 } = {}) {
-  // Use the exact TronLink-injected Mainnet client for construction, signing,
-  // permission validation, broadcast and on-chain verification. Never build
-  // with a separate TronWeb instance and ask a different provider to sign it.
+  // Use TronLink's injected Mainnet client for transaction construction, signing
+  // and broadcast. Use a pinned read-only TronWeb verifier for byte-level checks,
+  // permission queries, resource reads and solidified receipt verification. Never
+  // build with one transaction provider and ask a different provider to sign it.
   const walletTronWeb = assertMainnetWallet(wallet)
   const tronWeb = createVerifier()
   if (!walletTronWeb?.transactionBuilder?.createSmartContract
