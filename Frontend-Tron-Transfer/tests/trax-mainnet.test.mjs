@@ -566,7 +566,7 @@ test('TronGrid public-node calls are globally paced and honor one-second suspens
   assert.match(helper, /NODE_MIN_REQUEST_INTERVAL_MS = 400/)
   assert.match(helper, /let nodeRequestQueue = Promise\\.resolve\\(\\)/)
   assert.match(helper, /nodeCooldownUntil/)
-  assert.match(helper, /suspended\\\\s\+for\\\\s\+/)
+  assert.match(helper, /suspended\\s\+for\\s\+/)
   assert.match(helper, /Math\.max\(1250/)
   assert.match(helper, /paced retries/)
   assert.match(helper, /enqueueNodeRequest\(async \(\) =>/)
