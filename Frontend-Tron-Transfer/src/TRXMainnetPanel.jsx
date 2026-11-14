@@ -216,7 +216,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployMissingContracts = () => run('Deploying missing TRӾ contracts · approve each prompt in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink Mainnet wallet.')
-    if (connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Free-delegation policy is restricted to ' + FREE_DELEGATION_OWNER + '. Connect that wallet in TronLink.')
     if (!configuredOwnerMatches) throw new Error('Connect a TronLink Mainnet wallet.')
     if (tokenAddress && !wallet.tronWeb.isAddress(tokenAddress)) throw new Error('The saved TRӾ token address is invalid. Clear it and retry.')
     if (vaultAddress && !wallet.tronWeb.isAddress(vaultAddress)) throw new Error('The saved reserve-vault address is invalid. Clear it and retry.')
@@ -237,7 +236,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       setVaultAddress(result.address); setLastTx(result.txID); deployed.push('reserve vault')
     }
     if (!tokenAddress) {
-      const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun,{ readResources: readServerDeploymentResources })
+      const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
       setTokenAddress(result.address); setLastTx(result.txID); deployed.push('TRӾ token')
     }
     setNotice(deployed.length
@@ -247,18 +246,16 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink Mainnet wallet.')
-    if (connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Free-delegation policy is restricted to ' + FREE_DELEGATION_OWNER + '. Connect that wallet in TronLink.')
     if (!configuredOwnerMatches) throw new Error('Connect a TronLink Mainnet wallet.')
-    const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun,{ readResources: readServerDeploymentResources })
+    const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
     setVaultAddress(result.address); setLastTx(result.txID)
     setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
   })
 
   const deployToken = () => run('Deploying TRӾ token · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink Mainnet wallet.')
-    if (connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Free-delegation policy is restricted to ' + FREE_DELEGATION_OWNER + '. Connect that wallet in TronLink.')
     if (!configuredOwnerMatches) throw new Error('Connect a TronLink Mainnet wallet.')
-    const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun,{ readResources: readServerDeploymentResources })
+    const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
     setTokenAddress(result.address); setLastTx(result.txID)
     setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
   })
