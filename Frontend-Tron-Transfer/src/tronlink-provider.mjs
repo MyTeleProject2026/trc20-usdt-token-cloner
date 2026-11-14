@@ -128,7 +128,10 @@ export async function requestTronLinkConnection(
   windowObject = globalThis.window,
   { readyTimeoutMs = DEFAULT_PROVIDER_READY_TIMEOUT_MS, pollIntervalMs = DEFAULT_POLL_INTERVAL_MS } = {},
 ) {
-  if (!isTronWalletProvider(provider)) throw new Error('A compatible injected TRON wallet provider was not found.')
+  // A wallet may expose its signer only after the account-authorization request.
+  // Require a request-capable provider here; discovery still filters candidates
+  // to known TRON providers, and the ready signer is validated below.
+  if (!provider || typeof provider.request !== 'function') throw new Error('A compatible injected TRON wallet provider was not found.')
   const accounts = await requestAccounts(provider)
   const deadline = Date.now() + readyTimeoutMs
   while (Date.now() <= deadline) {
