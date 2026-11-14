@@ -169,6 +169,100 @@ export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
   return normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun)
 }
 
+export function normalizeDeploymentEnergyEstimate(response) {
+  if (!response || response.Error || response.result?.result !== true) {
+    const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not simulate contract creation'
+    throw new Error('TRON Mainnet deployment Energy simulation failed: ' + detail)
+  }
+  let energyUsed
+  try { energyUsed = BigInt(response.energy_used) } catch {
+    throw new Error('TRON Mainnet deployment simulation did not return a valid energy_used value.')
+  }
+  if (energyUsed <= 0n) throw new Error('TRON Mainnet deployment simulation returned zero Energy; refusing to guess a deployment cost.')
+  let energyPenalty = 0n
+  try { energyPenalty = BigInt(response.energy_penalty ?? 0) } catch {
+    throw new Error('TRON Mainnet deployment simulation returned an invalid Energy penalty.')
+  }
+  return { energyUsed: energyUsed.toString(), energyPenalty: energyPenalty.toString() }
+}
+
+export function calculateDeploymentResourceBudget({
+  energyRequired,
+  resourceSnapshot,
+  rawDataHex,
+  feeLimitSun,
+  safetyMarginBps = 12000,
+}) {
+  let energy, feeLimit
+  try {
+    energy = BigInt(energyRequired)
+    feeLimit = BigInt(feeLimitSun)
+  } catch { throw new Error('Deployment Energy estimate or fee limit is invalid.') }
+  if (energy <= 0n || feeLimit <= 0n || !Number.isInteger(safetyMarginBps) || safetyMarginBps < 10000 || safetyMarginBps > 20000) {
+    throw new Error('Deployment resource budget inputs are outside the allowed range.')
+  }
+  if (!/^(?:[0-9a-f]{2})+$/i.test(String(rawDataHex || ''))) {
+    throw new Error('Deployment transaction bytes are unavailable for Bandwidth estimation.')
+  }
+  const energyFee = BigInt(resourceSnapshot.energyFeeSun)
+  const bandwidthFee = resourceSnapshot.bandwidthFeeSun == null ? null : BigInt(resourceSnapshot.bandwidthFeeSun)
+  const availableEnergy = BigInt(resourceSnapshot.energyAvailable)
+  const availableBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable) + BigInt(resourceSnapshot.stakedBandwidthAvailable)
+  const balance = BigInt(resourceSnapshot.nativeBalanceSun)
+  const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
+  if (energyFee <= 0n || balance < 0n) throw new Error('Mainnet returned invalid Energy price or TRX balance.')
+  const bufferedEnergy = (energy * BigInt(safetyMarginBps) + 9999n) / 10000n
+  const requiredFeeLimit = bufferedEnergy * energyFee
+  if (maxFeeLimit !== null && feeLimit > maxFeeLimit) {
+    throw new Error('Selected fee cap exceeds the current TRON Mainnet maximum of ' + maxFeeLimit.toString() + ' SUN.')
+  }
+  if (feeLimit < requiredFeeLimit) {
+    throw new Error('Selected fee cap is too low for the estimated deployment. Required at least ' + requiredFeeLimit.toString() + ' SUN (' + (Number(requiredFeeLimit) / 1e6).toFixed(6) + ' TRX) with the safety margin.')
+  }
+  const energyShortfall = bufferedEnergy > availableEnergy ? bufferedEnergy - availableEnergy : 0n
+  const estimatedBandwidthBytes = BigInt(Math.ceil(rawDataHex.length / 2) + 3 + 64 + 67)
+  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes - availableBandwidth : 0n
+  if (bandwidthShortfall > 0n && bandwidthFee === null) {
+    throw new Error('Bandwidth fee is unavailable and the account does not have enough Bandwidth. Refusing to estimate the missing fee.')
+  }
+  const energyBurnSun = energyShortfall * energyFee
+  const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
+  const requiredTrxSun = energyBurnSun + bandwidthBurnSun
+  if (balance < requiredTrxSun) {
+    throw new Error('Insufficient Mainnet resources for this deployment. Estimated Energy: ' + energy.toString()
+      + '; with 20% safety margin: ' + bufferedEnergy.toString()
+      + '; available Energy: ' + availableEnergy.toString()
+      + '; estimated TRX needed for Energy/Bandwidth shortfall: ' + requiredTrxSun.toString()
+      + ' SUN (' + (Number(requiredTrxSun) / 1e6).toFixed(6) + ' TRX); wallet balance: '
+      + balance.toString() + ' SUN. No wallet signature or broadcast was attempted.')
+  }
+  return {
+    energyRequired: energy.toString(),
+    energyWithSafetyMargin: bufferedEnergy.toString(),
+    availableEnergy: availableEnergy.toString(),
+    energyShortfall: energyShortfall.toString(),
+    estimatedBandwidthBytes: estimatedBandwidthBytes.toString(),
+    availableBandwidth: availableBandwidth.toString(),
+    bandwidthShortfall: bandwidthShortfall.toString(),
+    energyBurnSun: energyBurnSun.toString(),
+    bandwidthBurnSun: bandwidthBurnSun.toString(),
+    requiredTrxSun: requiredTrxSun.toString(),
+    feeLimitSun: feeLimit.toString(),
+  }
+}
+
+export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, artifact) {
+  if (!tronWeb?.isAddress?.(ownerAddress)) throw new Error('Enter a valid TRON Mainnet deployment owner address.')
+  const bytecode = String(artifact?.bytecode || '').replace(/^0x/, '')
+  if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled contract init bytecode is missing or invalid.')
+  const response = await postNode(tronWeb, '/wallet/triggerconstantcontract', {
+    owner_address: ownerAddress,
+    data: bytecode,
+    visible: true,
+  })
+  return normalizeDeploymentEnergyEstimate(response)
+}
+
 export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 180000, intervalMs = 3000 } = {}) {
   if (!/^[0-9a-f]{64}$/i.test(String(txID || ''))) throw new Error('The wallet did not return a valid transaction ID.')
   const started = Date.now()
