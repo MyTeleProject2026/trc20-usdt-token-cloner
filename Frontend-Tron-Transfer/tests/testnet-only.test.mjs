@@ -71,5 +71,5 @@ test('production build runs the complete frontend regression suite', async () =>
   const pkg = JSON.parse(await read('../package.json'))
   assert.ok(pkg.scripts.build.includes('node --test tests/*.test.mjs'))
   assert.ok(pkg.scripts.build.includes('vite build'))
-  assert.equal(pkg.dependencies.tronweb, '6.5.1')
+  assert.equal(pkg.dependencies.tronweb, '6.5.2')
 })
