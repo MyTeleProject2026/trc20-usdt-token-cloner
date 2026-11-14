@@ -94,7 +94,8 @@ test('deployment Energy estimator calls TronWeb deployConstantContract with the 
 
 
 test('TronLink structured provider errors are rendered as useful diagnostics, not [object Object]', () => {
-  const error = { code: 3038, slug: 'promo_not_eligible', message: 'This address did not receive the promo token from us', field: null, retryable: false }
+  const error = new Error('provider request failed')
+  Object.assign(error, { code: 3038, slug: 'promo_not_eligible', message: 'This address did not receive the promo token from us', field: null, retryable: false })
   const rendered = formatTronLinkError(error, 'Energy claim')
   assert.match(rendered, /3038/)
   assert.match(rendered, /promo_not_eligible/)
@@ -103,9 +104,9 @@ test('TronLink structured provider errors are rendered as useful diagnostics, no
 })
 
 test('TronLink nested HTTP errors preserve provider response details', () => {
-  const rendered = formatTronLinkError({
-    response: { data: { Error: 'request rate exceeded', code: 429 } },
-  }, 'Deployment preflight')
+  const error = new Error('Request failed with status code 429')
+  error.response = { status: 429, data: { Error: 'request rate exceeded', code: 429 } }
+  const rendered = formatTronLinkError(error, 'Deployment preflight')
   assert.match(rendered, /request rate exceeded/)
   assert.match(rendered, /429/)
 })
