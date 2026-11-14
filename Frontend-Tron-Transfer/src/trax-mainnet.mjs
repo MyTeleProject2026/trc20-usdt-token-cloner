@@ -620,6 +620,86 @@ export async function assertTransactionPermission(tronWeb, signedTransaction, ex
 export const MAINNET_DEPLOYMENT_SIGNING_ENABLED = true
 export const MAINNET_DEPLOYMENT_BROADCAST_ENABLED = true
 
+export async function preflightContractDeployments(wallet, deployments, {
+  createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
+  readResources = getMainnetAccountResourceSnapshot,
+  readPermissions = getMainnetAccountPermissionSnapshot,
+  estimateEnergy = estimateMainnetDeploymentEnergy,
+} = {}) {
+  const walletTronWeb = assertMainnetWallet(wallet)
+  if (!Array.isArray(deployments) || deployments.length === 0) {
+    return { deployments: [], requiredTrxSun: '0', availableTrxSun: '0' }
+  }
+  if (typeof walletTronWeb?.transactionBuilder?.createSmartContract !== 'function') {
+    throw new Error('The connected TronLink provider cannot construct Mainnet deployment transactions.')
+  }
+  const tronWeb = createVerifier()
+  const resourceSnapshot = await readResources(tronWeb, wallet.address)
+  const permissionSnapshot = await readPermissions(tronWeb, wallet.address)
+  if (!permissionSnapshot.connectedSignerCanAuthorizeAlone) {
+    throw new Error('Connected wallet cannot satisfy the TRON owner permission threshold alone. Collected weight '
+      + permissionSnapshot.connectedSignerWeight + '; required threshold ' + permissionSnapshot.threshold
+      + '; additional signer weight required ' + permissionSnapshot.requiredAdditionalWeight
+      + '. No wallet signature or broadcast was attempted.')
+  }
+
+  // Deliberately budget both deployments with zero assumed reusable resources.
+  // This is conservative: each transaction can consume the same remaining
+  // quota in the worst case, so the preflight never double-spends Energy or Bandwidth.
+  const conservativeResources = {
+    ...resourceSnapshot,
+    energyAvailable: '0',
+    freeBandwidthAvailable: '0',
+    stakedBandwidthAvailable: '0',
+  }
+  const results = []
+  let combinedRequiredTrxSun = 0n
+  for (const deployment of deployments) {
+    const { artifact, contractName, feeLimitSun } = deployment || {}
+    const energyEstimate = await estimateEnergy(tronWeb, wallet.address, artifact)
+    const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
+    let unsigned
+    try {
+      unsigned = await walletTronWeb.transactionBuilder.createSmartContract(options, wallet.address)
+    } catch (error) {
+      throw new Error(explainTronLinkError(error, 'Combined deployment preflight transaction construction failed'))
+    }
+    if (!unsigned?.raw_data_hex || !unsigned?.raw_data?.contract?.length
+      || unsigned.raw_data.contract[0]?.type !== 'CreateSmartContract'
+      || Number(unsigned.raw_data?.fee_limit) !== Number(feeLimitSun)) {
+      throw new Error('Mainnet returned an incomplete or unexpected unsigned transaction during combined deployment preflight. No wallet signature or broadcast was attempted.')
+    }
+    const budget = calculateDeploymentResourceBudget({
+      energyRequired: energyEstimate.energyUsed,
+      resourceSnapshot: conservativeResources,
+      rawDataHex: unsigned.raw_data_hex,
+      feeLimitSun,
+    })
+    combinedRequiredTrxSun += BigInt(budget.requiredTrxSun)
+    results.push({
+      contractName: String(contractName),
+      energyRequired: budget.energyRequired,
+      estimatedBandwidthBytes: budget.estimatedBandwidthBytes,
+      requiredTrxSun: budget.requiredTrxSun,
+    })
+  }
+  const availableTrxSun = BigInt(resourceSnapshot.nativeBalanceSun)
+  if (availableTrxSun < combinedRequiredTrxSun) {
+    throw new Error('Combined Mainnet deployment preflight failed before any TronLink prompt. Conservative estimated fee fallback for '
+      + results.map(item => item.contractName).join(' and ') + ': '
+      + combinedRequiredTrxSun.toString() + ' SUN (' + (Number(combinedRequiredTrxSun) / 1e6).toFixed(6)
+      + ' TRX); available balance: ' + availableTrxSun.toString() + ' SUN ('
+      + (Number(availableTrxSun) / 1e6).toFixed(6)
+      + ' TRX). Add TRX or obtain real Energy/Bandwidth resources, refresh, and retry. No wallet signature or broadcast was attempted.')
+  }
+  return {
+    deployments: results,
+    requiredTrxSun: combinedRequiredTrxSun.toString(),
+    availableTrxSun: availableTrxSun.toString(),
+    conservative: true,
+  }
+}
+
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
   createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
