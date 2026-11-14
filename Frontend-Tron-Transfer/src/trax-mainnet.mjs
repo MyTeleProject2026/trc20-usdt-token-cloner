@@ -643,15 +643,12 @@ export async function preflightContractDeployments(wallet, deployments, {
       + '. No wallet signature or broadcast was attempted.')
   }
 
-  // Deliberately budget both deployments with zero assumed reusable resources.
-  // This is conservative: each transaction can consume the same remaining
-  // quota in the worst case, so the preflight never double-spends Energy or Bandwidth.
-  const conservativeResources = {
-    ...resourceSnapshot,
-    energyAvailable: '0',
-    freeBandwidthAvailable: '0',
-    stakedBandwidthAvailable: '0',
-  }
+  // Spend the wallet's real resource snapshot across deployments in order.
+  // Never reset quotas to zero: the earlier implementation overstated fees by
+  // ignoring actual Energy and free/delegated Bandwidth shown by Mainnet.
+  let remainingEnergy = BigInt(resourceSnapshot.energyAvailable)
+  let remainingFreeBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable)
+  let remainingStakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable)
   const results = []
   let combinedRequiredTrxSun = 0n
   for (const deployment of deployments) {
@@ -669,16 +666,35 @@ export async function preflightContractDeployments(wallet, deployments, {
       || Number(unsigned.raw_data?.fee_limit) !== Number(feeLimitSun)) {
       throw new Error('Mainnet returned an incomplete or unexpected unsigned transaction during combined deployment preflight. No wallet signature or broadcast was attempted.')
     }
+    const snapshotForThisDeployment = {
+      ...resourceSnapshot,
+      energyAvailable: remainingEnergy.toString(),
+      freeBandwidthAvailable: remainingFreeBandwidth.toString(),
+      stakedBandwidthAvailable: remainingStakedBandwidth.toString(),
+    }
     const budget = calculateDeploymentResourceBudget({
       energyRequired: energyEstimate.energyUsed,
-      resourceSnapshot: conservativeResources,
+      resourceSnapshot: snapshotForThisDeployment,
       rawDataHex: unsigned.raw_data_hex,
       feeLimitSun,
     })
+    remainingEnergy = BigInt(budget.energyShortfall) > 0n
+      ? 0n
+      : remainingEnergy - BigInt(budget.energyWithSafetyMargin)
+    const txBandwidth = BigInt(budget.estimatedBandwidthBytes)
+    // The protocol accepts one complete Bandwidth source per transaction.
+    // Consume the source selected by the estimator; otherwise the full tx
+    // byte cost is priced in TRX and neither quota is incorrectly deducted.
+    if (remainingFreeBandwidth >= txBandwidth) {
+      remainingFreeBandwidth -= txBandwidth
+    } else if (remainingStakedBandwidth >= txBandwidth) {
+      remainingStakedBandwidth -= txBandwidth
+    }
     combinedRequiredTrxSun += BigInt(budget.requiredTrxSun)
     results.push({
       contractName: String(contractName),
       energyRequired: budget.energyRequired,
+      energyWithSafetyMargin: budget.energyWithSafetyMargin,
       estimatedBandwidthBytes: budget.estimatedBandwidthBytes,
       requiredTrxSun: budget.requiredTrxSun,
     })
