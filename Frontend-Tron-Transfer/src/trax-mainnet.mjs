@@ -271,53 +271,6 @@ export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, art
   return normalizeDeploymentEnergyEstimate(response)
 }
 
-export function normalizeMainnetPermissionSnapshot(account, signerAddress, tronWeb) {
-  if (!account || typeof account !== 'object' || account.Error) {
-    throw new Error('TRON Mainnet could not return this account permission configuration.')
-  }
-  const owner = account.owner_permission
-  if (!owner || !Array.isArray(owner.keys) || owner.keys.length === 0) {
-    throw new Error('This account does not expose a readable owner permission and signer-key list.')
-  }
-  let threshold
-  try { threshold = BigInt(owner.threshold) } catch { throw new Error('TRON returned an invalid owner permission threshold.') }
-  if (threshold <= 0n) throw new Error('TRON returned a non-positive owner permission threshold.')
-  let signerWeight = 0n
-  for (const key of owner.keys) {
-    if (!key?.address) throw new Error('TRON returned a malformed owner permission key.')
-    let weight
-    try { weight = BigInt(key.weight) } catch { throw new Error('TRON returned an invalid owner permission key weight.') }
-    if (weight <= 0n) throw new Error('TRON returned a non-positive owner permission key weight.')
-    if (addressesEqual(tronWeb, key.address, signerAddress)) signerWeight += weight
-  }
-  const activePermissions = Array.isArray(account.active_permission)
-    ? account.active_permission.map((permission) => ({
-      id: Number(permission.id),
-      name: String(permission.permission_name || permission.name || 'Active permission'),
-      threshold: String(permission.threshold ?? ''),
-      keyCount: Array.isArray(permission.keys) ? permission.keys.length : 0,
-    }))
-    : []
-  const requiredAdditionalWeight = threshold > signerWeight ? threshold - signerWeight : 0n
-  return {
-    permissionId: Number.isInteger(Number(owner.id)) ? Number(owner.id) : 0,
-    permissionName: String(owner.permission_name || owner.name || 'owner'),
-    threshold: threshold.toString(),
-    connectedSignerWeight: signerWeight.toString(),
-    requiredAdditionalWeight: requiredAdditionalWeight.toString(),
-    connectedSignerCanAuthorizeAlone: signerWeight >= threshold,
-    ownerKeyCount: owner.keys.length,
-    otherOwnerKeyCount: owner.keys.filter((key) => !addressesEqual(tronWeb, key.address, signerAddress)).length,
-    activePermissions,
-  }
-}
-
-export async function getMainnetAccountPermissionSnapshot(tronWeb, address) {
-  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet wallet address.')
-  const account = await postNode(tronWeb, '/wallet/getaccount', { address, visible: true })
-  return normalizeMainnetPermissionSnapshot(account, address, tronWeb)
-}
-
 export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 180000, intervalMs = 3000 } = {}) {
   if (!/^[0-9a-f]{64}$/i.test(String(txID || ''))) throw new Error('The wallet did not return a valid transaction ID.')
   const started = Date.now()
