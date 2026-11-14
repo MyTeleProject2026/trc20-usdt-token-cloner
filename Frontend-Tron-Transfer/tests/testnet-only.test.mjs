@@ -12,6 +12,14 @@ test('TRӾ workspace renders the dedicated Mainnet contract manager', async () =
   const combinedEnd = panel.indexOf('const deployVault =', combinedStart)
   const combined = panel.slice(combinedStart, combinedEnd)
   assert.equal([...combined.matchAll(/feeLimitSun: feeCapSun/g)].length, 2)
+  assert.ok(panel.includes("const DEFAULT_FEE_CAP = '60'"))
+  const deployStart = panel.indexOf('const deployMissingContracts')
+  const deployEnd = panel.indexOf('const deployVault =', deployStart)
+  const deployFlow = panel.slice(deployStart, deployEnd)
+  assert.equal([...deployFlow.matchAll(/feeLimitSun: feeCapSun/g)].length, 2)
+  assert.ok(deployFlow.includes('existing.owner().call()'))
+  assert.ok(deployFlow.includes('existing.authorizedToken().call()'))
+  assert.ok(deployFlow.includes('existing.reserveVault().call()'))
   for (const value of ['TRXMainnetPanel']) assert.ok(app.includes(value))
   for (const value of [
     'TRӾ smart-contract manager',
