@@ -72,7 +72,7 @@ function retryDelayMs(response, attempt, detail = '') {
   }
   // TronGrid's JSON error can specify a one-second suspension even when it
   // omits Retry-After. Do not retry inside that suspension window.
-  const suspended = String(detail).match(/suspended\\s+for\\s+(\\d+(?:\\.\\d+)?)\\s*s/i)
+  const suspended = String(detail).match(/suspended\s+for\s+(\d+(?:\.\d+)?)\s*s/i)
   if (suspended) return Math.min(15000, Math.max(1250, Number(suspended[1]) * 1000 + 250))
   return Math.min(12000, 1500 * (2 ** attempt)) + Math.floor(Math.random() * 500)
 }
