@@ -195,7 +195,9 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
-        const error = new Error(String(payload?.message || payload?.error || 'TEnergy promotional endpoint rejected the request').slice(0, 220))
+        const providerDetail = payload?.message ?? payload?.error_description ?? payload?.error ?? payload?.code ?? 'TEnergy promotional endpoint rejected the request'
+        const detail = typeof providerDetail === 'string' ? providerDetail : (() => { try { return JSON.stringify(providerDetail) } catch { return 'TEnergy promotional endpoint rejected the request' } })()
+        const error = new Error(String(detail || 'TEnergy promotional endpoint rejected the request').slice(0, 220))
         error.status = response.status; error.providerCode = payload?.code || payload?.error_code || null; throw error
       }
       return payload
