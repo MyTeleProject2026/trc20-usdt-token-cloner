@@ -115,6 +115,38 @@ test('TRON Mainnet free-delegation budget does not combine free and staked Bandw
   }), /TRX-burn fallback is disabled/)
 })
 
+test('TRON Mainnet free-delegation policy refuses a nonzero TRX balance even when resources cover deployment', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    resourceSnapshot: {
+      energyAvailable: '120000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '1', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(200),
+    feeLimitSun: '20000000',
+  }), /zero native TRX balance/)
+})
+
+test('TRON Mainnet contract call checks zero TRX balance before invoking the wallet send method', async () => {
+  const originalFetch = globalThis.fetch
+  let sent = false
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ balance: '1' }) })
+  try {
+    await assert.rejects(
+      sendAndVerifyContractCall(
+        { isAddress: () => true },
+        { send: async () => { sent = true; return 'a'.repeat(64) } },
+        '1000000',
+        'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+      ),
+      /zero native TRX balance/
+    )
+    assert.equal(sent, false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('TRON Mainnet deployment code uses one injected provider and keeps minting gated by reserve checks', async () => {
   const helper = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
   const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
