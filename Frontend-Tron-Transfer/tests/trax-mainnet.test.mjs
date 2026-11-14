@@ -52,14 +52,22 @@ test('TRON Mainnet owner permission snapshot detects a connected signer below th
 
 test('TRON Mainnet deployment simulation requires a successful positive Energy result', () => {
   assert.deepEqual(normalizeDeploymentEnergyEstimate({
-    result: { result: true }, energy_used: 250000, energy_penalty: 50000,
+    result: { result: true }, energy_used: 250000, energy_penalty: 50000, transaction: { ret: [{ ret: 'SUCESS', contractRet: 'SUCCESS' }] },
   }), { energyUsed: '250000', energyPenalty: '50000' })
   assert.throws(
     () => normalizeDeploymentEnergyEstimate({ result: { result: false, code: 'CONTRACT_VALIDATE_ERROR' } }),
     /simulation failed/,
   )
   assert.throws(
-    () => normalizeDeploymentEnergyEstimate({ result: { result: true }, energy_used: 0 }),
+    () => normalizeDeploymentEnergyEstimate({
+      result: { result: true },
+      energy_used: 250000,
+      transaction: { ret: [{ ret: 'FAILED', contractRet: 'REVERT' }] },
+    }),
+    /did not execute successfully/,
+  )
+  assert.throws(
+    () => normalizeDeploymentEnergyEstimate({ result: { result: true }, energy_used: 0, transaction: { ret: [{ ret: 'SUCESS', contractRet: 'SUCCESS' }] } }),
     /zero Energy/,
   )
 })
