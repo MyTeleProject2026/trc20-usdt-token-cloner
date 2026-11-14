@@ -384,15 +384,42 @@ export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, art
   if (!tronWeb?.isAddress?.(ownerAddress)) throw new Error('Enter a valid TRON Mainnet deployment owner address.')
   const bytecode = String(artifact?.bytecode || '').replace(/^0x/, '')
   if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled contract init bytecode is missing or invalid.')
-  // triggerconstantcontract invokes an existing contract and is not the
-  // deployment estimator. A CreateSmartContract has no deployed address yet.
-  // TRON documents wallet/estimateenergy for contract deployment estimates.
-  const response = await postNode(tronWeb, '/wallet/estimateenergy', {
-    owner_address: ownerAddress,
-    data: bytecode,
-    visible: true,
-  })
-  return normalizeDeploymentEnergyEstimate(response)
+
+  // estimateenergy is the preferred deployment estimator, but public nodes
+  // may disable it. TRON explicitly supports deployment simulation through
+  // triggerconstantcontract too; its response uses energy_used instead.
+  let estimateError = null
+  try {
+    const response = await postNode(tronWeb, '/wallet/estimateenergy', {
+      owner_address: ownerAddress,
+      data: bytecode,
+      visible: true,
+    })
+    return normalizeDeploymentEnergyEstimate(response)
+  } catch (error) {
+    estimateError = error
+    const detail = String(error?.message || error || '')
+    const unsupported = /estimate.?energy.{0,50}(not supported|disabled|unavailable|not found)|(?:not supported|disabled|unavailable).{0,50}estimate.?energy|unknown api|no such method|404/i.test(detail)
+      || error?.code === 'ESTIMATE_ENERGY_UNSUPPORTED'
+    if (!unsupported) throw error
+  }
+
+  try {
+    const response = await postNode(tronWeb, '/wallet/triggerconstantcontract', {
+      owner_address: ownerAddress,
+      data: bytecode,
+      visible: true,
+    })
+    return normalizeDeploymentEnergyEstimate({
+      ...response,
+      energy_required: response?.energy_used,
+    })
+  } catch (fallbackError) {
+    throw new Error('TRON Mainnet deployment Energy estimation failed on both supported paths. estimateenergy: '
+      + String(estimateError?.message || estimateError)
+      + '; triggerconstantcontract: ' + String(fallbackError?.message || fallbackError)
+      + '. No wallet signature or broadcast was attempted.')
+  }
 }
 
 export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 180000, intervalMs = 3000 } = {}) {
