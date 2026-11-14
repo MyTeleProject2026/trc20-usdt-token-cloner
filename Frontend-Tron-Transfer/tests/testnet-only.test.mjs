@@ -75,4 +75,5 @@ test('production build runs the complete frontend regression suite', async () =>
   assert.ok(pkg.scripts.build.includes('node --test tests/*.test.mjs'))
   assert.ok(pkg.scripts.build.includes('vite build'))
   assert.equal(pkg.dependencies.tronweb, '6.5.2')
+  assert.equal(pkg.overrides.tmp, '0.2.7')
 })
