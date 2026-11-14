@@ -225,10 +225,36 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     if (vaultAddress && (addressesEqual(wallet.tronWeb,vaultAddress,connectedAddress))) {
       throw new Error('The reserve-vault field contains your owner wallet address, not a smart-contract address. Clear that field so the reserve vault can be deployed.')
     }
-    for (const [label,address] of [['TRӾ token',tokenAddress],['reserve vault',vaultAddress]]) {
+    for (const [label,address,artifact] of [
+      ['TRӾ token',tokenAddress,TRAX_TOKEN_ARTIFACT],
+      ['reserve vault',vaultAddress,TRAX_VAULT_ARTIFACT],
+    ]) {
       if (!address) continue
       const deployedContract = await wallet.tronWeb.trx.getContract(address)
       if (!deployedContract?.bytecode) throw new Error('The saved '+label+' address has no verified deployed contract bytecode. Clear it and deploy the contract; do not use a wallet address here.')
+      const existing = await wallet.tronWeb.contract(artifact.abi).at(address)
+      const deployedOwner = await existing.owner().call()
+      if (!addressesEqual(wallet.tronWeb,deployedOwner,connectedAddress)) {
+        throw new Error('The saved '+label+' contract is owned by a different wallet. Connect its owner or clear the address before deploying the missing contract.')
+      }
+      if (label === 'TRӾ token') {
+        const [name,symbol,decimals,linkedVault] = await Promise.all([
+          existing.name().call(), existing.symbol().call(), existing.decimals().call(), existing.reserveVault().call(),
+        ])
+        if (name !== 'TRӾ' || symbol !== 'TRX' || Number(decimals) !== 6) {
+          throw new Error('The saved TRӾ address is a contract, but its metadata is not TRӾ / TRX / 6 decimals.')
+        }
+        if (linkedVault && !addressesEqual(wallet.tronWeb,linkedVault,ZERO)
+          && (!vaultAddress || !addressesEqual(wallet.tronWeb,linkedVault,vaultAddress))) {
+          throw new Error('The saved TRӾ token is already linked to a different reserve vault. Refusing to deploy an incompatible pair.')
+        }
+      } else {
+        const authorized = await existing.authorizedToken().call()
+        if (authorized && !addressesEqual(wallet.tronWeb,authorized,ZERO)
+          && (!tokenAddress || !addressesEqual(wallet.tronWeb,authorized,tokenAddress))) {
+          throw new Error('The saved reserve vault already authorizes a different token. Refusing to deploy an incompatible pair.')
+        }
+      }
     }
     const pendingDeployments = []
     if (!vaultAddress) pendingDeployments.push({
