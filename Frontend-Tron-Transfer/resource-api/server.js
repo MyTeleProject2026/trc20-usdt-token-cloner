@@ -2,6 +2,7 @@ import http from 'node:http'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const ALLOWED_ORIGINS = new Set([
@@ -153,7 +154,7 @@ function send(res, status, payload, origin) {
   res.end(JSON.stringify(payload))
 }
 
-export function createServer() {
+export function createServer({ readFreeDelegationStatus = createFreeDelegationResourceReader({ addressValidator: isMainnetAddress }), allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp' } = {}) {
   return http.createServer(async (req, res) => {
     const origin = req.headers.origin
     if (origin && !ALLOWED_ORIGINS.has(origin)) return send(res, 403, { error: 'ORIGIN_NOT_ALLOWED' })
@@ -170,6 +171,16 @@ export function createServer() {
     const url = new URL(req.url || '/', 'http://localhost')
     if (req.method === 'GET' && url.pathname === '/health') {
       return send(res, 200, { ok: true, network: 'TRON Mainnet', rpc: 'TronGrid public node (no API key configured)', service: 'tron-transfer-resource-api' }, origin)
+    }
+    if (req.method === 'GET' && url.pathname === '/api/tron/resources/free-delegation/status') {
+      const address = typeof url.searchParams.get('address') === 'string' ? url.searchParams.get('address') : ''
+      if (address !== allowedAddress || !isMainnetAddress(address)) {
+        return send(res, 403, { success: false, error: 'wallet-not-allowed', message: 'This free-delegation policy is restricted to the configured TRON Mainnet owner wallet.' }, origin)
+      }
+      const refresh = url.searchParams.get('refresh')
+      if (refresh !== null && refresh !== '0' && refresh !== '1') return send(res, 400, { success: false, error: 'invalid-refresh' }, origin)
+      const result = await readFreeDelegationStatus(address, { refresh: refresh === '1' })
+      return send(res, result.success ? 200 : 503, result, origin)
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
     const match = url.pathname.match(/^\/v1\/resources\/(T[1-9A-HJ-NP-Za-km-z]{33})$/)
