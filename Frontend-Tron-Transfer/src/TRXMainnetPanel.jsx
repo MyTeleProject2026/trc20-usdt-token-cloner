@@ -77,7 +77,15 @@ async function tenergyPromoRequest(path, method = 'GET', body = undefined) {
     credentials: 'omit', cache: 'no-store', redirect: 'error',
   })
   const payload = await response.json().catch(() => null)
-  if (!response.ok || payload?.success !== true) throw new Error(formatTronUiError(payload, 'TEnergy free-promo service is unavailable.'))
+  if (!response.ok || payload?.success !== true) {
+    const error = new Error(formatTronUiError(payload, 'TEnergy free-promo service is unavailable.'))
+    if (payload && typeof payload === 'object') {
+      error.code = payload.code
+      error.slug = payload.slug
+      error.retryable = payload.retryable
+    }
+    throw error
+  }
   return payload
 }
 
@@ -115,6 +123,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [tenergyPromo,setTenergyPromo] = useState(null)
   const [tenergyBusy,setTenergyBusy] = useState(false)
   const [tenergyMessage,setTenergyMessage] = useState('')
+  const [tenergyPromoIneligible,setTenergyPromoIneligible] = useState(false)
   const [permissionStatus,setPermissionStatus] = useState(null)
   const [permissionLoading,setPermissionLoading] = useState(false)
   const [permissionError,setPermissionError] = useState('')
@@ -147,7 +156,16 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const claimTenergyPromo = () => run('Requesting a free Energy promo · review the message in TronLink', async () => {
     if (!walletReady || connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Connect the configured TRON Mainnet owner wallet.')
     const tronWeb = assertMainnetWallet(wallet)
-    const challengeResult = await tenergyPromoRequest('challenge', 'POST', { address: connectedAddress })
+    let challengeResult
+    try {
+      challengeResult = await tenergyPromoRequest('challenge', 'POST', { address: connectedAddress })
+    } catch (cause) {
+      if (Number(cause?.code) === 3038 || cause?.slug === 'promo_not_eligible') {
+        setTenergyPromoIneligible(true)
+        setTenergyMessage('This wallet was not included in TEnergy’s promotional distribution. No signing request was made. Contact TEnergy support to ask whether this address can be added; this claim cannot be retried unless the provider changes eligibility.')
+      }
+      throw cause
+    }
     const challenge = challengeResult.challenge
     if (!challenge || challenge.address !== connectedAddress || typeof challenge.message !== 'string') throw new Error('The provider returned an invalid wallet challenge.')
     if (typeof tronWeb.trx?.signMessageV2 !== 'function') throw new Error('This TronLink version does not expose signMessageV2. Update TronLink and retry.')
@@ -551,7 +569,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         {tenergyMessage&&<p role="status">{tenergyMessage}</p>}
         <div className="button-row">
           <button type="button" className="secondary-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||tenergyBusy||busy} onClick={refreshTenergyPromo}>Refresh free-promo eligibility</button>
-          <button type="button" className="primary-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||busy||tenergyBusy||tenergyPromo?.terms?.state!=='active'||!Number(tenergyPromo?.terms?.left_today)||Boolean(tenergyPromo?.redemption)} onClick={claimTenergyPromo}>Claim free Energy · sign message in TronLink</button>
+          <button type="button" className="primary-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||busy||tenergyBusy||tenergyPromoIneligible||tenergyPromo?.terms?.state!=='active'||!Number(tenergyPromo?.terms?.left_today)||Boolean(tenergyPromo?.redemption)} onClick={claimTenergyPromo}>Claim free Energy · sign message in TronLink</button>
           <button type="button" className="outline-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||tenergyBusy||!tenergyPromo?.redemption} onClick={checkTenergyRedemption}>Check delegation status</button>
         </div>
         <p className="fine-print">No paid order, provider account balance, TRX transfer, sponsor billing, or TRX-burn fallback is used. Energy is not added to the deployment budget until the Mainnet resource reader confirms it.</p>
