@@ -2,7 +2,7 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { decodeTronBroadcastFailure, parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity, assertTransactionPermission, deployContractFromTronLink, MAINNET_DEPLOYMENT_SIGNING_ENABLED, MAINNET_DEPLOYMENT_BROADCAST_ENABLED } from '../src/trax-mainnet.mjs'
+import { decodeTronBroadcastFailure, parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity, assertTransactionPermission, deployContractFromTronLink, MAINNET_DEPLOYMENT_SIGNING_ENABLED, MAINNET_DEPLOYMENT_BROADCAST_ENABLED, normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, normalizeDeploymentEnergyEstimate, calculateDeploymentResourceBudget } from '../src/trax-mainnet.mjs'
 
 
 
@@ -12,6 +12,98 @@ test('TRӾ manager is reachable without the private platform-owner session', asy
   assert.doesNotMatch(app, /if \(!ownerSession\) return/)
   assert.doesNotMatch(app, /if \(!ownerSessionResolved\) return/)
   assert.doesNotMatch(app, /expectedOwner=\{ownerSession\.address\}/)
+})
+
+
+test('TRON Mainnet resource snapshot calculates available Energy and Bandwidth from live limits and usage', () => {
+  const snapshot = normalizeMainnetAccountResources({
+    EnergyLimit: 10000, EnergyUsed: 3000,
+    freeNetLimit: 600, freeNetUsed: 120,
+    NetLimit: 1500, NetUsed: 320,
+  }, { chainParameter: [
+    { key: 'getEnergyFee', value: 100 },
+    { key: 'getTransactionFee', value: 1000 },
+    { key: 'getMaxFeeLimit', value: 15000000000 },
+  ] }, 2500000)
+  assert.equal(snapshot.energyAvailable, '7000')
+  assert.equal(snapshot.freeBandwidthAvailable, '480')
+  assert.equal(snapshot.stakedBandwidthAvailable, '1180')
+  assert.equal(snapshot.nativeBalanceSun, '2500000')
+  assert.equal(snapshot.energyFeeSun, '100')
+  assert.equal(snapshot.bandwidthFeeSun, '1000')
+  assert.equal(snapshot.maxFeeLimitSun, '15000000000')
+})
+
+test('TRON Mainnet owner permission snapshot detects a connected signer below threshold', () => {
+  const signer = 'T' + '1'.repeat(33)
+  const other = 'T' + '2'.repeat(33)
+  const tronWeb = { address: { toHex: value => value === signer ? '41' + '1'.repeat(40) : String(value).toLowerCase() } }
+  const result = normalizeMainnetPermissionSnapshot({
+    owner_permission: {
+      id: 0, threshold: 2,
+      keys: [{ address: signer, weight: 1 }, { address: other, weight: 1 }],
+    },
+  }, signer, tronWeb)
+  assert.equal(result.connectedSignerCanAuthorizeAlone, false)
+  assert.equal(result.connectedSignerWeight, '1')
+  assert.equal(result.requiredAdditionalWeight, '1')
+  assert.equal(result.otherOwnerKeyCount, 1)
+})
+
+test('TRON Mainnet deployment simulation requires a successful positive Energy result', () => {
+  assert.deepEqual(normalizeDeploymentEnergyEstimate({
+    result: { result: true }, energy_used: 250000, energy_penalty: 50000,
+  }), { energyUsed: '250000', energyPenalty: '50000' })
+  assert.throws(
+    () => normalizeDeploymentEnergyEstimate({ result: { result: false, code: 'CONTRACT_VALIDATE_ERROR' } }),
+    /simulation failed/,
+  )
+  assert.throws(
+    () => normalizeDeploymentEnergyEstimate({ result: { result: true }, energy_used: 0 }),
+    /zero Energy/,
+  )
+})
+
+test('TRON Mainnet deployment budget includes Energy margin, Bandwidth and TRX shortfall', () => {
+  const budget = calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    resourceSnapshot: {
+      energyAvailable: '100000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '2000000', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(200),
+    feeLimitSun: '20000000',
+  })
+  assert.equal(budget.energyWithSafetyMargin, '120000')
+  assert.equal(budget.energyShortfall, '20000')
+  assert.equal(budget.bandwidthShortfall, '0')
+  assert.equal(budget.requiredTrxSun, '2000000')
+})
+
+test('TRON Mainnet deployment budget blocks insufficient resources before wallet signing', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '250000',
+    resourceSnapshot: {
+      energyAvailable: '131000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(3000),
+    feeLimitSun: '300000000',
+  }), /Insufficient Mainnet resources/)
+})
+
+test('TRON Mainnet deployment code uses one injected provider and keeps minting gated by reserve checks', async () => {
+  const helper = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  assert.ok(helper.includes('const tronWeb = assertMainnetWallet(wallet)'))
+  assert.ok(helper.includes('readResources(tronWeb, wallet.address)'))
+  assert.ok(helper.includes('estimateEnergy(tronWeb, wallet.address, artifact)'))
+  assert.ok(helper.includes('await tronWeb.trx.sign(walletTransaction)'))
+  assert.ok(helper.includes('await tronWeb.trx.sendRawTransaction(signedTransaction)'))
+  assert.ok(!helper.includes('createClient ='))
+  assert.ok(panel.includes('const configuredOwnerMatches = walletReady'))
+  assert.ok(panel.includes('getMainnetAccountResourceSnapshot'))
+  assert.ok(panel.includes('getMainnetAccountPermissionSnapshot'))
 })
 
 test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
