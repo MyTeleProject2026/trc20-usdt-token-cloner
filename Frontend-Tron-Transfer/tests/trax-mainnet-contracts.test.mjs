@@ -145,3 +145,47 @@ test('TronLink nested HTTP errors retain response status and message', () => {
   assert.match(rendered, /429/)
   assert.match(rendered, /request rate exceeded/)
 })
+
+
+test('deployment Energy simulation uses the exact init bytecode and owner', async () => {
+  const calls = []
+  const tronWeb = {
+    isAddress: (address) => address === 'TMainnetOwnerAddress',
+    transactionBuilder: {
+      deployConstantContract: async (options) => {
+        calls.push(options)
+        return { result: { result: true }, energy_required: 123456 }
+      },
+    },
+  }
+  const result = await estimateMainnetDeploymentEnergy(tronWeb, 'TMainnetOwnerAddress', { bytecode: '6001600055' })
+  assert.deepEqual(calls, [{
+    ownerAddress: 'TMainnetOwnerAddress',
+    input: '0x6001600055',
+    confirmed: false,
+  }])
+  assert.equal(result.energyUsed, '123456')
+})
+
+test('TronLink structured Error instances retain promo code, slug, and provider message', () => {
+  const error = new Error('provider request failed')
+  Object.assign(error, {
+    code: 3038,
+    slug: 'promo_not_eligible',
+    message: 'This address did not receive the promo token from us',
+    retryable: false,
+  })
+  const rendered = formatTronLinkError(error, 'Energy claim')
+  assert.match(rendered, /3038/)
+  assert.match(rendered, /promo_not_eligible/)
+  assert.match(rendered, /did not receive the promo token/)
+  assert.doesNotMatch(rendered, /\\[object Object\\]/)
+})
+
+test('TronLink nested HTTP errors retain response status and message', () => {
+  const error = new Error('Request failed with status code 429')
+  error.response = { status: 429, data: { Error: 'request rate exceeded', code: 429 } }
+  const rendered = formatTronLinkError(error, 'Deployment preflight')
+  assert.match(rendered, /429/)
+  assert.match(rendered, /request rate exceeded/)
+})
