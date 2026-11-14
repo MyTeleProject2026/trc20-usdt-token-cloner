@@ -216,7 +216,10 @@ export function calculateDeploymentResourceBudget({
   }
   const bufferedEnergy = (energy * BigInt(safetyMarginBps) + 9999n) / 10000n
   const requiredFeeLimit = bufferedEnergy * energyFee
-  if (maxFeeLimit !== null && feeLimit > maxFeeLimit) {
+  if (requiredFeeLimit > maxFeeLimit) {
+    throw new Error('Estimated deployment Energy with the safety margin requires a fee cap above the current TRON Mainnet maximum. Reduce contract deployment complexity; this transaction cannot be safely budgeted.')
+  }
+  if (feeLimit > maxFeeLimit) {
     throw new Error('Selected fee cap exceeds the current TRON Mainnet maximum of ' + maxFeeLimit.toString() + ' SUN.')
   }
   if (feeLimit < requiredFeeLimit) {
