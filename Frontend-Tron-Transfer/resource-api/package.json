@@ -10,8 +10,5 @@
     "start": "node server.js",
     "test": "node --test tests/*.test.mjs",
     "check": "node --check server.js"
-  },
-  "dependencies": {
-    "tronweb": "^6.0.4"
   }
 }
