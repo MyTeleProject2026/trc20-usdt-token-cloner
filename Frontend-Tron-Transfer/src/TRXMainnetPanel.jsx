@@ -50,6 +50,26 @@ async function readServerDeploymentResources(_tronWeb, address) {
   return status.deploymentResourceSnapshot
 }
 
+function formatTronUiError(cause, fallback = 'The operation failed.') {
+  if (cause instanceof Error && typeof cause.message === 'string' && cause.message.trim()) return cause.message.trim()
+  if (typeof cause === 'string' && cause.trim()) return cause.trim()
+  if (cause && typeof cause === 'object') {
+    const candidates = [cause.message, cause.error_description, cause.error, cause.code, cause.providerCode, cause.data?.message, cause.data?.error]
+    for (const value of candidates) {
+      if (typeof value === 'string' && value.trim() && value !== '[object Object]') return value.trim()
+      if (value && typeof value === 'object') {
+        const nested = value.message || value.error || value.code
+        if (typeof nested === 'string' && nested.trim()) return nested.trim()
+      }
+    }
+    try {
+      const serialized = JSON.stringify(cause)
+      if (serialized && serialized !== '{}' && serialized !== '[]') return serialized.slice(0, 500)
+    } catch {}
+  }
+  return fallback
+}
+
 async function tenergyPromoRequest(path, method = 'GET', body = undefined) {
   const response = await fetch(RESOURCE_API_BASE + '/api/tron/resources/free-delegation/tenergy/' + path, {
     method, headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
@@ -57,7 +77,7 @@ async function tenergyPromoRequest(path, method = 'GET', body = undefined) {
     credentials: 'omit', cache: 'no-store', redirect: 'error',
   })
   const payload = await response.json().catch(() => null)
-  if (!response.ok || payload?.success !== true) throw new Error(payload?.message || payload?.error || 'TEnergy free-promo service is unavailable.')
+  if (!response.ok || payload?.success !== true) throw new Error(formatTronUiError(payload, 'TEnergy free-promo service is unavailable.'))
   return payload
 }
 
@@ -106,7 +126,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const run = useCallback(async (label, action) => {
     setBusy(true); setError(''); setNotice(''); setStep(label)
     try { return await action() }
-    catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); return null }
+    catch (cause) { const message = formatTronUiError(cause, 'The operation failed.'); setError(message); return null }
     finally { setBusy(false); setStep('') }
   }, [])
 
@@ -120,7 +140,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       setTenergyPromo(result)
     } catch (cause) {
       setTenergyPromo(null)
-      setTenergyMessage(cause instanceof Error ? cause.message : 'TEnergy promotional status is unavailable.')
+      setTenergyMessage(formatTronUiError(cause, 'TEnergy promotional status is unavailable.'))
     }
   }, [walletReady, connectedAddress])
 
@@ -151,7 +171,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         ? 'Provider reports the grant delegated. Refresh resources to confirm the on-chain Energy balance.'
         : 'Provider claim status: ' + result.redemption.status + '.')
     } catch (cause) {
-      setTenergyMessage(cause instanceof Error ? cause.message : 'Could not refresh the provider claim.')
+      setTenergyMessage(formatTronUiError(cause, 'Could not refresh the provider claim.'))
     } finally { setTenergyBusy(false) }
   }
 
