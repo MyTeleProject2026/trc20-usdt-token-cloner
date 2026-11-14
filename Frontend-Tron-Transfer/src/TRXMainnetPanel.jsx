@@ -81,7 +81,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const refresh = useCallback(async () => run('Reading solidified Mainnet state', async () => {
     const {tronWeb,token,vault} = await getContracts()
     const [owner,vaultOwner,name,symbol,decimals,totalSupply,tokenVault,authorizedToken,paused,mintingEnabled,reserveSun,ownerBalance,ownerTrxSun] = await Promise.all([
-      token.owner().call(), token.name().call(), token.symbol().call(), token.decimals().call(),
+      token.owner().call(), vault.owner().call(), token.name().call(), token.symbol().call(), token.decimals().call(),
       token.totalSupply().call(), token.reserveVault().call(), vault.authorizedToken().call(),
       token.paused().call(), token.mintingEnabled().call(), tronWeb.trx.getBalance(vaultAddress),
       token.balanceOf(connectedAddress).call(), tronWeb.trx.getBalance(connectedAddress),
