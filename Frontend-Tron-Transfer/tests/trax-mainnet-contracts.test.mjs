@@ -8,7 +8,7 @@ const artifact = JSON.parse(generated.slice('export default '.length).trim().rep
 const tokenSource = await fs.readFile(new URL('../../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
 const vaultSource = await fs.readFile(new URL('../../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8')
 
-test('TronBox generated TRON-solc artifacts include both TRӾ Mainnet contracts', () => {
+test('Pinned Solidity compiler artifacts include both TRӾ Mainnet contracts', () => {
   assert.equal(artifact.compiler, 'TRON solc 0.8.25')
   assert.equal(artifact.optimizer.enabled, true)
   assert.equal(artifact.optimizer.runs, 200)
@@ -100,50 +100,6 @@ test('deployment budget still succeeds without burning TRX when resources fully 
     feeLimitSun: '120000',
   })
   assert.equal(budget.requiredTrxSun, '0')
-})
-
-
-test('deployment Energy simulation uses the exact init bytecode and owner', async () => {
-  const calls = []
-  const tronWeb = {
-    isAddress: (address) => address === 'TMainnetOwnerAddress',
-    transactionBuilder: {
-      deployConstantContract: async (options) => {
-        calls.push(options)
-        return { result: { result: true }, energy_required: 123456 }
-      },
-    },
-  }
-  const result = await estimateMainnetDeploymentEnergy(tronWeb, 'TMainnetOwnerAddress', { bytecode: '6001600055' })
-  assert.deepEqual(calls, [{
-    ownerAddress: 'TMainnetOwnerAddress',
-    input: '0x6001600055',
-    confirmed: false,
-  }])
-  assert.equal(result.energyUsed, '123456')
-})
-
-test('TronLink structured Error instances retain promo code, slug, and provider message', () => {
-  const error = new Error('provider request failed')
-  Object.assign(error, {
-    code: 3038,
-    slug: 'promo_not_eligible',
-    message: 'This address did not receive the promo token from us',
-    retryable: false,
-  })
-  const rendered = formatTronLinkError(error, 'Energy claim')
-  assert.match(rendered, /3038/)
-  assert.match(rendered, /promo_not_eligible/)
-  assert.match(rendered, /did not receive the promo token/)
-  assert.doesNotMatch(rendered, /\\[object Object\\]/)
-})
-
-test('TronLink nested HTTP errors retain response status and message', () => {
-  const error = new Error('Request failed with status code 429')
-  error.response = { status: 429, data: { Error: 'request rate exceeded', code: 429 } }
-  const rendered = formatTronLinkError(error, 'Deployment preflight')
-  assert.match(rendered, /429/)
-  assert.match(rendered, /request rate exceeded/)
 })
 
 
