@@ -27,6 +27,7 @@ jobs:
         with:
           node-version: 24
       - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
+      - run: npm audit --prefix Frontend-Tron-Transfer --audit-level=high
       - run: node --test tests/tron-transfer-integration-source.test.mjs
       - run: npm test --prefix Frontend-Tron-Transfer
       - run: npm run build --prefix Frontend-Tron-Transfer
