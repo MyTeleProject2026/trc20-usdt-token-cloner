@@ -5,7 +5,7 @@ import {
   TRON_MAINNET_HOST, TRAX_TOKEN_ARTIFACT, TRAX_VAULT_ARTIFACT,
   addressesEqual, assertMainnetWallet, deployContractFromTronLink,
   formatTokenUnits, loadSavedContracts, parseTokenUnits, saveContractAddresses,
-  getMainnetAccountResourceSnapshot, sendAndVerifyContractCall, sendNativeTrxFromTronLink,
+  getMainnetAccountPermissionSnapshot, getMainnetAccountResourceSnapshot, sendAndVerifyContractCall, sendNativeTrxFromTronLink,
 } from './trax-mainnet.mjs'
 
 const ZERO = '0x0000000000000000000000000000000000000000'
@@ -45,6 +45,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [vaultAddress,setVaultAddress] = useState(initial.vaultAddress)
   const [snapshot,setSnapshot] = useState(null)
   const [resourceSnapshot,setResourceSnapshot] = useState(null)
+  const [permissionSnapshot,setPermissionSnapshot] = useState(null)
   const [recipient,setRecipient] = useState(DEFAULT_RECIPIENT)
   const [amount,setAmount] = useState('100')
   const [fundAmount,setFundAmount] = useState('100')
@@ -71,9 +72,19 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const connectedAddress = wallet?.address || ''
   const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
-  useEffect(() => { setResourceSnapshot(null) }, [connectedAddress])
+  useEffect(() => { setResourceSnapshot(null); setPermissionSnapshot(null) }, [connectedAddress])
   // Any valid Mainnet TronLink account may connect. On-chain owner() checks below
   // decide which wallet may administer already-deployed contracts.
+  const checkAccountPermissions = () => run('Reading connected account owner permission', async () => {
+    const tronWeb = assertMainnetWallet(wallet)
+    const permissions = await getMainnetAccountPermissionSnapshot(tronWeb, connectedAddress)
+    setPermissionSnapshot({ address: connectedAddress, ...permissions })
+    setNotice(permissions.connectedSignerCanAuthorizeAlone
+      ? 'The connected wallet key alone meets the owner permission threshold.'
+      : 'The owner permission requires additional signing weight. A single TronLink signature may not authorize deployment.')
+    return permissions
+  })
+
   const checkDeploymentResources = () => run('Reading live TRON Mainnet account resources', async () => {
     const tronWeb = assertMainnetWallet(wallet)
     const resources = await getMainnetAccountResourceSnapshot(tronWeb, connectedAddress)
@@ -349,6 +360,19 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/>{error}</div>}
     {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
     {step&&<div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
+    <div className="trax-actions">
+      <div className="trax-actions-heading"><h3>Account permission preflight</h3><button type="button" className="secondary-button" disabled={!walletReady||busy} onClick={checkAccountPermissions}><ShieldCheck size={15}/> Check signing threshold</button></div>
+      {permissionSnapshot&&<div className="trax-stats">
+        <article><span>Owner permission threshold</span><b>{permissionSnapshot.threshold}</b></article>
+        <article><span>Connected wallet key weight</span><b>{permissionSnapshot.connectedSignerWeight}</b></article>
+        <article><span>Additional weight needed</span><b>{permissionSnapshot.requiredAdditionalWeight}</b></article>
+        <article><span>Other owner keys configured</span><b>{permissionSnapshot.otherOwnerKeyCount}</b></article>
+      </div>}
+      {permissionSnapshot&&<div className={permissionSnapshot.connectedSignerCanAuthorizeAlone?'trax-checks':'trax-checks'}>
+        <span className={permissionSnapshot.connectedSignerCanAuthorizeAlone?'ok':'bad'}>{permissionSnapshot.connectedSignerCanAuthorizeAlone?'✓':'!'} {permissionSnapshot.connectedSignerCanAuthorizeAlone?'Connected key meets owner threshold':'Additional authorized signer weight required'}</span>
+      </div>}
+      <p className="fine-print">Deployment transactions use owner permission ID 0 unless explicitly constructed otherwise. This preflight reads the owner permission's threshold and the connected wallet's key weight; it does not alter permissions, add signers, or guarantee TronLink will authorize a transaction.</p>
+    </div>
     <div className="trax-actions">
       <div className="trax-actions-heading"><h3>Wallet resource preflight</h3><button type="button" className="secondary-button" disabled={!walletReady||busy} onClick={checkDeploymentResources}><RefreshCw size={15}/> Check Energy, Bandwidth and TRX</button></div>
       {resourceSnapshot&&<div className="trax-stats">
