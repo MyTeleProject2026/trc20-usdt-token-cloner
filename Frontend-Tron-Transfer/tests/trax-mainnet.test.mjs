@@ -106,39 +106,82 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
-test('TRӾ deployment safety hold validates payload but never signs or broadcasts', async () => {
-  const unsigned = {
+test('TRӾ deployment builds on the injected TronLink client and keeps the safety hold non-broadcasting', async () => {
+  const walletAddress = 'T' + '2'.repeat(33)
+  const predictedAddress = 'T' + '1'.repeat(33)
+  const ownerHex = '41' + '2'.repeat(40)
+  let unsigned = {
     visible: false,
     txID: 'b'.repeat(64),
     contract_address: '41' + '1'.repeat(40),
-    raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 },
+    raw_data: {
+      contract: [{
+        type: 'CreateSmartContract',
+        parameter: { value: { owner_address: ownerHex } },
+      }],
+      timestamp: 1,
+    },
     raw_data_hex: '0a01',
   }
   let signCalls = 0
   let broadcastCalls = 0
+  let buildCalls = 0
+  let builderContext = null
   const walletTronWeb = {
     version: 'wallet-bundled-version',
     fullNode: { host: 'https://api.trongrid.io' },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sign: async () => { signCalls++; throw new Error('sign must not be called') } },
-  }
-  const builderClient = {
-    version: '6.5.1',
-    transactionBuilder: { createSmartContract: async () => unsigned },
-    address: { fromHex: () => 'T' + '1'.repeat(33) },
-    isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sendRawTransaction: async () => { broadcastCalls++; return { result: true } } },
+    address: {
+      fromHex: (value) => value === unsigned.contract_address ? predictedAddress : walletAddress,
+      toHex: (value) => String(value).toLowerCase(),
+    },
+    transactionBuilder: {
+      async createSmartContract(options, owner) {
+        builderContext = this
+        buildCalls++
+        assert.equal(owner, walletAddress)
+        assert.equal(options.feeLimit, 300000000)
+        return unsigned
+      },
+    },
+    trx: {
+      sign: async () => { signCalls++; throw new Error('sign must not be called') },
+      sendRawTransaction: async () => { broadcastCalls++; return { result: true } },
+    },
   }
   const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
   await assert.rejects(
     deployContractFromTronLink(
-      { tronWeb: walletTronWeb, address: 'T' + '2'.repeat(33) },
+      { tronWeb: walletTronWeb, address: walletAddress },
       { abi: [], bytecode: '6000' },
       'TestVault',
       300000000,
-      { createClient: () => builderClient },
     ),
     /Deployment safety hold.*No transaction was sent/,
+  )
+  assert.equal(buildCalls, 1)
+  assert.equal(builderContext, walletTronWeb.transactionBuilder)
+  assert.equal(signCalls, 0)
+  assert.equal(broadcastCalls, 0)
+
+  unsigned = {
+    ...unsigned,
+    raw_data: {
+      ...unsigned.raw_data,
+      contract: [{
+        ...unsigned.raw_data.contract[0],
+        parameter: { value: { owner_address: '41' + '3'.repeat(40) } },
+      }],
+    },
+  }
+  await assert.rejects(
+    deployContractFromTronLink(
+      { tronWeb: walletTronWeb, address: walletAddress },
+      { abi: [], bytecode: '6000' },
+      'TestVault',
+      300000000,
+    ),
+    /owner does not match the connected TronLink account/,
   )
   assert.equal(signCalls, 0)
   assert.equal(broadcastCalls, 0)
