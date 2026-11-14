@@ -106,7 +106,7 @@ export function createFreeDelegationResourceReader({
       const resourceResult = await post('/wallet/getaccountresource', { address, visible: true }, 'account-resource')
       const accountResult = await post('/wallet/getaccount', { address, visible: true }, 'account-balance')
       const chainParametersResult = await post('/wallet/getchainparameters', {}, 'chain-parameters')
-      const indexResult = await post('/walletsolidity/getdelegatedresourceaccountindexv2', { value: address, visible: true }, 'delegation-index')
+      const indexResult = await post('/wallet/getdelegatedresourceaccountindexv2', { value: address, visible: true }, 'delegation-index')
       const resources = resourceResult.payload
       const account = accountResult.payload
       const chainParameters = chainParametersResult.payload
@@ -148,7 +148,7 @@ export function createFreeDelegationResourceReader({
       const records = []
       const providersUsed = new Set([resourceResult.provider, accountResult.provider, chainParametersResult.provider, indexResult.provider])
       for (const delegator of delegators) {
-        const detail = await post('/walletsolidity/getdelegatedresourcev2', {
+        const detail = await post('/wallet/getdelegatedresourcev2', {
           fromAddress: delegator, toAddress: address, visible: true,
         }, 'delegation-detail')
         providersUsed.add(detail.provider)
