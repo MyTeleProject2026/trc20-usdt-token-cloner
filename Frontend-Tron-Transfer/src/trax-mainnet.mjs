@@ -126,16 +126,22 @@ async function createMainnetDeploymentTransaction(tronWeb, options, ownerAddress
   }
   let lastError
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    try {
-      return await tronWeb.transactionBuilder.createSmartContract(options, ownerAddress)
-    } catch (error) {
-      lastError = error
-      const message = String(error?.message || error || '')
-      const status = Number(error?.response?.status || error?.status || error?.statusCode)
-      const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
-      if (!rateLimited || attempt === 3) break
-      await new Promise((resolve) => window.setTimeout(resolve, Math.min(12000, 1500 * (2 ** attempt))))
-    }
+    const result = await enqueueNodeRequest(async () => {
+      try {
+        return { value: await tronWeb.transactionBuilder.createSmartContract(options, ownerAddress) }
+      } catch (error) {
+        const message = String(error?.message || error || '')
+        const status = Number(error?.response?.status || error?.status || error?.statusCode)
+        const rateLimited = status === 429 || /(?:HTTP\\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
+        return { error, detail: message, response: rateLimited ? { status: 429 } : null }
+      }
+    })
+    if (!result.error) return result.value
+    lastError = result.error
+    const message = String(lastError?.message || lastError || '')
+    const status = Number(lastError?.response?.status || lastError?.status || lastError?.statusCode)
+    const rateLimited = status === 429 || /(?:HTTP\\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
+    if (!rateLimited || attempt === 3) break
   }
   throw new Error('TRON Mainnet transaction construction failed after bounded rate-limit retries: '
     + String(lastError?.message || lastError || 'unknown provider error')
