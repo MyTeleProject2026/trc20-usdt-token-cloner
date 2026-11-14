@@ -53,7 +53,7 @@ test('TRON Mainnet owner permission snapshot detects a connected signer below th
 test('TRON Mainnet deployment Energy estimator prefers estimateenergy and falls back to triggerconstantcontract', async () => {
   const source = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
   assert.match(source, /postNode\(tronWeb, '\/wallet\/estimateenergy'/)
-  assert.doesNotMatch(source, /export async function estimateMainnetDeploymentEnergy[\s\S]*?postNode\(tronWeb, '\/wallet\/triggerconstantcontract'/)
+  assert.match(source, /postNode\(tronWeb, '\/wallet\/triggerconstantcontract'/)
 })
 
 test('TRON Mainnet deployment simulation requires a successful positive Energy result', () => {
