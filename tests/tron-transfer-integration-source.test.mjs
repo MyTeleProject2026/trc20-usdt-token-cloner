@@ -143,7 +143,7 @@ test('TRӾ manager is wallet-accessible and contract administration remains on-c
   assert.match(panel, /Connect any TronLink wallet on TRON Mainnet/)
   assert.match(panel, /callMainnetView\(token\.owner\(\)\)/)
   assert.doesNotMatch(panel, /\.call\(\)/)
-  assert.match(panel, /getMainnetNativeBalance\(tronWeb, vaultAddress\)/)
+  assert.match(panel, /getMainnetNativeBalance\(tronWeb,\s*vaultAddress\)/)
   assert.match(panel, /addressesEqual\(tronWeb, owner, connectedAddress\)/)
   assert.match(panel, /addressesEqual\(tronWeb, vaultOwner, connectedAddress\)/)
 })
