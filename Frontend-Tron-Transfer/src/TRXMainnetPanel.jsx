@@ -4,7 +4,8 @@ import './trax-mainnet.css'
 import {
   TRON_MAINNET_HOST, TRAX_TOKEN_ARTIFACT, TRAX_VAULT_ARTIFACT,
   addressesEqual, assertMainnetWallet, deployContractFromTronLink,
-  formatTokenUnits, loadSavedContracts, parseTokenUnits, saveContractAddresses,
+  formatTokenUnits, getMainnetAccountPermissionSnapshot, getMainnetAccountResourceSnapshot,
+  loadSavedContracts, parseTokenUnits, saveContractAddresses,
   sendAndVerifyContractCall, sendNativeTrxFromTronLink,
 } from './trax-mainnet.mjs'
 
@@ -59,6 +60,9 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [resourceStatus,setResourceStatus] = useState(null)
   const [resourceLoading,setResourceLoading] = useState(false)
   const [resourceError,setResourceError] = useState('')
+  const [permissionStatus,setPermissionStatus] = useState(null)
+  const [permissionLoading,setPermissionLoading] = useState(false)
+  const [permissionError,setPermissionError] = useState('')
 
   useEffect(() => {
     try { saveContractAddresses({ tokenAddress, vaultAddress }) } catch {}
@@ -74,30 +78,59 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const connectedAddress = wallet?.address || ''
   const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
 
-  const resourceApi = 'https://tron-transfer-resource-api.onrender.com'
-
   const refreshWalletResources = useCallback(async () => {
     if (!walletReady || !connectedAddress) return
     setResourceLoading(true)
     setResourceError('')
     try {
-      const response = await fetch(resourceApi + '/v1/resources/' + encodeURIComponent(connectedAddress), {
-        headers: { accept: 'application/json' },
-        signal: AbortSignal.timeout(12000),
+      const tronWeb = assertMainnetWallet(wallet)
+      const resources = await getMainnetAccountResourceSnapshot(tronWeb, connectedAddress)
+      setResourceStatus({
+        network: 'TRON Mainnet',
+        address: connectedAddress,
+        checkedAt: new Date().toISOString(),
+        energy: { available: resources.energyAvailable },
+        bandwidth: {
+          freeAvailable: resources.freeBandwidthAvailable,
+          stakedOrDelegatedAvailable: resources.stakedBandwidthAvailable,
+        },
+        balanceSun: resources.nativeBalanceSun,
+        chainParameters: {
+          energyFeeSunPerUnit: resources.energyFeeSun,
+          bandwidthFeeSunPerByte: resources.bandwidthFeeSun,
+        },
+        estimateNote: 'Live account resource snapshot. Deployment init-bytecode Energy is simulated separately before each deployment signature.',
       })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload.message || payload.error || 'Resource API request failed (' + response.status + ').')
-      if (payload.network !== 'TRON Mainnet' || payload.address !== connectedAddress) throw new Error('Resource API returned a mismatched network or wallet address.')
-      setResourceStatus(payload)
     } catch (cause) {
       setResourceError(cause instanceof Error ? cause.message : String(cause))
       setResourceStatus(null)
     } finally {
       setResourceLoading(false)
     }
-  }, [walletReady, connectedAddress])
+  }, [wallet, walletReady, connectedAddress])
 
-  useEffect(() => { refreshWalletResources() }, [refreshWalletResources])
+  const refreshWalletPermissions = useCallback(async () => {
+    if (!walletReady || !connectedAddress) return
+    setPermissionLoading(true)
+    setPermissionError('')
+    try {
+      const permissions = await getMainnetAccountPermissionSnapshot(assertMainnetWallet(wallet), connectedAddress)
+      setPermissionStatus(permissions)
+    } catch (cause) {
+      setPermissionError(cause instanceof Error ? cause.message : String(cause))
+      setPermissionStatus(null)
+    } finally {
+      setPermissionLoading(false)
+    }
+  }, [wallet, walletReady, connectedAddress])
+
+  useEffect(() => {
+    setResourceStatus(null)
+    setPermissionStatus(null)
+    refreshWalletResources()
+    refreshWalletPermissions()
+  }, [connectedAddress, refreshWalletResources, refreshWalletPermissions])
+
   const configuredOwnerMatches = walletReady
   const feeCapSun = useMemo(() => {
     try { return toSun(feeCap) } catch { return 0 }
@@ -362,6 +395,21 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     </div>
 
     <div className="trax-actions">
+    <div className="trax-actions trax-resource-panel">
+      <div className="trax-actions-heading">
+        <div><h3>Account signing permission</h3><p className="trax-resource-subtitle">Owner permission threshold for the connected Mainnet wallet</p></div>
+        <button type="button" className="secondary-button" disabled={!walletReady||permissionLoading} onClick={refreshWalletPermissions}><ShieldCheck size={15}/> {permissionLoading?'Checking…':'Refresh permission'}</button>
+      </div>
+      {permissionError&&<div className="notice notice-error"><AlertTriangle size={15}/><div><b>Permission check unavailable</b><p>{permissionError}</p></div></div>}
+      {permissionStatus&&<div className="trax-stats">
+        <article><span>Owner threshold</span><b>{permissionStatus.threshold}</b></article>
+        <article><span>Connected key weight</span><b>{permissionStatus.connectedSignerWeight}</b></article>
+        <article><span>Additional weight required</span><b>{permissionStatus.requiredAdditionalWeight}</b></article>
+        <article><span>Other owner keys</span><b>{permissionStatus.otherOwnerKeyCount}</b></article>
+      </div>}
+      {permissionStatus&&<p className="fine-print">{permissionStatus.connectedSignerCanAuthorizeAlone?'The connected wallet key meets the owner threshold alone.':'This account requires additional authorized signer weight. Deployment will stop before requesting a signature.'}</p>}
+    </div>
+
     <div className="trax-actions trax-resource-panel">
       <div className="trax-actions-heading">
         <div><h3>Automatic TRON Energy &amp; Bandwidth check</h3><p className="trax-resource-subtitle">Live Mainnet account resources for the connected wallet</p></div>
