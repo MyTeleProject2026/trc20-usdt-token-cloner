@@ -219,6 +219,94 @@ function explainTronLinkError(error, stage) {
   return stage + ': ' + raw
 }
 
+function stableJsonValue(value) {
+  if (Array.isArray(value)) return value.map(stableJsonValue)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableJsonValue(value[key])]))
+  }
+  return value
+}
+
+export function sameStructuredTransactionData(left, right) {
+  return JSON.stringify(stableJsonValue(left)) === JSON.stringify(stableJsonValue(right))
+}
+
+export async function verifyRawDataHash(transaction) {
+  const txID = String(transaction?.txID || '').toLowerCase()
+  const rawDataHex = String(transaction?.raw_data_hex || '')
+  if (!/^[0-9a-f]{64}$/.test(txID) || !/^(?:[0-9a-f]{2})+$/i.test(rawDataHex)) {
+    throw new Error('Deployment transaction has an invalid txID or raw_data_hex encoding.')
+  }
+  const subtle = globalThis.crypto?.subtle
+  if (!subtle || typeof subtle.digest !== 'function') {
+    throw new Error('This browser cannot verify the transaction raw_data hash. Signing is blocked.')
+  }
+  const bytes = new Uint8Array(rawDataHex.length / 2)
+  for (let index = 0; index < bytes.length; index++) {
+    bytes[index] = Number.parseInt(rawDataHex.slice(index * 2, index * 2 + 2), 16)
+  }
+  const digest = new Uint8Array(await subtle.digest('SHA-256', bytes))
+  const actual = Array.from(digest, (value) => value.toString(16).padStart(2, '0')).join('')
+  if (actual !== txID) {
+    throw new Error('TRON transaction ID does not match SHA-256(raw_data_hex). The payload may have changed; signing is blocked.')
+  }
+  return true
+}
+
+export function normalizeSignWeightResponse(response, signerAddress, tronWeb) {
+  if (!response || typeof response !== 'object' || response.Error) {
+    throw new Error('TRON could not validate the signed transaction permission weight.')
+  }
+  const verdict = response.result || {}
+  const code = verdict.code
+  if (code && !['ENOUGH_PERMISSION', 0, '0'].includes(code)) {
+    if (code === 'NOT_ENOUGH_PERMISSION') {
+      const current = String(response.current_weight ?? '0')
+      const threshold = String(response.permission?.threshold ?? 'unknown')
+      throw new Error('TRON permission threshold not met: collected weight ' + current + '; required threshold ' + threshold + '. No transaction was broadcast.')
+    }
+    throw new Error('TRON rejected the transaction signature or permission set (' + String(code) + '). No transaction was broadcast.')
+  }
+  let currentWeight
+  let threshold
+  try {
+    currentWeight = BigInt(response.current_weight)
+    threshold = BigInt(response.permission?.threshold)
+  } catch {
+    throw new Error('TRON returned incomplete signature-weight diagnostics. No transaction was broadcast.')
+  }
+  if (currentWeight < 0n || threshold <= 0n) {
+    throw new Error('TRON returned invalid signature-weight values. No transaction was broadcast.')
+  }
+  const approved = Array.isArray(response.approved_list) ? response.approved_list : []
+  if (!approved.some((address) => addressesEqual(tronWeb, address, signerAddress))) {
+    throw new Error('The connected TronLink wallet is not among the transaction’s approved signers. No transaction was broadcast.')
+  }
+  if (currentWeight < threshold) {
+    throw new Error('TRON permission threshold not met: collected weight ' + currentWeight + '; required threshold ' + threshold + '. No transaction was broadcast.')
+  }
+  return {
+    currentWeight: currentWeight.toString(),
+    threshold: threshold.toString(),
+    approvedSigners: approved.length,
+    enoughPermission: true,
+  }
+}
+
+export async function getMainnetTransactionSignWeight(tronWeb, signedTransaction, signerAddress) {
+  if (!signedTransaction || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length === 0) {
+    throw new Error('No signed transaction was supplied for permission validation.')
+  }
+  const result = await postNode(tronWeb, '/wallet/getsignweight', {
+    txID: signedTransaction.txID,
+    raw_data: signedTransaction.raw_data,
+    raw_data_hex: signedTransaction.raw_data_hex,
+    signature: signedTransaction.signature,
+    visible: Boolean(signedTransaction.visible),
+  })
+  return normalizeSignWeightResponse(result, signerAddress, tronWeb)
+}
+
 export function toWalletSignableTransaction(transaction) {
   if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) {
     throw new Error('TRON node returned a malformed deployment transaction.')
@@ -230,7 +318,7 @@ export function toWalletSignableTransaction(transaction) {
   }
   const txID = String(transaction.txID || '')
   const rawDataHex = String(transaction.raw_data_hex || '')
-  if (!/^[0-9a-f]{64}$/i.test(txID) || !/^[0-9a-f]+$/i.test(rawDataHex)) {
+  if (!/^[0-9a-f]{64}$/i.test(txID) || !/^(?:[0-9a-f]{2})+$/i.test(rawDataHex)) {
     throw new Error('TRON node returned incomplete transaction signing fields.')
   }
   // TronLink's trx.sign accepts the protocol transaction shape only:
@@ -276,6 +364,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
   if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
+  await verifyRawDataHash(unsigned)
   // Validate the plain protocol transaction, then ask the injected wallet signer.
   // TronWeb 6.5.1 returns a new signed object; broadcast that exact return value.
   const walletTransaction = toWalletSignableTransaction(unsigned)
@@ -315,9 +404,10 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   if (!signed || !Array.isArray(signed.signature) || signed.signature.length === 0
     || signed.txID !== walletTransaction.txID
     || signed.raw_data_hex !== walletTransaction.raw_data_hex
-    || JSON.stringify(signed.raw_data) !== JSON.stringify(walletTransaction.raw_data)) {
+    || !sameStructuredTransactionData(signed.raw_data, walletTransaction.raw_data)) {
     throw new Error('TronLink did not return a valid signature for the exact deployment transaction. Nothing was broadcast.')
   }
+  await getMainnetTransactionSignWeight(tronWeb, signed, wallet.address)
   let broadcast
   try {
     broadcast = await tronWeb.trx.sendRawTransaction(signed)
