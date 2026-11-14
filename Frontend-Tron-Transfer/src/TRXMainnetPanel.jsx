@@ -4,7 +4,7 @@ import {
   TRON_MAINNET_HOST, TRAX_TOKEN_ARTIFACT, TRAX_VAULT_ARTIFACT,
   addressesEqual, assertMainnetWallet, deployContractFromTronLink,
   formatTokenUnits, loadSavedContracts, parseTokenUnits, saveContractAddresses,
-  sendAndVerifyContractCall, sendNativeTrxFromTronLink,
+  sendAndVerifyContractCall, sendNativeTrxFromTronLink, preflightContractDeployments,
 } from './trax-mainnet.mjs'
 
 const ZERO = '0x0000000000000000000000000000000000000000'
@@ -117,6 +117,23 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
     setTokenAddress(result.address); setLastTx(result.txID)
     setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
+  })
+
+  const deployBoth = () => run('Preflighting both Mainnet deployments', async () => {
+    if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
+    if (tokenAddress || vaultAddress) throw new Error('Clear existing contract addresses or deploy only the missing contract. This combined action is for a fresh vault/token pair.')
+    const budget = await preflightContractDeployments(wallet, [
+      { artifact: TRAX_VAULT_ARTIFACT, contractName: 'OneTraxReserveVault', feeLimitSun },
+      { artifact: TRAX_TOKEN_ARTIFACT, contractName: 'Restricted1TRAX', feeLimitSun },
+    ])
+    setNotice('Combined Mainnet preflight passed. Estimated combined TRX fee budget: ' + (Number(budget.requiredTrxSun) / 1e6).toFixed(6) + ' TRX. Approve the vault deployment first, then the token deployment in TronLink.')
+    const vaultResult = await deployContractFromTronLink(wallet, TRAX_VAULT_ARTIFACT, 'OneTraxReserveVault', feeCapSun)
+    setVaultAddress(vaultResult.address); setLastTx(vaultResult.txID)
+    setNotice('Vault deployment is solidified and verified. Review and approve the TRӾ token deployment in TronLink.')
+    const tokenResult = await deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun)
+    setTokenAddress(tokenResult.address); setLastTx(tokenResult.txID)
+    setNotice('Both Mainnet contracts are deployed, solidified, and owner-verified. Next authorize the token in the vault and link the vault in the token.')
+    return { vault: vaultResult, token: tokenResult }
   })
 
   const authorizeVault = () => run('Authorizing TRӾ in reserve vault · approve in TronLink', async () => {
@@ -244,6 +261,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
       <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Deploy vault or paste verified Mainnet vault"/></label>
       <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady||busy||Boolean(vaultAddress)} onClick={()=>deployVault()}><Rocket size={15}/> Deploy reserve vault</button><button type="button" className="secondary-button" disabled={!walletReady||busy||Boolean(tokenAddress)} onClick={()=>deployToken()}><Rocket size={15}/> Deploy TRӾ token</button></div>
+      <button type="button" className="primary-button" disabled={!walletReady||busy||Boolean(tokenAddress)||Boolean(vaultAddress)} onClick={()=>deployBoth()}><Rocket size={15}/> Deploy both contracts automatically · two TronLink approvals</button>
       <div className="button-row"><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={()=>run('Authorize token in vault',authorizeVault)}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={()=>run('Link vault in token',linkToken)}>2. Link vault in token</button></div>
       <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The deployer becomes the immutable vault owner and initial token owner; do not deploy from an unintended account.</p>
     </div>
