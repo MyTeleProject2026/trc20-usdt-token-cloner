@@ -147,8 +147,10 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     try {
       const result = await tenergyPromoRequest('promo?address=' + encodeURIComponent(connectedAddress))
       setTenergyPromo(result)
+      setTenergyPromoIneligible(false)
     } catch (cause) {
       setTenergyPromo(null)
+      if (Number(cause?.code) === 3038 || cause?.slug === 'promo_not_eligible') setTenergyPromoIneligible(true)
       setTenergyMessage(formatTronUiError(cause, 'TEnergy promotional status is unavailable.'))
     }
   }, [walletReady, connectedAddress])
