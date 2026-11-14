@@ -111,14 +111,14 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
-    const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun,connectedAddress)
+    const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
     setVaultAddress(result.address); setLastTx(result.txID)
     setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
   })
 
   const deployToken = () => run('Deploying TRӾ token · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
-    const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun,connectedAddress)
+    const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
     setTokenAddress(result.address); setLastTx(result.txID)
     setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
   })
@@ -127,8 +127,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
     if (tokenAddress || vaultAddress) throw new Error('Clear existing contract addresses or deploy only the missing contract. This combined action is for a fresh vault/token pair.')
     const budget = await preflightContractDeployments(wallet, [
-      { artifact: TRAX_VAULT_ARTIFACT, contractName: 'OneTraxReserveVault', feeLimitSun },
-      { artifact: TRAX_TOKEN_ARTIFACT, contractName: 'Restricted1TRAX', feeLimitSun },
+      { artifact: TRAX_VAULT_ARTIFACT, contractName: 'OneTraxReserveVault', feeLimitSun: feeCapSun },
+      { artifact: TRAX_TOKEN_ARTIFACT, contractName: 'Restricted1TRAX', feeLimitSun: feeCapSun },
     ])
     setNotice('Combined Mainnet preflight passed. Estimated combined TRX fee budget: ' + (Number(budget.requiredTrxSun) / 1e6).toFixed(6) + ' TRX. Approve the vault deployment first, then the token deployment in TronLink.')
     const vaultResult = await deployContractFromTronLink(wallet, TRAX_VAULT_ARTIFACT, 'OneTraxReserveVault', feeCapSun)
