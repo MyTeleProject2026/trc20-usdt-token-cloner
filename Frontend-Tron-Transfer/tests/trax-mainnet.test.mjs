@@ -91,7 +91,7 @@ test('TRON Mainnet free-delegation deployment budget requires full Energy and on
   assert.equal(budget.requiredTrxSun, '0')
 })
 
-test('TRON Mainnet free-delegation deployment blocks resource shortfalls before wallet approval', () => {
+test('TRON Mainnet deployment blocks resource shortfalls when the TRX balance cannot cover fees', () => {
   assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '250000',
     resourceSnapshot: {
@@ -100,7 +100,7 @@ test('TRON Mainnet free-delegation deployment blocks resource shortfalls before 
     },
     rawDataHex: 'ab'.repeat(3000),
     feeLimitSun: '300000000',
-  }), /TRX-burn fallback is disabled/)
+  }), /Insufficient TRX for the estimated Mainnet resource shortfall/)
 })
 
 test('TRON Mainnet free-delegation budget does not combine free and staked Bandwidth quotas', () => {
@@ -115,8 +115,8 @@ test('TRON Mainnet free-delegation budget does not combine free and staked Bandw
   }), /TRX-burn fallback is disabled/)
 })
 
-test('TRON Mainnet free-delegation policy refuses a nonzero TRX balance even when resources cover deployment', () => {
-  assert.throws(() => calculateDeploymentResourceBudget({
+test('TRON Mainnet deployment permits a positive TRX balance when resources cover deployment', () => {
+  const budget = calculateDeploymentResourceBudget({
     energyRequired: '100000',
     resourceSnapshot: {
       energyAvailable: '120000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
@@ -124,24 +124,25 @@ test('TRON Mainnet free-delegation policy refuses a nonzero TRX balance even whe
     },
     rawDataHex: 'ab'.repeat(200),
     feeLimitSun: '20000000',
-  }), /zero native TRX balance/)
+  })
+  assert.equal(budget.requiredTrxSun, '0')
 })
 
-test('TRON Mainnet contract call checks zero TRX balance before invoking the wallet send method', async () => {
+test('TRON Mainnet contract calls allow wallet-funded TRX fees after balance validation', async () => {
   const originalFetch = globalThis.fetch
   let sent = false
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ balance: '1' }) })
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ balance: '100000000' }) })
   try {
     await assert.rejects(
       sendAndVerifyContractCall(
         { isAddress: () => true },
-        { send: async () => { sent = true; return 'a'.repeat(64) } },
+        { send: async () => { sent = true; throw new Error('test stop after wallet send') } },
         '1000000',
         'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
       ),
-      /zero native TRX balance/
+      /test stop after wallet send/
     )
-    assert.equal(sent, false)
+    assert.equal(sent, true)
   } finally {
     globalThis.fetch = originalFetch
   }
