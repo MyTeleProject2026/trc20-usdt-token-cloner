@@ -59,7 +59,7 @@ contract Restricted1TRAX {
 
     function totalSupply() external view returns (uint256) { return _totalSupply; }
     function balanceOf(address account) external view returns (uint256) { return _balances[account]; }
-    function allowance(address tokenOwner, address spender) external view returns (uint256) {
+    function allowance(address tokenOwner, address spender) public view returns (uint256) {
         AllowanceData storage data = _allowances[tokenOwner][spender];
         if (!_unlocked[tokenOwner] || !_unlocked[spender] || data.ownerLockNonce != _lockNonce[tokenOwner] || data.spenderLockNonce != _lockNonce[spender]) return 0;
         return data.amount;
