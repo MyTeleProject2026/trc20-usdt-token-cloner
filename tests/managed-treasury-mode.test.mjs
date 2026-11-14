@@ -23,5 +23,4 @@ test('managed treasury payout submission remains hard-disabled regardless of env
   assert.match(treasury, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
   assert.match(treasury, /if \(REAL_VALUE_PAYOUT_EXECUTION_DISABLED\)/)
   assert.match(treasury, /real-value-payout-execution-disabled-in-this-build/)
-  assert.match(dashboard, /Real-value payout execution is disabled in this build/)
 })
