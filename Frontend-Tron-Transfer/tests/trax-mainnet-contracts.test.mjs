@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { calculateDeploymentResourceBudget, estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/trax-mainnet.mjs'
+import { calculateDeploymentResourceBudget, callMainnetView, estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/trax-mainnet.mjs'
 import fs from 'node:fs/promises'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
@@ -188,4 +188,22 @@ test('TronLink nested HTTP errors retain response status and message', () => {
   const rendered = formatTronLinkError(error, 'Deployment preflight')
   assert.match(rendered, /429/)
   assert.match(rendered, /request rate exceeded/)
+})
+
+
+test('Mainnet constant contract reads share the paced queue and retry HTTP 429 safely', async () => {
+  let attempts = 0
+  const result = await callMainnetView({
+    call: async () => {
+      attempts += 1
+      if (attempts === 1) {
+        const error = new Error('Request failed with status code 429')
+        error.response = { status: 429, data: { Error: 'request rate exceeded' } }
+        throw error
+      }
+      return 'verified-value'
+    },
+  })
+  assert.equal(result, 'verified-value')
+  assert.equal(attempts, 2)
 })
