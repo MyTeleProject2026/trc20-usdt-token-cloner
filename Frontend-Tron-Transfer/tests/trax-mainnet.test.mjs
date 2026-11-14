@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, normalizeSignWeightResponse, sameStructuredTransactionData, verifyRawDataHash } from '../src/trax-mainnet.mjs'
 
 
 
@@ -106,6 +107,68 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
+
+test('TRON raw_data_hex hash must match txID before signing', async () => {
+  const rawDataHex = '0a0101'
+  const txID = createHash('sha256').update(Buffer.from(rawDataHex, 'hex')).digest('hex')
+  assert.equal(await verifyRawDataHash({ txID, raw_data_hex: rawDataHex }), true)
+  await assert.rejects(
+    verifyRawDataHash({ txID: 'f'.repeat(64), raw_data_hex: rawDataHex }),
+    /does not match SHA-256/,
+  )
+  await assert.rejects(
+    verifyRawDataHash({ txID, raw_data_hex: 'abc' }),
+    /invalid txID or raw_data_hex/,
+  )
+})
+
+test('TRON signed transaction structure comparison ignores object key order but preserves values', () => {
+  assert.equal(
+    sameStructuredTransactionData({ timestamp: 1, contract: [{ type: 'CreateSmartContract', owner: 'T1' }] },
+      { contract: [{ owner: 'T1', type: 'CreateSmartContract' }], timestamp: 1 }),
+    true,
+  )
+  assert.equal(
+    sameStructuredTransactionData({ timestamp: 1 }, { timestamp: 2 }),
+    false,
+  )
+})
+
+test('TRON signature-weight preflight allows broadcast only when connected signer reaches threshold', () => {
+  const signer = 'T' + '2'.repeat(33)
+  const tronWeb = { address: { toHex: (value) => String(value).toLowerCase() } }
+  const accepted = normalizeSignWeightResponse({
+    result: { code: 'ENOUGH_PERMISSION' },
+    current_weight: 2,
+    permission: { threshold: 2 },
+    approved_list: [signer],
+  }, signer, tronWeb)
+  assert.deepEqual(accepted, {
+    currentWeight: '2',
+    threshold: '2',
+    approvedSigners: 1,
+    enoughPermission: true,
+  })
+})
+
+test('TRON signature-weight preflight rejects missing weight, unknown signers and malformed responses', () => {
+  const signer = 'T' + '2'.repeat(33)
+  const other = 'T' + '3'.repeat(33)
+  const tronWeb = { address: { toHex: (value) => String(value).toLowerCase() } }
+  assert.throws(() => normalizeSignWeightResponse({
+    result: { code: 'NOT_ENOUGH_PERMISSION' },
+    current_weight: 1,
+    permission: { threshold: 2 },
+    approved_list: [signer],
+  }, signer, tronWeb), /collected weight 1; required threshold 2/)
+  assert.throws(() => normalizeSignWeightResponse({
+    result: {},
+    current_weight: 2,
+    permission: { threshold: 2 },
+    approved_list: [other],
+  }, signer, tronWeb), /not among the transaction’s approved signers/)
+  assert.throws(() => normalizeSignWeightResponse({ Error: 'bad request' }, signer, tronWeb), /could not validate/)
+})
 
 test('TRON owner permission preflight detects a second signer when one key is below threshold', () => {
   const signer = 'T' + '2'.repeat(33)
@@ -213,7 +276,7 @@ test('TRӾ deployment builds on the injected TronLink client and keeps the safet
   const ownerHex = '41' + '2'.repeat(40)
   let unsigned = {
     visible: false,
-    txID: 'b'.repeat(64),
+    txID: createHash('sha256').update(Buffer.from('0a01', 'hex')).digest('hex'),
     contract_address: '41' + '1'.repeat(40),
     raw_data: {
       contract: [{
