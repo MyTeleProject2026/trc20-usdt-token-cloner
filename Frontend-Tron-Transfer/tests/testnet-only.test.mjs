@@ -22,6 +22,9 @@ test('production frontend is TRON Mainnet-only and pins official Tether USDT', (
   assert.ok(app.includes('<TRXMainnetPanel wallet={unlocked} onConnect={()=>perform(connectTronLink)} />'))
   assert.ok(traxPanel.includes("const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
   assert.ok(traxPanel.includes('connectedAddress === EXPECTED_OWNER_ADDRESS'))
+  const contractCalls = [...traxPanel.matchAll(/sendAndVerifyContractCall\([^\n]+/g)].map((match) => match[0])
+  assert.equal(contractCalls.length, 9)
+  assert.ok(contractCalls.every((call) => call.includes('feeCapSun,connectedAddress')))
 })
 
 test('only official Mainnet Tether USDT is exposed as the payout asset', () => {
