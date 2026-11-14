@@ -756,8 +756,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // build with one transaction provider and ask a different provider to sign it.
   const walletTronWeb = assertMainnetWallet(wallet)
   const tronWeb = createVerifier()
-  if (!walletTronWeb?.transactionBuilder?.createSmartContract
-    || typeof walletTronWeb?.trx?.sign !== 'function'
+  if (typeof walletTronWeb?.trx?.sign !== 'function'
     || typeof walletTronWeb?.trx?.sendRawTransaction !== 'function'
     || !tronWeb?.utils?.transaction?.txCheck
     || !tronWeb?.utils?.crypto?.ecRecover
