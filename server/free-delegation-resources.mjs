@@ -3,6 +3,7 @@ import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
 
 const MAINNET = Object.freeze({
   host: 'https://api.trongrid.io',
+  publicNodeHost: 'https://tron-rpc.publicnode.com',
   tatumHost: 'https://tron-mainnet.gateway.tatum.io',
 })
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -105,6 +106,7 @@ export function createFreeDelegationResourceReader({
     const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
     const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
     const providers = [
+      { name: 'PublicNode', host: MAINNET.publicNodeHost, headers: { 'content-type': 'application/json' } },
       ...(tronGridKey ? [{ name: 'TRONGrid', host: MAINNET.host, headers: { 'content-type': 'application/json', 'TRON-PRO-API-KEY': tronGridKey } }] : []),
       ...(tatumKey ? [{ name: 'Tatum', host: MAINNET.tatumHost, headers: { 'content-type': 'application/json', 'x-api-key': tatumKey } }] : []),
       ...(!tronGridKey ? [{ name: 'TRONGrid public', host: MAINNET.host, headers: { 'content-type': 'application/json' } }] : []),
