@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
+import { estimateMainnetDeploymentEnergy } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -66,4 +67,27 @@ test('deployment Energy estimation never misuses triggerconstantcontract for ini
   assert.ok(!estimator.includes("'/wallet/estimateenergy'"))
   assert.ok(!estimator.includes("'/wallet/triggerconstantcontract'"))
   assert.ok(estimator.includes('No wallet signature or broadcast was attempted.'))
+})
+
+
+test('deployment Energy estimator calls TronWeb deployConstantContract with the exact init bytecode and owner', async () => {
+  const calls = []
+  const tronWeb = {
+    isAddress: (address) => address === 'TMainnetOwnerAddress',
+    transactionBuilder: {
+      deployConstantContract: async (options) => {
+        calls.push(options)
+        return { result: { result: true }, energy_required: 123456 }
+      },
+    },
+  }
+  const result = await estimateMainnetDeploymentEnergy(tronWeb, 'TMainnetOwnerAddress', {
+    bytecode: '6001600055',
+  })
+  assert.deepEqual(calls, [{
+    ownerAddress: 'TMainnetOwnerAddress',
+    input: '0x6001600055',
+    confirmed: false,
+  }])
+  assert.equal(result.energyUsed, '123456')
 })
