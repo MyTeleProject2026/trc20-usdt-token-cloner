@@ -296,7 +296,7 @@ test('Mainnet deployment uses one injected TronLink client and completes only af
     signature: ['a'.repeat(130)],
   }
   let signCalls = 0, broadcastCalls = 0, receiptCalls = 0, buildCalls = 0
-  let readResourceClient, readPermissionClient, estimateClient, verifyClient
+  let readResourceClient, readPermissionClient, estimateClient, verifyClient, ownerVerifyClient
   const tronWeb = {
     version: 'TronLink-test-provider',
     fullNode: { host: 'https://api.trongrid.io' },
@@ -374,6 +374,12 @@ test('Mainnet deployment uses one injected TronLink client and completes only af
         assert.equal(address, ownerAddress)
         return { bytecode: '6000' }
       },
+      verifyDeployedOwner: async (client, artifact, address) => {
+        ownerVerifyClient = client
+        assert.equal(address, ownerAddress)
+        assert.deepEqual(artifact.abi, [])
+        return ownerAddress
+      },
     },
   )
   assert.equal(buildCalls, 1)
@@ -384,6 +390,8 @@ test('Mainnet deployment uses one injected TronLink client and completes only af
   assert.strictEqual(readPermissionClient, tronWeb)
   assert.strictEqual(estimateClient, tronWeb)
   assert.strictEqual(verifyClient, tronWeb)
+  assert.strictEqual(ownerVerifyClient, tronWeb)
+  assert.equal(result.owner, ownerAddress)
   assert.equal(result.txID, unsigned.txID)
   assert.equal(result.address, ownerAddress)
 })
