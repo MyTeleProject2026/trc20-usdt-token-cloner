@@ -120,6 +120,28 @@ async function postNode(tronWeb, path, body) {
   }
 }
 
+async function createMainnetDeploymentTransaction(tronWeb, options, ownerAddress) {
+  if (typeof tronWeb?.transactionBuilder?.createSmartContract !== 'function') {
+    throw new Error('The Mainnet transaction-construction client is unavailable.')
+  }
+  let lastError
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await tronWeb.transactionBuilder.createSmartContract(options, ownerAddress)
+    } catch (error) {
+      lastError = error
+      const message = String(error?.message || error || '')
+      const status = Number(error?.response?.status || error?.status || error?.statusCode)
+      const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
+      if (!rateLimited || attempt === 3) break
+      await new Promise((resolve) => window.setTimeout(resolve, Math.min(12000, 1500 * (2 ** attempt))))
+    }
+  }
+  throw new Error('TRON Mainnet transaction construction failed after bounded rate-limit retries: '
+    + String(lastError?.message || lastError || 'unknown provider error')
+    + '. No wallet signature or broadcast was attempted.')
+}
+
 async function getCachedChainParameters(tronWeb) {
   const now = Date.now()
   if (chainParametersCache.value && chainParametersCache.expiresAt > now) return chainParametersCache.value
@@ -630,10 +652,10 @@ export async function preflightContractDeployments(wallet, deployments, {
   if (!Array.isArray(deployments) || deployments.length === 0) {
     return { deployments: [], requiredTrxSun: '0', availableTrxSun: '0' }
   }
-  if (typeof walletTronWeb?.transactionBuilder?.createSmartContract !== 'function') {
-    throw new Error('The connected TronLink provider cannot construct Mainnet deployment transactions.')
-  }
   const tronWeb = createVerifier()
+  if (typeof tronWeb?.transactionBuilder?.createSmartContract !== 'function') {
+    throw new Error('The Mainnet transaction-construction client is unavailable.')
+  }
   const resourceSnapshot = await readResources(tronWeb, wallet.address)
   const permissionSnapshot = await readPermissions(tronWeb, wallet.address)
   if (!permissionSnapshot.connectedSignerCanAuthorizeAlone) {
@@ -657,7 +679,7 @@ export async function preflightContractDeployments(wallet, deployments, {
     const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
     let unsigned
     try {
-      unsigned = await walletTronWeb.transactionBuilder.createSmartContract(options, wallet.address)
+      unsigned = await createMainnetDeploymentTransaction(tronWeb, options, wallet.address)
     } catch (error) {
       throw new Error(explainTronLinkError(error, 'Combined deployment preflight transaction construction failed'))
     }
@@ -756,7 +778,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
   let unsigned
   try {
-    unsigned = await walletTronWeb.transactionBuilder.createSmartContract(options, wallet.address)
+    unsigned = await createMainnetDeploymentTransaction(tronWeb, options, wallet.address)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment transaction construction failed'))
   }
