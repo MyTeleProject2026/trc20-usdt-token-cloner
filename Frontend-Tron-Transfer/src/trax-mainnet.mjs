@@ -438,6 +438,17 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     || typeof tronWeb?.trx?.sendRawTransaction !== 'function') {
     throw new Error('The connected TronLink provider does not expose deployment construction, signing and broadcast methods.')
   }
+  const [resourceSnapshot, permissionSnapshot, energyEstimate] = await Promise.all([
+    getMainnetAccountResourceSnapshot(tronWeb, wallet.address),
+    getMainnetAccountPermissionSnapshot(tronWeb, wallet.address),
+    estimateMainnetDeploymentEnergy(tronWeb, wallet.address, artifact),
+  ])
+  if (!permissionSnapshot.connectedSignerCanAuthorizeAlone) {
+    throw new Error('Connected wallet cannot satisfy the TRON owner permission threshold alone. Collected weight '
+      + permissionSnapshot.connectedSignerWeight + '; required threshold ' + permissionSnapshot.threshold
+      + '; additional signer weight required ' + permissionSnapshot.requiredAdditionalWeight
+      + '. No wallet signature or broadcast was attempted.')
+  }
   const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
   let unsigned
   try {
@@ -458,6 +469,15 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
   if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
+  if (Number(unsigned.raw_data?.fee_limit) !== Number(feeLimitSun)) {
+    throw new Error('Mainnet node changed the requested deployment fee_limit. No wallet signature or broadcast was attempted.')
+  }
+  const resourceBudget = calculateDeploymentResourceBudget({
+    energyRequired: energyEstimate.energyUsed,
+    resourceSnapshot,
+    rawDataHex: unsigned.raw_data_hex,
+    feeLimitSun,
+  })
   await verifyRawDataHash(unsigned)
   // Validate the plain protocol transaction, then ask the injected wallet signer.
   // TronWeb 6.5.1 returns a new signed object; broadcast that exact return value.
@@ -468,12 +488,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     || walletTransaction.raw_data.contract[0]?.type !== 'CreateSmartContract') {
     throw new Error('TRON node returned an invalid CreateSmartContract signing payload. No wallet prompt or broadcast was attempted.')
   }
-  // Safety gate: this deployment path is intentionally non-broadcasting while
-  // the TronLink CreateSmartContract compatibility issue is under investigation.
-  // The unsigned transaction is validated above, but must not be signed or sent.
-  // Remove this gate only after a separately reviewed, explicit deployment approval
-  // and an end-to-end test on a non-production network.
-  throw new Error('Deployment safety hold: unsigned TRON contract transaction was prepared and validated, but signing and Mainnet broadcast are disabled. No transaction was sent. Continue with offline payload diagnostics and testnet verification.')
+  // Mainnet preflight is complete: the node simulated this exact init bytecode,
+  // the current account resources and owner threshold were checked, and the
+  // transaction's fee cap and exact serialized payload were validated.
   let signed
   try {
     signed = await tronWeb.trx.sign(walletTransaction)
@@ -492,6 +509,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       abiEntries: Array.isArray(newContract.abi) ? newContract.abi.length : null,
       feeLimitSun: walletTransaction.raw_data.fee_limit ?? null,
       rawDataHexLength: walletTransaction.raw_data_hex.length,
+      estimatedEnergy: resourceBudget.energyRequired,
+      energyWithSafetyMargin: resourceBudget.energyWithSafetyMargin,
+      estimatedTrxShortfallSun: resourceBudget.requiredTrxSun,
     }
     throw new Error(explainTronLinkError(error, 'TronLink signing failed') + ' Payload diagnostics: ' + JSON.stringify(diagnostic))
   }
