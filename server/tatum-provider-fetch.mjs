@@ -8,6 +8,8 @@ const APPROVED_ORIGINS = new Set([
   'https://tron-nile.gateway.tatum.io',
   'https://tron-testnet.gateway.tatum.io',
   'https://api.trongrid.io',
+  'https://tron-rpc.publicnode.com',
+  'https://api.tenergy.me',
   'https://api.shasta.trongrid.io',
   'https://nile.trongrid.io',
 ]);
