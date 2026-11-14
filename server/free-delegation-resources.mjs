@@ -104,7 +104,7 @@ export function createFreeDelegationResourceReader({
     }
     try {
       const resourceResult = await post('/wallet/getaccountresource', { address, visible: true }, 'account-resource')
-      const indexResult = await post('/wallet/getdelegatedresourceaccountindexv2', { value: address, visible: true }, 'delegation-index')
+      const indexResult = await post('/walletsolidity/getdelegatedresourceaccountindexv2', { value: address, visible: true }, 'delegation-index')
       const resources = resourceResult.payload
       const index = indexResult.payload
       const fields = {
@@ -130,8 +130,8 @@ export function createFreeDelegationResourceReader({
       const records = []
       const providersUsed = new Set([resourceResult.provider, indexResult.provider])
       for (const delegator of delegators) {
-        const detail = await post('/wallet/getdelegatedresourcev2', {
-          owner_address: delegator, receiver_address: address, visible: true,
+        const detail = await post('/walletsolidity/getdelegatedresourcev2', {
+          fromAddress: delegator, toAddress: address, visible: true,
         }, 'delegation-detail')
         providersUsed.add(detail.provider)
         const entries = Array.isArray(detail.payload.delegatedResource)
