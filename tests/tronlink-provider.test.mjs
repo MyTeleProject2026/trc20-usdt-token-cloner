@@ -53,7 +53,7 @@ test('connection waits for TronWeb signer readiness after account approval', asy
     isTronLink: true,
     tronWeb: false,
     request: async ({ method }) => {
-      assert.equal(method, 'eth_requestAccounts')
+      assert.equal(method, 'tron_requestAccounts')
       setTimeout(() => {
         provider.tronWeb = {
           ready: true,
@@ -73,7 +73,7 @@ test('connection waits for TronWeb signer readiness after account approval', asy
   assert.equal(result.tronWeb.defaultAddress.base58, ownerAddress)
 })
 
-test('connection uses the legacy authorization method only when modern method is unsupported', async () => {
+test('connection falls back to the EVM account method only when TronLink authorization is unsupported', async () => {
   const calls = []
   const provider = {
     isTronLink: true,
@@ -85,7 +85,7 @@ test('connection uses the legacy authorization method only when modern method is
     },
     request: async ({ method }) => {
       calls.push(method)
-      if (method === 'eth_requestAccounts') throw Object.assign(new Error('unsupported method'), { code: 4200 })
+      if (method === 'tron_requestAccounts') throw Object.assign(new Error('unsupported method'), { code: 4200 })
       return { code: 200 }
     },
   }
@@ -94,7 +94,7 @@ test('connection uses the legacy authorization method only when modern method is
     pollIntervalMs: 5,
   })
   assert.equal(result.address, ownerAddress)
-  assert.deepEqual(calls, ['eth_requestAccounts', 'tron_requestAccounts'])
+  assert.deepEqual(calls, ['tron_requestAccounts', 'eth_requestAccounts'])
 })
 
 test('connection explains user rejection without repeatedly prompting', async () => {
