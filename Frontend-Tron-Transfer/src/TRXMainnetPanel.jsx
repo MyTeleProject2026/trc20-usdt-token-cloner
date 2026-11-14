@@ -62,8 +62,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     try { saveContractAddresses({ tokenAddress, vaultAddress }) } catch {}
   }, [tokenAddress,vaultAddress])
 
-  useEffect(() => { setResourceSnapshot(null) }, [connectedAddress])
-
   const run = useCallback(async (label, action) => {
     setBusy(true); setError(''); setNotice(''); setStep(label)
     try { return await action() }
@@ -73,6 +71,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const connectedAddress = wallet?.address || ''
   const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
+  useEffect(() => { setResourceSnapshot(null) }, [connectedAddress])
   // Any valid Mainnet TronLink account may connect. On-chain owner() checks below
   // decide which wallet may administer already-deployed contracts.
   const checkDeploymentResources = () => run('Reading live TRON Mainnet account resources', async () => {
