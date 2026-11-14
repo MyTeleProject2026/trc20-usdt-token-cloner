@@ -564,7 +564,7 @@ test('TRON permission preflight requires a valid connected signer and provider m
 test('TronGrid public-node calls are globally paced and honor one-second suspension responses', async () => {
   const helper = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
   assert.match(helper, /NODE_MIN_REQUEST_INTERVAL_MS = 400/)
-  assert.match(helper, /let nodeRequestQueue = Promise\\.resolve\\(\\)/)
+  assert.match(helper, /let nodeRequestQueue = Promise\.resolve\(\)/)
   assert.match(helper, /nodeCooldownUntil/)
   assert.match(helper, /suspended\\s\+for\\s\+/)
   assert.match(helper, /Math\.max\(1250/)
