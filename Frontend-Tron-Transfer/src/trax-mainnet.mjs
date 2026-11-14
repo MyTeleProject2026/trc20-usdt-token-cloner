@@ -301,9 +301,13 @@ export function calculateDeploymentResourceBudget({
   const availableEnergy = BigInt(resourceSnapshot.energyAvailable)
   // TRON does not combine staked/delegated Bandwidth with the free quota for
   // one transaction: either source must cover the complete byte cost.
-  const freeBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable)
-  const stakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable)
-  const availableBandwidth = freeBandwidth > stakedBandwidth ? freeBandwidth : stakedBandwidth
+  const freeBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable ?? 0)
+  const stakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable ?? 0)
+  // TEnergy's public resource endpoint returns the protocol's largest single
+  // usable Bandwidth quota directly; this is not the sum of free and staked.
+  const availableBandwidth = resourceSnapshot.bandwidthAvailableForOneTransaction != null
+    ? BigInt(resourceSnapshot.bandwidthAvailableForOneTransaction)
+    : freeBandwidth > stakedBandwidth ? freeBandwidth : stakedBandwidth
   const balance = BigInt(resourceSnapshot.nativeBalanceSun)
   const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
   if (energyFee <= 0n || balance < 0n) throw new Error('Mainnet returned invalid Energy price or TRX balance.')
