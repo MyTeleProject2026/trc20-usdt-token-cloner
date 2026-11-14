@@ -62,6 +62,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     try { saveContractAddresses({ tokenAddress, vaultAddress }) } catch {}
   }, [tokenAddress,vaultAddress])
 
+  useEffect(() => { setResourceSnapshot(null) }, [connectedAddress])
+
   const run = useCallback(async (label, action) => {
     setBusy(true); setError(''); setNotice(''); setStep(label)
     try { return await action() }
