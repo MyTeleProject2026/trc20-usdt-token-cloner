@@ -54,3 +54,14 @@ test('native TRX vault can only release funds through its authorized token contr
   assert.ok(tokenSource.includes('external onlyOwner nonReentrant'))
   assert.ok(tokenSource.includes('releaseForRedemption(recipient, amount, redemptionReference)'))
 })
+
+
+test('deployment Energy estimation never misuses triggerconstantcontract for init bytecode', async () => {
+  const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  const start = helper.indexOf('export async function estimateMainnetDeploymentEnergy')
+  const end = helper.indexOf('export async function waitForSolidifiedReceipt', start)
+  const estimator = helper.slice(start, end)
+  assert.ok(estimator.includes("'/wallet/estimateenergy'"))
+  assert.ok(!estimator.includes("'/wallet/triggerconstantcontract'"))
+  assert.ok(estimator.includes('No wallet signature or broadcast was attempted.'))
+})
