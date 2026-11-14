@@ -44,3 +44,36 @@ test('treats omitted protobuf numeric values as zero and never reports negative 
   assert.equal(result.bandwidth.stakedOrDelegatedAvailable, 0)
   assert.equal(result.balanceSun, '0')
 })
+
+
+test('free-delegation route is Mainnet-wallet restricted and returns injected live status', async (t) => {
+  const { createServer } = await import('../server.js')
+  const expected = {
+    success: true,
+    network: 'mainnet',
+    status: 'mainnet-resource-snapshot-read',
+    address: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+    resourceRead: true,
+    policy: { mode: 'free-delegation', walletApprovalRequired: true },
+    transactionActions: { unsignedTransactionCreated: false, walletSignatureRequested: false, transactionBroadcast: false },
+  }
+  let calls = 0
+  const server = createServer({
+    allowedAddress: expected.address,
+    readFreeDelegationStatus: async (address, options) => {
+      calls += 1
+      assert.equal(address, expected.address)
+      assert.equal(options.refresh, true)
+      return expected
+    },
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  const allowed = await fetch(base + '/api/tron/resources/free-delegation/status?address=' + expected.address + '&refresh=1')
+  assert.equal(allowed.status, 200)
+  assert.deepEqual(await allowed.json(), expected)
+  const denied = await fetch(base + '/api/tron/resources/free-delegation/status?address=TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL')
+  assert.equal(denied.status, 403)
+  assert.equal(calls, 1)
+})
