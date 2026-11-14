@@ -249,6 +249,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployToken = () => run('Deploying TRӾ token · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink Mainnet wallet.')
+    if (connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Free-delegation policy is restricted to ' + FREE_DELEGATION_OWNER + '. Connect that wallet in TronLink.')
     if (!configuredOwnerMatches) throw new Error('Connect a TronLink Mainnet wallet.')
     const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
     setTokenAddress(result.address); setLastTx(result.txID)
