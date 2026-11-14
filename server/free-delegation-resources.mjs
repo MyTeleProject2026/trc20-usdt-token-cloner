@@ -104,8 +104,12 @@ export function createFreeDelegationResourceReader({
     }
     try {
       const resourceResult = await post('/wallet/getaccountresource', { address, visible: true }, 'account-resource')
+      const accountResult = await post('/wallet/getaccount', { address, visible: true }, 'account-balance')
+      const chainParametersResult = await post('/wallet/getchainparameters', {}, 'chain-parameters')
       const indexResult = await post('/walletsolidity/getdelegatedresourceaccountindexv2', { value: address, visible: true }, 'delegation-index')
       const resources = resourceResult.payload
+      const account = accountResult.payload
+      const chainParameters = chainParametersResult.payload
       const index = indexResult.payload
       const fields = {
         energyLimit: integer(resources.EnergyLimit, '0'),
@@ -126,9 +130,23 @@ export function createFreeDelegationResourceReader({
       if (!fromAccounts || !toAccounts) {
         throw Object.assign(new Error('invalid-delegation-index'), { category: 'invalid-delegation-index', stage: 'delegation-index' })
       }
+      const nativeBalanceSun = integer(account.balance, '0')
+      const parameterList = Array.isArray(chainParameters.chainParameter) ? chainParameters.chainParameter : []
+      const chainParameter = (key) => {
+        const item = parameterList.find((entry) => entry?.key === key)
+        return integer(item?.value, null)
+      }
+      const energyFeeSun = chainParameter('getEnergyFee')
+      const bandwidthFeeSun = chainParameter('getTransactionFee')
+      const maxFeeLimitSun = chainParameter('getMaxFeeLimit')
+      if (nativeBalanceSun === null || energyFeeSun === null || BigInt(energyFeeSun) <= 0n
+        || bandwidthFeeSun === null || BigInt(bandwidthFeeSun) <= 0n
+        || maxFeeLimitSun === null || BigInt(maxFeeLimitSun) <= 0n) {
+        throw Object.assign(new Error('invalid-deployment-resource-parameters'), { category: 'invalid-deployment-resource-parameters', stage: 'chain-parameters' })
+      }
       const delegators = [...new Set(fromAccounts.filter((value) => typeof value === 'string' && ADDRESS_PATTERN.test(value)))].slice(0, MAX_DELEGATORS)
       const records = []
-      const providersUsed = new Set([resourceResult.provider, indexResult.provider])
+      const providersUsed = new Set([resourceResult.provider, accountResult.provider, chainParametersResult.provider, indexResult.provider])
       for (const delegator of delegators) {
         const detail = await post('/walletsolidity/getdelegatedresourcev2', {
           fromAddress: delegator, toAddress: address, visible: true,
@@ -175,6 +193,16 @@ export function createFreeDelegationResourceReader({
           stakedOrDelegatedBandwidthAvailable: stakedBandwidthAvailable,
           stakedOrDelegatedBandwidthLimit: fields.bandwidthLimit,
           stakedOrDelegatedBandwidthUsed: fields.bandwidthUsed,
+          nativeBalanceSun,
+        },
+        deploymentResourceSnapshot: {
+          energyAvailable,
+          freeBandwidthAvailable,
+          stakedBandwidthAvailable,
+          nativeBalanceSun,
+          energyFeeSun,
+          bandwidthFeeSun,
+          maxFeeLimitSun,
         },
         inboundDelegations: {
           count: records.length,
