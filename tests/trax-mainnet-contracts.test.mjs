@@ -12,7 +12,7 @@ test('TRӾ source pins the exact TRON Solidity compiler release and metadata', (
   assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
   assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
   assert.ok(tronboxConfig.includes("version: '0.8.25'"))
-  assert.ok(tronboxConfig.includes('optimizer: { enabled: true, runs: 200 }'))
+  assert.match(tronboxConfig, /optimizer:\s*\{\s*enabled:\s*true,\s*runs:\s*200\s*\}/)
 })
 
 test('TRӾ source exposes owner-controlled minting, lock management and redemption', () => {
