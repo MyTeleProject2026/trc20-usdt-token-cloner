@@ -252,15 +252,18 @@ export function normalizeDeploymentEnergyEstimate(response) {
     const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not simulate contract creation'
     throw new Error('TRON Mainnet deployment Energy simulation failed: ' + detail)
   }
+  // TronGrid's triggerconstantcontract response for deployment simulation
+  // may provide result.result + energy_used without transaction.ret. Validate
+  // execution status when the node includes it, but do not require that optional
+  // transaction envelope for a successful simulation response.
   const execution = response.transaction?.ret?.[0]
   const executionRet = String(execution?.ret || '').toUpperCase()
   const contractRet = String(execution?.contractRet || '').toUpperCase()
   const successValues = ['SUCESS', 'SUCCESS']
   if ((executionRet && !successValues.includes(executionRet))
-    || (contractRet && !successValues.includes(contractRet))
-    || (!executionRet && !contractRet)) {
+    || (contractRet && !successValues.includes(contractRet))) {
     throw new Error('TRON Mainnet deployment simulation did not execute successfully: '
-      + (contractRet || executionRet || 'missing TVM execution result')
+      + (contractRet || executionRet)
       + '. No wallet signature or broadcast was attempted.')
   }
   let energyUsed
