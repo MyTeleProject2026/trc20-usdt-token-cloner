@@ -13,8 +13,6 @@ const ZERO = '0x0000000000000000000000000000000000000000'
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/
 const DEFAULT_RECIPIENT = 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk'
 const DEFAULT_FEE_CAP = '300'
-const FREE_DELEGATION_OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const RESOURCE_API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 
 function toSun(value) {
   const units = parseTokenUnits(value)
@@ -31,23 +29,6 @@ function makeReference() {
 
 function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
-}
-
-async function readServerFreeDelegationStatus(address, refresh = false) {
-  const query = new URLSearchParams({ address, ...(refresh ? { refresh: '1' } : {}) })
-  const response = await fetch(RESOURCE_API_BASE + '/api/tron/resources/free-delegation/status?' + query.toString(), {
-    method: 'GET', headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store', redirect: 'error',
-  })
-  const payload = await response.json().catch(() => null)
-  if (!response.ok || payload?.success !== true || !payload.deploymentResourceSnapshot) {
-    throw new Error(payload?.message || payload?.error || 'Server-side Mainnet resource status is unavailable.')
-  }
-  return payload
-}
-
-async function readServerDeploymentResources(_tronWeb, address) {
-  const status = await readServerFreeDelegationStatus(address, true)
-  return status.deploymentResourceSnapshot
 }
 
 function formatTronUiError(cause, fallback = 'The operation failed.') {
@@ -68,25 +49,6 @@ function formatTronUiError(cause, fallback = 'The operation failed.') {
     } catch {}
   }
   return fallback
-}
-
-async function tenergyPromoRequest(path, method = 'GET', body = undefined) {
-  const response = await fetch(RESOURCE_API_BASE + '/api/tron/resources/free-delegation/tenergy/' + path, {
-    method, headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    credentials: 'omit', cache: 'no-store', redirect: 'error',
-  })
-  const payload = await response.json().catch(() => null)
-  if (!response.ok || payload?.success !== true) {
-    const error = new Error(formatTronUiError(payload, 'TEnergy free-promo service is unavailable.'))
-    if (payload && typeof payload === 'object') {
-      error.code = payload.code
-      error.slug = payload.slug
-      error.retryable = payload.retryable
-    }
-    throw error
-  }
-  return payload
 }
 
 export default function TRXMainnetPanel({ wallet, onConnect }) {
@@ -118,12 +80,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [resourceStatus,setResourceStatus] = useState(null)
   const [resourceLoading,setResourceLoading] = useState(false)
   const [resourceError,setResourceError] = useState('')
-  const [freeDelegationStatus,setFreeDelegationStatus] = useState(null)
-  const [freeDelegationError,setFreeDelegationError] = useState('')
-  const [tenergyPromo,setTenergyPromo] = useState(null)
-  const [tenergyBusy,setTenergyBusy] = useState(false)
-  const [tenergyMessage,setTenergyMessage] = useState('')
-  const [tenergyPromoIneligible,setTenergyPromoIneligible] = useState(false)
   const [permissionStatus,setPermissionStatus] = useState(null)
   const [permissionLoading,setPermissionLoading] = useState(false)
   const [permissionError,setPermissionError] = useState('')
@@ -142,74 +98,12 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const connectedAddress = wallet?.address || ''
   const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
 
-  const refreshTenergyPromo = useCallback(async () => {
-    if (!walletReady || connectedAddress !== FREE_DELEGATION_OWNER) { setTenergyPromo(null); return }
-    try {
-      const result = await tenergyPromoRequest('promo?address=' + encodeURIComponent(connectedAddress))
-      setTenergyPromo(result)
-      setTenergyPromoIneligible(false)
-    } catch (cause) {
-      setTenergyPromo(null)
-      if (Number(cause?.code) === 3038 || cause?.slug === 'promo_not_eligible') setTenergyPromoIneligible(true)
-      setTenergyMessage(formatTronUiError(cause, 'TEnergy promotional status is unavailable.'))
-    }
-  }, [walletReady, connectedAddress])
-
-  const claimTenergyPromo = () => run('Requesting a free Energy promo · review the message in TronLink', async () => {
-    if (!walletReady || connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Connect the configured TRON Mainnet owner wallet.')
-    const tronWeb = assertMainnetWallet(wallet)
-    let challengeResult
-    try {
-      challengeResult = await tenergyPromoRequest('challenge', 'POST', { address: connectedAddress })
-    } catch (cause) {
-      if (Number(cause?.code) === 3038 || cause?.slug === 'promo_not_eligible') {
-        setTenergyPromoIneligible(true)
-        setTenergyMessage('This wallet was not included in TEnergy’s promotional distribution. No signing request was made. Contact TEnergy support to ask whether this address can be added; this claim cannot be retried unless the provider changes eligibility.')
-      }
-      throw cause
-    }
-    const challenge = challengeResult.challenge
-    if (!challenge || challenge.address !== connectedAddress || typeof challenge.message !== 'string') throw new Error('The provider returned an invalid wallet challenge.')
-    if (typeof tronWeb.trx?.signMessageV2 !== 'function') throw new Error('This TronLink version does not expose signMessageV2. Update TronLink and retry.')
-    const signature = await tronWeb.trx.signMessageV2(challenge.message)
-    if (typeof signature !== 'string' || !/^(?:0x)?[0-9a-fA-F]{130}$/.test(signature)) throw new Error('TronLink did not return a valid message signature.')
-    const redemption = await tenergyPromoRequest('redeem', 'POST', { address: connectedAddress, nonce: challenge.nonce, signature })
-    setTenergyMessage(redemption.redemption?.status === 'delegated'
-      ? 'TEnergy reports the promotional delegation as complete. Refresh Mainnet resources to verify the received Energy.'
-      : 'The free promo claim was accepted and is being processed. Refresh claim status shortly.')
-    await refreshTenergyPromo()
-    return redemption
-  })
-
-  const checkTenergyRedemption = async () => {
-    if (!walletReady || connectedAddress !== FREE_DELEGATION_OWNER) return
-    setTenergyBusy(true)
-    try {
-      const result = await tenergyPromoRequest('redemption?address=' + encodeURIComponent(connectedAddress))
-      setTenergyPromo(prev => ({ ...(prev || {}), redemption: result.redemption }))
-      setTenergyMessage(result.redemption.status === 'delegated'
-        ? 'Provider reports the grant delegated. Refresh resources to confirm the on-chain Energy balance.'
-        : 'Provider claim status: ' + result.redemption.status + '.')
-    } catch (cause) {
-      setTenergyMessage(formatTronUiError(cause, 'Could not refresh the provider claim.'))
-    } finally { setTenergyBusy(false) }
-  }
-
   const refreshWalletResources = useCallback(async () => {
     if (!walletReady || !connectedAddress) return
     setResourceLoading(true)
     setResourceError('')
-    setFreeDelegationError('')
     try {
-      try {
-        const status = await readServerFreeDelegationStatus(connectedAddress)
-        setFreeDelegationStatus(status)
-      } catch (cause) {
-        setFreeDelegationStatus(null)
-        setFreeDelegationError(cause instanceof Error ? cause.message : 'Server-side delegation status is unavailable.')
-      }
-      // Keep the wallet-provider snapshot for display and independent cross-checking.
-      // Deployment resource budgeting itself uses the server-side Mainnet reader below.
+      // Read resources directly from TRON Mainnet through the connected wallet's public node.
       const tronWeb = assertMainnetWallet(wallet)
       const resources = await getMainnetAccountResourceSnapshot(tronWeb, connectedAddress)
       setResourceStatus({
@@ -226,7 +120,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
           energyFeeSunPerUnit: resources.energyFeeSun,
           bandwidthFeeSunPerByte: resources.bandwidthFeeSun,
         },
-        estimateNote: 'Live wallet-provider snapshot. Deployment resource budgeting uses the server-side Mainnet reader and separately simulates contract init bytecode.',
+        estimateNote: 'Live Mainnet account snapshot. Deployment separately simulates each contract and uses native TRX from this wallet for any Energy/Bandwidth shortfall.',
       })
     } catch (cause) {
       setResourceError(cause instanceof Error ? cause.message : String(cause))
@@ -258,7 +152,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     refreshWalletPermissions()
   }, [connectedAddress, refreshWalletResources, refreshWalletPermissions])
 
-  useEffect(() => { refreshTenergyPromo() }, [refreshTenergyPromo])
 
   const configuredOwnerMatches = walletReady
   const feeCapSun = useMemo(() => {
@@ -340,7 +233,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     }
     const deployed = []
     if (!vaultAddress) {
-      const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun,{ readResources: readServerDeploymentResources })
+      const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
       setVaultAddress(result.address); setLastTx(result.txID); deployed.push('reserve vault')
     }
     if (!tokenAddress) {
@@ -520,7 +413,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
       <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Automatically filled after vault deployment"/></label>
       <div className="button-row"><button type="button" className="outline-button" disabled={busy||(!tokenAddress&&!vaultAddress)} onClick={()=>{setTokenAddress('');setVaultAddress('');setSnapshot(null);setLastTx('');setError('');setNotice('Contract address fields cleared. Deploy or enter verified Mainnet contract addresses.') ;try{saveContractAddresses({tokenAddress:'',vaultAddress:''})}catch{}}}>Clear contract addresses</button></div>
-      <div className="button-row"><button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress&&vaultAddress)} onClick={deployMissingContracts}><Rocket size={15}/> {tokenAddress||vaultAddress?'Deploy missing contract':'Deploy both contracts automatically · two TronLink approvals'}</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy vault only</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy token only</button></div>
+      <div className="button-row"><button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress&&vaultAddress)} onClick={deployMissingContracts}><Rocket size={15}/> {tokenAddress||vaultAddress?'Deploy missing contract':'Deploy both contracts · wallet-funded fees · two TronLink approvals'}</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy vault only</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy token only</button></div>
       <p className="trax-help">The combined action deploys the vault first and the token second. TronLink asks you to review and sign each deployment separately. Confirmed contract addresses are saved automatically; no transaction is sent without your wallet approval.</p>
       <div className="button-row"><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={authorizeVault}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={linkToken}>2. Link vault in token</button></div>
       <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The connected wallet that deploys each contract becomes its owner. Each deployment requires a separate TronLink signature. The app verifies the solidified Mainnet receipt and deployed bytecode before saving the contract address.</p>
@@ -544,7 +437,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
     <div className="trax-actions trax-resource-panel">
       <div className="trax-actions-heading">
-        <div><h3>Automatic TRON Energy &amp; Bandwidth check</h3><p className="trax-resource-subtitle">Live Mainnet account resources for the connected wallet</p></div>
+        <div><h3>Your wallet's Mainnet resources &amp; fees</h3><p className="trax-resource-subtitle">Live Mainnet account resources for the connected wallet</p></div>
         <button type="button" className="secondary-button" disabled={!walletReady||resourceLoading} onClick={refreshWalletResources}><RefreshCw size={15}/> {resourceLoading?'Checking…':'Refresh resources'}</button>
       </div>
       {resourceError&&<div className="notice notice-error"><AlertTriangle size={15}/><div><b>Live resource check unavailable</b><p>{resourceError}</p></div></div>}
@@ -557,28 +450,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         <article><span>Bandwidth fee parameter</span><b>{resourceStatus.chainParameters.bandwidthFeeSunPerByte==null?'Unavailable':Number(resourceStatus.chainParameters.bandwidthFeeSunPerByte).toLocaleString()+' SUN'}</b></article>
       </div>}
       {resourceStatus&&<p className="fine-print">Checked {new Date(resourceStatus.checkedAt).toLocaleString()}. {resourceStatus.estimateNote} Deployment energy is not guessed from transfer estimates.</p>}
-      <div className="trax-resource-offer">
-        <b>Free-delegation policy · TRON Mainnet</b>
-        {freeDelegationError&&<p role="status">Server-side delegation verification unavailable: {freeDelegationError}</p>}
-        {freeDelegationStatus&&<p>Verified server-side Mainnet resources: Energy {Number(freeDelegationStatus.resources.energyAvailable).toLocaleString()}, free Bandwidth {Number(freeDelegationStatus.resources.freeBandwidthAvailable).toLocaleString()}, staked/delegated Bandwidth {Number(freeDelegationStatus.resources.stakedOrDelegatedBandwidthAvailable).toLocaleString()}. Incoming Stake 2.0 delegations: {freeDelegationStatus.inboundDelegations.count}. {freeDelegationStatus.inboundDelegations.count ? 'Incoming delegation records are observed in the Mainnet FullNode state.' : 'No incoming Energy/Bandwidth delegation was detected.'} Protocol free Energy quota: 0. No sponsor, paid rental, paid fallback, or automatic delegation is enabled.</p>}
-        <p>Only real incoming on-chain delegation can add Energy without TRX burn. If Energy is unavailable, deployment stops before requesting TronLink approval. Any on-chain transaction still requires your explicit wallet approval.</p>
-      </div>
-      <div className="trax-resource-offer">
-        <b>Free public Energy provider · TEnergy Mainnet promotion</b>
-        <p>The backend checks TEnergy's live Mainnet promotion and eligibility. If this wallet was pre-marked eligible and the promotion is active, you can request its one-time Energy grant. TronLink will ask you to sign the provider's exact human-readable message; this is not a blockchain transaction, transfers no TRX, and grants no token approval. The provider controls eligibility, daily limits and actual delegation.</p>
-        {tenergyPromo?.terms&&<p>Promotion: {tenergyPromo.terms.state}. {tenergyPromo.terms.grant ? 'Advertised grant: '+Number(tenergyPromo.terms.grant.amount).toLocaleString()+' Energy for '+Math.round(Number(tenergyPromo.terms.grant.duration_seconds)/60)+' minutes.' : 'No grant details are currently published.'} Remaining today: {tenergyPromo.terms.left_today ?? '—'}.</p>}
-        {tenergyPromo?.redemption&&<p>Wallet claim: {tenergyPromo.redemption.status} · {Number(tenergyPromo.redemption.energy || 0).toLocaleString()} Energy · method: {tenergyPromo.redemption.method}.</p>}
-        {tenergyMessage&&<p role="status">{tenergyMessage}</p>}
-        <div className="button-row">
-          <button type="button" className="secondary-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||tenergyBusy||busy} onClick={refreshTenergyPromo}>Refresh free-promo eligibility</button>
-          <button type="button" className="primary-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||busy||tenergyBusy||tenergyPromoIneligible||tenergyPromo?.terms?.state!=='active'||!Number(tenergyPromo?.terms?.left_today)||Boolean(tenergyPromo?.redemption)} onClick={claimTenergyPromo}>Claim free Energy · sign message in TronLink</button>
-          <button type="button" className="outline-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||tenergyBusy||!tenergyPromo?.redemption} onClick={checkTenergyRedemption}>Check delegation status</button>
-        </div>
-        <p className="fine-print">No paid order, provider account balance, TRX transfer, sponsor billing, or TRX-burn fallback is used. Energy is not added to the deployment budget until the Mainnet resource reader confirms it.</p>
-        <b>Free Bandwidth provider status</b>
-        <p>No external public provider with a verified free Bandwidth-delegation API was found. The app continues to use only the wallet's actual protocol free Bandwidth and verified incoming on-chain delegation.</p>
-      </div>
-      <p className="fine-print">No sponsor, paid rental, or automatic delegation is enabled. Deployment and contract calls require a zero native TRX balance plus sufficient real Energy and one complete Bandwidth quota, so TRX-burn fallback cannot be used. Your TronLink wallet must separately approve each transaction. Free Bandwidth is a protocol allowance; TRON has no equivalent protocol-level free Energy quota.</p>
+      <p className="fine-print">Deployment and contract calls use the connected wallet's own native TRX to pay Mainnet Energy and Bandwidth shortfalls after available account resources are consumed. No fee sponsor, rental provider, paid API, or automatic delegation is integrated. Each transaction is simulated and checked against the wallet balance and fee cap before TronLink approval; the wallet must still hold enough TRX.</p>
     </div>
 
       <div className="trax-actions-heading"><h3>On-chain verification</h3><button type="button" className="secondary-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={refresh}><RefreshCw size={15}/> Refresh</button></div>
@@ -607,7 +479,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         <li>Fund the vault with native TRX and refresh the actual on-chain reserve.</li>
         <li>Review the on-chain owner, metadata, vault link and backing; then activate minting.</li>
       </ol>
-      <label>Deployment / contract-call maximum fee cap (TRX)<input type="number" min="1" max="500" step="1" value={feeCap} onChange={e=>setFeeCap(e.target.value)}/></label>
+      <label>Maximum wallet-funded transaction fee cap (TRX)<input type="number" min="1" max="500" step="1" value={feeCap} onChange={e=>setFeeCap(e.target.value)}/></label>
     </div>
 
     <div className="trax-actions">
