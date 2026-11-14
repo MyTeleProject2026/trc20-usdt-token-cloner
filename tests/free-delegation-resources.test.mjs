@@ -26,10 +26,10 @@ test('Mainnet reader reports real resources and confirmed incoming Stake-2.0 del
       if (url.endsWith('/wallet/getchainparameters')) return fakeResponse({ chainParameter: [
         { key: 'getEnergyFee', value: 100 }, { key: 'getTransactionFee', value: 1000 }, { key: 'getMaxFeeLimit', value: 15000000000 },
       ] })
-      if (url.endsWith('/walletsolidity/getdelegatedresourceaccountindexv2')) return fakeResponse({
+      if (url.endsWith('/wallet/getdelegatedresourceaccountindexv2')) return fakeResponse({
         fromAccounts: [delegator], toAccounts: [],
       })
-      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) {
+      if (url.endsWith('/wallet/getdelegatedresourcev2')) {
         assert.equal(body.fromAddress, delegator)
         assert.equal(body.toAddress, wallet)
         return fakeResponse({
