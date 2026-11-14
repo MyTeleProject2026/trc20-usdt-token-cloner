@@ -79,6 +79,7 @@ test('connection uses the legacy authorization method only when modern method is
     tronWeb: {
       ready: true,
       defaultAddress: { base58: ownerAddress },
+      isAddress: value => value === ownerAddress,
       trx: { sign: async () => ({}) },
     },
     request: async ({ method }) => {
