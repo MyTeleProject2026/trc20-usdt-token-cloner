@@ -22,12 +22,16 @@ test('Mainnet reader reports real resources and confirmed incoming Stake-2.0 del
       if (url.endsWith('/wallet/getaccountresource')) return fakeResponse({
         EnergyLimit: 10000, EnergyUsed: 2500, NetLimit: 700, NetUsed: 200, freeNetLimit: 600, freeNetUsed: 100,
       })
-      if (url.endsWith('/wallet/getdelegatedresourceaccountindexv2')) return fakeResponse({
+      if (url.endsWith('/walletsolidity/getdelegatedresourceaccountindexv2')) return fakeResponse({
         fromAccounts: [delegator], toAccounts: [],
       })
-      if (url.endsWith('/wallet/getdelegatedresourcev2')) return fakeResponse({
+      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) {
+        assert.equal(body.fromAddress, delegator)
+        assert.equal(body.toAddress, wallet)
+        return fakeResponse({
         delegatedResource: [{ frozen_balance_for_energy: '5000000', frozen_balance_for_bandwidth: '0', expire_time_for_energy: '0' }],
-      })
+        })
+      }
       throw new Error('unexpected endpoint')
     },
   })
@@ -46,7 +50,7 @@ test('Mainnet reader reports real resources and confirmed incoming Stake-2.0 del
   assert.equal(result.policy.automaticDelegationEnabled, false)
   assert.equal(result.transactionActions.walletSignatureRequested, false)
   assert.equal(result.transactionActions.transactionBroadcast, false)
-  assert.ok(calls.every((call) => call.url.startsWith('https://api.trongrid.io/wallet/')))
+  assert.ok(calls.every((call) => call.url.startsWith('https://api.trongrid.io/wallet')))
   assert.ok(calls.every((call) => call.headers['TRON-PRO-API-KEY'] === 'server-only-key'))
   assert.equal(JSON.stringify(result).includes('server-only-key'), false)
 })
