@@ -101,7 +101,7 @@ function authorizationError(error) {
 
 async function requestAccounts(provider) {
   let lastUnsupported
-  for (const method of ['tron_requestAccounts', 'eth_requestAccounts']) {
+  for (const method of ['eth_requestAccounts', 'tron_requestAccounts']) {
     try {
       const result = await provider.request({ method })
       if (result && typeof result === 'object' && !Array.isArray(result) && result.code) {
