@@ -54,15 +54,56 @@ export function saveContractAddresses(addresses) {
   window.localStorage.setItem(TRAX_STORAGE_KEY, JSON.stringify(value))
 }
 
+const CHAIN_PARAMETERS_CACHE_TTL_MS = 60000
+let chainParametersCache = { value: null, expiresAt: 0, pending: null }
+
+function retryDelayMs(response, attempt) {
+  const retryAfter = response?.headers?.get?.('Retry-After')
+  if (retryAfter) {
+    const seconds = Number(retryAfter)
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(10000, seconds * 1000)
+    const date = Date.parse(retryAfter)
+    if (Number.isFinite(date)) return Math.min(10000, Math.max(0, date - Date.now()))
+  }
+  return Math.min(8000, 500 * (2 ** attempt)) + Math.floor(Math.random() * 250)
+}
+
 async function postNode(tronWeb, path, body) {
-  const response = await fetch(TRON_MAINNET_HOST + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-    cache: 'no-store',
-  })
-  if (!response.ok) throw new Error('TRON Mainnet node returned HTTP ' + response.status + ' for ' + path)
-  return response.json()
+  const max429Retries = 3
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(TRON_MAINNET_HOST + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    })
+    if (response.ok) return response.json()
+    let detail = ''
+    try { detail = (await response.text()).trim().slice(0, 500) } catch {}
+    if (response.status === 429 && attempt < max429Retries) {
+      await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs(response, attempt)))
+      continue
+    }
+    throw new Error('TRON Mainnet node returned HTTP ' + response.status + ' for ' + path
+      + (detail ? ': ' + detail : '')
+      + (response.status === 429 ? '. Public TronGrid rate limit reached after safe retries; wait before retrying.' : ''))
+  }
+}
+
+async function getCachedChainParameters(tronWeb) {
+  const now = Date.now()
+  if (chainParametersCache.value && chainParametersCache.expiresAt > now) return chainParametersCache.value
+  if (chainParametersCache.pending) return chainParametersCache.pending
+  chainParametersCache.pending = postNode(tronWeb, '/wallet/getchainparameters', {})
+    .then((value) => {
+      chainParametersCache = { value, expiresAt: Date.now() + CHAIN_PARAMETERS_CACHE_TTL_MS, pending: null }
+      return value
+    })
+    .catch((error) => {
+      chainParametersCache.pending = null
+      throw error
+    })
+  return chainParametersCache.pending
 }
 
 function resourceInteger(source, key) {
@@ -165,7 +206,7 @@ export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
   if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet wallet address.')
   const [accountResources, chainParameters, nativeBalanceSun] = await Promise.all([
     postNode(tronWeb, '/wallet/getaccountresource', { address, visible: true }),
-    postNode(tronWeb, '/wallet/getchainparameters', {}),
+    getCachedChainParameters(tronWeb),
     tronWeb.trx.getBalance(address),
   ])
   return normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun)
@@ -563,11 +604,11 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     || typeof tronWeb?.trx?.getSignWeight !== 'function') {
     throw new Error('The connected TronLink provider cannot build, sign and broadcast Mainnet deployments, or the pinned verifier cannot validate signatures and permissions.')
   }
-  const [resourceSnapshot, permissionSnapshot, energyEstimate] = await Promise.all([
-    readResources(tronWeb, wallet.address),
-    readPermissions(tronWeb, wallet.address),
-    estimateEnergy(tronWeb, wallet.address, artifact),
-  ])
+  // Pace the preflight reads instead of bursting resource, permission and
+  // deployment-simulation requests at the public TronGrid endpoint together.
+  const resourceSnapshot = await readResources(tronWeb, wallet.address)
+  const permissionSnapshot = await readPermissions(tronWeb, wallet.address)
+  const energyEstimate = await estimateEnergy(tronWeb, wallet.address, artifact)
   if (!permissionSnapshot.connectedSignerCanAuthorizeAlone) {
     throw new Error('Connected wallet cannot satisfy the TRON owner permission threshold alone. Collected weight '
       + permissionSnapshot.connectedSignerWeight + '; required threshold ' + permissionSnapshot.threshold
