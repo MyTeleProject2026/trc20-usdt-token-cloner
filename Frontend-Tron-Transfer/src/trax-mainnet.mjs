@@ -80,7 +80,7 @@ function retryDelayMs(response, attempt, detail = '') {
 function enqueueNodeRequest(task) {
   const queued = nodeRequestQueue.then(async () => {
     const waitMs = Math.max(nodeNextRequestAt, nodeCooldownUntil) - Date.now()
-    if (waitMs > 0) await new Promise((resolve) => window.setTimeout(resolve, waitMs))
+    if (waitMs > 0) await new Promise((resolve) => globalThis.setTimeout(resolve, waitMs))
     const result = await task()
     nodeNextRequestAt = Date.now() + NODE_MIN_REQUEST_INTERVAL_MS
     if (result.response?.status === 429) {
@@ -424,7 +424,7 @@ export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 1800
       if (error instanceof Error && /execution failed/.test(error.message)) throw error
       lastError = error
     }
-    await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
+    await new Promise((resolve) => globalThis.setTimeout(resolve, intervalMs))
   }
   throw new Error('Transaction has not been verified in the solidified Mainnet chain. Keep its ID and check again: ' + txID + (lastError ? ' (' + lastError.message + ')' : ''))
 }
