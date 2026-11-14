@@ -93,6 +93,44 @@ function enqueueNodeRequest(task) {
   return queued
 }
 
+export async function callMainnetView(method) {
+  if (!method || typeof method.call !== 'function') {
+    throw new Error('The requested Mainnet contract read is unavailable.')
+  }
+  for (let attempt = 0; attempt <= NODE_MAX_RETRIES_429; attempt += 1) {
+    const result = await enqueueNodeRequest(async () => {
+      try {
+        return { value: await method.call() }
+      } catch (error) {
+        const message = String(error?.message || error || '')
+        const status = Number(error?.response?.status || error?.status || error?.statusCode)
+        const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
+        if (rateLimited) {
+          const cooldown = retryDelayMs(error?.response, attempt, message)
+          nodeCooldownUntil = Math.max(nodeCooldownUntil, Date.now() + cooldown)
+        }
+        return { error, rateLimited }
+      }
+    })
+    if (!result.error) return result.value
+    if (!result.rateLimited || attempt === NODE_MAX_RETRIES_429) throw result.error
+  }
+  throw new Error('TRON Mainnet contract read failed after rate-limit retries.')
+}
+
+export async function getMainnetNativeBalance(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet account address.')
+  const account = await postNode(tronWeb, '/wallet/getaccount', { address, visible: true })
+  if (!account || typeof account !== 'object' || account.Error) {
+    throw new Error('TRON Mainnet could not return the requested native TRX balance.')
+  }
+  const balance = String(account.balance ?? '0')
+  if (!/^(?:0|[1-9][0-9]*)$/.test(balance)) {
+    throw new Error('TRON Mainnet returned an invalid native TRX balance.')
+  }
+  return balance
+}
+
 async function postNode(tronWeb, path, body) {
   for (let attempt = 0; ; attempt += 1) {
     const { response, detail } = await enqueueNodeRequest(async () => {
