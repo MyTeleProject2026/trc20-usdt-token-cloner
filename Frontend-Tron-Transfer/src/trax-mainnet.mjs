@@ -323,21 +323,20 @@ export function calculateDeploymentResourceBudget({
   }
   const energyShortfall = bufferedEnergy > availableEnergy ? bufferedEnergy - availableEnergy : 0n
   const estimatedBandwidthBytes = BigInt(Math.ceil(rawDataHex.length / 2) + 3 + 64 + 67)
-  // A free-delegation-only account must not use the TRX-burn fallback. Reject
-  // any known shortfall even when the wallet has a positive native TRX balance.
+  // Resource quotas are consumed first; TRX covers the remaining Energy
+  // and the full Bandwidth transaction cost when neither quota can cover it.
   const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes : 0n
+
   const energyBurnSun = energyShortfall * energyFee
+  if (bandwidthShortfall > 0n && (bandwidthFee === null || bandwidthFee <= 0n)) {
+    throw new Error('TRON Mainnet did not return a valid Bandwidth fee. Cannot safely estimate the TRX fallback.')
+  }
   const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
-  if (balance !== 0n) {
-    throw new Error('Free-delegation no-burn mode requires a zero native TRX balance before deployment. This prevents the network from using TRX-burn fallback if resource availability changes before confirmation. No wallet signature or broadcast was attempted.')
-  }
-  if (energyShortfall > 0n || bandwidthShortfall > 0n) {
-    throw new Error('Free-delegation policy blocked deployment before wallet approval: full Energy and Bandwidth coverage is required; TRX-burn fallback is disabled. Estimated Energy with safety margin: '
-      + bufferedEnergy.toString() + '; available Energy: ' + availableEnergy.toString()
-      + '; estimated Bandwidth bytes: ' + estimatedBandwidthBytes.toString()
-      + '; largest single Bandwidth quota: ' + availableBandwidth.toString()
-      + '. Obtain real incoming delegation or wait for the free Bandwidth quota to recover. No wallet signature or broadcast was attempted.')
+  if (balance < requiredTrxSun) {
+    throw new Error('Insufficient TRX for the estimated Mainnet resource shortfall. Estimated fee fallback: '
+      + requiredTrxSun.toString() + ' SUN (' + (Number(requiredTrxSun) / 1e6).toFixed(6)
+      + ' TRX); available balance: ' + balance.toString() + ' SUN. Add TRX or obtain more Energy/Bandwidth delegation. No wallet signature or broadcast was attempted.')
   }
   return {
     energyRequired: energy.toString(),
@@ -786,9 +785,9 @@ export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 1
   try { nativeBalance = BigInt(account.balance ?? 0) } catch {
     throw new Error('Mainnet wallet returned an invalid native TRX balance. Refusing contract call.')
   }
-  if (nativeBalance !== 0n) {
-    throw new Error('Free-delegation no-burn mode requires a zero native TRX balance before contract calls. This prevents TRX-burn fallback if resource availability changes before confirmation. No transaction was sent.')
-  }
+  // A positive TRX balance is permitted: Tron protocol resource quotas are
+  // consumed first, and feeLimit caps caller-side Energy burn for any shortfall.
+  // The wallet still displays and requires explicit approval for each write.
   const result = await method.send({
     feeLimit: feeLimitSun,
     callValue: 0,
