@@ -4,15 +4,17 @@ import fs from 'node:fs/promises'
 
 const tokenSource = await fs.readFile(new URL('../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
 const vaultSource = await fs.readFile(new URL('../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8')
-const tronboxConfig = await fs.readFile(new URL('../Frontend-Tron-Transfer/trax-build/tronbox-config.js', import.meta.url), 'utf8')
+const frontendPackage = JSON.parse(await fs.readFile(new URL('../Frontend-Tron-Transfer/package.json', import.meta.url), 'utf8'))
+const compileScript = await fs.readFile(new URL('../Frontend-Tron-Transfer/scripts/compile-trax-contracts.mjs', import.meta.url), 'utf8')
 
-test('TRӾ source pins the exact TRON Solidity compiler release and metadata', () => {
-  assert.ok(tokenSource.includes('pragma solidity 0.8.25;'))
+test('TRӾ source pins the exact Solidity compiler release and metadata', () => {
+  assert.ok(tokenSource.includes('pragma solidity ^0.8.20;'))
   assert.ok(tokenSource.includes('string public constant name = unicode"TRӾ";'))
   assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
   assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
-  assert.ok(tronboxConfig.includes("version: '0.8.25'"))
-  assert.match(tronboxConfig, /optimizer:\s*\{\s*enabled:\s*true,\s*runs:\s*200\s*\}/)
+  assert.equal(frontendPackage.dependencies.solc, '0.8.25')
+  assert.ok(compileScript.includes("compilerVersion !== '0.8.25'"))
+  assert.match(compileScript, /optimizer:\s*\{\s*enabled:\s*true,\s*runs:\s*200\s*\}/)
 })
 
 test('TRӾ source exposes owner-controlled minting, lock management and redemption', () => {
@@ -34,7 +36,7 @@ test('TRӾ locked-account rules invalidate delegated approvals', () => {
 })
 
 test('native TRX reserve vault permits releases only through the authorized token contract', () => {
-  assert.ok(vaultSource.includes('pragma solidity 0.8.25;'))
+  assert.ok(vaultSource.includes('pragma solidity ^0.8.25;'))
   assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
   assert.ok(vaultSource.includes('address(this).balance >= amount'))
   assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))

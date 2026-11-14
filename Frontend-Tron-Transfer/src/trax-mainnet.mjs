@@ -80,7 +80,7 @@ function retryDelayMs(response, attempt, detail = '') {
 function enqueueNodeRequest(task) {
   const queued = nodeRequestQueue.then(async () => {
     const waitMs = Math.max(nodeNextRequestAt, nodeCooldownUntil) - Date.now()
-    if (waitMs > 0) await new Promise((resolve) => window.setTimeout(resolve, waitMs))
+    if (waitMs > 0) await new Promise((resolve) => globalThis.setTimeout(resolve, waitMs))
     const result = await task()
     nodeNextRequestAt = Date.now() + NODE_MIN_REQUEST_INTERVAL_MS
     if (result.response?.status === 429) {
@@ -91,6 +91,44 @@ function enqueueNodeRequest(task) {
   })
   nodeRequestQueue = queued.then(() => undefined, () => undefined)
   return queued
+}
+
+export async function callMainnetView(method) {
+  if (!method || typeof method.call !== 'function') {
+    throw new Error('The requested Mainnet contract read is unavailable.')
+  }
+  for (let attempt = 0; attempt <= NODE_MAX_RETRIES_429; attempt += 1) {
+    const result = await enqueueNodeRequest(async () => {
+      try {
+        return { value: await method.call() }
+      } catch (error) {
+        const message = String(error?.message || error || '')
+        const status = Number(error?.response?.status || error?.status || error?.statusCode)
+        const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
+        if (rateLimited) {
+          const cooldown = retryDelayMs(error?.response, attempt, message)
+          nodeCooldownUntil = Math.max(nodeCooldownUntil, Date.now() + cooldown)
+        }
+        return { error, rateLimited }
+      }
+    })
+    if (!result.error) return result.value
+    if (!result.rateLimited || attempt === NODE_MAX_RETRIES_429) throw result.error
+  }
+  throw new Error('TRON Mainnet contract read failed after rate-limit retries.')
+}
+
+export async function getMainnetNativeBalance(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet account address.')
+  const account = await postNode(tronWeb, '/wallet/getaccount', { address, visible: true })
+  if (!account || typeof account !== 'object' || account.Error) {
+    throw new Error('TRON Mainnet could not return the requested native TRX balance.')
+  }
+  const balance = String(account.balance ?? '0')
+  if (!/^(?:0|[1-9][0-9]*)$/.test(balance)) {
+    throw new Error('TRON Mainnet returned an invalid native TRX balance.')
+  }
+  return balance
 }
 
 async function postNode(tronWeb, path, body) {
@@ -118,6 +156,34 @@ async function postNode(tronWeb, path, body) {
       + (detail ? ': ' + detail : '')
       + (response.status === 429 ? '. Public TronGrid rate limit reached after paced retries; the public node is still throttling this network. Wait before retrying.' : ''))
   }
+}
+
+async function createMainnetDeploymentTransaction(tronWeb, options, ownerAddress) {
+  if (typeof tronWeb?.transactionBuilder?.createSmartContract !== 'function') {
+    throw new Error('The Mainnet transaction-construction client is unavailable.')
+  }
+  let lastError
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const result = await enqueueNodeRequest(async () => {
+      try {
+        return { value: await tronWeb.transactionBuilder.createSmartContract(options, ownerAddress) }
+      } catch (error) {
+        const message = String(error?.message || error || '')
+        const status = Number(error?.response?.status || error?.status || error?.statusCode)
+        const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
+        return { error, detail: message, response: rateLimited ? { status: 429 } : null }
+      }
+    })
+    if (!result.error) return result.value
+    lastError = result.error
+    const message = String(lastError?.message || lastError || '')
+    const status = Number(lastError?.response?.status || lastError?.status || lastError?.statusCode)
+    const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
+    if (!rateLimited || attempt === 3) break
+  }
+  throw new Error('TRON Mainnet transaction construction failed after bounded rate-limit retries: '
+    + String(lastError?.message || lastError || 'unknown provider error')
+    + '. No wallet signature or broadcast was attempted.')
 }
 
 async function getCachedChainParameters(tronWeb) {
@@ -249,13 +315,12 @@ export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
 
 export function normalizeDeploymentEnergyEstimate(response) {
   if (!response || response.Error || response.result?.result !== true) {
-    const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not simulate contract creation'
-    throw new Error('TRON Mainnet deployment Energy simulation failed: ' + detail)
+    const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not estimate contract creation Energy'
+    throw new Error('TRON Mainnet deployment Energy estimation failed: ' + detail)
   }
-  // TronGrid's triggerconstantcontract response for deployment simulation
-  // may provide result.result + energy_used without transaction.ret. Validate
-  // execution status when the node includes it, but do not require that optional
-  // transaction envelope for a successful simulation response.
+  // wallet/estimateenergy reports energy_required; triggerconstantcontract
+  // reports energy_used. Validate execution status when the node includes it,
+  // but do not require an optional transaction envelope.
   const execution = response.transaction?.ret?.[0]
   const executionRet = String(execution?.ret || '').toUpperCase()
   const contractRet = String(execution?.contractRet || '').toUpperCase()
@@ -267,10 +332,10 @@ export function normalizeDeploymentEnergyEstimate(response) {
       + '. No wallet signature or broadcast was attempted.')
   }
   let energyUsed
-  try { energyUsed = BigInt(response.energy_used) } catch {
-    throw new Error('TRON Mainnet deployment simulation did not return a valid energy_used value.')
+  try { energyUsed = BigInt(response.energy_required ?? response.energy_used) } catch {
+    throw new Error('TRON Mainnet deployment Energy estimate did not return a valid energy_required value.')
   }
-  if (energyUsed <= 0n) throw new Error('TRON Mainnet deployment simulation returned zero Energy; refusing to guess a deployment cost.')
+  if (energyUsed <= 0n) throw new Error('TRON Mainnet deployment Energy estimate returned zero Energy; refusing to guess a deployment cost.')
   let energyPenalty = 0n
   try { energyPenalty = BigInt(response.energy_penalty ?? 0) } catch {
     throw new Error('TRON Mainnet deployment simulation returned an invalid Energy penalty.')
@@ -357,12 +422,24 @@ export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, art
   if (!tronWeb?.isAddress?.(ownerAddress)) throw new Error('Enter a valid TRON Mainnet deployment owner address.')
   const bytecode = String(artifact?.bytecode || '').replace(/^0x/, '')
   if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled contract init bytecode is missing or invalid.')
-  const response = await postNode(tronWeb, '/wallet/triggerconstantcontract', {
-    owner_address: ownerAddress,
-    data: bytecode,
-    visible: true,
-  })
-  return normalizeDeploymentEnergyEstimate(response)
+  if (typeof tronWeb?.transactionBuilder?.deployConstantContract !== 'function') {
+    throw new Error('This TronWeb version does not support deployConstantContract simulation. Update TronWeb before deploying. No wallet signature or broadcast was attempted.')
+  }
+
+  // Simulate contract creation with TronWeb's deployment-constant API.
+  // estimateenergy and triggerconstantcontract are contract-call estimators.
+  try {
+    const response = await enqueueNodeRequest(() => tronWeb.transactionBuilder.deployConstantContract({
+      ownerAddress,
+      input: '0x' + bytecode,
+      confirmed: false,
+    }))
+    return normalizeDeploymentEnergyEstimate(response)
+  } catch (error) {
+    throw new Error('TRON Mainnet contract-creation simulation is unavailable: '
+      + String(error?.message || error || 'unknown node error')
+      + '. TronWeb deployConstantContract simulation must succeed before deployment. No wallet signature or broadcast was attempted.')
+  }
 }
 
 export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 180000, intervalMs = 3000 } = {}) {
@@ -385,7 +462,7 @@ export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 1800
       if (error instanceof Error && /execution failed/.test(error.message)) throw error
       lastError = error
     }
-    await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
+    await new Promise((resolve) => globalThis.setTimeout(resolve, intervalMs))
   }
   throw new Error('Transaction has not been verified in the solidified Mainnet chain. Keep its ID and check again: ' + txID + (lastError ? ' (' + lastError.message + ')' : ''))
 }
@@ -426,12 +503,69 @@ export function decodeTronBroadcastFailure(tronWeb, broadcast, txID) {
   return 'TRON Mainnet rejected deployment broadcast: ' + String(detail) + '.' + tx
 }
 
-function explainTronLinkError(error, stage) {
-  const raw = typeof error === 'string' ? error : (error?.message || error?.toString?.() || 'Unknown wallet error')
-  if (/Confirmation declined by user|User rejected|code.?4001/i.test(raw)) return stage + ': transaction was declined in TronLink. No retry was attempted.'
+export function formatTronLinkError(error, stage = 'TRON operation failed') {
+  // Preserve enumerable and non-enumerable provider fields. Axios/TronLink
+  // frequently wrap JSON details inside Error instances whose JSON.stringify()
+  // output is empty and whose .message alone loses provider code/status values.
+  const details = {}
+  const sources = [
+    error?.response?.data,
+    error?.data,
+    error,
+    error?.cause,
+    error?.error,
+  ]
+  const fields = ['name', 'message', 'code', 'slug', 'status', 'statusCode', 'field', 'retryable', 'Error']
+  for (const source of sources) {
+    if (typeof source === 'string' && source.trim()) {
+      if (!details.providerText) details.providerText = source.trim()
+      continue
+    }
+    if (!source || typeof source !== 'object') continue
+    for (const field of fields) {
+      try {
+        const value = source[field]
+        if (value !== undefined && value !== null && value !== '') {
+          if (details[field] === undefined) details[field] = value
+        }
+      } catch {}
+    }
+    try {
+      if (source.response?.status !== undefined && details.httpStatus === undefined) {
+        details.httpStatus = source.response.status
+      }
+      if (source.response?.statusText && details.statusText === undefined) {
+        details.statusText = source.response.statusText
+      }
+      if (typeof source.response?.data === 'string' && !details.providerText) {
+        details.providerText = source.response.data
+      }
+    } catch {}
+  }
+  let raw = ''
+  if (Object.keys(details).length) {
+    try { raw = JSON.stringify(details) } catch {}
+  }
+  if (!raw) {
+    for (const source of sources) {
+      if (typeof source === 'string' && source.trim()) { raw = source.trim(); break }
+      if (source && typeof source === 'object') {
+        try {
+          const serialized = JSON.stringify(source)
+          if (serialized && serialized !== '{}' && serialized !== '[object Object]') { raw = serialized; break }
+        } catch {}
+      }
+    }
+  }
+  if (!raw) raw = 'Unknown wallet or provider error'
+  if (/Confirmation declined by user|User rejected|code.?4001/i.test(raw)) return stage + ': transaction was declined in TronLink. No retry was attempted. Details: ' + raw
   if (/Invalid transaction provided/i.test(raw)) return stage + ': TronLink rejected the unsigned deployment transaction as invalid. Check the transaction payload and wallet/network connection. Details: ' + raw
-  if (/User has not unlocked wallet/i.test(raw)) return stage + ': unlock TronLink and reconnect before trying again.'
+  if (/User has not unlocked wallet/i.test(raw)) return stage + ': unlock TronLink and reconnect before trying again. Details: ' + raw
   return stage + ': ' + raw
+}
+
+function explainTronLinkError(error, stage) {
+  return formatTronLinkError(error, stage)
 }
 
 function canonicalJson(value) {
@@ -630,10 +764,10 @@ export async function preflightContractDeployments(wallet, deployments, {
   if (!Array.isArray(deployments) || deployments.length === 0) {
     return { deployments: [], requiredTrxSun: '0', availableTrxSun: '0' }
   }
-  if (typeof walletTronWeb?.transactionBuilder?.createSmartContract !== 'function') {
-    throw new Error('The connected TronLink provider cannot construct Mainnet deployment transactions.')
-  }
   const tronWeb = createVerifier()
+  if (typeof tronWeb?.transactionBuilder?.createSmartContract !== 'function') {
+    throw new Error('The Mainnet transaction-construction client is unavailable.')
+  }
   const resourceSnapshot = await readResources(tronWeb, wallet.address)
   const permissionSnapshot = await readPermissions(tronWeb, wallet.address)
   if (!permissionSnapshot.connectedSignerCanAuthorizeAlone) {
@@ -643,15 +777,12 @@ export async function preflightContractDeployments(wallet, deployments, {
       + '. No wallet signature or broadcast was attempted.')
   }
 
-  // Deliberately budget both deployments with zero assumed reusable resources.
-  // This is conservative: each transaction can consume the same remaining
-  // quota in the worst case, so the preflight never double-spends Energy or Bandwidth.
-  const conservativeResources = {
-    ...resourceSnapshot,
-    energyAvailable: '0',
-    freeBandwidthAvailable: '0',
-    stakedBandwidthAvailable: '0',
-  }
+  // Spend the wallet's real resource snapshot across deployments in order.
+  // Never reset quotas to zero: the earlier implementation overstated fees by
+  // ignoring actual Energy and free/delegated Bandwidth shown by Mainnet.
+  let remainingEnergy = BigInt(resourceSnapshot.energyAvailable)
+  let remainingFreeBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable)
+  let remainingStakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable)
   const results = []
   let combinedRequiredTrxSun = 0n
   for (const deployment of deployments) {
@@ -660,7 +791,7 @@ export async function preflightContractDeployments(wallet, deployments, {
     const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
     let unsigned
     try {
-      unsigned = await walletTronWeb.transactionBuilder.createSmartContract(options, wallet.address)
+      unsigned = await createMainnetDeploymentTransaction(tronWeb, options, wallet.address)
     } catch (error) {
       throw new Error(explainTronLinkError(error, 'Combined deployment preflight transaction construction failed'))
     }
@@ -669,16 +800,35 @@ export async function preflightContractDeployments(wallet, deployments, {
       || Number(unsigned.raw_data?.fee_limit) !== Number(feeLimitSun)) {
       throw new Error('Mainnet returned an incomplete or unexpected unsigned transaction during combined deployment preflight. No wallet signature or broadcast was attempted.')
     }
+    const snapshotForThisDeployment = {
+      ...resourceSnapshot,
+      energyAvailable: remainingEnergy.toString(),
+      freeBandwidthAvailable: remainingFreeBandwidth.toString(),
+      stakedBandwidthAvailable: remainingStakedBandwidth.toString(),
+    }
     const budget = calculateDeploymentResourceBudget({
       energyRequired: energyEstimate.energyUsed,
-      resourceSnapshot: conservativeResources,
+      resourceSnapshot: snapshotForThisDeployment,
       rawDataHex: unsigned.raw_data_hex,
       feeLimitSun,
     })
+    remainingEnergy = BigInt(budget.energyShortfall) > 0n
+      ? 0n
+      : remainingEnergy - BigInt(budget.energyWithSafetyMargin)
+    const txBandwidth = BigInt(budget.estimatedBandwidthBytes)
+    // The protocol accepts one complete Bandwidth source per transaction.
+    // Consume the source selected by the estimator; otherwise the full tx
+    // byte cost is priced in TRX and neither quota is incorrectly deducted.
+    if (remainingFreeBandwidth >= txBandwidth) {
+      remainingFreeBandwidth -= txBandwidth
+    } else if (remainingStakedBandwidth >= txBandwidth) {
+      remainingStakedBandwidth -= txBandwidth
+    }
     combinedRequiredTrxSun += BigInt(budget.requiredTrxSun)
     results.push({
       contractName: String(contractName),
       energyRequired: budget.energyRequired,
+      energyWithSafetyMargin: budget.energyWithSafetyMargin,
       estimatedBandwidthBytes: budget.estimatedBandwidthBytes,
       requiredTrxSun: budget.requiredTrxSun,
     })
@@ -712,19 +862,18 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
 } = {}) {
-  // Use TronLink's injected Mainnet client for transaction construction, signing
-  // and broadcast. Use a pinned read-only TronWeb verifier for byte-level checks,
-  // permission queries, resource reads and solidified receipt verification. Never
-  // build with one transaction provider and ask a different provider to sign it.
+  // Construct the unsigned Mainnet transaction through the pinned read-only
+  // TronWeb client, then ask the connected TronLink wallet to sign that exact
+  // raw_data payload and broadcast the verified signed transaction. The wallet
+  // provider never receives private keys or any server-side signing request.
   const walletTronWeb = assertMainnetWallet(wallet)
   const tronWeb = createVerifier()
-  if (!walletTronWeb?.transactionBuilder?.createSmartContract
-    || typeof walletTronWeb?.trx?.sign !== 'function'
+  if (typeof walletTronWeb?.trx?.sign !== 'function'
     || typeof walletTronWeb?.trx?.sendRawTransaction !== 'function'
     || !tronWeb?.utils?.transaction?.txCheck
     || !tronWeb?.utils?.crypto?.ecRecover
     || typeof tronWeb?.trx?.getSignWeight !== 'function') {
-    throw new Error('The connected TronLink provider cannot build, sign and broadcast Mainnet deployments, or the pinned verifier cannot validate signatures and permissions.')
+    throw new Error('The connected TronLink provider cannot sign and broadcast Mainnet deployments, or the pinned verifier cannot validate signatures and permissions.')
   }
   // Pace the preflight reads instead of bursting resource, permission and
   // deployment-simulation requests at the public TronGrid endpoint together.
@@ -740,7 +889,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
   let unsigned
   try {
-    unsigned = await walletTronWeb.transactionBuilder.createSmartContract(options, wallet.address)
+    unsigned = await createMainnetDeploymentTransaction(tronWeb, options, wallet.address)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment transaction construction failed'))
   }
@@ -855,7 +1004,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
 
 export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000, ownerAddress = '') {
   if (typeof ownerAddress !== 'string' || !tronWeb?.isAddress?.(ownerAddress)) {
-    throw new Error('Free-delegation contract calls require the connected Mainnet owner address.')
+    throw new Error('Contract calls require the connected Mainnet owner address.')
   }
   const account = await postNode(tronWeb, '/wallet/getaccount', { address: ownerAddress, visible: true })
   if (!account || typeof account !== 'object' || account.Error) {

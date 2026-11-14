@@ -59,7 +59,7 @@ test('TRON Mainnet deployment simulation requires a successful positive Energy r
   }), { energyUsed: '250000', energyPenalty: '50000' })
   assert.throws(
     () => normalizeDeploymentEnergyEstimate({ result: { result: false, code: 'CONTRACT_VALIDATE_ERROR' } }),
-    /simulation failed/,
+    /Energy estimation failed/,
   )
   assert.throws(
     () => normalizeDeploymentEnergyEstimate({

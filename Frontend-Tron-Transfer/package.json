@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24 <25"
   },
   "scripts": {
     "dev": "node scripts/compile-trax-contracts.mjs && vite --host 0.0.0.0",
@@ -16,8 +16,11 @@
     "lucide-react": "1.31.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "tronweb": "6.5.1",
+    "tronweb": "6.5.2",
     "vite": "6.4.5",
-    "tronbox": "4.10.0"
+    "solc": "0.8.25"
+  },
+  "overrides": {
+    "tmp": "0.2.7"
   }
 }

@@ -3,7 +3,7 @@ name: CI
 on:
   # One authoritative PR test/build workflow. Separate audit checks remain enabled.
   push:
-    branches: [main]
+    branches: [main, "ui/modern-crypto-dashboard-theme", "fix/**"]
   pull_request:
     branches: [main, "fix/**", "test/**", "feat/**", "ui/**"]
   workflow_dispatch:

@@ -1,47 +1,73 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import solc from 'solc'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(here, '..')
 const repositoryRoot = path.resolve(frontendRoot, '..')
-const tronboxProject = path.join(frontendRoot, 'trax-build')
-const contractsDir = path.join(tronboxProject, 'contracts')
-const tronboxBin = path.join(frontendRoot, 'node_modules', '.bin', 'tronbox')
+const tokenPath = path.join(repositoryRoot, 'contracts', 'Restricted1TRAX.sol')
+const vaultPath = path.join(repositoryRoot, 'contracts', 'OneTraxReserveVault.sol')
 
-await fs.access(tronboxBin)
-await fs.mkdir(contractsDir, { recursive: true })
-await fs.copyFile(path.join(repositoryRoot, 'contracts', 'Restricted1TRAX.sol'), path.join(contractsDir, 'Restricted1TRAX.sol'))
-await fs.copyFile(path.join(repositoryRoot, 'contracts', 'OneTraxReserveVault.sol'), path.join(contractsDir, 'OneTraxReserveVault.sol'))
+const [tokenSource, vaultSource] = await Promise.all([
+  fs.readFile(tokenPath, 'utf8'),
+  fs.readFile(vaultPath, 'utf8'),
+])
 
-// This nested project is CommonJS because TronBox's documented config file uses module.exports.
-// The main frontend remains an ES-module project.
-execFileSync(tronboxBin, ['compile', '--compile-all'], {
-  cwd: tronboxProject,
-  stdio: 'inherit',
-})
-
-async function readArtifact(name) {
-  const artifactPath = path.join(tronboxProject, 'build', 'contracts', name + '.json')
-  const artifact = JSON.parse(await fs.readFile(artifactPath, 'utf8'))
-  if (artifact.contractName !== name || !Array.isArray(artifact.abi) || typeof artifact.bytecode !== 'string') {
-    throw new Error('TronBox artifact is incomplete for ' + name)
-  }
-  const bytecode = artifact.bytecode.replace(/^0x/, '')
-  if (!bytecode || !/^[0-9a-f]+$/i.test(bytecode)) throw new Error('Invalid TRON bytecode for ' + name)
-  return { contractName: name, abi: artifact.abi, bytecode }
+const input = {
+  language: 'Solidity',
+  sources: {
+    'Restricted1TRAX.sol': { content: tokenSource },
+    'OneTraxReserveVault.sol': { content: vaultSource },
+  },
+  settings: {
+    optimizer: { enabled: true, runs: 200 },
+    outputSelection: {
+      '*': {
+        '*': ['abi', 'evm.bytecode.object', 'evm.deployedBytecode.object'],
+      },
+    },
+  },
 }
 
-const token = await readArtifact('Restricted1TRAX')
-const vault = await readArtifact('OneTraxReserveVault')
+const output = JSON.parse(solc.compile(JSON.stringify(input)))
+const diagnostics = output.errors || []
+for (const diagnostic of diagnostics) {
+  const render = (diagnostic.formattedMessage || diagnostic.message || '').trim()
+  if (diagnostic.severity === 'error') console.error(render)
+  else if (render) console.warn(render)
+}
+const fatalErrors = diagnostics.filter(item => item.severity === 'error')
+if (fatalErrors.length) {
+  throw new Error('TRӾ Solidity compilation failed with ' + fatalErrors.length + ' error(s). No deployment should be attempted.')
+}
+
+function artifact(sourceName, contractName) {
+  const compiled = output.contracts?.[sourceName]?.[contractName]
+  const bytecode = compiled?.evm?.bytecode?.object || ''
+  if (!compiled || !Array.isArray(compiled.abi) || !/^(?:[0-9a-f]{2})+$/i.test(bytecode)) {
+    throw new Error('Solidity compiler did not produce a valid ABI and init bytecode for ' + contractName)
+  }
+  return { contractName, abi: compiled.abi, bytecode }
+}
+
+const token = artifact('Restricted1TRAX.sol', 'Restricted1TRAX')
+const vault = artifact('OneTraxReserveVault.sol', 'OneTraxReserveVault')
+const compilerVersion = solc.version().split('+')[0]
+if (compilerVersion !== '0.8.25') {
+  throw new Error('Expected Solidity compiler 0.8.25 but found ' + compilerVersion + '.')
+}
+
 const outputDir = path.join(frontendRoot, 'src', 'generated')
 await fs.mkdir(outputDir, { recursive: true })
-const artifact = {
-  compiler: 'TRON solc 0.8.25',
+const compiledArtifacts = {
+  compiler: 'TRON solc ' + compilerVersion,
   optimizer: { enabled: true, runs: 200 },
   token,
   vault,
 }
-await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.js'), 'export default ' + JSON.stringify(artifact) + ';\n')
-console.log('TRӾ and native TRX reserve vault compiled with TRON solc 0.8.25.')
+await fs.writeFile(
+  path.join(outputDir, 'trax-contract-artifacts.js'),
+  'export default ' + JSON.stringify(compiledArtifacts) + ';\n',
+)
+console.log('TRӾ and native TRX reserve vault compiled with Solidity ' + compilerVersion + '.')
