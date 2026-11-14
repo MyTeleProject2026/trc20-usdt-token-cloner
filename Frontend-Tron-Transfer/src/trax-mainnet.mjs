@@ -927,7 +927,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
 
 export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000, ownerAddress = '') {
   if (typeof ownerAddress !== 'string' || !tronWeb?.isAddress?.(ownerAddress)) {
-    throw new Error('Free-delegation contract calls require the connected Mainnet owner address.')
+    throw new Error('Contract calls require the connected Mainnet owner address.')
   }
   const account = await postNode(tronWeb, '/wallet/getaccount', { address: ownerAddress, visible: true })
   if (!account || typeof account !== 'object' || account.Error) {
