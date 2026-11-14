@@ -75,32 +75,44 @@ test('TRON Mainnet deployment simulation requires a successful positive Energy r
   )
 })
 
-test('TRON Mainnet deployment budget includes Energy margin, Bandwidth and TRX shortfall', () => {
+test('TRON Mainnet free-delegation deployment budget requires full Energy and one complete Bandwidth quota', () => {
   const budget = calculateDeploymentResourceBudget({
     energyRequired: '100000',
     resourceSnapshot: {
-      energyAvailable: '100000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
-      nativeBalanceSun: '2000000', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+      energyAvailable: '120000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
     },
     rawDataHex: 'ab'.repeat(200),
     feeLimitSun: '20000000',
   })
   assert.equal(budget.energyWithSafetyMargin, '120000')
-  assert.equal(budget.energyShortfall, '20000')
+  assert.equal(budget.energyShortfall, '0')
   assert.equal(budget.bandwidthShortfall, '0')
-  assert.equal(budget.requiredTrxSun, '2000000')
+  assert.equal(budget.requiredTrxSun, '0')
 })
 
-test('TRON Mainnet deployment budget blocks insufficient resources before wallet signing', () => {
+test('TRON Mainnet free-delegation deployment blocks shortfalls even when wallet has TRX', () => {
   assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '250000',
     resourceSnapshot: {
       energyAvailable: '131000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
-      nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+      nativeBalanceSun: '5000000', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
     },
     rawDataHex: 'ab'.repeat(3000),
     feeLimitSun: '300000000',
-  }), /Insufficient Mainnet resources/)
+  }), /TRX-burn fallback is disabled/)
+})
+
+test('TRON Mainnet free-delegation budget does not combine free and staked Bandwidth quotas', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    resourceSnapshot: {
+      energyAvailable: '120000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(700),
+    feeLimitSun: '20000000',
+  }), /TRX-burn fallback is disabled/)
 })
 
 test('TRON Mainnet deployment code uses one injected provider and keeps minting gated by reserve checks', async () => {
