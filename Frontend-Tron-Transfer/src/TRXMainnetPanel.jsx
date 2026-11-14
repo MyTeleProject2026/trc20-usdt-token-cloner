@@ -118,7 +118,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     try {
       const result = await tenergyPromoRequest('promo?address=' + encodeURIComponent(connectedAddress))
       setTenergyPromo(result)
-      setTenergyMessage('')
     } catch (cause) {
       setTenergyPromo(null)
       setTenergyMessage(cause instanceof Error ? cause.message : 'TEnergy promotional status is unavailable.')
@@ -532,7 +531,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         {tenergyMessage&&<p role="status">{tenergyMessage}</p>}
         <div className="button-row">
           <button type="button" className="secondary-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||tenergyBusy||busy} onClick={refreshTenergyPromo}>Refresh free-promo eligibility</button>
-          <button type="button" className="primary-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||busy||tenergyBusy||tenergyPromo?.terms?.state!=='active'||Boolean(tenergyPromo?.redemption)} onClick={claimTenergyPromo}>Claim free Energy · sign message in TronLink</button>
+          <button type="button" className="primary-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||busy||tenergyBusy||tenergyPromo?.terms?.state!=='active'||!Number(tenergyPromo?.terms?.left_today)||Boolean(tenergyPromo?.redemption)} onClick={claimTenergyPromo}>Claim free Energy · sign message in TronLink</button>
           <button type="button" className="outline-button" disabled={!walletReady||connectedAddress!==FREE_DELEGATION_OWNER||tenergyBusy||!tenergyPromo?.redemption} onClick={checkTenergyRedemption}>Check delegation status</button>
         </div>
         <p className="fine-print">No paid order, provider account balance, TRX transfer, sponsor billing, or TRX-burn fallback is used. Energy is not added to the deployment budget until the Mainnet resource reader confirms it.</p>
