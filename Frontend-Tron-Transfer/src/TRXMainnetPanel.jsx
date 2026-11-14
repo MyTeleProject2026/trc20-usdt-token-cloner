@@ -33,8 +33,8 @@ function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
 }
 
-async function readServerFreeDelegationStatus(address) {
-  const query = new URLSearchParams({ address, refresh: '1' })
+async function readServerFreeDelegationStatus(address, refresh = false) {
+  const query = new URLSearchParams({ address, ...(refresh ? { refresh: '1' } : {}) })
   const response = await fetch(RESOURCE_API_BASE + '/api/tron/resources/free-delegation/status?' + query.toString(), {
     method: 'GET', headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store', redirect: 'error',
   })
@@ -46,7 +46,7 @@ async function readServerFreeDelegationStatus(address) {
 }
 
 async function readServerDeploymentResources(_tronWeb, address) {
-  const status = await readServerFreeDelegationStatus(address)
+  const status = await readServerFreeDelegationStatus(address, true)
   return status.deploymentResourceSnapshot
 }
 
