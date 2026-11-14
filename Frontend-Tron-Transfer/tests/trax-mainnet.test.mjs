@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, normalizeMainnetAccountResources } from '../src/trax-mainnet.mjs'
 
 
 
@@ -104,6 +104,58 @@ test('TronLink deployment payload contains only the documented protocol transact
 test('TronLink deployment payload rejects non-deployment or incomplete transactions', () => {
   assert.throws(() => toWalletSignableTransaction({ txID: 'a'.repeat(64), raw_data_hex: '01', raw_data: { contract: [{ type: 'TransferContract' }] } }), /CreateSmartContract/)
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
+})
+
+
+test('TRON Mainnet resource snapshot computes remaining Energy and Bandwidth from limits minus usage', () => {
+  const snapshot = normalizeMainnetAccountResources(
+    {
+      EnergyLimit: 10000,
+      EnergyUsed: 3000,
+      freeNetLimit: 600,
+      freeNetUsed: 120,
+      NetLimit: 1500,
+      NetUsed: 320,
+    },
+    {
+      chainParameter: [
+        { key: 'getEnergyFee', value: 100 },
+        { key: 'getTransactionFee', value: 1000 },
+        { key: 'getMaxFeeLimit', value: 15000000000 },
+      ],
+    },
+    2500000,
+  )
+  assert.equal(snapshot.energyAvailable, '7000')
+  assert.equal(snapshot.freeBandwidthAvailable, '480')
+  assert.equal(snapshot.stakedBandwidthAvailable, '1180')
+  assert.equal(snapshot.nativeBalanceSun, '2500000')
+  assert.equal(snapshot.energyFeeSun, '100')
+  assert.equal(snapshot.bandwidthFeeSun, '1000')
+  assert.equal(snapshot.maxFeeLimitSun, '15000000000')
+})
+
+test('TRON Mainnet resource snapshot safely treats omitted protobuf resource fields as zero', () => {
+  const snapshot = normalizeMainnetAccountResources(
+    {},
+    { chainParameter: [{ key: 'getEnergyFee', value: 100 }] },
+    0,
+  )
+  assert.equal(snapshot.energyAvailable, '0')
+  assert.equal(snapshot.freeBandwidthAvailable, '0')
+  assert.equal(snapshot.stakedBandwidthAvailable, '0')
+  assert.equal(snapshot.nativeBalanceSun, '0')
+})
+
+test('TRON Mainnet resource snapshot rejects missing Energy fee and malformed resource data', () => {
+  assert.throws(
+    () => normalizeMainnetAccountResources({}, { chainParameter: [] }, 0),
+    /valid current Energy fee/,
+  )
+  assert.throws(
+    () => normalizeMainnetAccountResources({ EnergyLimit: 'not-a-number' }, { chainParameter: [{ key: 'getEnergyFee', value: 100 }] }, 0),
+    /invalid resource field/,
+  )
 })
 
 test('TRӾ deployment builds on the injected TronLink client and keeps the safety hold non-broadcasting', async () => {
