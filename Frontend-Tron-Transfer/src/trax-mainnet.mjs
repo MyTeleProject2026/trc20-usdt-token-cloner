@@ -465,12 +465,35 @@ export function decodeTronBroadcastFailure(tronWeb, broadcast, txID) {
   return 'TRON Mainnet rejected deployment broadcast: ' + String(detail) + '.' + tx
 }
 
-function explainTronLinkError(error, stage) {
-  const raw = typeof error === 'string' ? error : (error?.message || error?.toString?.() || 'Unknown wallet error')
+export function formatTronLinkError(error, stage = 'TRON operation failed') {
+  const candidates = [
+    error?.message,
+    error?.response?.data?.message,
+    error?.response?.data?.Error,
+    error?.response?.data,
+    error?.data,
+    error?.error,
+    error,
+  ]
+  let raw = ''
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) { raw = candidate.trim(); break }
+    if (candidate && typeof candidate === 'object') {
+      try {
+        const serialized = JSON.stringify(candidate)
+        if (serialized && serialized !== '{}' && serialized !== '[object Object]') { raw = serialized; break }
+      } catch {}
+    }
+  }
+  if (!raw) raw = 'Unknown wallet or provider error'
   if (/Confirmation declined by user|User rejected|code.?4001/i.test(raw)) return stage + ': transaction was declined in TronLink. No retry was attempted.'
   if (/Invalid transaction provided/i.test(raw)) return stage + ': TronLink rejected the unsigned deployment transaction as invalid. Check the transaction payload and wallet/network connection. Details: ' + raw
   if (/User has not unlocked wallet/i.test(raw)) return stage + ': unlock TronLink and reconnect before trying again.'
   return stage + ': ' + raw
+}
+
+function explainTronLinkError(error, stage) {
+  return formatTronLinkError(error, stage)
 }
 
 function canonicalJson(value) {
