@@ -8,7 +8,7 @@ const frontendRoot = path.resolve(here, '..')
 const repositoryRoot = path.resolve(frontendRoot, '..')
 const tronboxProject = path.join(frontendRoot, 'trax-build')
 const contractsDir = path.join(tronboxProject, 'contracts')
-const tronboxBin = path.join(frontendRoot, 'node_modules', '.bin', 'tronbox')
+const tronboxBin = path.join(tronboxProject, 'node_modules', '.bin', 'tronbox')
 
 await fs.access(tronboxBin)
 await fs.mkdir(contractsDir, { recursive: true })
