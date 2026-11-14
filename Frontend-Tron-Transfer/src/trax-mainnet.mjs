@@ -277,13 +277,12 @@ export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
 
 export function normalizeDeploymentEnergyEstimate(response) {
   if (!response || response.Error || response.result?.result !== true) {
-    const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not simulate contract creation'
-    throw new Error('TRON Mainnet deployment Energy simulation failed: ' + detail)
+    const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not estimate contract creation Energy'
+    throw new Error('TRON Mainnet deployment Energy estimation failed: ' + detail)
   }
-  // TronGrid's triggerconstantcontract response for deployment simulation
-  // may provide result.result + energy_used without transaction.ret. Validate
-  // execution status when the node includes it, but do not require that optional
-  // transaction envelope for a successful simulation response.
+  // wallet/estimateenergy reports energy_required; triggerconstantcontract
+  // reports energy_used. Validate execution status when the node includes it,
+  // but do not require an optional transaction envelope.
   const execution = response.transaction?.ret?.[0]
   const executionRet = String(execution?.ret || '').toUpperCase()
   const contractRet = String(execution?.contractRet || '').toUpperCase()
@@ -295,10 +294,10 @@ export function normalizeDeploymentEnergyEstimate(response) {
       + '. No wallet signature or broadcast was attempted.')
   }
   let energyUsed
-  try { energyUsed = BigInt(response.energy_used) } catch {
-    throw new Error('TRON Mainnet deployment simulation did not return a valid energy_used value.')
+  try { energyUsed = BigInt(response.energy_required ?? response.energy_used) } catch {
+    throw new Error('TRON Mainnet deployment Energy estimate did not return a valid energy_required value.')
   }
-  if (energyUsed <= 0n) throw new Error('TRON Mainnet deployment simulation returned zero Energy; refusing to guess a deployment cost.')
+  if (energyUsed <= 0n) throw new Error('TRON Mainnet deployment Energy estimate returned zero Energy; refusing to guess a deployment cost.')
   let energyPenalty = 0n
   try { energyPenalty = BigInt(response.energy_penalty ?? 0) } catch {
     throw new Error('TRON Mainnet deployment simulation returned an invalid Energy penalty.')
@@ -385,7 +384,10 @@ export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, art
   if (!tronWeb?.isAddress?.(ownerAddress)) throw new Error('Enter a valid TRON Mainnet deployment owner address.')
   const bytecode = String(artifact?.bytecode || '').replace(/^0x/, '')
   if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled contract init bytecode is missing or invalid.')
-  const response = await postNode(tronWeb, '/wallet/triggerconstantcontract', {
+  // triggerconstantcontract invokes an existing contract and is not the
+  // deployment estimator. A CreateSmartContract has no deployed address yet.
+  // TRON documents wallet/estimateenergy for contract deployment estimates.
+  const response = await postNode(tronWeb, '/wallet/estimateenergy', {
     owner_address: ownerAddress,
     data: bytecode,
     visible: true,
