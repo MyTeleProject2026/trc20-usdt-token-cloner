@@ -187,7 +187,7 @@ test('TRӾ Mainnet manager remains scoped to the requested smart-contract panel'
   const panel = await readFile(new URL('../Frontend-Tron-Transfer/src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
   assert.match(app, /<TRXMainnetPanel wallet=\{unlocked\} onConnect=/)
   assert.match(app, /TRӾ smart-contract manager/)
-  assert.match(panel, /Deploy both contracts automatically/)
+  assert.match(panel, /Deploy both contracts · two TronLink approvals/)
   assert.match(panel, /On-chain verification/)
   assert.match(panel, /mintingEnabled/)
   assert.doesNotMatch(app, /SponsorDirectPayouts|ProviderPayoutReadiness/)
