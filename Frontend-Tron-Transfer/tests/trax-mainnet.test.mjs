@@ -2,7 +2,7 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { decodeTronBroadcastFailure, parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity, assertTransactionPermission, deployContractFromTronLink, MAINNET_DEPLOYMENT_SIGNING_ENABLED, MAINNET_DEPLOYMENT_BROADCAST_ENABLED, normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, normalizeDeploymentEnergyEstimate, calculateDeploymentResourceBudget } from '../src/trax-mainnet.mjs'
+import { decodeTronBroadcastFailure, parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity, assertTransactionPermission, deployContractFromTronLink, MAINNET_DEPLOYMENT_SIGNING_ENABLED, MAINNET_DEPLOYMENT_BROADCAST_ENABLED, normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, normalizeDeploymentEnergyEstimate, calculateDeploymentResourceBudget, sendAndVerifyContractCall } from '../src/trax-mainnet.mjs'
 
 
 
@@ -54,6 +54,9 @@ test('TRON Mainnet deployment simulation requires a successful positive Energy r
   assert.deepEqual(normalizeDeploymentEnergyEstimate({
     result: { result: true }, energy_used: 250000, energy_penalty: 50000, transaction: { ret: [{ ret: 'SUCESS', contractRet: 'SUCCESS' }] },
   }), { energyUsed: '250000', energyPenalty: '50000' })
+  assert.deepEqual(normalizeDeploymentEnergyEstimate({
+    result: { result: true }, energy_used: 250000, energy_penalty: 50000,
+  }), { energyUsed: '250000', energyPenalty: '50000' })
   assert.throws(
     () => normalizeDeploymentEnergyEstimate({ result: { result: false, code: 'CONTRACT_VALIDATE_ERROR' } }),
     /simulation failed/,
@@ -72,23 +75,23 @@ test('TRON Mainnet deployment simulation requires a successful positive Energy r
   )
 })
 
-test('TRON Mainnet deployment budget includes Energy margin, Bandwidth and TRX shortfall', () => {
+test('TRON Mainnet free-delegation deployment budget requires full Energy and one complete Bandwidth quota', () => {
   const budget = calculateDeploymentResourceBudget({
     energyRequired: '100000',
     resourceSnapshot: {
-      energyAvailable: '100000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
-      nativeBalanceSun: '2000000', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+      energyAvailable: '120000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
     },
     rawDataHex: 'ab'.repeat(200),
     feeLimitSun: '20000000',
   })
   assert.equal(budget.energyWithSafetyMargin, '120000')
-  assert.equal(budget.energyShortfall, '20000')
+  assert.equal(budget.energyShortfall, '0')
   assert.equal(budget.bandwidthShortfall, '0')
-  assert.equal(budget.requiredTrxSun, '2000000')
+  assert.equal(budget.requiredTrxSun, '0')
 })
 
-test('TRON Mainnet deployment budget blocks insufficient resources before wallet signing', () => {
+test('TRON Mainnet free-delegation deployment blocks resource shortfalls before wallet approval', () => {
   assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '250000',
     resourceSnapshot: {
@@ -97,7 +100,51 @@ test('TRON Mainnet deployment budget blocks insufficient resources before wallet
     },
     rawDataHex: 'ab'.repeat(3000),
     feeLimitSun: '300000000',
-  }), /Insufficient Mainnet resources/)
+  }), /TRX-burn fallback is disabled/)
+})
+
+test('TRON Mainnet free-delegation budget does not combine free and staked Bandwidth quotas', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    resourceSnapshot: {
+      energyAvailable: '120000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(700),
+    feeLimitSun: '20000000',
+  }), /TRX-burn fallback is disabled/)
+})
+
+test('TRON Mainnet free-delegation policy refuses a nonzero TRX balance even when resources cover deployment', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    resourceSnapshot: {
+      energyAvailable: '120000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '1', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(200),
+    feeLimitSun: '20000000',
+  }), /zero native TRX balance/)
+})
+
+test('TRON Mainnet contract call checks zero TRX balance before invoking the wallet send method', async () => {
+  const originalFetch = globalThis.fetch
+  let sent = false
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ balance: '1' }) })
+  try {
+    await assert.rejects(
+      sendAndVerifyContractCall(
+        { isAddress: () => true },
+        { send: async () => { sent = true; return 'a'.repeat(64) } },
+        '1000000',
+        'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+      ),
+      /zero native TRX balance/
+    )
+    assert.equal(sent, false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('TRON Mainnet deployment code uses one injected provider and keeps minting gated by reserve checks', async () => {

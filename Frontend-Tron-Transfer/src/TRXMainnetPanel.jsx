@@ -13,6 +13,8 @@ const ZERO = '0x0000000000000000000000000000000000000000'
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/
 const DEFAULT_RECIPIENT = 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk'
 const DEFAULT_FEE_CAP = '300'
+const FREE_DELEGATION_OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const RESOURCE_API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 
 function toSun(value) {
   const units = parseTokenUnits(value)
@@ -29,6 +31,23 @@ function makeReference() {
 
 function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
+}
+
+async function readServerFreeDelegationStatus(address, refresh = false) {
+  const query = new URLSearchParams({ address, ...(refresh ? { refresh: '1' } : {}) })
+  const response = await fetch(RESOURCE_API_BASE + '/api/tron/resources/free-delegation/status?' + query.toString(), {
+    method: 'GET', headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store', redirect: 'error',
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok || payload?.success !== true || !payload.deploymentResourceSnapshot) {
+    throw new Error(payload?.message || payload?.error || 'Server-side Mainnet resource status is unavailable.')
+  }
+  return payload
+}
+
+async function readServerDeploymentResources(_tronWeb, address) {
+  const status = await readServerFreeDelegationStatus(address, true)
+  return status.deploymentResourceSnapshot
 }
 
 export default function TRXMainnetPanel({ wallet, onConnect }) {
@@ -60,6 +79,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [resourceStatus,setResourceStatus] = useState(null)
   const [resourceLoading,setResourceLoading] = useState(false)
   const [resourceError,setResourceError] = useState('')
+  const [freeDelegationStatus,setFreeDelegationStatus] = useState(null)
+  const [freeDelegationError,setFreeDelegationError] = useState('')
   const [permissionStatus,setPermissionStatus] = useState(null)
   const [permissionLoading,setPermissionLoading] = useState(false)
   const [permissionError,setPermissionError] = useState('')
@@ -82,7 +103,17 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     if (!walletReady || !connectedAddress) return
     setResourceLoading(true)
     setResourceError('')
+    setFreeDelegationError('')
     try {
+      try {
+        const status = await readServerFreeDelegationStatus(connectedAddress)
+        setFreeDelegationStatus(status)
+      } catch (cause) {
+        setFreeDelegationStatus(null)
+        setFreeDelegationError(cause instanceof Error ? cause.message : 'Server-side delegation status is unavailable.')
+      }
+      // Keep the wallet-provider snapshot for display and independent cross-checking.
+      // Deployment resource budgeting itself uses the server-side Mainnet reader below.
       const tronWeb = assertMainnetWallet(wallet)
       const resources = await getMainnetAccountResourceSnapshot(tronWeb, connectedAddress)
       setResourceStatus({
@@ -99,7 +130,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
           energyFeeSunPerUnit: resources.energyFeeSun,
           bandwidthFeeSunPerByte: resources.bandwidthFeeSun,
         },
-        estimateNote: 'Live account resource snapshot. Deployment init-bytecode Energy is simulated separately before each deployment signature.',
+        estimateNote: 'Live wallet-provider snapshot. Deployment resource budgeting uses the server-side Mainnet reader and separately simulates contract init bytecode.',
       })
     } catch (cause) {
       setResourceError(cause instanceof Error ? cause.message : String(cause))
@@ -194,6 +225,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployMissingContracts = () => run('Deploying missing TRӾ contracts · approve each prompt in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink Mainnet wallet.')
+    if (connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Free-delegation policy is restricted to ' + FREE_DELEGATION_OWNER + '. Connect that wallet in TronLink.')
     if (!configuredOwnerMatches) throw new Error('Connect a TronLink Mainnet wallet.')
     if (tokenAddress && !wallet.tronWeb.isAddress(tokenAddress)) throw new Error('The saved TRӾ token address is invalid. Clear it and retry.')
     if (vaultAddress && !wallet.tronWeb.isAddress(vaultAddress)) throw new Error('The saved reserve-vault address is invalid. Clear it and retry.')
@@ -210,11 +242,11 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     }
     const deployed = []
     if (!vaultAddress) {
-      const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
+      const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun,{ readResources: readServerDeploymentResources })
       setVaultAddress(result.address); setLastTx(result.txID); deployed.push('reserve vault')
     }
     if (!tokenAddress) {
-      const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
+      const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun,{ readResources: readServerDeploymentResources })
       setTokenAddress(result.address); setLastTx(result.txID); deployed.push('TRӾ token')
     }
     setNotice(deployed.length
@@ -224,16 +256,18 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink Mainnet wallet.')
+    if (connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Free-delegation policy is restricted to ' + FREE_DELEGATION_OWNER + '. Connect that wallet in TronLink.')
     if (!configuredOwnerMatches) throw new Error('Connect a TronLink Mainnet wallet.')
-    const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
+    const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun,{ readResources: readServerDeploymentResources })
     setVaultAddress(result.address); setLastTx(result.txID)
     setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
   })
 
   const deployToken = () => run('Deploying TRӾ token · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink Mainnet wallet.')
+    if (connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Free-delegation policy is restricted to ' + FREE_DELEGATION_OWNER + '. Connect that wallet in TronLink.')
     if (!configuredOwnerMatches) throw new Error('Connect a TronLink Mainnet wallet.')
-    const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
+    const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun,{ readResources: readServerDeploymentResources })
     setTokenAddress(result.address); setLastTx(result.txID)
     setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
   })
@@ -244,7 +278,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     await assertOwner(token,tronWeb)
     if (!addressesEqual(tronWeb,await vault.owner().call(),connectedAddress)) throw new Error('Connected TronLink wallet is not the reserve-vault owner.')
     const abiMethod = vault.setAuthorizedToken(tokenAddress)
-    const result = await sendAndVerifyContractCall(tronWeb,abiMethod,feeCapSun)
+    const result = await sendAndVerifyContractCall(tronWeb,abiMethod,feeCapSun,connectedAddress)
     setLastTx(result.txID); setNotice('Vault authorization is confirmed. Next link the vault in the TRӾ token contract.')
   })
 
@@ -253,7 +287,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     const {tronWeb,token,vault} = await getContracts()
     await assertOwner(token,tronWeb)
     if (!addressesEqual(tronWeb,await vault.authorizedToken().call(),tokenAddress)) throw new Error('Authorize this TRӾ token in the vault first.')
-    const result = await sendAndVerifyContractCall(tronWeb,token.setReserveVault(vaultAddress),feeCapSun)
+    const result = await sendAndVerifyContractCall(tronWeb,token.setReserveVault(vaultAddress),feeCapSun,connectedAddress)
     setLastTx(result.txID); setNotice('Token-to-vault link is confirmed. Refresh the on-chain status before funding or enabling minting.')
   })
 
@@ -283,10 +317,10 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     if(BigInt(String(reserve))<BigInt(String(supply))) throw new Error('Native TRX reserve is below outstanding TRӾ liability.')
     if(enabled) throw new Error('Minting is already enabled. Use Disable minting to turn it off.')
     if(paused) {
-      const unpause=await sendAndVerifyContractCall(tronWeb,token.setPaused(false),feeCapSun)
+      const unpause=await sendAndVerifyContractCall(tronWeb,token.setPaused(false),feeCapSun,connectedAddress)
       setLastTx(unpause.txID)
     }
-    const enable=await sendAndVerifyContractCall(tronWeb,token.setMintingEnabled(true),feeCapSun)
+    const enable=await sendAndVerifyContractCall(tronWeb,token.setMintingEnabled(true),feeCapSun,connectedAddress)
     setLastTx(enable.txID)
     setNotice('TRӾ issuance is enabled. Each mint still requires its own separate approval and reserve preflight.')
     await refresh()
@@ -308,7 +342,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     if(!addressesEqual(tronWeb,vaultOwner,connectedAddress)) throw new Error('Reserve vault owner does not match the connected deploying wallet.')
     if(!addressesEqual(tronWeb,tokenVault,vaultAddress)||!addressesEqual(tronWeb,authorizedToken,tokenAddress)) throw new Error('Token/vault authorization is not valid.')
     if(BigInt(String(reserve))<BigInt(String(supply))+BigInt(units)) throw new Error('Insufficient uncommitted native TRX reserve for this mint.')
-    const result = await sendAndVerifyContractCall(tronWeb,token.mint(recipient,units),feeCapSun)
+    const result = await sendAndVerifyContractCall(tronWeb,token.mint(recipient,units),feeCapSun,connectedAddress)
     setLastTx(result.txID); setNotice(amount+' TRӾ issued to '+recipient+'. The recipient starts locked by contract default.')
     await refresh()
   })
@@ -321,7 +355,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     await assertOwner(token,tronWeb)
     const target = holder.trim()
     if(!tronWeb.isAddress(target)) throw new Error('Enter a valid recipient address.')
-    const result=await sendAndVerifyContractCall(tronWeb,token.setRecipientLocked(target,locked),feeCapSun)
+    const result=await sendAndVerifyContractCall(tronWeb,token.setRecipientLocked(target,locked),feeCapSun,connectedAddress)
     setLastTx(result.txID); setNotice('Recipient '+target+' is now '+(locked?'LOCKED':'UNLOCKED')+' on-chain.')
     await refresh()
   })
@@ -342,7 +376,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     if(BigInt(String(reserveSun))<BigInt(units)) throw new Error('Native TRX vault reserve is insufficient for this redemption.')
     if(!addressesEqual(tronWeb,linkedVault,vaultAddress)||!addressesEqual(tronWeb,authorizedToken,tokenAddress)) throw new Error('Token and reserve-vault links are not verified.')
     const reference=makeReference()
-    const result=await sendAndVerifyContractCall(tronWeb,token.redeemForOwner(holder,redeemRecipient,units,reference),feeCapSun)
+    const result=await sendAndVerifyContractCall(tronWeb,token.redeemForOwner(holder,redeemRecipient,units,reference),feeCapSun,connectedAddress)
     setLastTx(result.txID); setNotice('Owner redemption confirmed. The holder balance was burned and native TRX was released atomically.')
     await refresh()
   })
@@ -350,7 +384,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const setPauseState = (pause) => run((pause?'Pausing':'Unpausing')+' TRӾ · approve in TronLink', async () => {
     const {tronWeb,token} = await getContracts()
     await assertOwner(token,tronWeb)
-    const result=await sendAndVerifyContractCall(tronWeb,token.setPaused(pause),feeCapSun)
+    const result=await sendAndVerifyContractCall(tronWeb,token.setPaused(pause),feeCapSun,connectedAddress)
     setLastTx(result.txID); setNotice(pause?'TRӾ is paused. Transfers, approvals, minting and redemption are blocked.':'TRӾ is unpaused. Minting still depends on the separate minting-enabled flag.')
     await refresh()
   })
@@ -358,7 +392,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const disableMinting = () => run('Disabling TRӾ minting · approve in TronLink', async () => {
     const {tronWeb,token} = await getContracts()
     await assertOwner(token,tronWeb)
-    const result=await sendAndVerifyContractCall(tronWeb,token.setMintingEnabled(false),feeCapSun)
+    const result=await sendAndVerifyContractCall(tronWeb,token.setMintingEnabled(false),feeCapSun,connectedAddress)
     setLastTx(result.txID); setNotice('TRӾ minting is disabled on Mainnet.')
     await refresh()
   })
@@ -426,10 +460,16 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       </div>}
       {resourceStatus&&<p className="fine-print">Checked {new Date(resourceStatus.checkedAt).toLocaleString()}. {resourceStatus.estimateNote} Deployment energy is not guessed from transfer estimates.</p>}
       <div className="trax-resource-offer">
-        <b>No sponsor or provider API key is configured</b>
-        <p>Resource and fee checks query public TRON Mainnet node endpoints directly. TRON does not provide a universal free Energy grant for arbitrary contract deployments. If the connected wallet lacks enough Energy or Bandwidth, or lacks TRX to pay any shortfall, deployment stops before the TronLink signature prompt.</p>
+        <b>Free-delegation policy · TRON Mainnet</b>
+        {freeDelegationError&&<p role="status">Server-side delegation verification unavailable: {freeDelegationError}</p>}
+        {freeDelegationStatus&&<p>Verified server-side Mainnet resources: Energy {Number(freeDelegationStatus.resources.energyAvailable).toLocaleString()}, free Bandwidth {Number(freeDelegationStatus.resources.freeBandwidthAvailable).toLocaleString()}, staked/delegated Bandwidth {Number(freeDelegationStatus.resources.stakedOrDelegatedBandwidthAvailable).toLocaleString()}. Incoming Stake 2.0 delegations: {freeDelegationStatus.inboundDelegations.count}. {freeDelegationStatus.inboundDelegations.count ? 'Incoming delegation records are observed in the Mainnet FullNode state.' : 'No incoming Energy/Bandwidth delegation was detected.'} Protocol free Energy quota: 0. No sponsor, paid rental, paid fallback, or automatic delegation is enabled.</p>}
+        <p>Only real incoming on-chain delegation can add Energy without TRX burn. If Energy is unavailable, deployment stops before requesting TronLink approval. Any on-chain transaction still requires your explicit wallet approval.</p>
       </div>
-      <p className="fine-print">This service is read-only. It cannot create Energy or Bandwidth, delegate resources, sponsor fees, sign, or broadcast transactions. Free Bandwidth is a protocol allowance; TRON has no equivalent protocol-level free Energy quota.</p>
+      <div className="trax-resource-offer">
+        <b>Server-side resource providers · read-only</b>
+        <p>Resource and incoming-delegation checks use supported TRON Mainnet FullNode APIs through server-side TRONGrid/Tatum credentials when configured, with a public TRONGrid read-only fallback. Provider keys do not supply Energy. TRON has no protocol free-Energy quota, and no unconditional free-delegation provider API is configured.</p>
+      </div>
+      <p className="fine-print">No sponsor, paid rental, or automatic delegation is enabled. Deployment and contract calls require a zero native TRX balance plus sufficient real Energy and one complete Bandwidth quota, so TRX-burn fallback cannot be used. Your TronLink wallet must separately approve each transaction. Free Bandwidth is a protocol allowance; TRON has no equivalent protocol-level free Energy quota.</p>
     </div>
 
       <div className="trax-actions-heading"><h3>On-chain verification</h3><button type="button" className="secondary-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={refresh}><RefreshCw size={15}/> Refresh</button></div>

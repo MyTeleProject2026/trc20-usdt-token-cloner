@@ -252,15 +252,18 @@ export function normalizeDeploymentEnergyEstimate(response) {
     const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not simulate contract creation'
     throw new Error('TRON Mainnet deployment Energy simulation failed: ' + detail)
   }
+  // TronGrid's triggerconstantcontract response for deployment simulation
+  // may provide result.result + energy_used without transaction.ret. Validate
+  // execution status when the node includes it, but do not require that optional
+  // transaction envelope for a successful simulation response.
   const execution = response.transaction?.ret?.[0]
   const executionRet = String(execution?.ret || '').toUpperCase()
   const contractRet = String(execution?.contractRet || '').toUpperCase()
   const successValues = ['SUCESS', 'SUCCESS']
   if ((executionRet && !successValues.includes(executionRet))
-    || (contractRet && !successValues.includes(contractRet))
-    || (!executionRet && !contractRet)) {
+    || (contractRet && !successValues.includes(contractRet))) {
     throw new Error('TRON Mainnet deployment simulation did not execute successfully: '
-      + (contractRet || executionRet || 'missing TVM execution result')
+      + (contractRet || executionRet)
       + '. No wallet signature or broadcast was attempted.')
   }
   let energyUsed
@@ -296,7 +299,11 @@ export function calculateDeploymentResourceBudget({
   const energyFee = BigInt(resourceSnapshot.energyFeeSun)
   const bandwidthFee = resourceSnapshot.bandwidthFeeSun == null ? null : BigInt(resourceSnapshot.bandwidthFeeSun)
   const availableEnergy = BigInt(resourceSnapshot.energyAvailable)
-  const availableBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable) + BigInt(resourceSnapshot.stakedBandwidthAvailable)
+  // TRON does not combine staked/delegated Bandwidth with the free quota for
+  // one transaction: either source must cover the complete byte cost.
+  const freeBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable)
+  const stakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable)
+  const availableBandwidth = freeBandwidth > stakedBandwidth ? freeBandwidth : stakedBandwidth
   const balance = BigInt(resourceSnapshot.nativeBalanceSun)
   const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
   if (energyFee <= 0n || balance < 0n) throw new Error('Mainnet returned invalid Energy price or TRX balance.')
@@ -316,20 +323,21 @@ export function calculateDeploymentResourceBudget({
   }
   const energyShortfall = bufferedEnergy > availableEnergy ? bufferedEnergy - availableEnergy : 0n
   const estimatedBandwidthBytes = BigInt(Math.ceil(rawDataHex.length / 2) + 3 + 64 + 67)
-  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes - availableBandwidth : 0n
-  if (bandwidthShortfall > 0n && bandwidthFee === null) {
-    throw new Error('Bandwidth fee is unavailable and the account does not have enough Bandwidth. Refusing to estimate the missing fee.')
-  }
+  // A free-delegation-only account must not use the TRX-burn fallback. Reject
+  // any known shortfall even when the wallet has a positive native TRX balance.
+  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes : 0n
   const energyBurnSun = energyShortfall * energyFee
   const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
-  if (balance < requiredTrxSun) {
-    throw new Error('Insufficient Mainnet resources for this deployment. Estimated Energy: ' + energy.toString()
-      + '; with 20% safety margin: ' + bufferedEnergy.toString()
-      + '; available Energy: ' + availableEnergy.toString()
-      + '; estimated TRX needed for Energy/Bandwidth shortfall: ' + requiredTrxSun.toString()
-      + ' SUN (' + (Number(requiredTrxSun) / 1e6).toFixed(6) + ' TRX); wallet balance: '
-      + balance.toString() + ' SUN. No wallet signature or broadcast was attempted.')
+  if (balance !== 0n) {
+    throw new Error('Free-delegation no-burn mode requires a zero native TRX balance before deployment. This prevents the network from using TRX-burn fallback if resource availability changes before confirmation. No wallet signature or broadcast was attempted.')
+  }
+  if (energyShortfall > 0n || bandwidthShortfall > 0n) {
+    throw new Error('Free-delegation policy blocked deployment before wallet approval: full Energy and Bandwidth coverage is required; TRX-burn fallback is disabled. Estimated Energy with safety margin: '
+      + bufferedEnergy.toString() + '; available Energy: ' + availableEnergy.toString()
+      + '; estimated Bandwidth bytes: ' + estimatedBandwidthBytes.toString()
+      + '; largest single Bandwidth quota: ' + availableBandwidth.toString()
+      + '. Obtain real incoming delegation or wait for the free Bandwidth quota to recover. No wallet signature or broadcast was attempted.')
   }
   return {
     energyRequired: energy.toString(),
@@ -766,7 +774,21 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   return { address: predictedAddress, txID: unsigned.txID, receipt, resourceBudget, owner: deployedOwner }
 }
 
-export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000) {
+export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000, ownerAddress = '') {
+  if (typeof ownerAddress !== 'string' || !tronWeb?.isAddress?.(ownerAddress)) {
+    throw new Error('Free-delegation contract calls require the connected Mainnet owner address.')
+  }
+  const account = await postNode(tronWeb, '/wallet/getaccount', { address: ownerAddress, visible: true })
+  if (!account || typeof account !== 'object' || account.Error) {
+    throw new Error('Could not verify the Mainnet wallet balance. Refusing contract call.')
+  }
+  let nativeBalance
+  try { nativeBalance = BigInt(account.balance ?? 0) } catch {
+    throw new Error('Mainnet wallet returned an invalid native TRX balance. Refusing contract call.')
+  }
+  if (nativeBalance !== 0n) {
+    throw new Error('Free-delegation no-burn mode requires a zero native TRX balance before contract calls. This prevents TRX-burn fallback if resource availability changes before confirmation. No transaction was sent.')
+  }
   const result = await method.send({
     feeLimit: feeLimitSun,
     callValue: 0,
