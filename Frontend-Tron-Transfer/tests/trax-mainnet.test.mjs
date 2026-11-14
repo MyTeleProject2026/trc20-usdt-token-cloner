@@ -112,7 +112,7 @@ test('TRON Mainnet free-delegation budget does not combine free and staked Bandw
     },
     rawDataHex: 'ab'.repeat(700),
     feeLimitSun: '20000000',
-  }), /TRX-burn fallback is disabled/)
+  }), /Insufficient TRX for the estimated Mainnet resource shortfall/)
 })
 
 test('TRON Mainnet deployment permits a positive TRX balance when resources cover deployment', () => {
