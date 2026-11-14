@@ -154,20 +154,11 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     refresh()
   }, [walletReady, tokenAddress, vaultAddress, wallet, refresh])
 
-  const prepareUnsignedDeployment = async (artifact, contractName) => {
-    try {
-      return { deployed: await deployContractFromTronLink(wallet,artifact,contractName,feeCapSun) }
-    } catch (error) {
-      // The existing safety hold is an expected diagnostic result, not a failed
-      // wallet action: it proves the unsigned payload was built and validated.
-      if (error instanceof Error && error.message.startsWith('Deployment safety hold:')) {
-        return { prepared: true }
-      }
-      throw error
-    }
-  }
+  const deployContract = async (artifact, contractName) => ({
+    deployed: await deployContractFromTronLink(wallet,artifact,contractName,feeCapSun),
+  })
 
-  const deployMissingContracts = () => run('Preparing unsigned TRӾ deployment payloads · broadcast disabled', async () => {
+  const deployMissingContracts = () => run('Deploying missing TRӾ Mainnet contracts · approve each in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     if (tokenAddress && !wallet.tronWeb.isAddress(tokenAddress)) throw new Error('The saved TRӾ token address is invalid. Clear it and retry.')
     if (vaultAddress && !wallet.tronWeb.isAddress(vaultAddress)) throw new Error('The saved reserve-vault address is invalid. Clear it and retry.')
@@ -197,27 +188,20 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       }
     }
     const deployed = []
-    const prepared = []
     if (!vaultAddress) {
-      const result = await prepareUnsignedDeployment(TRAX_VAULT_ARTIFACT,'OneTraxReserveVault')
-      if (result.prepared) prepared.push('reserve vault')
-      else { setVaultAddress(result.deployed.address); setLastTx(result.deployed.txID); deployed.push('reserve vault') }
+      const result = await deployContract(TRAX_VAULT_ARTIFACT,'OneTraxReserveVault')
+      setVaultAddress(result.deployed.address); setLastTx(result.deployed.txID); deployed.push('reserve vault')
     }
     if (!tokenAddress) {
-      const result = await prepareUnsignedDeployment(TRAX_TOKEN_ARTIFACT,'Restricted1TRAX')
-      if (result.prepared) prepared.push('TRӾ token')
-      else { setTokenAddress(result.deployed.address); setLastTx(result.deployed.txID); deployed.push('TRӾ token') }
-    }
-    if (prepared.length) {
-      setNotice('Unsigned Mainnet deployment payloads were built and validated for '+prepared.join(' and ')+'. No signing or broadcast occurred. These diagnostic payloads are not saved or reusable; prepare fresh payloads after separate deployment approval.')
-      return
+      const result = await deployContract(TRAX_TOKEN_ARTIFACT,'Restricted1TRAX')
+      setTokenAddress(result.deployed.address); setLastTx(result.deployed.txID); deployed.push('TRӾ token')
     }
     setNotice(deployed.length
       ? 'Deployment complete and solidified: '+deployed.join(' and ')+'. Both contract addresses have been saved automatically. Continue with the two reciprocal authorization steps.'
       : 'Both contract addresses are already present. Continue with reciprocal authorization.')
   })
 
-  const deployVault = () => run('Preparing unsigned reserve-vault deployment · broadcast disabled', async () => {
+  const deployVault = () => run('Deploying native TRX reserve vault · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     if (tokenAddress) {
       const existingToken = await wallet.tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)
@@ -225,16 +209,16 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         throw new Error('The existing TRӾ token belongs to a different wallet. Reconnect that token owner before preparing its reserve vault.')
       }
     }
-    const result = await prepareUnsignedDeployment(TRAX_VAULT_ARTIFACT,'OneTraxReserveVault')
+    const result = await deployContract(TRAX_VAULT_ARTIFACT,'OneTraxReserveVault')
     if (result.prepared) {
-      setNotice('Unsigned reserve-vault deployment payload built and validated. No signing or broadcast occurred. Prepare a fresh payload after separate deployment approval.')
+      setNotice('Reserve vault deployment is confirmed and solidified on TRON Mainnet.')
       return
     }
     setVaultAddress(result.deployed.address); setLastTx(result.deployed.txID)
     setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
   })
 
-  const deployToken = () => run('Preparing unsigned TRӾ token deployment · broadcast disabled', async () => {
+  const deployToken = () => run('Deploying TRӾ token · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     if (vaultAddress) {
       const existingVault = await wallet.tronWeb.contract(TRAX_VAULT_ARTIFACT.abi).at(vaultAddress)
@@ -242,9 +226,9 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         throw new Error('The existing reserve vault belongs to a different wallet. Reconnect that vault owner before preparing its TRӾ token.')
       }
     }
-    const result = await prepareUnsignedDeployment(TRAX_TOKEN_ARTIFACT,'Restricted1TRAX')
+    const result = await deployContract(TRAX_TOKEN_ARTIFACT,'Restricted1TRAX')
     if (result.prepared) {
-      setNotice('Unsigned TRӾ token deployment payload built and validated. No signing or broadcast occurred. Prepare a fresh payload after separate deployment approval.')
+      setNotice('TRӾ token deployment is confirmed and solidified on TRON Mainnet.')
       return
     }
     setTokenAddress(result.deployed.address); setLastTx(result.deployed.txID)
@@ -384,14 +368,14 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         {resourceSnapshot.bandwidthFeeSun!==null&&<article><span>Current Bandwidth fee</span><b>{Number(resourceSnapshot.bandwidthFeeSun).toLocaleString()} SUN / Bandwidth</b></article>}
         {resourceSnapshot.maxFeeLimitSun!==null&&<article><span>Protocol maximum fee cap</span><b>{formatTokenUnits(resourceSnapshot.maxFeeLimitSun)} TRX</b></article>}
       </div>}
-      <p className="fine-print">These are the connected wallet’s live resource limits and usage. They do not estimate this contract’s deployment Energy. Deployment remains on safety hold; a fee cap does not create Energy, Bandwidth or TRX, and insufficient resources can still make a transaction fail.</p>
+      <p className="fine-print">These are live connected-wallet resource readings. Each deployment also runs a Mainnet init-bytecode Energy simulation and estimates Bandwidth before requesting a signature. A fee cap does not create Energy, Bandwidth or TRX; if the wallet cannot cover the estimate, the app stops before signing.</p>
     </div>
     <div className="trax-addresses">
       <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
       <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Automatically filled after vault deployment"/></label>
       <div className="button-row"><button type="button" className="outline-button" disabled={busy||(!tokenAddress&&!vaultAddress)} onClick={()=>{setTokenAddress('');setVaultAddress('');setSnapshot(null);setLastTx('');setError('');setNotice('Contract address fields cleared. Deploy or enter verified Mainnet contract addresses.') ;try{saveContractAddresses({tokenAddress:'',vaultAddress:''})}catch{}}}>Clear contract addresses</button></div>
-      <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady||busy||Boolean(tokenAddress&&vaultAddress)} onClick={deployMissingContracts}><Rocket size={15}/> {tokenAddress||vaultAddress?'Prepare missing deployment':'Prepare both deployments'}</button><button type="button" className="outline-button" disabled={!walletReady||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Prepare vault deployment</button><button type="button" className="outline-button" disabled={!walletReady||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Prepare token deployment</button></div>
-      <p className="trax-help">Deployment preparation is currently non-broadcasting: the app builds and validates the unsigned Mainnet payload, then stops before wallet signing. No contract is created and no address is saved until a separately approved deployment is enabled.</p>
+      <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady||busy||Boolean(tokenAddress&&vaultAddress)} onClick={deployMissingContracts}><Rocket size={15}/> {tokenAddress||vaultAddress?'Deploy missing contract':'Deploy both contracts'}</button><button type="button" className="outline-button" disabled={!walletReady||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy vault</button><button type="button" className="outline-button" disabled={!walletReady||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy token</button></div>
+      <p className="trax-help">Mainnet deployment is enabled. Each contract is simulated for Energy, checked against the connected wallet’s live resources and owner permission, then presented for a separate TronLink approval. The vault and token are deployed as two independent transactions; the connected wallet becomes the owner.</p>
       <div className="button-row"><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={authorizeVault}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={linkToken}>2. Link vault in token</button></div>
       <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The connected signing wallet becomes the vault owner and initial token owner. Confirm the selected TronLink account before deployment.</p>
     </div>
