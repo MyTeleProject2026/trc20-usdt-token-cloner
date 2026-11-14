@@ -108,12 +108,12 @@ export function createFreeDelegationResourceReader({
       const resources = resourceResult.payload
       const index = indexResult.payload
       const fields = {
-        energyLimit: integer(resources.EnergyLimit),
-        energyUsed: integer(resources.EnergyUsed),
-        bandwidthLimit: integer(resources.NetLimit),
-        bandwidthUsed: integer(resources.NetUsed),
-        freeBandwidthLimit: integer(resources.freeNetLimit),
-        freeBandwidthUsed: integer(resources.freeNetUsed),
+        energyLimit: integer(resources.EnergyLimit, '0'),
+        energyUsed: integer(resources.EnergyUsed, '0'),
+        bandwidthLimit: integer(resources.NetLimit, '0'),
+        bandwidthUsed: integer(resources.NetUsed, '0'),
+        freeBandwidthLimit: integer(resources.freeNetLimit, '0'),
+        freeBandwidthUsed: integer(resources.freeNetUsed, '0'),
       }
       if (Object.values(fields).some((value) => value === null)
         || BigInt(fields.energyUsed) > BigInt(fields.energyLimit)
@@ -121,8 +121,8 @@ export function createFreeDelegationResourceReader({
         || BigInt(fields.freeBandwidthUsed) > BigInt(fields.freeBandwidthLimit)) {
         throw Object.assign(new Error('invalid-resource-response'), { category: 'invalid-resource-response', stage: 'account-resource' })
       }
-      const fromAccounts = Array.isArray(index.fromAccounts) ? index.fromAccounts : null
-      const toAccounts = Array.isArray(index.toAccounts) ? index.toAccounts : null
+      const fromAccounts = Array.isArray(index.fromAccounts) ? index.fromAccounts : index.fromAccounts == null ? [] : null
+      const toAccounts = Array.isArray(index.toAccounts) ? index.toAccounts : index.toAccounts == null ? [] : null
       if (!fromAccounts || !toAccounts) {
         throw Object.assign(new Error('invalid-delegation-index'), { category: 'invalid-delegation-index', stage: 'delegation-index' })
       }
