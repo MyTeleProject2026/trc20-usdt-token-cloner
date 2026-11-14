@@ -299,7 +299,11 @@ export function calculateDeploymentResourceBudget({
   const energyFee = BigInt(resourceSnapshot.energyFeeSun)
   const bandwidthFee = resourceSnapshot.bandwidthFeeSun == null ? null : BigInt(resourceSnapshot.bandwidthFeeSun)
   const availableEnergy = BigInt(resourceSnapshot.energyAvailable)
-  const availableBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable) + BigInt(resourceSnapshot.stakedBandwidthAvailable)
+  // TRON does not combine staked/delegated Bandwidth with the free quota for
+  // one transaction: either source must cover the complete byte cost.
+  const freeBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable)
+  const stakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable)
+  const availableBandwidth = freeBandwidth > stakedBandwidth ? freeBandwidth : stakedBandwidth
   const balance = BigInt(resourceSnapshot.nativeBalanceSun)
   const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
   if (energyFee <= 0n || balance < 0n) throw new Error('Mainnet returned invalid Energy price or TRX balance.')
@@ -319,20 +323,18 @@ export function calculateDeploymentResourceBudget({
   }
   const energyShortfall = bufferedEnergy > availableEnergy ? bufferedEnergy - availableEnergy : 0n
   const estimatedBandwidthBytes = BigInt(Math.ceil(rawDataHex.length / 2) + 3 + 64 + 67)
-  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes - availableBandwidth : 0n
-  if (bandwidthShortfall > 0n && bandwidthFee === null) {
-    throw new Error('Bandwidth fee is unavailable and the account does not have enough Bandwidth. Refusing to estimate the missing fee.')
-  }
+  // A free-delegation-only account must not use the TRX-burn fallback. Reject
+  // any known shortfall even when the wallet has a positive native TRX balance.
+  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes : 0n
   const energyBurnSun = energyShortfall * energyFee
   const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
-  if (balance < requiredTrxSun) {
-    throw new Error('Insufficient Mainnet resources for this deployment. Estimated Energy: ' + energy.toString()
-      + '; with 20% safety margin: ' + bufferedEnergy.toString()
-      + '; available Energy: ' + availableEnergy.toString()
-      + '; estimated TRX needed for Energy/Bandwidth shortfall: ' + requiredTrxSun.toString()
-      + ' SUN (' + (Number(requiredTrxSun) / 1e6).toFixed(6) + ' TRX); wallet balance: '
-      + balance.toString() + ' SUN. No wallet signature or broadcast was attempted.')
+  if (energyShortfall > 0n || bandwidthShortfall > 0n) {
+    throw new Error('Free-delegation policy blocked deployment before wallet approval: full Energy and Bandwidth coverage is required; TRX-burn fallback is disabled. Estimated Energy with safety margin: '
+      + bufferedEnergy.toString() + '; available Energy: ' + availableEnergy.toString()
+      + '; estimated Bandwidth bytes: ' + estimatedBandwidthBytes.toString()
+      + '; largest single Bandwidth quota: ' + availableBandwidth.toString()
+      + '. Obtain real incoming delegation or wait for the free Bandwidth quota to recover. No wallet signature or broadcast was attempted.')
   }
   return {
     energyRequired: energy.toString(),
