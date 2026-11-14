@@ -63,6 +63,65 @@ async function postNode(tronWeb, path, body) {
   return response.json()
 }
 
+function resourceInteger(source, key) {
+  const raw = source?.[key] ?? 0
+  let value
+  try { value = BigInt(raw) } catch { throw new Error('TRON returned an invalid resource field: ' + key) }
+  if (value < 0n) throw new Error('TRON returned a negative resource field: ' + key)
+  return value
+}
+
+export function normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun) {
+  if (!accountResources || typeof accountResources !== 'object' || accountResources.Error) {
+    throw new Error('TRON Mainnet could not return account resource limits.')
+  }
+  const parameters = Array.isArray(chainParameters?.chainParameter)
+    ? chainParameters.chainParameter
+    : Array.isArray(chainParameters) ? chainParameters : []
+  const parameter = (key) => {
+    const item = parameters.find((entry) => entry?.key === key)
+    if (item?.value === undefined || item?.value === null) return null
+    try { return BigInt(item.value) } catch { throw new Error('TRON returned an invalid chain parameter: ' + key) }
+  }
+  const energyLimit = resourceInteger(accountResources, 'EnergyLimit')
+  const energyUsed = resourceInteger(accountResources, 'EnergyUsed')
+  const freeNetLimit = resourceInteger(accountResources, 'freeNetLimit')
+  const freeNetUsed = resourceInteger(accountResources, 'freeNetUsed')
+  const netLimit = resourceInteger(accountResources, 'NetLimit')
+  const netUsed = resourceInteger(accountResources, 'NetUsed')
+  const nativeBalance = BigInt(String(nativeBalanceSun ?? 0))
+  const energyFee = parameter('getEnergyFee')
+  const bandwidthFee = parameter('getTransactionFee')
+  const maxFeeLimit = parameter('getMaxFeeLimit')
+  if (nativeBalance < 0n) throw new Error('TRON returned a negative native TRX balance.')
+  if (energyFee === null || energyFee <= 0n) throw new Error('TRON Mainnet did not return a valid current Energy fee.')
+  return {
+    energyLimit: energyLimit.toString(),
+    energyUsed: energyUsed.toString(),
+    energyAvailable: (energyLimit > energyUsed ? energyLimit - energyUsed : 0n).toString(),
+    freeBandwidthLimit: freeNetLimit.toString(),
+    freeBandwidthUsed: freeNetUsed.toString(),
+    freeBandwidthAvailable: (freeNetLimit > freeNetUsed ? freeNetLimit - freeNetUsed : 0n).toString(),
+    stakedBandwidthLimit: netLimit.toString(),
+    stakedBandwidthUsed: netUsed.toString(),
+    stakedBandwidthAvailable: (netLimit > netUsed ? netLimit - netUsed : 0n).toString(),
+    nativeBalanceSun: nativeBalance.toString(),
+    energyFeeSun: energyFee.toString(),
+    bandwidthFeeSun: bandwidthFee === null ? null : bandwidthFee.toString(),
+    maxFeeLimitSun: maxFeeLimit === null ? null : maxFeeLimit.toString(),
+  }
+}
+
+export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet wallet address.')
+  const [accountResources, chainParameters, nativeBalanceSun] = await Promise.all([
+    postNode(tronWeb, '/wallet/getaccountresource', { address, visible: true }),
+    postNode(tronWeb, '/wallet/getchainparameters', {}),
+    tronWeb.trx.getBalance(address),
+  ])
+  return normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun)
+}
+
 export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 180000, intervalMs = 3000 } = {}) {
   if (!/^[0-9a-f]{64}$/i.test(String(txID || ''))) throw new Error('The wallet did not return a valid transaction ID.')
   const started = Date.now()
