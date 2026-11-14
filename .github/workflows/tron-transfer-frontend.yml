@@ -1,7 +1,7 @@
 name: Tron Transfer Frontend
 on:
   push:
-    branches: [main]
+    branches: [main, "fix/**"]
     paths:
       - 'Frontend-Tron-Transfer/**'
       - 'server/routes/tron-transfer.mjs'
