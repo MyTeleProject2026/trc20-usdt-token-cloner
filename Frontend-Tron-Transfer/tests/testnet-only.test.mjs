@@ -8,22 +8,17 @@ test('TRӾ workspace renders the dedicated Mainnet contract manager', async () =
   const app = await read('../src/App.jsx')
   const panel = await read('../src/TRXMainnetPanel.jsx')
   assert.ok(panel.includes("const DEFAULT_FEE_CAP = '60'"))
-  const combinedStart = panel.indexOf('const deployMissingContracts')
-  const combinedEnd = panel.indexOf('const deployVault =', combinedStart)
-  const combined = panel.slice(combinedStart, combinedEnd)
-  assert.equal([...combined.matchAll(/feeLimitSun: feeCapSun/g)].length, 2)
-  assert.ok(panel.includes("const DEFAULT_FEE_CAP = '60'"))
   const deployStart = panel.indexOf('const deployMissingContracts')
   const deployEnd = panel.indexOf('const deployVault =', deployStart)
   const deployFlow = panel.slice(deployStart, deployEnd)
   assert.equal([...deployFlow.matchAll(/feeLimitSun: feeCapSun/g)].length, 2)
-  assert.doesNotMatch(panel, /\\.call\\(\\)/, 'all Mainnet contract reads must use the paced RPC queue')
+  assert.ok(deployFlow.includes('callMainnetView(existing.owner())'))
+  assert.ok(deployFlow.includes('callMainnetView(existing.authorizedToken())'))
+  assert.ok(deployFlow.includes('callMainnetView(existing.reserveVault())'))
+  assert.doesNotMatch(panel, /\.call\(\)/, 'all Mainnet contract reads must use the paced RPC queue')
   assert.ok(panel.includes('callMainnetView('))
   assert.ok(panel.includes('getMainnetNativeBalance('))
-  assert.ok(deployFlow.includes('existing.owner().call()'))
-  assert.ok(deployFlow.includes('existing.authorizedToken().call()'))
-  assert.ok(deployFlow.includes('existing.reserveVault().call()'))
-  for (const value of ['TRXMainnetPanel']) assert.ok(app.includes(value))
+  assert.ok(app.includes('TRXMainnetPanel'))
   for (const value of [
     'TRӾ smart-contract manager',
     'Deploy both contracts automatically',
@@ -65,7 +60,7 @@ test('wallet discovery supports injected TRON providers without importing privat
 
 test('contract administration is determined by deployed on-chain owners', async () => {
   const panel = await read('../src/TRXMainnetPanel.jsx')
-  for (const value of ['token.owner().call()', 'vault.owner().call()', 'connectedAddress']) {
+  for (const value of ['callMainnetView(token.owner())', 'callMainnetView(vault.owner())', 'connectedAddress']) {
     assert.ok(panel.includes(value), 'missing on-chain owner check: ' + value)
   }
 })
