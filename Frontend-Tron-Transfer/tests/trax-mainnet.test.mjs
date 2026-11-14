@@ -2,7 +2,7 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { decodeTronBroadcastFailure, parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity, assertTransactionPermission, deployContractFromTronLink, MAINNET_DEPLOYMENT_SIGNING_ENABLED, MAINNET_DEPLOYMENT_BROADCAST_ENABLED } from '../src/trax-mainnet.mjs'
+import { decodeTronBroadcastFailure, parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity, assertTransactionPermission, deployContractFromTronLink, MAINNET_DEPLOYMENT_SIGNING_ENABLED, MAINNET_DEPLOYMENT_BROADCAST_ENABLED, normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, normalizeDeploymentEnergyEstimate, calculateDeploymentResourceBudget } from '../src/trax-mainnet.mjs'
 
 
 
@@ -12,6 +12,106 @@ test('TRӾ manager is reachable without the private platform-owner session', asy
   assert.doesNotMatch(app, /if \(!ownerSession\) return/)
   assert.doesNotMatch(app, /if \(!ownerSessionResolved\) return/)
   assert.doesNotMatch(app, /expectedOwner=\{ownerSession\.address\}/)
+})
+
+
+test('TRON Mainnet resource snapshot calculates available Energy and Bandwidth from live limits and usage', () => {
+  const snapshot = normalizeMainnetAccountResources({
+    EnergyLimit: 10000, EnergyUsed: 3000,
+    freeNetLimit: 600, freeNetUsed: 120,
+    NetLimit: 1500, NetUsed: 320,
+  }, { chainParameter: [
+    { key: 'getEnergyFee', value: 100 },
+    { key: 'getTransactionFee', value: 1000 },
+    { key: 'getMaxFeeLimit', value: 15000000000 },
+  ] }, 2500000)
+  assert.equal(snapshot.energyAvailable, '7000')
+  assert.equal(snapshot.freeBandwidthAvailable, '480')
+  assert.equal(snapshot.stakedBandwidthAvailable, '1180')
+  assert.equal(snapshot.nativeBalanceSun, '2500000')
+  assert.equal(snapshot.energyFeeSun, '100')
+  assert.equal(snapshot.bandwidthFeeSun, '1000')
+  assert.equal(snapshot.maxFeeLimitSun, '15000000000')
+})
+
+test('TRON Mainnet owner permission snapshot detects a connected signer below threshold', () => {
+  const signer = 'T' + '1'.repeat(33)
+  const other = 'T' + '2'.repeat(33)
+  const tronWeb = { address: { toHex: value => value === signer ? '41' + '1'.repeat(40) : String(value).toLowerCase() } }
+  const result = normalizeMainnetPermissionSnapshot({
+    owner_permission: {
+      id: 0, threshold: 2,
+      keys: [{ address: signer, weight: 1 }, { address: other, weight: 1 }],
+    },
+  }, signer, tronWeb)
+  assert.equal(result.connectedSignerCanAuthorizeAlone, false)
+  assert.equal(result.connectedSignerWeight, '1')
+  assert.equal(result.requiredAdditionalWeight, '1')
+  assert.equal(result.otherOwnerKeyCount, 1)
+})
+
+test('TRON Mainnet deployment simulation requires a successful positive Energy result', () => {
+  assert.deepEqual(normalizeDeploymentEnergyEstimate({
+    result: { result: true }, energy_used: 250000, energy_penalty: 50000, transaction: { ret: [{ ret: 'SUCESS', contractRet: 'SUCCESS' }] },
+  }), { energyUsed: '250000', energyPenalty: '50000' })
+  assert.throws(
+    () => normalizeDeploymentEnergyEstimate({ result: { result: false, code: 'CONTRACT_VALIDATE_ERROR' } }),
+    /simulation failed/,
+  )
+  assert.throws(
+    () => normalizeDeploymentEnergyEstimate({
+      result: { result: true },
+      energy_used: 250000,
+      transaction: { ret: [{ ret: 'FAILED', contractRet: 'REVERT' }] },
+    }),
+    /did not execute successfully/,
+  )
+  assert.throws(
+    () => normalizeDeploymentEnergyEstimate({ result: { result: true }, energy_used: 0, transaction: { ret: [{ ret: 'SUCESS', contractRet: 'SUCCESS' }] } }),
+    /zero Energy/,
+  )
+})
+
+test('TRON Mainnet deployment budget includes Energy margin, Bandwidth and TRX shortfall', () => {
+  const budget = calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    resourceSnapshot: {
+      energyAvailable: '100000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '2000000', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(200),
+    feeLimitSun: '20000000',
+  })
+  assert.equal(budget.energyWithSafetyMargin, '120000')
+  assert.equal(budget.energyShortfall, '20000')
+  assert.equal(budget.bandwidthShortfall, '0')
+  assert.equal(budget.requiredTrxSun, '2000000')
+})
+
+test('TRON Mainnet deployment budget blocks insufficient resources before wallet signing', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '250000',
+    resourceSnapshot: {
+      energyAvailable: '131000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(3000),
+    feeLimitSun: '300000000',
+  }), /Insufficient Mainnet resources/)
+})
+
+test('TRON Mainnet deployment code uses one injected provider and keeps minting gated by reserve checks', async () => {
+  const helper = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  assert.ok(helper.includes('const walletTronWeb = assertMainnetWallet(wallet)'))
+  assert.ok(helper.includes('readResources(tronWeb, wallet.address)'))
+  assert.ok(helper.includes('estimateEnergy(tronWeb, wallet.address, artifact)'))
+  assert.ok(helper.includes('await walletTronWeb.trx.sign(walletTransaction)'))
+  assert.ok(helper.includes('await walletTronWeb.trx.sendRawTransaction(signedTransaction)'))
+  assert.ok(!helper.includes('createClient ='))
+  assert.ok(panel.includes('const configuredOwnerMatches = walletReady'))
+  assert.ok(panel.includes('getMainnetAccountResourceSnapshot'))
+  assert.ok(panel.includes('getMainnetAccountPermissionSnapshot'))
 })
 
 test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
@@ -180,7 +280,7 @@ test('TRON signer recovery verifies a real locally generated secp256k1 transacti
   assert.throws(() => verifyTransactionSigner(signerClient, signed, 'T' + '1'.repeat(33)), /does not match/)
 })
 
-test('Mainnet deployment flags are enabled and wallet-approved deployment completes only after all verifications', async () => {
+test('Mainnet deployment uses one injected TronLink client and completes only after preflight and on-chain verification', async () => {
   assert.equal(MAINNET_DEPLOYMENT_SIGNING_ENABLED, true)
   assert.equal(MAINNET_DEPLOYMENT_BROADCAST_ENABLED, true)
 
@@ -197,40 +297,40 @@ test('Mainnet deployment flags are enabled and wallet-approved deployment comple
     },
     raw_data_hex: '0a01',
   }
-  // TronLink Android may return only txID + signature; omitted raw payload is restored from the immutable validated request.
   const signed = {
     txID: unsigned.txID,
     raw_data_hex: unsigned.raw_data_hex,
-    // Provider-normalized JSON representation is intentionally different.
-    // The original serialized bytes and transaction ID remain unchanged.
     raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: { owner_address: ownerHex } } }], timestamp: '1', fee_limit: '300000000' },
     signature: ['a'.repeat(130)],
   }
-  let signCalls = 0
-  let broadcastCalls = 0
-  let receiptCalls = 0
-  const walletTronWeb = {
+  let signCalls = 0, broadcastCalls = 0, receiptCalls = 0, buildCalls = 0
+  let readResourceClient, readPermissionClient, estimateClient, verifyClient, ownerVerifyClient
+  const tronWeb = {
     version: 'TronLink-test-provider',
     fullNode: { host: 'https://api.trongrid.io' },
     isAddress: value => typeof value === 'string' && value.startsWith('T'),
-    trx: { sign: async payload => {
-      signCalls++
-      assert.equal(payload.txID, unsigned.txID)
-      assert.equal(payload.raw_data_hex, unsigned.raw_data_hex)
-      return signed
-    } },
-  }
-  const tronWeb = {
-    version: '6.5.1',
-    transactionBuilder: { createSmartContract: async () => unsigned },
-    address: { fromHex: () => ownerAddress, toHex: value => String(value).toLowerCase() },
-    isAddress: value => typeof value === 'string' && value.startsWith('T'),
+    address: {
+      fromHex: value => String(value).toLowerCase() === ownerHex ? ownerAddress : 'T' + '2'.repeat(33),
+      toHex: value => value === ownerAddress ? ownerHex : String(value).toLowerCase(),
+    },
     utils: {
       transaction: { txCheck: () => true },
       crypto: { ecRecover: () => ownerHex },
     },
-    toUtf8: value => value,
+    transactionBuilder: {
+      async createSmartContract() {
+        buildCalls++
+        assert.strictEqual(this, tronWeb.transactionBuilder)
+        return unsigned
+      },
+    },
     trx: {
+      sign: async payload => {
+        signCalls++
+        assert.equal(payload.txID, unsigned.txID)
+        assert.equal(payload.raw_data_hex, unsigned.raw_data_hex)
+        return signed
+      },
       getSignWeight: async tx => {
         assert.equal(tx.txID, unsigned.txID)
         assert.equal(tx.raw_data_hex, unsigned.raw_data_hex)
@@ -239,41 +339,67 @@ test('Mainnet deployment flags are enabled and wallet-approved deployment comple
         return {
           result: { code: 'ENOUGH_PERMISSION' },
           current_weight: 1,
-          permission: { id: 0, permission_name: 'owner', threshold: 1, keys: [{ address: ownerAddress, weight: 1 }] },
-          approved_list: [ownerAddress],
+          permission: { id: 0, permission_name: 'owner', threshold: 1, keys: [{ address: ownerHex, weight: 1 }] },
+          approved_list: [ownerHex],
         }
       },
       sendRawTransaction: async tx => {
         broadcastCalls++
         assert.equal(tx.txID, unsigned.txID)
         assert.equal(tx.raw_data_hex, unsigned.raw_data_hex)
-        assert.deepEqual(tx.raw_data, unsigned.raw_data)
         assert.deepEqual(tx.signature, signed.signature)
         return { result: true }
       },
     },
   }
   const result = await deployContractFromTronLink(
-    { tronWeb: walletTronWeb, address: ownerAddress },
+    { tronWeb, address: ownerAddress },
     { abi: [], bytecode: '6000' },
     'TestVault',
     300000000,
     {
-      createClient: () => tronWeb,
-      waitForReceipt: async (_client, txID) => {
+      createVerifier: () => tronWeb,
+      readResources: async client => {
+        readResourceClient = client
+        return {
+          energyAvailable: '500000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+          nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+        }
+      },
+      readPermissions: async client => {
+        readPermissionClient = client
+        return { connectedSignerCanAuthorizeAlone: true, connectedSignerWeight: '1', threshold: '1', requiredAdditionalWeight: '0' }
+      },
+      estimateEnergy: async client => { estimateClient = client; return { energyUsed: '100000', energyPenalty: '0' } },
+      waitForReceipt: async (client, txID) => {
         receiptCalls++
+        assert.strictEqual(client, tronWeb)
         assert.equal(txID, unsigned.txID)
         return { receipt: { result: 'SUCCESS' } }
       },
-      verifyDeployedContract: async (_client, address) => {
+      verifyDeployedContract: async (client, address) => {
+        verifyClient = client
         assert.equal(address, ownerAddress)
         return { bytecode: '6000' }
       },
+      verifyDeployedOwner: async (client, artifact, address) => {
+        ownerVerifyClient = client
+        assert.equal(address, ownerAddress)
+        assert.deepEqual(artifact.abi, [])
+        return ownerAddress
+      },
     },
   )
+  assert.equal(buildCalls, 1)
   assert.equal(signCalls, 1)
   assert.equal(broadcastCalls, 1)
   assert.equal(receiptCalls, 1)
+  assert.strictEqual(readResourceClient, tronWeb)
+  assert.strictEqual(readPermissionClient, tronWeb)
+  assert.strictEqual(estimateClient, tronWeb)
+  assert.strictEqual(verifyClient, tronWeb)
+  assert.strictEqual(ownerVerifyClient, tronWeb)
+  assert.equal(result.owner, ownerAddress)
   assert.equal(result.txID, unsigned.txID)
   assert.equal(result.address, ownerAddress)
 })
@@ -281,6 +407,7 @@ test('Mainnet deployment flags are enabled and wallet-approved deployment comple
 test('TRON deployment never broadcasts if signer recovery rejects the connected wallet', async () => {
   const ownerAddress = 'T' + '1'.repeat(33)
   const ownerHex = '41' + '1'.repeat(40)
+  const otherHex = '41' + '2'.repeat(40)
   const unsigned = {
     txID: '426e75c2b5c719ae46005abc57144fde1b70294c0d2adf82a36a4de6e0578830',
     contract_address: ownerHex,
@@ -289,16 +416,37 @@ test('TRON deployment never broadcasts if signer recovery rejects the connected 
   }
   const signed = { ...unsigned, signature: ['a'.repeat(130)] }
   let broadcasts = 0
-  const walletTronWeb = { trx: { sign: async () => signed }, isAddress: value => value.startsWith('T'), fullNode: { host: 'https://api.trongrid.io' } }
   const tronWeb = {
-    transactionBuilder: { createSmartContract: async () => unsigned },
-    address: { fromHex: value => String(value).toLowerCase() === ownerHex ? ownerAddress : 'T' + '2'.repeat(33), toHex: value => String(value).toLowerCase() },
+    fullNode: { host: 'https://api.trongrid.io' },
     isAddress: value => typeof value === 'string' && value.startsWith('T'),
-    utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => '41' + '2'.repeat(40) } },
-    trx: { getSignWeight: async () => ({ result: { code: 'ENOUGH_PERMISSION' } }), sendRawTransaction: async () => { broadcasts++; return { result: true } } },
+    address: {
+      fromHex: value => String(value).toLowerCase() === ownerHex ? ownerAddress : 'T' + '2'.repeat(33),
+      toHex: value => String(value).toLowerCase(),
+    },
+    utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => otherHex } },
+    transactionBuilder: { createSmartContract: async () => unsigned },
+    trx: {
+      sign: async () => signed,
+      getSignWeight: async () => ({ result: { code: 'ENOUGH_PERMISSION' } }),
+      sendRawTransaction: async () => { broadcasts++; return { result: true } },
+    },
   }
   await assert.rejects(
-    () => deployContractFromTronLink({ tronWeb: walletTronWeb, address: ownerAddress }, { abi: [], bytecode: '6000' }, 'TestVault', 300000000, { createClient: () => tronWeb }),
+    () => deployContractFromTronLink(
+      { tronWeb, address: ownerAddress },
+      { abi: [], bytecode: '6000' },
+      'TestVault',
+      300000000,
+      {
+        createVerifier: () => tronWeb,
+        readResources: async () => ({
+          energyAvailable: '500000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
+          nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+        }),
+        readPermissions: async () => ({ connectedSignerCanAuthorizeAlone: true, connectedSignerWeight: '1', threshold: '1', requiredAdditionalWeight: '0' }),
+        estimateEnergy: async () => ({ energyUsed: '100000', energyPenalty: '0' }),
+      },
+    ),
     /does not match both the deployment owner_address and connected wallet/,
   )
   assert.equal(broadcasts, 0)

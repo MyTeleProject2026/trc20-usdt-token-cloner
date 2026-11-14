@@ -18,8 +18,14 @@ export function isTronWalletProvider(provider) {
   return Boolean(provider && typeof provider.request === 'function' && hasTronSigner(provider))
 }
 
-// Backwards-compatible export for existing callers.
-export const isTronLinkProvider = isTronWalletProvider
+function isPendingTronProvider(provider) {
+  return Boolean(provider && typeof provider.request === 'function'
+    && (provider.isTronLink === true || provider.tronLink?.isTronLink === true))
+}
+
+// Backwards-compatible detection also accepts official TronLink providers
+// whose TronWeb signer is initialized only after account authorization.
+export const isTronLinkProvider = provider => isTronWalletProvider(provider) || isPendingTronProvider(provider)
 
 function getInjectedProviders(windowObject) {
   const candidates = [
@@ -34,7 +40,7 @@ function getInjectedProviders(windowObject) {
     windowObject?.trustwallet?.tronLink,
     windowObject?.trustwallet,
   ]
-  const unique = [...new Set(candidates.filter(isTronWalletProvider))]
+  const unique = [...new Set(candidates.filter(provider => isTronWalletProvider(provider) || isPendingTronProvider(provider)))]
   if (unique.length === 0 && windowObject?.tronWeb?.trx
     && typeof windowObject.tronWeb.trx.sign === 'function') {
     const requestProvider = [windowObject?.tron, windowObject?.tronLink,
@@ -69,7 +75,8 @@ export async function discoverTronLinkProvider(
     }
     const onAnnouncement = event => {
       const detail = event?.detail || {}
-      if (isTronAnnouncement(detail.info, detail.provider) && isTronWalletProvider(detail.provider)) {
+      if (isTronAnnouncement(detail.info, detail.provider)
+        && (isTronWalletProvider(detail.provider) || isPendingTronProvider(detail.provider))) {
         announced.push(detail.provider)
         finish(announced[0])
       }
@@ -128,7 +135,10 @@ export async function requestTronLinkConnection(
   windowObject = globalThis.window,
   { readyTimeoutMs = DEFAULT_PROVIDER_READY_TIMEOUT_MS, pollIntervalMs = DEFAULT_POLL_INTERVAL_MS } = {},
 ) {
-  if (!isTronWalletProvider(provider)) throw new Error('A compatible injected TRON wallet provider was not found.')
+  // A wallet may expose its signer only after the account-authorization request.
+  // Require a request-capable provider here; discovery still filters candidates
+  // to known TRON providers, and the ready signer is validated below.
+  if (!provider || typeof provider.request !== 'function') throw new Error('A compatible injected TRON wallet provider was not found.')
   const accounts = await requestAccounts(provider)
   const deadline = Date.now() + readyTimeoutMs
   while (Date.now() <= deadline) {

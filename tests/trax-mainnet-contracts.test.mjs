@@ -12,7 +12,7 @@ test('TRӾ source pins the exact TRON Solidity compiler release and metadata', (
   assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
   assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
   assert.ok(tronboxConfig.includes("version: '0.8.25'"))
-  assert.ok(tronboxConfig.includes('optimizer: { enabled: true, runs: 200 }'))
+  assert.match(tronboxConfig, /optimizer:\s*\{\s*enabled:\s*true,\s*runs:\s*200\s*\}/)
 })
 
 test('TRӾ source exposes owner-controlled minting, lock management and redemption', () => {
@@ -37,5 +37,5 @@ test('native TRX reserve vault permits releases only through the authorized toke
   assert.ok(vaultSource.includes('pragma solidity 0.8.25;'))
   assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
   assert.ok(vaultSource.includes('address(this).balance >= amount'))
-  assert.ok(!/function\\s+(withdraw|sweep|rescue)\\s*\\(/i.test(vaultSource))
+  assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
 })

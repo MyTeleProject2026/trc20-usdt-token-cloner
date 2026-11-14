@@ -65,6 +65,223 @@ async function postNode(tronWeb, path, body) {
   return response.json()
 }
 
+function resourceInteger(source, key) {
+  const raw = source?.[key] ?? 0
+  let value
+  try { value = BigInt(raw) } catch { throw new Error('TRON returned an invalid resource field: ' + key) }
+  if (value < 0n) throw new Error('TRON returned a negative resource field: ' + key)
+  return value
+}
+
+export function normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun) {
+  if (!accountResources || typeof accountResources !== 'object' || accountResources.Error) {
+    throw new Error('TRON Mainnet could not return account resource limits.')
+  }
+  const parameters = Array.isArray(chainParameters?.chainParameter)
+    ? chainParameters.chainParameter
+    : Array.isArray(chainParameters) ? chainParameters : []
+  const parameter = (key) => {
+    const item = parameters.find((entry) => entry?.key === key)
+    if (item?.value === undefined || item?.value === null) return null
+    try { return BigInt(item.value) } catch { throw new Error('TRON returned an invalid chain parameter: ' + key) }
+  }
+  const energyLimit = resourceInteger(accountResources, 'EnergyLimit')
+  const energyUsed = resourceInteger(accountResources, 'EnergyUsed')
+  const freeNetLimit = resourceInteger(accountResources, 'freeNetLimit')
+  const freeNetUsed = resourceInteger(accountResources, 'freeNetUsed')
+  const netLimit = resourceInteger(accountResources, 'NetLimit')
+  const netUsed = resourceInteger(accountResources, 'NetUsed')
+  const nativeBalance = BigInt(String(nativeBalanceSun ?? 0))
+  const energyFee = parameter('getEnergyFee')
+  const bandwidthFee = parameter('getTransactionFee')
+  const maxFeeLimit = parameter('getMaxFeeLimit')
+  if (nativeBalance < 0n) throw new Error('TRON returned a negative native TRX balance.')
+  if (energyFee === null || energyFee <= 0n) throw new Error('TRON Mainnet did not return a valid current Energy fee.')
+  return {
+    energyLimit: energyLimit.toString(),
+    energyUsed: energyUsed.toString(),
+    energyAvailable: (energyLimit > energyUsed ? energyLimit - energyUsed : 0n).toString(),
+    freeBandwidthLimit: freeNetLimit.toString(),
+    freeBandwidthUsed: freeNetUsed.toString(),
+    freeBandwidthAvailable: (freeNetLimit > freeNetUsed ? freeNetLimit - freeNetUsed : 0n).toString(),
+    stakedBandwidthLimit: netLimit.toString(),
+    stakedBandwidthUsed: netUsed.toString(),
+    stakedBandwidthAvailable: (netLimit > netUsed ? netLimit - netUsed : 0n).toString(),
+    nativeBalanceSun: nativeBalance.toString(),
+    energyFeeSun: energyFee.toString(),
+    bandwidthFeeSun: bandwidthFee === null ? null : bandwidthFee.toString(),
+    maxFeeLimitSun: maxFeeLimit === null ? null : maxFeeLimit.toString(),
+  }
+}
+
+export function normalizeMainnetPermissionSnapshot(account, signerAddress, tronWeb) {
+  if (!account || typeof account !== 'object' || account.Error) {
+    throw new Error('TRON Mainnet could not return this account permission configuration.')
+  }
+  const owner = account.owner_permission
+  if (!owner || !Array.isArray(owner.keys) || owner.keys.length === 0) {
+    throw new Error('This account does not expose a readable owner permission and signer-key list.')
+  }
+  let threshold
+  try { threshold = BigInt(owner.threshold) } catch { throw new Error('TRON returned an invalid owner permission threshold.') }
+  if (threshold <= 0n) throw new Error('TRON returned a non-positive owner permission threshold.')
+  let signerWeight = 0n
+  for (const key of owner.keys) {
+    if (!key?.address) throw new Error('TRON returned a malformed owner permission key.')
+    let weight
+    try { weight = BigInt(key.weight) } catch { throw new Error('TRON returned an invalid owner permission key weight.') }
+    if (weight <= 0n) throw new Error('TRON returned a non-positive owner permission key weight.')
+    if (addressesEqual(tronWeb, key.address, signerAddress)) signerWeight += weight
+  }
+  const activePermissions = Array.isArray(account.active_permission)
+    ? account.active_permission.map((permission) => ({
+      id: Number(permission.id),
+      name: String(permission.permission_name || permission.name || 'Active permission'),
+      threshold: String(permission.threshold ?? ''),
+      keyCount: Array.isArray(permission.keys) ? permission.keys.length : 0,
+    }))
+    : []
+  const requiredAdditionalWeight = threshold > signerWeight ? threshold - signerWeight : 0n
+  return {
+    permissionId: Number.isInteger(Number(owner.id)) ? Number(owner.id) : 0,
+    permissionName: String(owner.permission_name || owner.name || 'owner'),
+    threshold: threshold.toString(),
+    connectedSignerWeight: signerWeight.toString(),
+    requiredAdditionalWeight: requiredAdditionalWeight.toString(),
+    connectedSignerCanAuthorizeAlone: signerWeight >= threshold,
+    ownerKeyCount: owner.keys.length,
+    otherOwnerKeyCount: owner.keys.filter((key) => !addressesEqual(tronWeb, key.address, signerAddress)).length,
+    activePermissions,
+  }
+}
+
+export async function getMainnetAccountPermissionSnapshot(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet wallet address.')
+  const account = await postNode(tronWeb, '/wallet/getaccount', { address, visible: true })
+  return normalizeMainnetPermissionSnapshot(account, address, tronWeb)
+}
+
+export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet wallet address.')
+  const [accountResources, chainParameters, nativeBalanceSun] = await Promise.all([
+    postNode(tronWeb, '/wallet/getaccountresource', { address, visible: true }),
+    postNode(tronWeb, '/wallet/getchainparameters', {}),
+    tronWeb.trx.getBalance(address),
+  ])
+  return normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun)
+}
+
+export function normalizeDeploymentEnergyEstimate(response) {
+  if (!response || response.Error || response.result?.result !== true) {
+    const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not simulate contract creation'
+    throw new Error('TRON Mainnet deployment Energy simulation failed: ' + detail)
+  }
+  const execution = response.transaction?.ret?.[0]
+  const executionRet = String(execution?.ret || '').toUpperCase()
+  const contractRet = String(execution?.contractRet || '').toUpperCase()
+  const successValues = ['SUCESS', 'SUCCESS']
+  if ((executionRet && !successValues.includes(executionRet))
+    || (contractRet && !successValues.includes(contractRet))
+    || (!executionRet && !contractRet)) {
+    throw new Error('TRON Mainnet deployment simulation did not execute successfully: '
+      + (contractRet || executionRet || 'missing TVM execution result')
+      + '. No wallet signature or broadcast was attempted.')
+  }
+  let energyUsed
+  try { energyUsed = BigInt(response.energy_used) } catch {
+    throw new Error('TRON Mainnet deployment simulation did not return a valid energy_used value.')
+  }
+  if (energyUsed <= 0n) throw new Error('TRON Mainnet deployment simulation returned zero Energy; refusing to guess a deployment cost.')
+  let energyPenalty = 0n
+  try { energyPenalty = BigInt(response.energy_penalty ?? 0) } catch {
+    throw new Error('TRON Mainnet deployment simulation returned an invalid Energy penalty.')
+  }
+  return { energyUsed: energyUsed.toString(), energyPenalty: energyPenalty.toString() }
+}
+
+export function calculateDeploymentResourceBudget({
+  energyRequired,
+  resourceSnapshot,
+  rawDataHex,
+  feeLimitSun,
+  safetyMarginBps = 12000,
+}) {
+  let energy, feeLimit
+  try {
+    energy = BigInt(energyRequired)
+    feeLimit = BigInt(feeLimitSun)
+  } catch { throw new Error('Deployment Energy estimate or fee limit is invalid.') }
+  if (energy <= 0n || feeLimit <= 0n || !Number.isInteger(safetyMarginBps) || safetyMarginBps < 10000 || safetyMarginBps > 20000) {
+    throw new Error('Deployment resource budget inputs are outside the allowed range.')
+  }
+  if (!/^(?:[0-9a-f]{2})+$/i.test(String(rawDataHex || ''))) {
+    throw new Error('Deployment transaction bytes are unavailable for Bandwidth estimation.')
+  }
+  const energyFee = BigInt(resourceSnapshot.energyFeeSun)
+  const bandwidthFee = resourceSnapshot.bandwidthFeeSun == null ? null : BigInt(resourceSnapshot.bandwidthFeeSun)
+  const availableEnergy = BigInt(resourceSnapshot.energyAvailable)
+  const availableBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable) + BigInt(resourceSnapshot.stakedBandwidthAvailable)
+  const balance = BigInt(resourceSnapshot.nativeBalanceSun)
+  const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
+  if (energyFee <= 0n || balance < 0n) throw new Error('Mainnet returned invalid Energy price or TRX balance.')
+  if (maxFeeLimit === null || maxFeeLimit <= 0n) {
+    throw new Error('TRON Mainnet did not return getMaxFeeLimit. Cannot validate the deployment fee cap safely.')
+  }
+  const bufferedEnergy = (energy * BigInt(safetyMarginBps) + 9999n) / 10000n
+  const requiredFeeLimit = bufferedEnergy * energyFee
+  if (requiredFeeLimit > maxFeeLimit) {
+    throw new Error('Estimated deployment Energy with the safety margin requires a fee cap above the current TRON Mainnet maximum. Reduce contract deployment complexity; this transaction cannot be safely budgeted.')
+  }
+  if (feeLimit > maxFeeLimit) {
+    throw new Error('Selected fee cap exceeds the current TRON Mainnet maximum of ' + maxFeeLimit.toString() + ' SUN.')
+  }
+  if (feeLimit < requiredFeeLimit) {
+    throw new Error('Selected fee cap is too low for the estimated deployment. Required at least ' + requiredFeeLimit.toString() + ' SUN (' + (Number(requiredFeeLimit) / 1e6).toFixed(6) + ' TRX) with the safety margin.')
+  }
+  const energyShortfall = bufferedEnergy > availableEnergy ? bufferedEnergy - availableEnergy : 0n
+  const estimatedBandwidthBytes = BigInt(Math.ceil(rawDataHex.length / 2) + 3 + 64 + 67)
+  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes - availableBandwidth : 0n
+  if (bandwidthShortfall > 0n && bandwidthFee === null) {
+    throw new Error('Bandwidth fee is unavailable and the account does not have enough Bandwidth. Refusing to estimate the missing fee.')
+  }
+  const energyBurnSun = energyShortfall * energyFee
+  const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
+  const requiredTrxSun = energyBurnSun + bandwidthBurnSun
+  if (balance < requiredTrxSun) {
+    throw new Error('Insufficient Mainnet resources for this deployment. Estimated Energy: ' + energy.toString()
+      + '; with 20% safety margin: ' + bufferedEnergy.toString()
+      + '; available Energy: ' + availableEnergy.toString()
+      + '; estimated TRX needed for Energy/Bandwidth shortfall: ' + requiredTrxSun.toString()
+      + ' SUN (' + (Number(requiredTrxSun) / 1e6).toFixed(6) + ' TRX); wallet balance: '
+      + balance.toString() + ' SUN. No wallet signature or broadcast was attempted.')
+  }
+  return {
+    energyRequired: energy.toString(),
+    energyWithSafetyMargin: bufferedEnergy.toString(),
+    availableEnergy: availableEnergy.toString(),
+    energyShortfall: energyShortfall.toString(),
+    estimatedBandwidthBytes: estimatedBandwidthBytes.toString(),
+    availableBandwidth: availableBandwidth.toString(),
+    bandwidthShortfall: bandwidthShortfall.toString(),
+    energyBurnSun: energyBurnSun.toString(),
+    bandwidthBurnSun: bandwidthBurnSun.toString(),
+    requiredTrxSun: requiredTrxSun.toString(),
+    feeLimitSun: feeLimit.toString(),
+  }
+}
+
+export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, artifact) {
+  if (!tronWeb?.isAddress?.(ownerAddress)) throw new Error('Enter a valid TRON Mainnet deployment owner address.')
+  const bytecode = String(artifact?.bytecode || '').replace(/^0x/, '')
+  if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled contract init bytecode is missing or invalid.')
+  const response = await postNode(tronWeb, '/wallet/triggerconstantcontract', {
+    owner_address: ownerAddress,
+    data: bytecode,
+    visible: true,
+  })
+  return normalizeDeploymentEnergyEstimate(response)
+}
+
 export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 180000, intervalMs = 3000 } = {}) {
   if (!/^[0-9a-f]{64}$/i.test(String(txID || ''))) throw new Error('The wallet did not return a valid transaction ID.')
   const started = Date.now()
@@ -321,34 +538,72 @@ export const MAINNET_DEPLOYMENT_SIGNING_ENABLED = true
 export const MAINNET_DEPLOYMENT_BROADCAST_ENABLED = true
 
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
-  createClient = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
+  createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
   verifyDeployedContract = async (client, address) => client.trx.getContract(address),
+  verifyDeployedOwner = async (client, artifact, address) => {
+    const instance = await client.contract(artifact.abi).at(address)
+    return instance.owner().call()
+  },
+  readResources = getMainnetAccountResourceSnapshot,
+  readPermissions = getMainnetAccountPermissionSnapshot,
+  estimateEnergy = estimateMainnetDeploymentEnergy,
 } = {}) {
-  // Use the app-pinned TronWeb 6.5.1 instance to build and broadcast. TronLink's
-  // injected TronWeb is only the wallet signer: its bundled version can differ.
+  // Use TronLink's injected Mainnet client for transaction construction, signing
+  // and broadcast. Use a pinned read-only TronWeb verifier for byte-level checks,
+  // permission queries, resource reads and solidified receipt verification. Never
+  // build with one transaction provider and ask a different provider to sign it.
   const walletTronWeb = assertMainnetWallet(wallet)
-  const tronWeb = createClient()
-  if (!tronWeb?.transactionBuilder?.createSmartContract || !tronWeb?.trx?.sendRawTransaction) {
-    throw new Error('The pinned TRON Mainnet transaction client could not be initialized.')
+  const tronWeb = createVerifier()
+  if (!walletTronWeb?.transactionBuilder?.createSmartContract
+    || typeof walletTronWeb?.trx?.sign !== 'function'
+    || typeof walletTronWeb?.trx?.sendRawTransaction !== 'function'
+    || !tronWeb?.utils?.transaction?.txCheck
+    || !tronWeb?.utils?.crypto?.ecRecover
+    || typeof tronWeb?.trx?.getSignWeight !== 'function') {
+    throw new Error('The connected TronLink provider cannot build, sign and broadcast Mainnet deployments, or the pinned verifier cannot validate signatures and permissions.')
+  }
+  const [resourceSnapshot, permissionSnapshot, energyEstimate] = await Promise.all([
+    readResources(tronWeb, wallet.address),
+    readPermissions(tronWeb, wallet.address),
+    estimateEnergy(tronWeb, wallet.address, artifact),
+  ])
+  if (!permissionSnapshot.connectedSignerCanAuthorizeAlone) {
+    throw new Error('Connected wallet cannot satisfy the TRON owner permission threshold alone. Collected weight '
+      + permissionSnapshot.connectedSignerWeight + '; required threshold ' + permissionSnapshot.threshold
+      + '; additional signer weight required ' + permissionSnapshot.requiredAdditionalWeight
+      + '. No wallet signature or broadcast was attempted.')
   }
   const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
   let unsigned
   try {
-    unsigned = await tronWeb.transactionBuilder.createSmartContract(options, wallet.address)
+    unsigned = await walletTronWeb.transactionBuilder.createSmartContract(options, wallet.address)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment transaction construction failed'))
   }
   if (!unsigned?.txID || !/^[0-9a-f]{64}$/i.test(unsigned.txID) || !unsigned?.contract_address || !unsigned?.raw_data?.contract?.length) {
     throw new Error('TRON Mainnet returned an incomplete deployment transaction. No signature or broadcast was attempted.')
   }
+  const createContract = unsigned.raw_data.contract[0]
+  const ownerHex = createContract?.parameter?.value?.owner_address
+  let transactionOwner = ''
+  try { transactionOwner = ownerHex ? tronWeb.address.fromHex(ownerHex) : '' } catch {}
+  if (createContract?.type !== 'CreateSmartContract' || !transactionOwner
+    || !addressesEqual(tronWeb, transactionOwner, wallet.address)) {
+    throw new Error('Deployment transaction owner does not match the connected TronLink account. Reconnect the intended account and retry. No signature or broadcast was attempted.')
+  }
   const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
   if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
-  // Verify the structured transaction object serializes to the exact protobuf bytes
-  // and txID. Matching raw_data_hex to txID alone does not prove raw_data matches.
+  if (Number(unsigned.raw_data?.fee_limit) !== Number(feeLimitSun)) {
+    throw new Error('Mainnet node changed the requested deployment fee_limit. No wallet signature or broadcast was attempted.')
+  }
+  const resourceBudget = calculateDeploymentResourceBudget({
+    energyRequired: energyEstimate.energyUsed,
+    resourceSnapshot,
+    rawDataHex: unsigned.raw_data_hex,
+    feeLimitSun,
+  })
   assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned deployment transaction')
-    // TRON txID is SHA-256(raw_data bytes). Check the node payload before exposing it
-  // to a wallet signer; this catches malformed or mismatched node responses locally.
   const computedUnsignedTxID = await sha256HexFromBytes(unsigned.raw_data_hex)
   if (computedUnsignedTxID.toLowerCase() !== String(unsigned.txID).toLowerCase()) {
     throw new Error('TRON node txID does not match SHA-256(raw_data_hex). Nothing was signed or broadcast.')
@@ -356,8 +611,6 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   if (!MAINNET_DEPLOYMENT_SIGNING_ENABLED) {
     throw new Error('Mainnet deployment signing is disabled by the release configuration. No wallet signature was requested and nothing was broadcast.')
   }
-  // Validate the plain protocol transaction, then ask the injected wallet signer.
-  // TronLink must preserve the exact signed raw_data_hex and txID.
   const walletTransaction = toWalletSignableTransaction(unsigned)
   if (!walletTransaction.raw_data_hex || !walletTransaction.raw_data
     || !Array.isArray(walletTransaction.raw_data.contract)
@@ -365,9 +618,6 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     || walletTransaction.raw_data.contract[0]?.type !== 'CreateSmartContract') {
     throw new Error('TRON node returned an invalid CreateSmartContract signing payload. No wallet prompt or broadcast was attempted.')
   }
-  // Mainnet deployment is user-initiated: TronLink must explicitly approve signing.
-  // Only the exact signed transaction is broadcast; then wait for solidification
-  // and verify deployed bytecode before returning/persisting the address.
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
@@ -376,17 +626,18 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     const value = contract?.parameter?.value || {}
     const newContract = value.new_contract || {}
     const diagnostic = {
-      walletTronWebVersion: String(walletTronWeb.version || 'unknown'),
-      builderTronWebVersion: String(tronWeb.version || 'unknown'),
+      tronWebVersion: String(tronWeb.version || 'unknown'),
       transactionType: contract?.type || 'unknown',
       parameterTypeUrl: contract?.parameter?.type_url || 'missing',
-      hasContractAddress: Boolean(walletTransaction.contract_address),
       hasOwnerAddress: Boolean(value.owner_address),
       hasNewContract: Boolean(value.new_contract),
       bytecodeLength: String(newContract.bytecode || '').length,
       abiEntries: Array.isArray(newContract.abi) ? newContract.abi.length : null,
       feeLimitSun: walletTransaction.raw_data.fee_limit ?? null,
       rawDataHexLength: walletTransaction.raw_data_hex.length,
+      estimatedEnergy: resourceBudget.energyRequired,
+      energyWithSafetyMargin: resourceBudget.energyWithSafetyMargin,
+      estimatedTrxShortfallSun: resourceBudget.requiredTrxSun,
     }
     throw new Error(explainTronLinkError(error, 'TronLink signing failed') + ' Payload diagnostics: ' + JSON.stringify(diagnostic))
   }
@@ -395,20 +646,10 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     && signatures.length === 1
     && typeof signatures[0] === 'string'
     && /^[0-9a-f]{130}$/i.test(signatures[0])
-  // Some TronLink Android provider versions return only txID + signature.
-  // A signature cryptographically authorizes txID (SHA-256 of raw_data bytes),
-  // so safely restore omitted raw_data/raw_data_hex from our already-validated
-  // node payload. If the provider supplies either field, it must match exactly.
   const returnedRawDataHex = signed?.raw_data_hex
   const rawDataHexMatches = returnedRawDataHex == null
     || (typeof returnedRawDataHex === 'string'
       && returnedRawDataHex.toLowerCase() === walletTransaction.raw_data_hex.toLowerCase())
-  // Do not compare the provider's raw_data JavaScript object byte-for-byte.
-  // Wallet SDKs may normalize protobuf-derived JSON (for example, numeric/hex
-  // fields or omitted defaults) without changing the signed transaction ID.
-  // The signature authorizes txID, and txID was independently checked against
-  // the original node-provided raw_data_hex above. We broadcast only that
-  // immutable original payload, never the provider's returned raw_data object.
   if (!signed || !hasValidSignature
     || String(signed.txID || '').toLowerCase() !== walletTransaction.txID.toLowerCase()
     || !rawDataHexMatches) {
@@ -418,40 +659,35 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       : 'wallet changed raw_data_hex'
     throw new Error('TronLink signing result failed cryptographic payload consistency validation (' + reason + '). Nothing was broadcast.')
   }
-  // Reconstitute the exact original transaction bytes with only the wallet's
-  // signature attached. Never broadcast a provider-mutated or partial payload.
-  const signedTransaction = {
-    ...walletTransaction,
-    signature: [...signatures],
-  }
-  // Verify the signed object still serializes to the same protobuf bytes and txID.
+  // The signature is verified against the original raw_data bytes; rebuild only
+  // the protocol transaction envelope so omitted Android provider fields cannot
+  // change the signed payload.
+  const signedTransaction = { ...walletTransaction, signature: [...signatures] }
   assertTransactionIntegrity(tronWeb, signedTransaction, 'Signed deployment transaction')
-  // Independently recover the signer from txID + 65-byte signature. A well-formed
-  // signature is not proof that the connected wallet signed this transaction.
   verifyTransactionSigner(tronWeb, signedTransaction, wallet.address)
-  // Ask the node to independently evaluate the recovered signer against the
-  // account's active permission and threshold before any broadcast.
   await assertTransactionPermission(tronWeb, signedTransaction, wallet.address)
   if (!MAINNET_DEPLOYMENT_BROADCAST_ENABLED) {
     throw new Error('Mainnet deployment broadcasting is disabled. Signature was validated, but the transaction was not broadcast.')
   }
-  // TronWeb 6.5.1 requires broadcasting the exact object returned by trx.sign().
-  // Do not rebuild it: wallet/provider-specific transaction fields and signature
-  // encoding must remain intact. The node performs cryptographic validation.
   let broadcast
   try {
-    broadcast = await tronWeb.trx.sendRawTransaction(signedTransaction)
+    broadcast = await walletTronWeb.trx.sendRawTransaction(signedTransaction)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment broadcast request failed') + ' Check TRONSCAN for transaction ' + unsigned.txID + ' before retrying.')
   }
-  if (broadcast?.result !== true) {
-    throw new Error(decodeTronBroadcastFailure(tronWeb, broadcast, unsigned.txID))
-  }
+  if (broadcast?.result !== true) throw new Error(decodeTronBroadcastFailure(tronWeb, broadcast, unsigned.txID))
   const receipt = await waitForReceipt(tronWeb, unsigned.txID)
   if (receipt?.receipt?.result !== 'SUCCESS') throw new Error('Deployment transaction is not confirmed successful. Transaction: ' + unsigned.txID)
   const deployed = await verifyDeployedContract(tronWeb, predictedAddress)
   if (!deployed?.bytecode) throw new Error('Deployment receipt succeeded, but deployed contract bytecode could not be verified. Transaction: ' + unsigned.txID)
-  return { address: predictedAddress, txID: unsigned.txID, receipt }
+  let deployedOwner
+  try { deployedOwner = await verifyDeployedOwner(tronWeb, artifact, predictedAddress) } catch (error) {
+    throw new Error('Deployment receipt and bytecode were verified, but the deployed contract owner could not be read. Transaction: ' + unsigned.txID + '. ' + (error?.message || String(error)))
+  }
+  if (!addressesEqual(tronWeb, deployedOwner, wallet.address)) {
+    throw new Error('Deployment receipt succeeded, but on-chain owner() does not match the TronLink deployer. Expected ' + wallet.address + '; received ' + deployedOwner + '. Transaction: ' + unsigned.txID)
+  }
+  return { address: predictedAddress, txID: unsigned.txID, receipt, resourceBudget, owner: deployedOwner }
 }
 
 export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000) {

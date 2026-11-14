@@ -4,7 +4,8 @@ import './trax-mainnet.css'
 import {
   TRON_MAINNET_HOST, TRAX_TOKEN_ARTIFACT, TRAX_VAULT_ARTIFACT,
   addressesEqual, assertMainnetWallet, deployContractFromTronLink,
-  formatTokenUnits, loadSavedContracts, parseTokenUnits, saveContractAddresses,
+  formatTokenUnits, getMainnetAccountPermissionSnapshot, getMainnetAccountResourceSnapshot,
+  loadSavedContracts, parseTokenUnits, saveContractAddresses,
   sendAndVerifyContractCall, sendNativeTrxFromTronLink,
 } from './trax-mainnet.mjs'
 
@@ -59,6 +60,9 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [resourceStatus,setResourceStatus] = useState(null)
   const [resourceLoading,setResourceLoading] = useState(false)
   const [resourceError,setResourceError] = useState('')
+  const [permissionStatus,setPermissionStatus] = useState(null)
+  const [permissionLoading,setPermissionLoading] = useState(false)
+  const [permissionError,setPermissionError] = useState('')
 
   useEffect(() => {
     try { saveContractAddresses({ tokenAddress, vaultAddress }) } catch {}
@@ -74,30 +78,59 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const connectedAddress = wallet?.address || ''
   const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
 
-  const resourceApi = 'https://tron-transfer-resource-api.onrender.com'
-
   const refreshWalletResources = useCallback(async () => {
     if (!walletReady || !connectedAddress) return
     setResourceLoading(true)
     setResourceError('')
     try {
-      const response = await fetch(resourceApi + '/v1/resources/' + encodeURIComponent(connectedAddress), {
-        headers: { accept: 'application/json' },
-        signal: AbortSignal.timeout(12000),
+      const tronWeb = assertMainnetWallet(wallet)
+      const resources = await getMainnetAccountResourceSnapshot(tronWeb, connectedAddress)
+      setResourceStatus({
+        network: 'TRON Mainnet',
+        address: connectedAddress,
+        checkedAt: new Date().toISOString(),
+        energy: { available: resources.energyAvailable },
+        bandwidth: {
+          freeAvailable: resources.freeBandwidthAvailable,
+          stakedOrDelegatedAvailable: resources.stakedBandwidthAvailable,
+        },
+        balanceSun: resources.nativeBalanceSun,
+        chainParameters: {
+          energyFeeSunPerUnit: resources.energyFeeSun,
+          bandwidthFeeSunPerByte: resources.bandwidthFeeSun,
+        },
+        estimateNote: 'Live account resource snapshot. Deployment init-bytecode Energy is simulated separately before each deployment signature.',
       })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload.message || payload.error || 'Resource API request failed (' + response.status + ').')
-      if (payload.network !== 'TRON Mainnet' || payload.address !== connectedAddress) throw new Error('Resource API returned a mismatched network or wallet address.')
-      setResourceStatus(payload)
     } catch (cause) {
       setResourceError(cause instanceof Error ? cause.message : String(cause))
       setResourceStatus(null)
     } finally {
       setResourceLoading(false)
     }
-  }, [walletReady, connectedAddress])
+  }, [wallet, walletReady, connectedAddress])
 
-  useEffect(() => { refreshWalletResources() }, [refreshWalletResources])
+  const refreshWalletPermissions = useCallback(async () => {
+    if (!walletReady || !connectedAddress) return
+    setPermissionLoading(true)
+    setPermissionError('')
+    try {
+      const permissions = await getMainnetAccountPermissionSnapshot(assertMainnetWallet(wallet), connectedAddress)
+      setPermissionStatus(permissions)
+    } catch (cause) {
+      setPermissionError(cause instanceof Error ? cause.message : String(cause))
+      setPermissionStatus(null)
+    } finally {
+      setPermissionLoading(false)
+    }
+  }, [wallet, walletReady, connectedAddress])
+
+  useEffect(() => {
+    setResourceStatus(null)
+    setPermissionStatus(null)
+    refreshWalletResources()
+    refreshWalletPermissions()
+  }, [connectedAddress, refreshWalletResources, refreshWalletPermissions])
+
   const configuredOwnerMatches = walletReady
   const feeCapSun = useMemo(() => {
     try { return toSun(feeCap) } catch { return 0 }
@@ -355,13 +388,28 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
       <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Automatically filled after vault deployment"/></label>
       <div className="button-row"><button type="button" className="outline-button" disabled={busy||(!tokenAddress&&!vaultAddress)} onClick={()=>{setTokenAddress('');setVaultAddress('');setSnapshot(null);setLastTx('');setError('');setNotice('Contract address fields cleared. Deploy or enter verified Mainnet contract addresses.') ;try{saveContractAddresses({tokenAddress:'',vaultAddress:''})}catch{}}}>Clear contract addresses</button></div>
-      <div className="button-row"><button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress&&vaultAddress)} onClick={deployMissingContracts}><Rocket size={15}/> {tokenAddress||vaultAddress?'Deploy missing contract':'Deploy both contracts automatically'}</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy vault only</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy token only</button></div>
+      <div className="button-row"><button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress&&vaultAddress)} onClick={deployMissingContracts}><Rocket size={15}/> {tokenAddress||vaultAddress?'Deploy missing contract':'Deploy both contracts automatically · two TronLink approvals'}</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy vault only</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy token only</button></div>
       <p className="trax-help">The combined action deploys the vault first and the token second. TronLink asks you to review and sign each deployment separately. Confirmed contract addresses are saved automatically; no transaction is sent without your wallet approval.</p>
       <div className="button-row"><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={authorizeVault}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={linkToken}>2. Link vault in token</button></div>
       <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The connected wallet that deploys each contract becomes its owner. Each deployment requires a separate TronLink signature. The app verifies the solidified Mainnet receipt and deployed bytecode before saving the contract address.</p>
     </div>
 
     <div className="trax-actions">
+    <div className="trax-actions trax-resource-panel">
+      <div className="trax-actions-heading">
+        <div><h3>Account signing permission</h3><p className="trax-resource-subtitle">Owner permission threshold for the connected Mainnet wallet</p></div>
+        <button type="button" className="secondary-button" disabled={!walletReady||permissionLoading} onClick={refreshWalletPermissions}><ShieldCheck size={15}/> {permissionLoading?'Checking…':'Refresh permission'}</button>
+      </div>
+      {permissionError&&<div className="notice notice-error"><AlertTriangle size={15}/><div><b>Permission check unavailable</b><p>{permissionError}</p></div></div>}
+      {permissionStatus&&<div className="trax-stats">
+        <article><span>Owner threshold</span><b>{permissionStatus.threshold}</b></article>
+        <article><span>Connected key weight</span><b>{permissionStatus.connectedSignerWeight}</b></article>
+        <article><span>Additional weight required</span><b>{permissionStatus.requiredAdditionalWeight}</b></article>
+        <article><span>Other owner keys</span><b>{permissionStatus.otherOwnerKeyCount}</b></article>
+      </div>}
+      {permissionStatus&&<p className="fine-print">{permissionStatus.connectedSignerCanAuthorizeAlone?'The connected wallet key meets the owner threshold alone.':'This account requires additional authorized signer weight. Deployment will stop before requesting a signature.'}</p>}
+    </div>
+
     <div className="trax-actions trax-resource-panel">
       <div className="trax-actions-heading">
         <div><h3>Automatic TRON Energy &amp; Bandwidth check</h3><p className="trax-resource-subtitle">Live Mainnet account resources for the connected wallet</p></div>
@@ -378,9 +426,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       </div>}
       {resourceStatus&&<p className="fine-print">Checked {new Date(resourceStatus.checkedAt).toLocaleString()}. {resourceStatus.estimateNote} Deployment energy is not guessed from transfer estimates.</p>}
       <div className="trax-resource-offer">
-        <b>Public promotional Energy source (manual claim)</b>
-        <p>TronRental advertises a one-time 131,000 Energy allocation, but requires an account and access code from provider support. The offer is described for a USDT transfer and is not verified as sufficient for deploying these contracts. No API or secret-free server-to-server claim is published.</p>
-        <a href="https://tronrental.com/en/free-tron-energy" target="_blank" rel="noreferrer">Review provider terms and claim requirements <ExternalLink size={12}/></a>
+        <b>No sponsor or provider API key is configured</b>
+        <p>Resource and fee checks query public TRON Mainnet node endpoints directly. TRON does not provide a universal free Energy grant for arbitrary contract deployments. If the connected wallet lacks enough Energy or Bandwidth, or lacks TRX to pay any shortfall, deployment stops before the TronLink signature prompt.</p>
       </div>
       <p className="fine-print">This service is read-only. It cannot create Energy or Bandwidth, delegate resources, sponsor fees, sign, or broadcast transactions. Free Bandwidth is a protocol allowance; TRON has no equivalent protocol-level free Energy quota.</p>
     </div>
