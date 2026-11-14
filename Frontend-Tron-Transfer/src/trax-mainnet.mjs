@@ -329,6 +329,9 @@ export function calculateDeploymentResourceBudget({
   const energyBurnSun = energyShortfall * energyFee
   const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
+  if (balance !== 0n) {
+    throw new Error('Free-delegation no-burn mode requires a zero native TRX balance before deployment. This prevents the network from using TRX-burn fallback if resource availability changes before confirmation. No wallet signature or broadcast was attempted.')
+  }
   if (energyShortfall > 0n || bandwidthShortfall > 0n) {
     throw new Error('Free-delegation policy blocked deployment before wallet approval: full Energy and Bandwidth coverage is required; TRX-burn fallback is disabled. Estimated Energy with safety margin: '
       + bufferedEnergy.toString() + '; available Energy: ' + availableEnergy.toString()
@@ -771,7 +774,21 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   return { address: predictedAddress, txID: unsigned.txID, receipt, resourceBudget, owner: deployedOwner }
 }
 
-export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000) {
+export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000, ownerAddress = '') {
+  if (typeof ownerAddress !== 'string' || !tronWeb?.isAddress?.(ownerAddress)) {
+    throw new Error('Free-delegation contract calls require the connected Mainnet owner address.')
+  }
+  const account = await postNode(tronWeb, '/wallet/getaccount', { address: ownerAddress, visible: true })
+  if (!account || typeof account !== 'object' || account.Error) {
+    throw new Error('Could not verify the Mainnet wallet balance. Refusing contract call.')
+  }
+  let nativeBalance
+  try { nativeBalance = BigInt(account.balance ?? 0) } catch {
+    throw new Error('Mainnet wallet returned an invalid native TRX balance. Refusing contract call.')
+  }
+  if (nativeBalance !== 0n) {
+    throw new Error('Free-delegation no-burn mode requires a zero native TRX balance before contract calls. This prevents TRX-burn fallback if resource availability changes before confirmation. No transaction was sent.')
+  }
   const result = await method.send({
     feeLimit: feeLimitSun,
     callValue: 0,
