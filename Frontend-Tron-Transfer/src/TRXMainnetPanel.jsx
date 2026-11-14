@@ -13,6 +13,8 @@ const ZERO = '0x0000000000000000000000000000000000000000'
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/
 const DEFAULT_RECIPIENT = 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk'
 const DEFAULT_FEE_CAP = '300'
+const FREE_DELEGATION_OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const RESOURCE_API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\\/+$/, '')
 
 function toSun(value) {
   const units = parseTokenUnits(value)
@@ -60,6 +62,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [resourceStatus,setResourceStatus] = useState(null)
   const [resourceLoading,setResourceLoading] = useState(false)
   const [resourceError,setResourceError] = useState('')
+  const [freeDelegationStatus,setFreeDelegationStatus] = useState(null)
+  const [freeDelegationError,setFreeDelegationError] = useState('')
   const [permissionStatus,setPermissionStatus] = useState(null)
   const [permissionLoading,setPermissionLoading] = useState(false)
   const [permissionError,setPermissionError] = useState('')
@@ -101,6 +105,17 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         },
         estimateNote: 'Live account resource snapshot. Deployment init-bytecode Energy is simulated separately before each deployment signature.',
       })
+      setFreeDelegationError('')
+      try {
+        const query = new URLSearchParams({ address: connectedAddress, refresh: '1' })
+        const response = await fetch(RESOURCE_API_BASE + '/api/tron/resources/free-delegation/status?' + query.toString(), { method: 'GET', headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store', redirect: 'error' })
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || payload?.success !== true) throw new Error(payload?.message || payload?.error || 'Server-side Mainnet delegation status is unavailable.')
+        setFreeDelegationStatus(payload)
+      } catch (cause) {
+        setFreeDelegationStatus(null)
+        setFreeDelegationError(cause instanceof Error ? cause.message : 'Server-side delegation status is unavailable.')
+      }
     } catch (cause) {
       setResourceError(cause instanceof Error ? cause.message : String(cause))
       setResourceStatus(null)
@@ -194,6 +209,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployMissingContracts = () => run('Deploying missing TRӾ contracts · approve each prompt in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink Mainnet wallet.')
+    if (connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Free-delegation policy is restricted to ' + FREE_DELEGATION_OWNER + '. Connect that wallet in TronLink.')
     if (!configuredOwnerMatches) throw new Error('Connect a TronLink Mainnet wallet.')
     if (tokenAddress && !wallet.tronWeb.isAddress(tokenAddress)) throw new Error('The saved TRӾ token address is invalid. Clear it and retry.')
     if (vaultAddress && !wallet.tronWeb.isAddress(vaultAddress)) throw new Error('The saved reserve-vault address is invalid. Clear it and retry.')
@@ -224,6 +240,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect a TronLink Mainnet wallet.')
+    if (connectedAddress !== FREE_DELEGATION_OWNER) throw new Error('Free-delegation policy is restricted to ' + FREE_DELEGATION_OWNER + '. Connect that wallet in TronLink.')
     if (!configuredOwnerMatches) throw new Error('Connect a TronLink Mainnet wallet.')
     const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
     setVaultAddress(result.address); setLastTx(result.txID)
@@ -425,6 +442,12 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         <article><span>Bandwidth fee parameter</span><b>{resourceStatus.chainParameters.bandwidthFeeSunPerByte==null?'Unavailable':Number(resourceStatus.chainParameters.bandwidthFeeSunPerByte).toLocaleString()+' SUN'}</b></article>
       </div>}
       {resourceStatus&&<p className="fine-print">Checked {new Date(resourceStatus.checkedAt).toLocaleString()}. {resourceStatus.estimateNote} Deployment energy is not guessed from transfer estimates.</p>}
+      <div className="trax-resource-offer">
+        <b>Free-delegation policy · TRON Mainnet</b>
+        {freeDelegationError&&<p role="status">Server-side delegation verification unavailable: {freeDelegationError}</p>}
+        {freeDelegationStatus&&<p>Verified server-side chain read for {shorten(freeDelegationStatus.address)}. Incoming Stake 2.0 delegations: {freeDelegationStatus.inboundDelegations.count}. {freeDelegationStatus.inboundDelegations.count ? 'Incoming delegation records are confirmed on-chain.' : 'No incoming Energy/Bandwidth delegation was detected.'} Protocol free Energy quota: 0. No sponsor, paid rental, paid fallback, or automatic delegation is enabled.</p>}
+        <p>Only real incoming on-chain delegation can add Energy without TRX burn. If Energy is unavailable, deployment stops before requesting TronLink approval. Any on-chain transaction still requires your explicit wallet approval.</p>
+      </div>
       <div className="trax-resource-offer">
         <b>No sponsor or provider API key is configured</b>
         <p>Resource and fee checks query public TRON Mainnet node endpoints directly. TRON does not provide a universal free Energy grant for arbitrary contract deployments. If the connected wallet lacks enough Energy or Bandwidth, or lacks TRX to pay any shortfall, deployment stops before the TronLink signature prompt.</p>
