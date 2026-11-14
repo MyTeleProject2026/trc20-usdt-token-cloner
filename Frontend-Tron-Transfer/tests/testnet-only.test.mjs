@@ -9,6 +9,7 @@ const sponsorPortal = await readFile(new URL('../src/SponsorPortal.jsx', import.
 const main = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8')
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8')
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const traxPanel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
 
 test('production frontend is TRON Mainnet-only and pins official Tether USDT', () => {
   assert.ok(app.includes("MAINNET_MONITORED_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
@@ -16,6 +17,11 @@ test('production frontend is TRON Mainnet-only and pins official Tether USDT', (
   assert.ok(app.includes("tokenContract:MAINNET_USDT"))
   assert.ok(!/Nile Testnet|Shasta Testnet|tron-nile|tron-shasta|testnet-wallet/i.test(app + providerPage))
   assert.ok(app.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
+  assert.ok(app.includes("import TRXMainnetPanel from './TRXMainnetPanel.jsx'"))
+  assert.ok(app.includes("{id:'trax',label:'TRӾ contracts',icon:Coins}"))
+  assert.ok(app.includes('<TRXMainnetPanel wallet={unlocked} onConnect={()=>perform(connectTronLink)} />'))
+  assert.ok(traxPanel.includes("const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
+  assert.ok(traxPanel.includes('connectedAddress === EXPECTED_OWNER_ADDRESS'))
 })
 
 test('only official Mainnet Tether USDT is exposed as the payout asset', () => {
