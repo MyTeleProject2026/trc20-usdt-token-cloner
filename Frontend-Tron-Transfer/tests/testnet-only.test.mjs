@@ -9,6 +9,7 @@ const sponsorPortal = await readFile(new URL('../src/SponsorPortal.jsx', import.
 const main = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8')
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8')
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const traxPanel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
 
 test('production frontend is TRON Mainnet-only and pins official Tether USDT', () => {
   assert.ok(app.includes("MAINNET_MONITORED_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
@@ -16,6 +17,20 @@ test('production frontend is TRON Mainnet-only and pins official Tether USDT', (
   assert.ok(app.includes("tokenContract:MAINNET_USDT"))
   assert.ok(!/Nile Testnet|Shasta Testnet|tron-nile|tron-shasta|testnet-wallet/i.test(app + providerPage))
   assert.ok(app.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
+  assert.ok(app.includes("import TRXMainnetPanel from './TRXMainnetPanel.jsx'"))
+  assert.ok(app.includes("{id:'trax',label:'TRӾ contracts',icon:Coins}"))
+  assert.ok(app.includes('<TRXMainnetPanel wallet={unlocked} onConnect={()=>perform(connectTronLink)} />'))
+  assert.ok(traxPanel.includes("const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
+  assert.ok(traxPanel.includes('connectedAddress === EXPECTED_OWNER_ADDRESS'))
+  const contractCalls = [...traxPanel.matchAll(/sendAndVerifyContractCall\([^\n]+/g)].map((match) => match[0])
+  assert.equal(contractCalls.length, 9)
+  assert.ok(contractCalls.every((call) => call.includes('feeCapSun,connectedAddress')))
+  const combinedStart = traxPanel.indexOf('const deployBoth =')
+  const combinedEnd = traxPanel.indexOf('const authorizeVault =', combinedStart)
+  const combinedDeploy = traxPanel.slice(combinedStart, combinedEnd)
+  assert.equal([...combinedDeploy.matchAll(/feeLimitSun: feeCapSun/g)].length, 2)
+  assert.ok(combinedDeploy.includes("deployContractFromTronLink(wallet, TRAX_VAULT_ARTIFACT, 'OneTraxReserveVault', feeCapSun)"))
+  assert.ok(combinedDeploy.includes("deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun)"))
 })
 
 test('only official Mainnet Tether USDT is exposed as the payout asset', () => {
@@ -99,6 +114,6 @@ test('owner can close the private session and leave the application locked', () 
 test('production metadata and frontend test command remain configured', () => {
   assert.ok(html.includes('Mainnet-only Tether USDT TRC20 withdrawal platform'))
   assert.ok(html.includes('Tron Transfer · Direct Mainnet USDT'))
-  assert.equal(pkg.scripts.build, 'vite build')
+  assert.equal(pkg.scripts.build, 'node scripts/compile-trax-contracts.mjs && vite build')
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs')
 })

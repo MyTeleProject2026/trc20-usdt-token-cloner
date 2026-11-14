@@ -1,7 +1,7 @@
 name: Tron Transfer Frontend
 on:
   push:
-    branches: [main]
+    branches: [main, "fix/**"]
     paths:
       - 'Frontend-Tron-Transfer/**'
       - 'server/routes/tron-transfer.mjs'
@@ -22,8 +22,9 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 22
+          node-version: 24
       - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
+      - run: npm install --prefix Frontend-Tron-Transfer/trax-build --no-audit --no-fund
       - run: node --test tests/tron-transfer-integration-source.test.mjs
-      - run: npm test --prefix Frontend-Tron-Transfer
       - run: npm run build --prefix Frontend-Tron-Transfer
+      - run: npm test --prefix Frontend-Tron-Transfer

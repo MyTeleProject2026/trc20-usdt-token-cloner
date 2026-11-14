@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
+import { estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -24,7 +25,7 @@ test('TronBox generated TRON-solc artifacts include both TRӾ Mainnet contracts'
 })
 
 test('TRӾ metadata and default issuance protections remain exact', () => {
-  assert.ok(tokenSource.includes('pragma solidity 0.8.25;'))
+  assert.ok(tokenSource.includes('pragma solidity ^0.8.20;'))
   assert.ok(tokenSource.includes('string public constant name = unicode"TRӾ";'))
   assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
   assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
@@ -32,7 +33,7 @@ test('TRӾ metadata and default issuance protections remain exact', () => {
   assert.ok(tokenSource.includes('paused = true;'))
   assert.ok(tokenSource.includes('external onlyOwner'))
   assert.ok(tokenSource.includes('reserveBalance() >= _totalSupply + amount'))
-  assert.ok(tokenSource.includes('require(!_unlocked[recipient]'))
+  assert.ok(tokenSource.includes('require(!_unlocked[recipient], "recipient-must-be-locked")'))
 })
 
 test('locked accounts cannot transfer, approve, or use delegated allowances', () => {
@@ -47,10 +48,65 @@ test('locked accounts cannot transfer, approve, or use delegated allowances', ()
 })
 
 test('native TRX vault can only release funds through its authorized token contract', () => {
-  assert.ok(vaultSource.includes('pragma solidity 0.8.25;'))
+  assert.ok(vaultSource.includes('pragma solidity ^0.8.25;'))
   assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
   assert.ok(vaultSource.includes('address(this).balance >= amount'))
   assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
   assert.ok(tokenSource.includes('external onlyOwner nonReentrant'))
   assert.ok(tokenSource.includes('releaseForRedemption(recipient, amount, redemptionReference)'))
+})
+
+
+test('deployment Energy estimation never misuses triggerconstantcontract for init bytecode', async () => {
+  const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  const start = helper.indexOf('export async function estimateMainnetDeploymentEnergy')
+  const end = helper.indexOf('export async function waitForSolidifiedReceipt', start)
+  const estimator = helper.slice(start, end)
+  assert.ok(estimator.includes('transactionBuilder.deployConstantContract'))
+  assert.ok(estimator.includes("input: '0x' + bytecode"))
+  assert.ok(!estimator.includes("'/wallet/estimateenergy'"))
+  assert.ok(!estimator.includes("'/wallet/triggerconstantcontract'"))
+  assert.ok(estimator.includes('No wallet signature or broadcast was attempted.'))
+})
+
+
+test('deployment Energy estimator calls TronWeb deployConstantContract with the exact init bytecode and owner', async () => {
+  const calls = []
+  const tronWeb = {
+    isAddress: (address) => address === 'TMainnetOwnerAddress',
+    transactionBuilder: {
+      deployConstantContract: async (options) => {
+        calls.push(options)
+        return { result: { result: true }, energy_required: 123456 }
+      },
+    },
+  }
+  const result = await estimateMainnetDeploymentEnergy(tronWeb, 'TMainnetOwnerAddress', {
+    bytecode: '6001600055',
+  })
+  assert.deepEqual(calls, [{
+    ownerAddress: 'TMainnetOwnerAddress',
+    input: '0x6001600055',
+    confirmed: false,
+  }])
+  assert.equal(result.energyUsed, '123456')
+})
+
+
+test('TronLink structured provider errors are rendered as useful diagnostics, not [object Object]', () => {
+  const error = new Error('provider request failed')
+  Object.assign(error, { code: 3038, slug: 'promo_not_eligible', message: 'This address did not receive the promo token from us', field: null, retryable: false })
+  const rendered = formatTronLinkError(error, 'Energy claim')
+  assert.match(rendered, /3038/)
+  assert.match(rendered, /promo_not_eligible/)
+  assert.match(rendered, /did not receive the promo token/)
+  assert.doesNotMatch(rendered, /\\[object Object\\]/)
+})
+
+test('TronLink nested HTTP errors preserve provider response details', () => {
+  const error = new Error('Request failed with status code 429')
+  error.response = { status: 429, data: { Error: 'request rate exceeded', code: 429 } }
+  const rendered = formatTronLinkError(error, 'Deployment preflight')
+  assert.match(rendered, /request rate exceeded/)
+  assert.match(rendered, /429/)
 })
