@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, normalizeSignWeightResponse, sameStructuredTransactionData, verifyRawDataHash } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, normalizeSignWeightResponse, sameStructuredTransactionData, verifyRawDataHash, normalizeDeploymentEnergyEstimate, calculateDeploymentResourceBudget } from '../src/trax-mainnet.mjs'
 
 
 
@@ -33,9 +33,10 @@ test('public TRӾ workspace bypasses private platform login but keeps on-chain o
   assert.ok(panel.includes('addressesEqual(tronWeb, vaultOwner, connectedAddress)'))
   assert.ok(panel.includes('existingToken.owner().call()'))
   assert.ok(panel.includes('existingVault.owner().call()'))
-  assert.ok(panel.includes('prepareUnsignedDeployment'))
-  assert.ok(panel.includes('No signing or broadcast occurred'))
-  assert.ok(panel.includes('These diagnostic payloads are not saved or reusable'))
+  assert.ok(panel.includes('deployContractFromTronLink'))
+  assert.ok(panel.includes('Mainnet deployment is enabled'))
+  assert.ok(panel.includes('Deploy both contracts'))
+  assert.ok(!panel.includes('broadcast disabled'))
   assert.ok(panel.includes('Minting activation is disabled in this build'))
   assert.ok(panel.includes('TRӾ minting is disabled in this build'))
   assert.ok(!panel.includes('token.setMintingEnabled(true)'))
@@ -270,84 +271,81 @@ test('TRON Mainnet resource snapshot rejects missing Energy fee and malformed re
   )
 })
 
-test('TRӾ deployment builds on the injected TronLink client and keeps the safety hold non-broadcasting', async () => {
-  const walletAddress = 'T' + '2'.repeat(33)
-  const predictedAddress = 'T' + '1'.repeat(33)
-  const ownerHex = '41' + '2'.repeat(40)
-  let unsigned = {
-    visible: false,
-    txID: createHash('sha256').update(Buffer.from('0a01', 'hex')).digest('hex'),
-    contract_address: '41' + '1'.repeat(40),
-    raw_data: {
-      contract: [{
-        type: 'CreateSmartContract',
-        parameter: { value: { owner_address: ownerHex } },
-      }],
-      timestamp: 1,
-    },
-    raw_data_hex: '0a01',
-  }
-  let signCalls = 0
-  let broadcastCalls = 0
-  let buildCalls = 0
-  let builderContext = null
-  const walletTronWeb = {
-    version: 'wallet-bundled-version',
-    fullNode: { host: 'https://api.trongrid.io' },
-    isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    address: {
-      fromHex: (value) => value === unsigned.contract_address ? predictedAddress
-        : value === ownerHex ? walletAddress : 'T' + '3'.repeat(33),
-      toHex: (value) => String(value).toLowerCase(),
-    },
-    transactionBuilder: {
-      async createSmartContract(options, owner) {
-        builderContext = this
-        buildCalls++
-        assert.equal(owner, walletAddress)
-        assert.equal(options.feeLimit, 300000000)
-        return unsigned
-      },
-    },
-    trx: {
-      sign: async () => { signCalls++; throw new Error('sign must not be called') },
-      sendRawTransaction: async () => { broadcastCalls++; return { result: true } },
-    },
-  }
-  const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
-  await assert.rejects(
-    deployContractFromTronLink(
-      { tronWeb: walletTronWeb, address: walletAddress },
-      { abi: [], bytecode: '6000' },
-      'TestVault',
-      300000000,
-    ),
-    /Deployment safety hold.*No transaction was sent/,
+test('TRӾ deployment energy simulation requires a successful positive Mainnet estimate', () => {
+  assert.deepEqual(normalizeDeploymentEnergyEstimate({
+    result: { result: true },
+    energy_used: 250000,
+    energy_penalty: 50000,
+  }), { energyUsed: '250000', energyPenalty: '50000' })
+  assert.throws(
+    () => normalizeDeploymentEnergyEstimate({ result: { result: false, code: 'CONTRACT_VALIDATE_ERROR' } }),
+    /simulation failed/,
   )
-  assert.equal(buildCalls, 1)
-  assert.equal(builderContext, walletTronWeb.transactionBuilder)
-  assert.equal(signCalls, 0)
-  assert.equal(broadcastCalls, 0)
+  assert.throws(
+    () => normalizeDeploymentEnergyEstimate({ result: { result: true }, energy_used: 0 }),
+    /zero Energy/,
+  )
+})
 
-  unsigned = {
-    ...unsigned,
-    raw_data: {
-      ...unsigned.raw_data,
-      contract: [{
-        ...unsigned.raw_data.contract[0],
-        parameter: { value: { owner_address: '41' + '3'.repeat(40) } },
-      }],
+test('TRӾ Mainnet deployment budget includes Energy margin, Bandwidth and actual TRX shortfall', () => {
+  const budget = calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    resourceSnapshot: {
+      energyAvailable: '100000',
+      freeBandwidthAvailable: '600',
+      stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '2000000',
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      maxFeeLimitSun: '15000000000',
     },
-  }
-  await assert.rejects(
-    deployContractFromTronLink(
-      { tronWeb: walletTronWeb, address: walletAddress },
-      { abi: [], bytecode: '6000' },
-      'TestVault',
-      300000000,
-    ),
-    /owner does not match the connected TronLink account/,
-  )
-  assert.equal(signCalls, 0)
-  assert.equal(broadcastCalls, 0)
+    rawDataHex: 'ab'.repeat(200),
+    feeLimitSun: '20000000',
+  })
+  assert.equal(budget.energyWithSafetyMargin, '120000')
+  assert.equal(budget.energyShortfall, '20000')
+  assert.equal(budget.bandwidthShortfall, '0')
+  assert.equal(budget.requiredTrxSun, '2000000')
+})
+
+test('TRӾ Mainnet deployment budget blocks insufficient resources before any wallet prompt', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '250000',
+    resourceSnapshot: {
+      energyAvailable: '131000',
+      freeBandwidthAvailable: '600',
+      stakedBandwidthAvailable: '349',
+      nativeBalanceSun: '0',
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(3000),
+    feeLimitSun: '300000000',
+  }), /Insufficient Mainnet resources/)
+})
+
+test('TRӾ Mainnet deployment budget rejects fee caps below the estimated Energy ceiling', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '250000',
+    resourceSnapshot: {
+      energyAvailable: '500000',
+      freeBandwidthAvailable: '10000',
+      stakedBandwidthAvailable: '0',
+      nativeBalanceSun: '1000000',
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      maxFeeLimitSun: '15000000000',
+    },
+    rawDataHex: 'ab'.repeat(200),
+    feeLimitSun: '20000000',
+  }), /Selected fee cap is too low/)
+})
+
+test('TRӾ Mainnet deployment source has no unconditional safety hold', async () => {
+  const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  assert.ok(helper.includes('estimateMainnetDeploymentEnergy'))
+  assert.ok(helper.includes('getMainnetTransactionSignWeight(tronWeb, signed, wallet.address)'))
+  assert.ok(helper.includes('sendRawTransaction(signed)'))
+  assert.ok(!helper.includes('Deployment safety hold:'))
 })
