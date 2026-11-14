@@ -1,4 +1,4 @@
-import { TronWeb } from 'tronweb'
+import { createHash } from 'node:crypto'
 import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
 
 const MAINNET = Object.freeze({
@@ -8,6 +8,28 @@ const MAINNET = Object.freeze({
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const UINT = /^(0|[1-9][0-9]{0,77})$/
 const MAX_DELEGATORS = 10
+
+function isValidMainnetAddress(address) {
+  if (typeof address !== 'string' || !ADDRESS_PATTERN.test(address)) return false
+  let decoded = 0n
+  for (const char of address) {
+    const digit = BASE58.indexOf(char)
+    if (digit < 0) return false
+    decoded = decoded * 58n + BigInt(digit)
+  }
+  let hex = decoded.toString(16)
+  if (hex.length % 2) hex = '0' + hex
+  let payload = Buffer.from(hex, 'hex')
+  let leadingZeroes = 0
+  while (leadingZeroes < address.length && address[leadingZeroes] === '1') leadingZeroes++
+  if (leadingZeroes) payload = Buffer.concat([Buffer.alloc(leadingZeroes), payload])
+  if (payload.length !== 25 || payload[0] !== 0x41) return false
+  const body = payload.subarray(0, 21)
+  const checksum = payload.subarray(21)
+  const expected = createHash('sha256').update(createHash('sha256').update(body).digest()).digest().subarray(0, 4)
+  return checksum.equals(expected)
+}
+const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
 function integer(value, fallback = '0') {
   const raw = value ?? fallback
@@ -33,7 +55,7 @@ function providerCategory(payload) {
 export function createFreeDelegationResourceReader({
   env = process.env,
   fetchImpl = tatumProviderFetch,
-  addressValidator = (address) => TronWeb.isAddress(address),
+  addressValidator = isValidMainnetAddress,
   timeoutMs = 8000,
 } = {}) {
   const cache = new Map()
