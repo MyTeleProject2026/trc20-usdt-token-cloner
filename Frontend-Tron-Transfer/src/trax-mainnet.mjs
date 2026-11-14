@@ -785,9 +785,9 @@ export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 1
   try { nativeBalance = BigInt(account.balance ?? 0) } catch {
     throw new Error('Mainnet wallet returned an invalid native TRX balance. Refusing contract call.')
   }
-  if (nativeBalance !== 0n) {
-    throw new Error('Free-delegation no-burn mode requires a zero native TRX balance before contract calls. This prevents TRX-burn fallback if resource availability changes before confirmation. No transaction was sent.')
-  }
+  // A positive TRX balance is permitted: Tron protocol resource quotas are
+  // consumed first, and feeLimit caps caller-side Energy burn for any shortfall.
+  // The wallet still displays and requires explicit approval for each write.
   const result = await method.send({
     feeLimit: feeLimitSun,
     callValue: 0,
