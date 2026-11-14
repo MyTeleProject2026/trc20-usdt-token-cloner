@@ -22,6 +22,10 @@ test('Mainnet reader reports real resources and confirmed incoming Stake-2.0 del
       if (url.endsWith('/wallet/getaccountresource')) return fakeResponse({
         EnergyLimit: 10000, EnergyUsed: 2500, NetLimit: 700, NetUsed: 200, freeNetLimit: 600, freeNetUsed: 100,
       })
+      if (url.endsWith('/wallet/getaccount')) return fakeResponse({ balance: 0 })
+      if (url.endsWith('/wallet/getchainparameters')) return fakeResponse({ chainParameter: [
+        { key: 'getEnergyFee', value: 100 }, { key: 'getTransactionFee', value: 1000 }, { key: 'getMaxFeeLimit', value: 15000000000 },
+      ] })
       if (url.endsWith('/walletsolidity/getdelegatedresourceaccountindexv2')) return fakeResponse({
         fromAccounts: [delegator], toAccounts: [],
       })
@@ -39,6 +43,9 @@ test('Mainnet reader reports real resources and confirmed incoming Stake-2.0 del
   assert.equal(result.success, true)
   assert.equal(result.network, 'mainnet')
   assert.equal(result.resources.energyAvailable, '7500')
+  assert.equal(result.deploymentResourceSnapshot.nativeBalanceSun, '0')
+  assert.equal(result.deploymentResourceSnapshot.energyFeeSun, '100')
+  assert.equal(result.deploymentResourceSnapshot.maxFeeLimitSun, '15000000000')
   assert.equal(result.resources.freeBandwidthAvailable, '500')
   assert.equal(result.resources.stakedOrDelegatedBandwidthAvailable, '500')
   assert.equal(result.inboundDelegations.count, 1)
@@ -59,9 +66,14 @@ test('Mainnet reader never invents a free Energy provider when no inbound delega
   const reader = createFreeDelegationResourceReader({
     env: {},
     addressValidator,
-    fetchImpl: async (url) => url.endsWith('/wallet/getaccountresource')
-      ? fakeResponse({ EnergyLimit: 0, EnergyUsed: 0, NetLimit: 0, NetUsed: 0, freeNetLimit: 600, freeNetUsed: 0 })
-      : fakeResponse({ fromAccounts: [], toAccounts: [] }),
+    fetchImpl: async (url) => {
+      if (url.endsWith('/wallet/getaccountresource')) return fakeResponse({ freeNetLimit: 600 })
+      if (url.endsWith('/wallet/getaccount')) return fakeResponse({ balance: 0 })
+      if (url.endsWith('/wallet/getchainparameters')) return fakeResponse({ chainParameter: [
+        { key: 'getEnergyFee', value: 100 }, { key: 'getTransactionFee', value: 1000 }, { key: 'getMaxFeeLimit', value: 15000000000 },
+      ] })
+      return fakeResponse({ fromAccounts: [], toAccounts: [] })
+    },
   })
   const result = await reader(wallet, { refresh: true })
   assert.equal(result.success, true)
