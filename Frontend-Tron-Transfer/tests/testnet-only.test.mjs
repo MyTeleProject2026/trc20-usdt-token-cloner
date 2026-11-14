@@ -99,6 +99,6 @@ test('owner can close the private session and leave the application locked', () 
 test('production metadata and frontend test command remain configured', () => {
   assert.ok(html.includes('Mainnet-only Tether USDT TRC20 withdrawal platform'))
   assert.ok(html.includes('Tron Transfer · Direct Mainnet USDT'))
-  assert.equal(pkg.scripts.build, 'vite build')
+  assert.equal(pkg.scripts.build, 'node scripts/compile-trax-contracts.mjs && vite build')
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs')
 })
