@@ -5,7 +5,7 @@ import {
   TRON_MAINNET_HOST, TRAX_TOKEN_ARTIFACT, TRAX_VAULT_ARTIFACT,
   addressesEqual, assertMainnetWallet, deployContractFromTronLink,
   formatTokenUnits, loadSavedContracts, parseTokenUnits, saveContractAddresses,
-  sendAndVerifyContractCall, sendNativeTrxFromTronLink,
+  getMainnetAccountResourceSnapshot, sendAndVerifyContractCall, sendNativeTrxFromTronLink,
 } from './trax-mainnet.mjs'
 
 const ZERO = '0x0000000000000000000000000000000000000000'
@@ -44,6 +44,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [tokenAddress,setTokenAddress] = useState(initial.tokenAddress)
   const [vaultAddress,setVaultAddress] = useState(initial.vaultAddress)
   const [snapshot,setSnapshot] = useState(null)
+  const [resourceSnapshot,setResourceSnapshot] = useState(null)
   const [recipient,setRecipient] = useState(DEFAULT_RECIPIENT)
   const [amount,setAmount] = useState('100')
   const [fundAmount,setFundAmount] = useState('100')
@@ -72,6 +73,14 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
   // Any valid Mainnet TronLink account may connect. On-chain owner() checks below
   // decide which wallet may administer already-deployed contracts.
+  const checkDeploymentResources = () => run('Reading live TRON Mainnet account resources', async () => {
+    const tronWeb = assertMainnetWallet(wallet)
+    const resources = await getMainnetAccountResourceSnapshot(tronWeb, connectedAddress)
+    setResourceSnapshot({ address: connectedAddress, ...resources })
+    setNotice('Current Mainnet resource usage loaded. This is a read-only snapshot, not a deployment Energy estimate or guarantee.')
+    return resources
+  })
+
   const feeCapSun = useMemo(() => {
     try { return toSun(feeCap) } catch { return 0 }
   }, [feeCap])
@@ -339,6 +348,19 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/>{error}</div>}
     {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
     {step&&<div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
+    <div className="trax-actions">
+      <div className="trax-actions-heading"><h3>Wallet resource preflight</h3><button type="button" className="secondary-button" disabled={!walletReady||busy} onClick={checkDeploymentResources}><RefreshCw size={15}/> Check Energy, Bandwidth and TRX</button></div>
+      {resourceSnapshot&&<div className="trax-stats">
+        <article><span>Remaining Energy</span><b>{Number(resourceSnapshot.energyAvailable).toLocaleString()}</b></article>
+        <article><span>Free Bandwidth</span><b>{Number(resourceSnapshot.freeBandwidthAvailable).toLocaleString()}</b></article>
+        <article><span>Staked / delegated Bandwidth</span><b>{Number(resourceSnapshot.stakedBandwidthAvailable).toLocaleString()}</b></article>
+        <article><span>Native TRX for fees</span><b>{formatTokenUnits(resourceSnapshot.nativeBalanceSun)} TRX</b></article>
+        <article><span>Current Energy fee</span><b>{Number(resourceSnapshot.energyFeeSun).toLocaleString()} SUN / Energy</b></article>
+        {resourceSnapshot.bandwidthFeeSun!==null&&<article><span>Current Bandwidth fee</span><b>{Number(resourceSnapshot.bandwidthFeeSun).toLocaleString()} SUN / Bandwidth</b></article>}
+        {resourceSnapshot.maxFeeLimitSun!==null&&<article><span>Protocol maximum fee cap</span><b>{formatTokenUnits(resourceSnapshot.maxFeeLimitSun)} TRX</b></article>}
+      </div>}
+      <p className="fine-print">These are the connected wallet’s live resource limits and usage. They do not estimate this contract’s deployment Energy. Deployment remains on safety hold; a fee cap does not create Energy, Bandwidth or TRX, and insufficient resources can still make a transaction fail.</p>
+    </div>
     <div className="trax-addresses">
       <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
       <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Automatically filled after vault deployment"/></label>
