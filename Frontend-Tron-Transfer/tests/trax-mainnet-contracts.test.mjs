@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { estimateMainnetDeploymentEnergy } from '../src/trax-mainnet.mjs'
+import { estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -90,4 +90,22 @@ test('deployment Energy estimator calls TronWeb deployConstantContract with the 
     confirmed: false,
   }])
   assert.equal(result.energyUsed, '123456')
+})
+
+
+test('TronLink structured provider errors are rendered as useful diagnostics, not [object Object]', () => {
+  const error = { code: 3038, slug: 'promo_not_eligible', message: 'This address did not receive the promo token from us', field: null, retryable: false }
+  const rendered = formatTronLinkError(error, 'Energy claim')
+  assert.match(rendered, /3038/)
+  assert.match(rendered, /promo_not_eligible/)
+  assert.match(rendered, /did not receive the promo token/)
+  assert.doesNotMatch(rendered, /\\[object Object\\]/)
+})
+
+test('TronLink nested HTTP errors preserve provider response details', () => {
+  const rendered = formatTronLinkError({
+    response: { data: { Error: 'request rate exceeded', code: 429 } },
+  }, 'Deployment preflight')
+  assert.match(rendered, /request rate exceeded/)
+  assert.match(rendered, /429/)
 })
