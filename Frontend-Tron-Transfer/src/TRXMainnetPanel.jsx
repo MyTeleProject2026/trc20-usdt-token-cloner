@@ -450,10 +450,10 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         <p>Only real incoming on-chain delegation can add Energy without TRX burn. If Energy is unavailable, deployment stops before requesting TronLink approval. Any on-chain transaction still requires your explicit wallet approval.</p>
       </div>
       <div className="trax-resource-offer">
-        <b>No sponsor or provider API key is configured</b>
-        <p>Resource and fee checks query public TRON Mainnet node endpoints directly. TRON does not provide a universal free Energy grant for arbitrary contract deployments. If the connected wallet lacks enough Energy or Bandwidth, or lacks TRX to pay any shortfall, deployment stops before the TronLink signature prompt.</p>
+        <b>Server-side resource providers · read-only</b>
+        <p>Resource and incoming-delegation checks use supported TRON Mainnet FullNode APIs through server-side TRONGrid/Tatum credentials when configured, with a public TRONGrid read-only fallback. Provider keys do not supply Energy. TRON has no protocol free-Energy quota, and no unconditional free-delegation provider API is configured.</p>
       </div>
-      <p className="fine-print">This service is read-only. It cannot create Energy or Bandwidth, delegate resources, sponsor fees, sign, or broadcast transactions. Free Bandwidth is a protocol allowance; TRON has no equivalent protocol-level free Energy quota.</p>
+      <p className="fine-print">No sponsor, paid rental, or automatic delegation is enabled. Deployment and contract calls require a zero native TRX balance plus sufficient real Energy and one complete Bandwidth quota, so TRX-burn fallback cannot be used. Your TronLink wallet must separately approve each transaction. Free Bandwidth is a protocol allowance; TRON has no equivalent protocol-level free Energy quota.</p>
     </div>
 
       <div className="trax-actions-heading"><h3>On-chain verification</h3><button type="button" className="secondary-button" disabled={!walletReady||busy||!tokenAddress||!vaultAddress} onClick={refresh}><RefreshCw size={15}/> Refresh</button></div>
