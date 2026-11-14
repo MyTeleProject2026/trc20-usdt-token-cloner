@@ -132,7 +132,8 @@ test('TRӾ deployment builds on the injected TronLink client and keeps the safet
     fullNode: { host: 'https://api.trongrid.io' },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
     address: {
-      fromHex: (value) => value === unsigned.contract_address ? predictedAddress : walletAddress,
+      fromHex: (value) => value === unsigned.contract_address ? predictedAddress
+        : value === ownerHex ? walletAddress : 'T' + '3'.repeat(33),
       toHex: (value) => String(value).toLowerCase(),
     },
     transactionBuilder: {
