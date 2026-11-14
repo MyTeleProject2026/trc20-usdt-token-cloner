@@ -9,6 +9,7 @@ import {
 
 const ZERO = '0x0000000000000000000000000000000000000000'
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/
+const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const DEFAULT_RECIPIENT = 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk'
 const DEFAULT_FEE_CAP = '300'
 
@@ -59,7 +60,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   }, [])
 
   const connectedAddress = wallet?.address || ''
-  const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
+  const walletReady = Boolean(wallet?.tronWeb && connectedAddress === EXPECTED_OWNER_ADDRESS)
   const feeCapSun = useMemo(() => {
     try { return toSun(feeCap) } catch { return 0 }
   }, [feeCap])
@@ -256,7 +257,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   return <section className="trax-workspace">
     <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ONLY · MAINNET</span><h2>TRӾ smart-contract manager</h2><p>Deploy, link, fund and administer the restricted TRӾ token using your connected TronLink owner wallet. Every state change requires a separate wallet signature.</p></div><div className="panel-icon"><Coins/></div></div>
     <div className="trax-notice"><AlertTriangle size={18}/><div><b>TRӾ is a custom TRC-20 asset, not native TRX.</b><p>It is displayed as a separate token. Native TRX reserve, TRӾ supply and internal platform records are separate balances. No market price or Bitpie automatic listing is implied.</p></div></div>
-    {!walletReady ? <div className="trax-connect"><p>Connect the configured platform-owner TronLink wallet on TRON Mainnet to continue.</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Connect owner TronLink</button></div> : <div className="trax-wallet-row"><span>Connected owner wallet</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span></div>}
+    {!walletReady ? <div className="trax-connect"><p>{wallet?.address && connectedAddress !== EXPECTED_OWNER_ADDRESS ? 'Connected account does not match the configured TRӾ owner wallet (' + EXPECTED_OWNER_ADDRESS + '). Switch accounts in TronLink and reconnect.' : 'Connect the configured platform-owner TronLink wallet on TRON Mainnet to continue.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Connect owner TronLink</button></div> : <div className="trax-wallet-row"><span>Connected owner wallet</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span></div>}
     {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/>{error}</div>}
     {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
     {step&&<div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
