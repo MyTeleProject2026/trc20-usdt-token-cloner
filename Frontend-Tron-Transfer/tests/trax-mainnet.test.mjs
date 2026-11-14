@@ -91,12 +91,12 @@ test('TRON Mainnet free-delegation deployment budget requires full Energy and on
   assert.equal(budget.requiredTrxSun, '0')
 })
 
-test('TRON Mainnet free-delegation deployment blocks shortfalls even when wallet has TRX', () => {
+test('TRON Mainnet free-delegation deployment blocks resource shortfalls before wallet approval', () => {
   assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '250000',
     resourceSnapshot: {
       energyAvailable: '131000', freeBandwidthAvailable: '600', stakedBandwidthAvailable: '349',
-      nativeBalanceSun: '5000000', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
+      nativeBalanceSun: '0', energyFeeSun: '100', bandwidthFeeSun: '1000', maxFeeLimitSun: '15000000000',
     },
     rawDataHex: 'ab'.repeat(3000),
     feeLimitSun: '300000000',
