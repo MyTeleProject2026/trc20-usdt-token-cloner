@@ -14,7 +14,7 @@ const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/
 const DEFAULT_RECIPIENT = 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk'
 const DEFAULT_FEE_CAP = '300'
 const FREE_DELEGATION_OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const RESOURCE_API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
+const RESOURCE_API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 
 function toSun(value) {
   const units = parseTokenUnits(value)
