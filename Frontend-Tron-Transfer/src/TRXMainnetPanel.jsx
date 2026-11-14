@@ -33,6 +33,23 @@ function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
 }
 
+async function readServerFreeDelegationStatus(address) {
+  const query = new URLSearchParams({ address, refresh: '1' })
+  const response = await fetch(RESOURCE_API_BASE + '/api/tron/resources/free-delegation/status?' + query.toString(), {
+    method: 'GET', headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store', redirect: 'error',
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok || payload?.success !== true || !payload.deploymentResourceSnapshot) {
+    throw new Error(payload?.message || payload?.error || 'Server-side Mainnet resource status is unavailable.')
+  }
+  return payload
+}
+
+async function readServerDeploymentResources(_tronWeb, address) {
+  const status = await readServerFreeDelegationStatus(address)
+  return status.deploymentResourceSnapshot
+}
+
 export default function TRXMainnetPanel({ wallet, onConnect }) {
   const initial = useMemo(() => {
     const saved = loadSavedContracts()
@@ -86,7 +103,17 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     if (!walletReady || !connectedAddress) return
     setResourceLoading(true)
     setResourceError('')
+    setFreeDelegationError('')
     try {
+      try {
+        const status = await readServerFreeDelegationStatus(connectedAddress)
+        setFreeDelegationStatus(status)
+      } catch (cause) {
+        setFreeDelegationStatus(null)
+        setFreeDelegationError(cause instanceof Error ? cause.message : 'Server-side delegation status is unavailable.')
+      }
+      // Keep the wallet-provider snapshot for display and independent cross-checking.
+      // Deployment resource budgeting itself uses the server-side Mainnet reader below.
       const tronWeb = assertMainnetWallet(wallet)
       const resources = await getMainnetAccountResourceSnapshot(tronWeb, connectedAddress)
       setResourceStatus({
@@ -103,19 +130,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
           energyFeeSunPerUnit: resources.energyFeeSun,
           bandwidthFeeSunPerByte: resources.bandwidthFeeSun,
         },
-        estimateNote: 'Live account resource snapshot. Deployment init-bytecode Energy is simulated separately before each deployment signature.',
+        estimateNote: 'Live wallet-provider snapshot. Deployment resource budgeting uses the server-side Mainnet reader and separately simulates contract init bytecode.',
       })
-      setFreeDelegationError('')
-      try {
-        const query = new URLSearchParams({ address: connectedAddress, refresh: '1' })
-        const response = await fetch(RESOURCE_API_BASE + '/api/tron/resources/free-delegation/status?' + query.toString(), { method: 'GET', headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store', redirect: 'error' })
-        const payload = await response.json().catch(() => null)
-        if (!response.ok || payload?.success !== true) throw new Error(payload?.message || payload?.error || 'Server-side Mainnet delegation status is unavailable.')
-        setFreeDelegationStatus(payload)
-      } catch (cause) {
-        setFreeDelegationStatus(null)
-        setFreeDelegationError(cause instanceof Error ? cause.message : 'Server-side delegation status is unavailable.')
-      }
     } catch (cause) {
       setResourceError(cause instanceof Error ? cause.message : String(cause))
       setResourceStatus(null)
@@ -226,11 +242,11 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     }
     const deployed = []
     if (!vaultAddress) {
-      const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
+      const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun,{ readResources: readServerDeploymentResources })
       setVaultAddress(result.address); setLastTx(result.txID); deployed.push('reserve vault')
     }
     if (!tokenAddress) {
-      const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
+      const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun,{ readResources: readServerDeploymentResources })
       setTokenAddress(result.address); setLastTx(result.txID); deployed.push('TRӾ token')
     }
     setNotice(deployed.length
@@ -446,7 +462,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <div className="trax-resource-offer">
         <b>Free-delegation policy · TRON Mainnet</b>
         {freeDelegationError&&<p role="status">Server-side delegation verification unavailable: {freeDelegationError}</p>}
-        {freeDelegationStatus&&<p>Verified server-side chain read for {shorten(freeDelegationStatus.address)}. Incoming Stake 2.0 delegations: {freeDelegationStatus.inboundDelegations.count}. {freeDelegationStatus.inboundDelegations.count ? 'Incoming delegation records are confirmed on-chain.' : 'No incoming Energy/Bandwidth delegation was detected.'} Protocol free Energy quota: 0. No sponsor, paid rental, paid fallback, or automatic delegation is enabled.</p>}
+        {freeDelegationStatus&&<p>Verified server-side Mainnet resources: Energy {Number(freeDelegationStatus.resources.energyAvailable).toLocaleString()}, free Bandwidth {Number(freeDelegationStatus.resources.freeBandwidthAvailable).toLocaleString()}, staked/delegated Bandwidth {Number(freeDelegationStatus.resources.stakedOrDelegatedBandwidthAvailable).toLocaleString()}. Incoming Stake 2.0 delegations: {freeDelegationStatus.inboundDelegations.count}. {freeDelegationStatus.inboundDelegations.count ? 'Incoming delegation records are confirmed in solidified chain state.' : 'No incoming Energy/Bandwidth delegation was detected.'} Protocol free Energy quota: 0. No sponsor, paid rental, paid fallback, or automatic delegation is enabled.</p>}
         <p>Only real incoming on-chain delegation can add Energy without TRX burn. If Energy is unavailable, deployment stops before requesting TronLink approval. Any on-chain transaction still requires your explicit wallet approval.</p>
       </div>
       <div className="trax-resource-offer">
