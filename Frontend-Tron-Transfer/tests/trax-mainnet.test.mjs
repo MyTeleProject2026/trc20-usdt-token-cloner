@@ -54,6 +54,9 @@ test('TRON Mainnet deployment simulation requires a successful positive Energy r
   assert.deepEqual(normalizeDeploymentEnergyEstimate({
     result: { result: true }, energy_used: 250000, energy_penalty: 50000, transaction: { ret: [{ ret: 'SUCESS', contractRet: 'SUCCESS' }] },
   }), { energyUsed: '250000', energyPenalty: '50000' })
+  assert.deepEqual(normalizeDeploymentEnergyEstimate({
+    result: { result: true }, energy_used: 250000, energy_penalty: 50000,
+  }), { energyUsed: '250000', energyPenalty: '50000' })
   assert.throws(
     () => normalizeDeploymentEnergyEstimate({ result: { result: false, code: 'CONTRACT_VALIDATE_ERROR' } }),
     /simulation failed/,
