@@ -201,7 +201,7 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
       return payload
     }
     const promoRoot = '/api/tron/resources/free-delegation/tenergy'
-    const promoMatch = url.pathname.match(/^\\/api\\/tron\\/resources\\/free-delegation\\/tenergy\\/(promo|challenge|redeem|redemption)$/)
+    const promoMatch = url.pathname.startsWith(promoRoot + '/') ? [url.pathname, url.pathname.slice(promoRoot.length + 1)] : null
     if (promoMatch) {
       let body = null
       if (req.method === 'POST') {
