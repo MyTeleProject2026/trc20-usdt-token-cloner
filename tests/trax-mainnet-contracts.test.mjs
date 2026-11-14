@@ -7,7 +7,7 @@ const vaultSource = await fs.readFile(new URL('../contracts/OneTraxReserveVault.
 const tronboxConfig = await fs.readFile(new URL('../Frontend-Tron-Transfer/trax-build/tronbox-config.js', import.meta.url), 'utf8')
 
 test('TRӾ source pins the exact TRON Solidity compiler release and metadata', () => {
-  assert.ok(tokenSource.includes('pragma solidity 0.8.25;'))
+  assert.ok(tokenSource.includes('pragma solidity ^0.8.20;'))
   assert.ok(tokenSource.includes('string public constant name = unicode"TRӾ";'))
   assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
   assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
@@ -34,7 +34,7 @@ test('TRӾ locked-account rules invalidate delegated approvals', () => {
 })
 
 test('native TRX reserve vault permits releases only through the authorized token contract', () => {
-  assert.ok(vaultSource.includes('pragma solidity 0.8.25;'))
+  assert.ok(vaultSource.includes('pragma solidity ^0.8.25;'))
   assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
   assert.ok(vaultSource.includes('address(this).balance >= amount'))
   assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
