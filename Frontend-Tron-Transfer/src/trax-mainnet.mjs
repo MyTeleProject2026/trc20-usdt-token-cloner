@@ -55,38 +55,68 @@ export function saveContractAddresses(addresses) {
 }
 
 const CHAIN_PARAMETERS_CACHE_TTL_MS = 60000
+const NODE_MIN_REQUEST_INTERVAL_MS = 400
+const NODE_MAX_RETRIES_429 = 3
 let chainParametersCache = { value: null, expiresAt: 0, pending: null }
+let nodeRequestQueue = Promise.resolve()
+let nodeNextRequestAt = 0
+let nodeCooldownUntil = 0
 
-function retryDelayMs(response, attempt) {
+function retryDelayMs(response, attempt, detail = '') {
   const retryAfter = response?.headers?.get?.('Retry-After')
   if (retryAfter) {
     const seconds = Number(retryAfter)
-    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(10000, seconds * 1000)
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(15000, Math.max(1250, seconds * 1000 + 250))
     const date = Date.parse(retryAfter)
-    if (Number.isFinite(date)) return Math.min(10000, Math.max(0, date - Date.now()))
+    if (Number.isFinite(date)) return Math.min(15000, Math.max(1250, date - Date.now() + 250))
   }
-  return Math.min(8000, 500 * (2 ** attempt)) + Math.floor(Math.random() * 250)
+  // TronGrid's JSON error can specify a one-second suspension even when it
+  // omits Retry-After. Do not retry inside that suspension window.
+  const suspended = String(detail).match(/suspended\\s+for\\s+(\\d+(?:\\.\\d+)?)\\s*s/i)
+  if (suspended) return Math.min(15000, Math.max(1250, Number(suspended[1]) * 1000 + 250))
+  return Math.min(12000, 1500 * (2 ** attempt)) + Math.floor(Math.random() * 500)
+}
+
+function enqueueNodeRequest(task) {
+  const queued = nodeRequestQueue.then(async () => {
+    const waitMs = Math.max(nodeNextRequestAt, nodeCooldownUntil) - Date.now()
+    if (waitMs > 0) await new Promise((resolve) => window.setTimeout(resolve, waitMs))
+    const result = await task()
+    nodeNextRequestAt = Date.now() + NODE_MIN_REQUEST_INTERVAL_MS
+    if (result.response?.status === 429) {
+      const cooldown = retryDelayMs(result.response, 0, result.detail)
+      nodeCooldownUntil = Math.max(nodeCooldownUntil, Date.now() + cooldown)
+    }
+    return result
+  })
+  nodeRequestQueue = queued.then(() => undefined, () => undefined)
+  return queued
 }
 
 async function postNode(tronWeb, path, body) {
-  const max429Retries = 3
   for (let attempt = 0; ; attempt += 1) {
-    const response = await fetch(TRON_MAINNET_HOST + path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(body),
-      cache: 'no-store',
+    const { response, detail } = await enqueueNodeRequest(async () => {
+      const response = await fetch(TRON_MAINNET_HOST + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      })
+      let detail = ''
+      if (!response.ok) {
+        try { detail = (await response.text()).trim().slice(0, 500) } catch {}
+      }
+      return { response, detail }
     })
     if (response.ok) return response.json()
-    let detail = ''
-    try { detail = (await response.text()).trim().slice(0, 500) } catch {}
-    if (response.status === 429 && attempt < max429Retries) {
-      await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs(response, attempt)))
+    if (response.status === 429 && attempt < NODE_MAX_RETRIES_429) {
+      // The shared queue also blocks other app requests during this cooldown.
+      await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs(response, attempt, detail)))
       continue
     }
     throw new Error('TRON Mainnet node returned HTTP ' + response.status + ' for ' + path
       + (detail ? ': ' + detail : '')
-      + (response.status === 429 ? '. Public TronGrid rate limit reached after safe retries; wait before retrying.' : ''))
+      + (response.status === 429 ? '. Public TronGrid rate limit reached after paced retries; the public node is still throttling this network. Wait before retrying.' : ''))
   }
 }
 
