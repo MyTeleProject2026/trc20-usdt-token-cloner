@@ -87,6 +87,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       token.balanceOf(connectedAddress).call(), tronWeb.trx.getBalance(connectedAddress),
     ])
     const metadataValid = name === 'TRӾ' && symbol === 'TRX' && Number(decimals) === 6
+    const ownersValid = addressesEqual(tronWeb, owner, connectedAddress)
+      && addressesEqual(tronWeb, vaultOwner, connectedAddress)
     const linksValid = addressesEqual(tronWeb, tokenVault, vaultAddress) && addressesEqual(tronWeb, authorizedToken, tokenAddress)
     const backed = BigInt(String(reserveSun)) >= BigInt(String(totalSupply))
     const next = {
@@ -94,12 +96,13 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       tokenVault:String(tokenVault),authorizedToken:String(authorizedToken),paused:Boolean(paused),
       mintingEnabled:Boolean(mintingEnabled),reserveSun:String(reserveSun),
       ownerBalance:String(ownerBalance),ownerTrxSun:String(ownerTrxSun),
-      metadataValid,linksValid,backed,
+      metadataValid,ownersValid,linksValid,backed,
       shortfall: backed ? '0' : (BigInt(String(totalSupply))-BigInt(String(reserveSun))).toString(),
       surplus: backed ? (BigInt(String(reserveSun))-BigInt(String(totalSupply))).toString() : '0',
     }
     setSnapshot(next)
     if (!metadataValid) throw new Error('The deployed contract metadata does not match TRӾ / TRX / 6 decimals.')
+    if (!ownersValid) throw new Error('The token and vault owner must both match the connected TronLink wallet.')
     if (!linksValid) throw new Error('The token and reserve vault are not linked to each other correctly.')
     setNotice('Mainnet contracts read successfully. Metadata and reciprocal reserve authorization are verified at the latest node state.')
     return next
@@ -278,6 +281,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       </div>}
       {snapshot&&<div className="trax-checks">
         <span className={snapshot.metadataValid?'ok':'bad'}>{snapshot.metadataValid?'✓':'!'} Exact TRӾ / TRX / 6 decimals</span>
+        <span className={snapshot.ownersValid?'ok':'bad'}>{snapshot.ownersValid?'✓':'!'} Both contract owners match connected wallet</span>
         <span className={snapshot.linksValid?'ok':'bad'}>{snapshot.linksValid?'✓':'!'} Reciprocal vault authorization</span>
         <span className={snapshot.backed?'ok':'bad'}>{snapshot.backed?'✓':'!'} Reserve covers total supply</span>
       </div>}
