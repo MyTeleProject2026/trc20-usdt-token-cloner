@@ -4,10 +4,11 @@ Policy owner: `TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp`
 
 - Network is fixed to TRON Mainnet. Testnet endpoints are not used by this policy.
 - Resource status is read server-to-server through supported TRON FullNode endpoints. The backend prefers authenticated TRONGrid when `TRONGRID_API_KEY` is configured, then uses Tatum Mainnet FullNode when `TATUM_API_KEY` is configured. If no TRONGrid key is configured, public TRONGrid is a read-only fallback and may be rate limited.
-- The reader calls `wallet/getaccountresource`, `wallet/getdelegatedresourceaccountindexv2`, and `wallet/getdelegatedresourcev2` to report aggregate resources and on-chain incoming Stake 2.0 delegation records. It never treats a provider's reachability as proof of Energy.
+- The reader calls `wallet/getaccountresource`, `walletsolidity/getdelegatedresourceaccountindexv2`, and `walletsolidity/getdelegatedresourcev2` to report aggregate resources and on-chain incoming Stake 2.0 delegation records. It never treats a provider's reachability as proof of Energy.
 - TRON protocol free Bandwidth is a renewable account quota (currently 600, controlled by chain parameters). TRON has no protocol-level free Energy quota. Energy comes from stake or a real incoming delegation; otherwise the chain can burn TRX if the transaction is allowed and funded.
 - No verified unconditional free-Energy provider API is configured. The service does not invent one, scrape web pages, request a secret key, or claim that GasFree / paid rental products are free.
-- No sponsor account, paid rental, automatic delegation, user-funded fallback, private key custody, signing, or broadcast is enabled by this policy.
+- No sponsor account, paid rental, automatic delegation, user-funded fallback, private key custody, signing, or broadcast is enabled by this policy. The deployment and contract-call preflights also require a zero native TRX balance and full resource coverage; they reject known Energy or Bandwidth shortfalls even if the wallet has TRX.
+- The deployment and contract-call path uses a zero `fee_limit`? no: TRON requires a positive caller Energy budget to consume staked/delegated Energy, so the transaction keeps a bounded fee limit but the zero native TRX balance prevents the chain from burning TRX if resource state changes before execution. The app refuses to submit when the account has any native TRX balance.
 - The connected wallet must be `TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp`. Wallet approval remains required for every on-chain transaction. The backend only performs read-only diagnostics.
 - If Energy is zero and there is no incoming delegation, deployment and contract calls must stop before the wallet prompt. Free Bandwidth alone cannot execute TVM contract code.
 
