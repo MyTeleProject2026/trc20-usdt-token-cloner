@@ -176,6 +176,17 @@ export function normalizeDeploymentEnergyEstimate(response) {
     const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not simulate contract creation'
     throw new Error('TRON Mainnet deployment Energy simulation failed: ' + detail)
   }
+  const execution = response.transaction?.ret?.[0]
+  const executionRet = String(execution?.ret || '').toUpperCase()
+  const contractRet = String(execution?.contractRet || '').toUpperCase()
+  const successValues = ['SUCESS', 'SUCCESS']
+  if ((executionRet && !successValues.includes(executionRet))
+    || (contractRet && !successValues.includes(contractRet))
+    || (!executionRet && !contractRet)) {
+    throw new Error('TRON Mainnet deployment simulation did not execute successfully: '
+      + (contractRet || executionRet || 'missing TVM execution result')
+      + '. No wallet signature or broadcast was attempted.')
+  }
   let energyUsed
   try { energyUsed = BigInt(response.energy_used) } catch {
     throw new Error('TRON Mainnet deployment simulation did not return a valid energy_used value.')
