@@ -756,10 +756,10 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
 } = {}) {
-  // Use TronLink's injected Mainnet client for transaction construction, signing
-  // and broadcast. Use a pinned read-only TronWeb verifier for byte-level checks,
-  // permission queries, resource reads and solidified receipt verification. Never
-  // build with one transaction provider and ask a different provider to sign it.
+  // Construct the unsigned Mainnet transaction through the pinned read-only
+  // TronWeb client, then ask the connected TronLink wallet to sign that exact
+  // raw_data payload and broadcast the verified signed transaction. The wallet
+  // provider never receives private keys or any server-side signing request.
   const walletTronWeb = assertMainnetWallet(wallet)
   const tronWeb = createVerifier()
   if (typeof walletTronWeb?.trx?.sign !== 'function'
@@ -767,7 +767,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     || !tronWeb?.utils?.transaction?.txCheck
     || !tronWeb?.utils?.crypto?.ecRecover
     || typeof tronWeb?.trx?.getSignWeight !== 'function') {
-    throw new Error('The connected TronLink provider cannot build, sign and broadcast Mainnet deployments, or the pinned verifier cannot validate signatures and permissions.')
+    throw new Error('The connected TronLink provider cannot sign and broadcast Mainnet deployments, or the pinned verifier cannot validate signatures and permissions.')
   }
   // Pace the preflight reads instead of bursting resource, permission and
   // deployment-simulation requests at the public TronGrid endpoint together.
