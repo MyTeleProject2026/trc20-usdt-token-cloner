@@ -95,7 +95,7 @@ test('TRON Mainnet deployment budget blocks insufficient resources before wallet
 test('TRON Mainnet deployment code uses one injected provider and keeps minting gated by reserve checks', async () => {
   const helper = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
   const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
-  assert.ok(helper.includes('const tronWeb = assertMainnetWallet(wallet)'))
+  assert.ok(helper.includes('const walletTronWeb = assertMainnetWallet(wallet)'))
   assert.ok(helper.includes('readResources(tronWeb, wallet.address)'))
   assert.ok(helper.includes('estimateEnergy(tronWeb, wallet.address, artifact)'))
   assert.ok(helper.includes('await walletTronWeb.trx.sign(walletTransaction)'))
