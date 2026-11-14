@@ -1,6 +1,4 @@
 import artifacts from './generated/trax-contract-artifacts.js'
-import { TronWeb } from 'tronweb'
-
 export const TRON_MAINNET_HOST = 'https://api.trongrid.io'
 export const TRAX_STORAGE_KEY = 'tron-transfer:trax-mainnet-contracts:v1'
 export const TRAX_TOKEN_ARTIFACT = artifacts.token
@@ -142,13 +140,15 @@ export function toWalletSignableTransaction(transaction) {
   return signable
 }
 
-export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, { createClient = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }) } = {}) {
-  // Use the app-pinned TronWeb 6.5.1 instance to build and broadcast. TronLink's
-  // injected TronWeb is only the wallet signer: its bundled version can differ.
-  const walletTronWeb = assertMainnetWallet(wallet)
-  const tronWeb = createClient()
-  if (!tronWeb?.transactionBuilder?.createSmartContract || !tronWeb?.trx?.sendRawTransaction) {
-    throw new Error('The pinned TRON Mainnet transaction client could not be initialized.')
+export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun) {
+  // Build, sign and broadcast with the same TronLink-injected TronWeb instance.
+  // A separately constructed TronWeb transaction may not match the wallet's
+  // current provider/account context and can be rejected by TronLink.
+  const tronWeb = assertMainnetWallet(wallet)
+  if (!tronWeb?.transactionBuilder?.createSmartContract
+    || typeof tronWeb?.trx?.sign !== 'function'
+    || typeof tronWeb?.trx?.sendRawTransaction !== 'function') {
+    throw new Error('The connected TronLink provider does not expose deployment construction, signing and broadcast methods.')
   }
   const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
   let unsigned
@@ -159,6 +159,14 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   if (!unsigned?.txID || !/^[0-9a-f]{64}$/i.test(unsigned.txID) || !unsigned?.contract_address || !unsigned?.raw_data?.contract?.length) {
     throw new Error('TRON Mainnet returned an incomplete deployment transaction. No signature or broadcast was attempted.')
+  }
+  const createContract = unsigned.raw_data.contract[0]
+  const ownerHex = createContract?.parameter?.value?.owner_address
+  let transactionOwner = ''
+  try { transactionOwner = ownerHex ? tronWeb.address.fromHex(ownerHex) : '' } catch {}
+  if (createContract?.type !== 'CreateSmartContract' || !transactionOwner
+    || !addressesEqual(tronWeb, transactionOwner, wallet.address)) {
+    throw new Error('Deployment transaction owner does not match the connected TronLink account. Reconnect the intended account and retry. No signature or broadcast was attempted.')
   }
   const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
   if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
@@ -179,14 +187,13 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   throw new Error('Deployment safety hold: unsigned TRON contract transaction was prepared and validated, but signing and Mainnet broadcast are disabled. No transaction was sent. Continue with offline payload diagnostics and testnet verification.')
   let signed
   try {
-    signed = await walletTronWeb.trx.sign(walletTransaction)
+    signed = await tronWeb.trx.sign(walletTransaction)
   } catch (error) {
     const contract = walletTransaction.raw_data.contract[0]
     const value = contract?.parameter?.value || {}
     const newContract = value.new_contract || {}
     const diagnostic = {
-      walletTronWebVersion: String(walletTronWeb.version || 'unknown'),
-      builderTronWebVersion: String(tronWeb.version || 'unknown'),
+      tronWebVersion: String(tronWeb.version || 'unknown'),
       transactionType: contract?.type || 'unknown',
       parameterTypeUrl: contract?.parameter?.type_url || 'missing',
       hasContractAddress: Boolean(walletTransaction.contract_address),
