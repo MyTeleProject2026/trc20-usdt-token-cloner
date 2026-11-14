@@ -210,10 +210,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       }
     }
     const result = await deployContract(TRAX_VAULT_ARTIFACT,'OneTraxReserveVault')
-    if (result.prepared) {
-      setNotice('Reserve vault deployment is confirmed and solidified on TRON Mainnet.')
-      return
-    }
     setVaultAddress(result.deployed.address); setLastTx(result.deployed.txID)
     setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
   })
@@ -227,10 +223,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       }
     }
     const result = await deployContract(TRAX_TOKEN_ARTIFACT,'Restricted1TRAX')
-    if (result.prepared) {
-      setNotice('TRӾ token deployment is confirmed and solidified on TRON Mainnet.')
-      return
-    }
     setTokenAddress(result.deployed.address); setLastTx(result.deployed.txID)
     setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
   })
