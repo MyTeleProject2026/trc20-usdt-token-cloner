@@ -3,6 +3,6 @@
   "private": true,
   "type": "commonjs",
   "dependencies": {
-    "tronbox": "5.0.0"
+    "tronbox": "4.12.0"
   }
 }
