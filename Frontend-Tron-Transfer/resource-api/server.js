@@ -179,6 +179,8 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
       }
       const refresh = url.searchParams.get('refresh')
       if (refresh !== null && refresh !== '0' && refresh !== '1') return send(res, 400, { success: false, error: 'invalid-refresh' }, origin)
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      if (!allowRequest(ip)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       const result = await readFreeDelegationStatus(address, { refresh: refresh === '1' })
       return send(res, result.success ? 200 : 503, result, origin)
     }
