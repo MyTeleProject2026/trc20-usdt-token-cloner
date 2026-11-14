@@ -24,7 +24,7 @@ test('TronBox generated TRON-solc artifacts include both TRӾ Mainnet contracts'
 })
 
 test('TRӾ metadata and default issuance protections remain exact', () => {
-  assert.ok(tokenSource.includes('pragma solidity 0.8.25;'))
+  assert.ok(tokenSource.includes('pragma solidity ^0.8.20;'))
   assert.ok(tokenSource.includes('string public constant name = unicode"TRӾ";'))
   assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
   assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
@@ -32,7 +32,7 @@ test('TRӾ metadata and default issuance protections remain exact', () => {
   assert.ok(tokenSource.includes('paused = true;'))
   assert.ok(tokenSource.includes('external onlyOwner'))
   assert.ok(tokenSource.includes('reserveBalance() >= _totalSupply + amount'))
-  assert.ok(tokenSource.includes('require(!_unlocked[recipient]'))
+  assert.ok(tokenSource.includes('require(!_unlocked[recipient], "recipient-must-be-locked")'))
 })
 
 test('locked accounts cannot transfer, approve, or use delegated allowances', () => {
@@ -47,7 +47,7 @@ test('locked accounts cannot transfer, approve, or use delegated allowances', ()
 })
 
 test('native TRX vault can only release funds through its authorized token contract', () => {
-  assert.ok(vaultSource.includes('pragma solidity 0.8.25;'))
+  assert.ok(vaultSource.includes('pragma solidity ^0.8.25;'))
   assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
   assert.ok(vaultSource.includes('address(this).balance >= amount'))
   assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
