@@ -527,6 +527,7 @@ export const MAINNET_DEPLOYMENT_SIGNING_ENABLED = true
 export const MAINNET_DEPLOYMENT_BROADCAST_ENABLED = true
 
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
+  createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
   verifyDeployedContract = async (client, address) => client.trx.getContract(address),
   readResources = getMainnetAccountResourceSnapshot,
@@ -536,11 +537,15 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // Use the exact TronLink-injected Mainnet client for construction, signing,
   // permission validation, broadcast and on-chain verification. Never build
   // with a separate TronWeb instance and ask a different provider to sign it.
-  const tronWeb = assertMainnetWallet(wallet)
-  if (!tronWeb?.transactionBuilder?.createSmartContract
-    || typeof tronWeb?.trx?.sign !== 'function'
-    || typeof tronWeb?.trx?.sendRawTransaction !== 'function') {
-    throw new Error('The connected TronLink provider does not expose all required Mainnet deployment methods.')
+  const walletTronWeb = assertMainnetWallet(wallet)
+  const tronWeb = createVerifier()
+  if (!walletTronWeb?.transactionBuilder?.createSmartContract
+    || typeof walletTronWeb?.trx?.sign !== 'function'
+    || typeof walletTronWeb?.trx?.sendRawTransaction !== 'function'
+    || !tronWeb?.utils?.transaction?.txCheck
+    || !tronWeb?.utils?.crypto?.ecRecover
+    || typeof tronWeb?.trx?.getSignWeight !== 'function') {
+    throw new Error('The connected TronLink provider cannot build, sign and broadcast Mainnet deployments, or the pinned verifier cannot validate signatures and permissions.')
   }
   const [resourceSnapshot, permissionSnapshot, energyEstimate] = await Promise.all([
     readResources(tronWeb, wallet.address),
@@ -556,7 +561,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
   let unsigned
   try {
-    unsigned = await tronWeb.transactionBuilder.createSmartContract(options, wallet.address)
+    unsigned = await walletTronWeb.transactionBuilder.createSmartContract(options, wallet.address)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment transaction construction failed'))
   }
@@ -599,7 +604,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   let signed
   try {
-    signed = await tronWeb.trx.sign(walletTransaction)
+    signed = await walletTronWeb.trx.sign(walletTransaction)
   } catch (error) {
     const contract = walletTransaction.raw_data.contract[0]
     const value = contract?.parameter?.value || {}
@@ -650,7 +655,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   let broadcast
   try {
-    broadcast = await tronWeb.trx.sendRawTransaction(signedTransaction)
+    broadcast = await walletTronWeb.trx.sendRawTransaction(signedTransaction)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment broadcast request failed') + ' Check TRONSCAN for transaction ' + unsigned.txID + ' before retrying.')
   }
