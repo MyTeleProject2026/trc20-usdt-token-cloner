@@ -958,6 +958,20 @@ export async function preflightContractDeployments(wallet, deployments, {
   }
 }
 
+export function assertZeroTrxBurnBudget(resourceBudget) {
+  const required = BigInt(resourceBudget?.requiredTrxSun ?? -1)
+  if (required < 0n) throw new Error('Deployment resource budget is unavailable; refusing a zero-cost deployment claim.')
+  if (required > 0n) {
+    const energy = BigInt(resourceBudget.energyBurnSun ?? 0)
+    const bandwidth = BigInt(resourceBudget.bandwidthBurnSun ?? 0)
+    throw new Error('Zero-TRX deployment preflight blocked: this owner account would burn '
+      + (Number(required) / 1e6).toFixed(6) + ' TRX (Energy: '
+      + (Number(energy) / 1e6).toFixed(6) + ' TRX; Bandwidth: '
+      + (Number(bandwidth) / 1e6).toFixed(6) + ' TRX). Obtain enough Energy and Bandwidth on the same owner address before signing. No wallet prompt, signature, or broadcast was attempted.')
+  }
+  return true
+}
+
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
   createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
@@ -1052,6 +1066,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     rawDataHex: unsigned.raw_data_hex,
     feeLimitSun,
   })
+  assertZeroTrxBurnBudget(resourceBudget)
   assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned deployment transaction')
   const computedUnsignedTxID = await sha256HexFromBytes(unsigned.raw_data_hex)
   if (computedUnsignedTxID.toLowerCase() !== String(unsigned.txID).toLowerCase()) {
@@ -1087,6 +1102,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     feeLimitSun,
     safetyMarginBps: 12500,
   })
+  assertZeroTrxBurnBudget(resourceBudget)
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
