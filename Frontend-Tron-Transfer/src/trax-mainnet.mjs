@@ -274,7 +274,7 @@ function resourceInteger(source, key) {
   return value
 }
 
-export function normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun) {
+export function normalizeMainnetAccountResources(accountResources, chainParameters) {
   if (!accountResources || typeof accountResources !== 'object' || accountResources.Error) {
     throw new Error('TRON Mainnet could not return account resource limits.')
   }
@@ -292,11 +292,9 @@ export function normalizeMainnetAccountResources(accountResources, chainParamete
   const freeNetUsed = resourceInteger(accountResources, 'freeNetUsed')
   const netLimit = resourceInteger(accountResources, 'NetLimit')
   const netUsed = resourceInteger(accountResources, 'NetUsed')
-  const nativeBalance = BigInt(String(nativeBalanceSun ?? 0))
   const energyFee = parameter('getEnergyFee')
   const bandwidthFee = parameter('getTransactionFee')
   const maxFeeLimit = parameter('getMaxFeeLimit')
-  if (nativeBalance < 0n) throw new Error('TRON returned a negative native TRX balance.')
   if (energyFee === null || energyFee <= 0n) throw new Error('TRON Mainnet did not return a valid current Energy fee.')
   return {
     energyLimit: energyLimit.toString(),
@@ -308,7 +306,6 @@ export function normalizeMainnetAccountResources(accountResources, chainParamete
     stakedBandwidthLimit: netLimit.toString(),
     stakedBandwidthUsed: netUsed.toString(),
     stakedBandwidthAvailable: (netLimit > netUsed ? netLimit - netUsed : 0n).toString(),
-    nativeBalanceSun: nativeBalance.toString(),
     energyFeeSun: energyFee.toString(),
     bandwidthFeeSun: bandwidthFee === null ? null : bandwidthFee.toString(),
     maxFeeLimitSun: maxFeeLimit === null ? null : maxFeeLimit.toString(),
@@ -369,12 +366,7 @@ export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
   // extra concurrent request against the same unauthenticated 3-RPS allowance.
   const accountResources = await postNode(tronWeb, '/wallet/getaccountresource', { address, visible: true })
   const chainParameters = await getCachedChainParameters(tronWeb)
-  const account = await postNode(tronWeb, '/wallet/getaccount', { address, visible: true })
-  if (!account || typeof account !== 'object' || account.Error) {
-    throw new Error('TRON Mainnet could not return the connected account balance.')
-  }
-  const nativeBalanceSun = account.balance ?? 0
-  return normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun)
+  return normalizeMainnetAccountResources(accountResources, chainParameters)
 }
 
 function decodeNodeErrorText(value) {
@@ -445,9 +437,8 @@ export function calculateDeploymentResourceBudget({
   const freeBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable)
   const stakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable)
   const availableBandwidth = freeBandwidth > stakedBandwidth ? freeBandwidth : stakedBandwidth
-  const balance = BigInt(resourceSnapshot.nativeBalanceSun)
   const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
-  if (energyFee <= 0n || balance < 0n) throw new Error('Mainnet returned invalid Energy price or TRX balance.')
+  if (energyFee <= 0n) throw new Error('Mainnet returned an invalid Energy price.')
   if (maxFeeLimit === null || maxFeeLimit <= 0n) {
     throw new Error('TRON Mainnet did not return getMaxFeeLimit. Cannot validate the deployment fee cap safely.')
   }
@@ -476,8 +467,7 @@ export function calculateDeploymentResourceBudget({
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
   if (requiredTrxSun > 0n) {
     throw new Error('ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT: after available delegated/staked Energy and Bandwidth, this deployment still has an estimated TRX fallback cost of '
-      + (Number(requiredTrxSun) / 1e6).toFixed(6) + ' TRX; the owner account balance is '
-      + (Number(balance) / 1e6).toFixed(6) + ' TRX. This deployment policy requires zero TRX burn, so any Energy or Bandwidth shortfall blocks the wallet prompt. Obtain enough delegated/staked Energy and Bandwidth to cover the complete transaction. No wallet prompt, signature, or broadcast was attempted.')
+      + (Number(requiredTrxSun) / 1e6).toFixed(6) + ' TRX. This deployment policy requires zero TRX burn, so any Energy or Bandwidth shortfall blocks the wallet prompt. Obtain enough Energy and Bandwidth on this owner account to cover the complete transaction. No wallet prompt, signature, or broadcast was attempted.')
   }
   return {
     energyRequired: energy.toString(),
@@ -943,13 +933,9 @@ export async function preflightContractDeployments(wallet, deployments, {
       })
     }
   }
-  const availableTrxSun = BigInt(resourceSnapshot.nativeBalanceSun)
-  // Balance sufficiency is left to TronLink / the TRON node at signing and broadcast.
-  // This preflight reports estimated network burn but does not block on a stale balance snapshot.
   return {
     deployments: results,
     requiredTrxSun: combinedRequiredTrxSun.toString(),
-    availableTrxSun: availableTrxSun.toString(),
     conservative: results.every(item => item.energyEstimateAvailable),
     energyEstimateAvailable: results.every(item => item.energyEstimateAvailable),
   }
@@ -1203,7 +1189,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   if (!addressesEqual(tronWeb, deployedOwner, wallet.address)) {
     throw new Error('Deployment receipt succeeded, but on-chain owner() does not match the TronLink deployer. Expected ' + wallet.address + '; received ' + deployedOwner + '. Transaction: ' + unsigned.txID)
   }
-  return { address: predictedAddress, txID: unsigned.txID, receipt, resourceBudget, owner: deployedOwner, payerAddress: wallet.address, payerBalanceSun: resourceSnapshot.nativeBalanceSun, signerAddress: injectedSignerAddress || wallet.address }
+  return { address: predictedAddress, txID: unsigned.txID, receipt, resourceBudget, owner: deployedOwner, payerAddress: wallet.address, signerAddress: injectedSignerAddress || wallet.address }
 }
 
 export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000, ownerAddress = '') {
