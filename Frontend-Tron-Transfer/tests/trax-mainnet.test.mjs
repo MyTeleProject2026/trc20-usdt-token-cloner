@@ -96,3 +96,20 @@ test('zero-TRX owner is blocked before signing when delegated/staked resources l
     },
   }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*12\.639000 TRX.*0\.000000 TRX.*No wallet prompt/)
 })
+
+test('zero-TRX policy blocks even when the owner balance could pay a resource shortfall', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    rawDataHex: '6001600055',
+    feeLimitSun: '150000000',
+    resourceSnapshot: {
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      energyAvailable: '0',
+      freeBandwidthAvailable: '0',
+      stakedBandwidthAvailable: '0',
+      nativeBalanceSun: '20000000',
+      maxFeeLimitSun: '15000000000',
+    },
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*12\\.639000 TRX.*0\\.000000 TRX.*No wallet prompt/)
+})
