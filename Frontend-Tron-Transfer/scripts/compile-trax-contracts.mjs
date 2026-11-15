@@ -11,9 +11,9 @@ const contractsDir = path.join(tronboxProject, 'contracts')
 const tronboxBin = path.join(tronboxProject, 'node_modules', '.bin', 'tronbox')
 
 await fs.access(tronboxBin)
+await fs.rm(contractsDir, { recursive: true, force: true })
 await fs.mkdir(contractsDir, { recursive: true })
 await fs.copyFile(path.join(repositoryRoot, 'contracts', 'Restricted1TRAX.sol'), path.join(contractsDir, 'Restricted1TRAX.sol'))
-await fs.copyFile(path.join(repositoryRoot, 'contracts', 'OneTraxReserveVault.sol'), path.join(contractsDir, 'OneTraxReserveVault.sol'))
 
 // This nested project is CommonJS because TronBox's documented config file uses module.exports.
 // The main frontend remains an ES-module project.
@@ -34,14 +34,12 @@ async function readArtifact(name) {
 }
 
 const token = await readArtifact('Restricted1TRAX')
-const vault = await readArtifact('OneTraxReserveVault')
 const outputDir = path.join(frontendRoot, 'src', 'generated')
 await fs.mkdir(outputDir, { recursive: true })
 const artifact = {
   compiler: 'TRON solc 0.8.25',
   optimizer: { enabled: true, runs: 200 },
   token,
-  vault,
 }
 await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.js'), 'export default ' + JSON.stringify(artifact) + ';\n')
-console.log('TRӾ and native TRX reserve vault compiled with TRON solc 0.8.25.')
+console.log('Owner-issued TRӾ token compiled with TRON solc 0.8.25.')
