@@ -850,11 +850,18 @@ export async function preflightContractDeployments(wallet, deployments, {
   let combinedRequiredTrxSun = 0n
   for (const deployment of deployments) {
     const { artifact, contractName, feeLimitSun } = deployment || {}
-    const energyEstimate = await estimateEnergy(tronWeb, wallet.address, artifact)
+    let energyEstimate = null
+  let energyEstimateWarning = ''
+  try {
+    energyEstimate = await estimateEnergy(tronWeb, wallet.address, artifact)
+  } catch (error) {
+    if (!isMainnetEnergyEstimateUnavailable(error)) throw error
+    energyEstimateWarning = String(error?.message || error)
+  }
     const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
     let unsigned
     try {
-      unsigned = await createMainnetDeploymentTransaction(walletTronWeb, options, wallet.address)
+      unsigned = await createMainnetDeploymentTransaction(tronWeb, options, wallet.address)
     } catch (error) {
       throw new Error(explainTronLinkError(error, 'Combined deployment preflight transaction construction failed'))
     }
@@ -928,8 +935,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // raw_data, txID, signatures, permissions, receipts and deployed bytecode.
   const walletTronWeb = assertMainnetWallet(wallet)
   const tronWeb = createVerifier()
-  if (typeof walletTronWeb?.transactionBuilder?.createSmartContract !== 'function'
-    || typeof walletTronWeb?.trx?.sign !== 'function'
+  if (typeof walletTronWeb?.trx?.sign !== 'function'
     || typeof walletTronWeb?.trx?.sendRawTransaction !== 'function'
     || !tronWeb?.utils?.transaction?.txCheck
     || !tronWeb?.utils?.crypto?.ecRecover
@@ -970,12 +976,42 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   if (Number(unsigned.raw_data?.fee_limit) !== Number(feeLimitSun)) {
     throw new Error('Mainnet node changed the requested deployment fee_limit. No wallet signature or broadcast was attempted.')
   }
-  const resourceBudget = calculateDeploymentResourceBudget({
-    energyRequired: energyEstimate.energyUsed,
-    resourceSnapshot,
-    rawDataHex: unsigned.raw_data_hex,
-    feeLimitSun,
-  })
+  let resourceBudget
+  if (energyEstimate) {
+    resourceBudget = calculateDeploymentResourceBudget({
+      energyRequired: energyEstimate.energyUsed,
+      resourceSnapshot,
+      rawDataHex: unsigned.raw_data_hex,
+      feeLimitSun,
+    })
+  } else {
+    // Do not fabricate an Energy estimate using triggerconstantcontract: that
+    // endpoint simulates calls to an existing contract. If this Mainnet node
+    // has disabled its optional deployment estimate service, the canonical
+    // wallet/deploycontract response is still validated and TronLink displays
+    // the wallet's own fee/balance review before the user signs.
+    const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
+    const selectedFeeLimit = BigInt(String(feeLimitSun))
+    if (maxFeeLimit !== null && selectedFeeLimit > maxFeeLimit) {
+      throw new Error('Selected fee_limit exceeds the current TRON Mainnet protocol maximum of ' + maxFeeLimit.toString() + ' SUN.')
+    }
+    resourceBudget = {
+      energyEstimateAvailable: false,
+      energyEstimateWarning,
+      energyRequired: null,
+      energyWithSafetyMargin: null,
+      energyShortfall: null,
+      estimatedBandwidthBytes: null,
+      bandwidthShortfall: null,
+      energyBurnSun: null,
+      bandwidthBurnSun: null,
+      requiredTrxSun: null,
+      feeLimitSun: selectedFeeLimit.toString(),
+      availableEnergy: resourceSnapshot.energyAvailable,
+      availableBandwidth: (BigInt(resourceSnapshot.freeBandwidthAvailable) + BigInt(resourceSnapshot.stakedBandwidthAvailable)).toString(),
+      nativeBalanceSun: resourceSnapshot.nativeBalanceSun,
+    }
+  }
   assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned deployment transaction')
   const computedUnsignedTxID = await sha256HexFromBytes(unsigned.raw_data_hex)
   if (computedUnsignedTxID.toLowerCase() !== String(unsigned.txID).toLowerCase()) {
@@ -991,6 +1027,14 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     || walletTransaction.raw_data.contract[0]?.type !== 'CreateSmartContract') {
     throw new Error('TRON node returned an invalid CreateSmartContract signing payload. No wallet prompt or broadcast was attempted.')
   }
+  const walletTxCheck = walletTronWeb?.utils?.transaction?.txCheck
+  let walletTransactionIntegrity = null
+  if (typeof walletTxCheck === 'function') {
+    try { walletTransactionIntegrity = walletTxCheck(walletTransaction) === true } catch { walletTransactionIntegrity = false }
+    if (!walletTransactionIntegrity) {
+      throw new Error('The connected TronLink TronWeb validator rejects the node-issued CreateSmartContract payload before signing. No wallet prompt or broadcast was attempted. Check the wallet version and transaction serialization.')
+    }
+  }
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
@@ -1000,14 +1044,21 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     const newContract = value.new_contract || {}
     const diagnostic = {
       tronWebVersion: String(tronWeb.version || 'unknown'),
+      walletTronWebVersion: String(walletTronWeb.version || 'unknown'),
+      walletProviderKind: String(wallet.provider?.isTronLink ? 'TronLink' : wallet.provider?.constructor?.name || 'injected-provider'),
+      walletTransactionIntegrity,
       transactionType: contract?.type || 'unknown',
       parameterTypeUrl: contract?.parameter?.type_url || 'missing',
       hasOwnerAddress: Boolean(value.owner_address),
       hasNewContract: Boolean(value.new_contract),
       bytecodeLength: String(newContract.bytecode || '').length,
       abiEntries: Array.isArray(newContract.abi?.entrys) ? newContract.abi.entrys.length : Array.isArray(newContract.abi) ? newContract.abi.length : null,
+      contractAddressPresent: Boolean(walletTransaction.contract_address),
+      originAddressPresent: Boolean(newContract.origin_address),
+      contractName: String(newContract.name || ''),
       feeLimitSun: walletTransaction.raw_data.fee_limit ?? null,
       rawDataHexLength: walletTransaction.raw_data_hex.length,
+      energyEstimateAvailable: Boolean(energyEstimate),
       estimatedEnergy: resourceBudget.energyRequired,
       energyWithSafetyMargin: resourceBudget.energyWithSafetyMargin,
       estimatedTrxShortfallSun: resourceBudget.requiredTrxSun,
