@@ -6,56 +6,69 @@ import { estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/tra
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
 const tokenSource = await fs.readFile(new URL('../../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
-const vaultSource = await fs.readFile(new URL('../../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8')
+const compileScript = await fs.readFile(new URL('../scripts/compile-trax-contracts.mjs', import.meta.url), 'utf8')
 
-test('TronBox generated TRON-solc artifacts include both TRӾ Mainnet contracts', () => {
+test('Pinned Solidity compiler artifact exposes owner-issued TRӾ functions', () => {
   assert.equal(artifact.compiler, 'TRON solc 0.8.25')
   assert.equal(artifact.optimizer.enabled, true)
   assert.equal(artifact.optimizer.runs, 200)
+  assert.equal(artifact.evmVersion, 'paris')
+  assert.equal(artifact.token.contractName, 'Restricted1TRAX')
   assert.ok(artifact.token.bytecode.length > 0)
-  assert.ok(artifact.vault.bytecode.length > 0)
-  const tokenFunctions = artifact.token.abi.filter((item) => item.type === 'function').map((item) => item.name)
-  const vaultFunctions = artifact.vault.abi.filter((item) => item.type === 'function').map((item) => item.name)
-  for (const name of ['name','symbol','decimals','totalSupply','balanceOf','allowance','transfer','approve','transferFrom','owner','isLocked','setRecipientLocked','setReserveVault','setPaused','setMintingEnabled','mint','redeemForOwner']) {
-    assert.ok(tokenFunctions.includes(name), 'Missing TRӾ ABI function: ' + name)
+  assert.ok(artifact.token.deployedBytecode.length > 0)
+  assert.equal(artifact.token.deployedBytecode.length % 2, 0)
+  const functions = artifact.token.abi.filter(item => item.type === 'function').map(item => item.name)
+  for (const name of ['name','symbol','decimals','totalSupply','balanceOf','allowance','transfer','approve','transferFrom','owner','pendingOwner','transferOwnership','acceptOwnership','setPaused','setMintingEnabled','mint','credit','batchCredit']) {
+    assert.ok(functions.includes(name), 'Missing TRӾ ABI function: ' + name)
   }
-  for (const name of ['owner','authorizedToken','reserveBalance','setAuthorizedToken','releaseForRedemption']) {
-    assert.ok(vaultFunctions.includes(name), 'Missing reserve vault ABI function: ' + name)
+  for (const name of ['reserveVault','redeemForOwner','isLocked','setRecipientLocked']) {
+    assert.ok(!functions.includes(name), 'Legacy reserve/lock ABI must be absent: ' + name)
   }
 })
 
-test('TRӾ metadata and default issuance protections remain exact', () => {
-  assert.ok(tokenSource.includes('pragma solidity ^0.8.20;'))
+test('TRӾ artifacts are compiled directly with the pinned compiler, not TronBox', () => {
+  assert.ok(compileScript.includes("import solc from 'solc'"))
+  assert.ok(compileScript.includes("compilerVersion !== '0.8.25'"))
+  assert.ok(compileScript.includes("evmVersion: 'paris'"))
+  assert.doesNotMatch(compileScript.toLowerCase(), /tronbox/)
+})
+
+test('the dashboard verifies exact runtime bytecode before owner-issued credits', async () => {
+  const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  assert.ok(helper.includes("postNode(tronWeb, '/wallet/getcontractinfo'"))
+  assert.ok(helper.includes('info?.runtimecode'))
+  assert.ok(helper.includes('client.trx.getContractInfo(address)'))
+  assert.ok(helper.includes('deployed.runtimecode'))
+  assert.ok(helper.includes('deployedCode !== expectedCode'))
+  assert.ok(helper.includes("String(name) !== 'TRӾ'"))
+  assert.ok(helper.includes("String(symbol) !== 'TRAX'"))
+  assert.ok(helper.includes('Number(decimals) !== 6'))
+})
+
+test('TRӾ metadata, unbacked economics, and owner authorization are explicit', () => {
+  assert.ok(tokenSource.includes('pragma solidity ^0.8.25;'))
   assert.ok(tokenSource.includes('string public constant name = unicode"TRӾ";'))
-  assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
+  assert.ok(tokenSource.includes('string public constant symbol = "TRAX";'))
+  const transferBody = tokenSource.slice(tokenSource.indexOf('function _transfer('))
+  assert.ok(transferBody.includes('emit Transfer(from, to, amount);'))
+  assert.doesNotMatch(transferBody, /amount > 0/, 'standard ERC-20 zero-value transfers must be allowed')
   assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
-  assert.ok(tokenSource.includes('mintingEnabled = false;'))
-  assert.ok(tokenSource.includes('paused = true;'))
-  assert.ok(tokenSource.includes('external onlyOwner'))
-  assert.ok(tokenSource.includes('reserveBalance() >= _totalSupply + amount'))
-  assert.ok(tokenSource.includes('require(!_unlocked[recipient], "recipient-must-be-locked")'))
+  assert.ok(tokenSource.includes('bool public paused = true;'))
+  assert.ok(tokenSource.includes('function mint(address recipient, uint256 amount) external onlyOwner whenNotPaused'))
+  assert.ok(tokenSource.includes('function credit(address recipient, uint256 amount, bytes32 referenceId)'))
+  assert.ok(tokenSource.includes('external onlyOwner whenNotPaused'))
+  assert.ok(tokenSource.includes('MAX_BATCH_CREDITS = 50'))
+  assert.ok(!/reserveVault|redeemForOwner|releaseForRedemption|insufficient-trx-reserve/.test(tokenSource))
 })
 
-test('locked accounts cannot transfer, approve, or use delegated allowances', () => {
-  assert.ok(tokenSource.includes('function isLocked(address account) public view returns (bool)'))
-  assert.ok(tokenSource.includes('require(_unlocked[msg.sender], "sender-locked")'))
-  assert.ok(tokenSource.includes('require(spender != address(0) && _unlocked[spender], "spender-locked")'))
-  assert.ok(tokenSource.includes('require(_unlocked[msg.sender] && _unlocked[from] && _unlocked[to], "account-locked")'))
-  assert.ok(tokenSource.includes('struct AllowanceData { uint256 amount; uint256 ownerLockNonce; uint256 spenderLockNonce; }'))
-  assert.ok(tokenSource.includes('if (wasLocked != locked) _lockNonce[account] += 1;'))
-  assert.ok(tokenSource.includes('data.ownerLockNonce != _lockNonce[tokenOwner]'))
-  assert.ok(tokenSource.includes('data.spenderLockNonce != _lockNonce[spender]'))
+test('external credits emit standard Transfer and a nonzero-reference audit event', () => {
+  assert.ok(tokenSource.includes('event Transfer(address indexed from, address indexed to, uint256 value)'))
+  assert.ok(tokenSource.includes('event OwnerCredit(address indexed recipient, uint256 amount, bytes32 indexed referenceId)'))
+  assert.ok(tokenSource.includes('require(referenceId != bytes32(0), "referenceId-required")'))
+  assert.ok(tokenSource.includes('mapping(bytes32 => bool) public creditReferenceUsed;'))
+  assert.ok(tokenSource.includes('require(!creditReferenceUsed[referenceId], "reference-already-used")'))
+  assert.ok(tokenSource.includes('emit OwnerCredit(recipient, amount, referenceId)'))
 })
-
-test('native TRX vault can only release funds through its authorized token contract', () => {
-  assert.ok(vaultSource.includes('pragma solidity ^0.8.25;'))
-  assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
-  assert.ok(vaultSource.includes('address(this).balance >= amount'))
-  assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
-  assert.ok(tokenSource.includes('external onlyOwner nonReentrant'))
-  assert.ok(tokenSource.includes('releaseForRedemption(recipient, amount, redemptionReference)'))
-})
-
 
 test('deployment Energy estimation never misuses triggerconstantcontract for init bytecode', async () => {
   const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
