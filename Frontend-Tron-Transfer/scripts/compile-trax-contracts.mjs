@@ -56,6 +56,7 @@ const artifact = {
     contractName: 'Restricted1TRAX',
     abi: compiled.abi,
     bytecode,
+    deployedBytecode: compiled.evm.deployedBytecode.object,
   },
 }
 
