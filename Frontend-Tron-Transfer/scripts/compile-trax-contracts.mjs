@@ -1,45 +1,68 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import solc from 'solc'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(here, '..')
 const repositoryRoot = path.resolve(frontendRoot, '..')
-const tronboxProject = path.join(frontendRoot, 'trax-build')
-const contractsDir = path.join(tronboxProject, 'contracts')
-const tronboxBin = path.join(tronboxProject, 'node_modules', '.bin', 'tronbox')
+const tokenPath = path.join(repositoryRoot, 'contracts', 'Restricted1TRAX.sol')
+const tokenSource = await fs.readFile(tokenPath, 'utf8')
 
-await fs.access(tronboxBin)
-await fs.rm(contractsDir, { recursive: true, force: true })
-await fs.mkdir(contractsDir, { recursive: true })
-await fs.copyFile(path.join(repositoryRoot, 'contracts', 'Restricted1TRAX.sol'), path.join(contractsDir, 'Restricted1TRAX.sol'))
-
-// This nested project is CommonJS because TronBox's documented config file uses module.exports.
-// The main frontend remains an ES-module project.
-execFileSync(tronboxBin, ['compile', '--compile-all'], {
-  cwd: tronboxProject,
-  stdio: 'inherit',
-})
-
-async function readArtifact(name) {
-  const artifactPath = path.join(tronboxProject, 'build', 'contracts', name + '.json')
-  const artifact = JSON.parse(await fs.readFile(artifactPath, 'utf8'))
-  if (artifact.contractName !== name || !Array.isArray(artifact.abi) || typeof artifact.bytecode !== 'string') {
-    throw new Error('TronBox artifact is incomplete for ' + name)
-  }
-  const bytecode = artifact.bytecode.replace(/^0x/, '')
-  if (!bytecode || !/^[0-9a-f]+$/i.test(bytecode)) throw new Error('Invalid TRON bytecode for ' + name)
-  return { contractName: name, abi: artifact.abi, bytecode }
+const compilerVersion = solc.version().split('+')[0]
+if (compilerVersion !== '0.8.25') {
+  throw new Error('Expected pinned Solidity compiler 0.8.25, but found ' + compilerVersion + '.')
 }
 
-const token = await readArtifact('Restricted1TRAX')
+const input = {
+  language: 'Solidity',
+  sources: {
+    'Restricted1TRAX.sol': { content: tokenSource },
+  },
+  settings: {
+    evmVersion: 'paris',
+    optimizer: { enabled: true, runs: 200 },
+    outputSelection: {
+      '*': {
+        '*': ['abi', 'evm.bytecode.object', 'evm.deployedBytecode.object'],
+      },
+    },
+  },
+}
+
+const output = JSON.parse(solc.compile(JSON.stringify(input)))
+const diagnostics = output.errors || []
+for (const diagnostic of diagnostics) {
+  const message = (diagnostic.formattedMessage || diagnostic.message || '').trim()
+  if (diagnostic.severity === 'error') console.error(message)
+  else if (message) console.warn(message)
+}
+const errors = diagnostics.filter(item => item.severity === 'error')
+if (errors.length) {
+  throw new Error('TRӾ Solidity compilation failed with ' + errors.length + ' error(s). No deployment should be attempted.')
+}
+
+const compiled = output.contracts?.['Restricted1TRAX.sol']?.Restricted1TRAX
+const bytecode = compiled?.evm?.bytecode?.object || ''
+if (!compiled || !Array.isArray(compiled.abi) || !/^(?:[0-9a-f]{2})+$/i.test(bytecode)) {
+  throw new Error('Solidity compiler did not produce a valid TRӾ ABI and init bytecode.')
+}
+
+const artifact = {
+  compiler: 'TRON solc ' + compilerVersion,
+  evmVersion: 'paris',
+  optimizer: { enabled: true, runs: 200 },
+  token: {
+    contractName: 'Restricted1TRAX',
+    abi: compiled.abi,
+    bytecode,
+  },
+}
+
 const outputDir = path.join(frontendRoot, 'src', 'generated')
 await fs.mkdir(outputDir, { recursive: true })
-const artifact = {
-  compiler: 'TRON solc 0.8.25',
-  optimizer: { enabled: true, runs: 200 },
-  token,
-}
-await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.js'), 'export default ' + JSON.stringify(artifact) + ';\n')
-console.log('Owner-issued TRӾ token compiled with TRON solc 0.8.25.')
+await fs.writeFile(
+  path.join(outputDir, 'trax-contract-artifacts.js'),
+  'export default ' + JSON.stringify(artifact) + ';\\n',
+)
+console.log('Owner-issued TRӾ compiled with Solidity ' + compilerVersion + ' (Paris EVM, optimizer 200).')
