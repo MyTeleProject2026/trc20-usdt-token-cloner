@@ -459,23 +459,23 @@ export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, art
   if (!tronWeb?.isAddress?.(ownerAddress)) throw new Error('Enter a valid TRON Mainnet deployment owner address.')
   const bytecode = String(artifact?.bytecode || '').replace(/^0x/, '')
   if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled contract init bytecode is missing or invalid.')
-  if (typeof tronWeb?.transactionBuilder?.deployConstantContract !== 'function') {
-    throw new Error('This TronWeb version does not support deployConstantContract simulation. Update TronWeb before deploying. No wallet signature or broadcast was attempted.')
-  }
 
-  // Simulate contract creation with TronWeb's deployment-constant API.
-  // estimateenergy and triggerconstantcontract are contract-call estimators.
+  // java-tron's estimateenergy service is optional and may be disabled by a
+  // public node. triggerconstantcontract is the documented universal local
+  // simulation endpoint; for contract creation its data field is init bytecode.
+  // This simulation creates no transaction and cannot request a wallet signature.
   try {
-    const response = await enqueueNodeRequest(() => tronWeb.transactionBuilder.deployConstantContract({
-      ownerAddress,
-      input: '0x' + bytecode,
-      confirmed: false,
-    }))
+    const response = await postNode(tronWeb, '/wallet/triggerconstantcontract', {
+      owner_address: tronWeb.address.toHex(ownerAddress),
+      data: bytecode,
+      call_value: 0,
+      visible: false,
+    })
     return normalizeDeploymentEnergyEstimate(response)
   } catch (error) {
-    throw new Error('TRON Mainnet contract-creation simulation is unavailable: '
+    throw new Error('TRON Mainnet contract-creation simulation failed using wallet/triggerconstantcontract: '
       + String(error?.message || error || 'unknown node error')
-      + '. TronWeb deployConstantContract simulation must succeed before deployment. No wallet signature or broadcast was attempted.')
+      + '. No wallet signature or broadcast was attempted.')
   }
 }
 
