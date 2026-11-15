@@ -474,8 +474,12 @@ export function calculateDeploymentResourceBudget({
   }
   const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
-  // Do not pre-empt TronLink or the TRON node with an estimated balance rejection.
-  // The estimate is informational; the signed transaction and network enforce the real fee.
+  if (requiredTrxSun > balance) {
+    const shortfall = requiredTrxSun - balance
+    throw new Error('Insufficient resources for a safe TRӾ deployment: after available delegated/staked Energy and Bandwidth, this owner account still needs '
+      + (Number(shortfall) / 1e6).toFixed(6) + ' TRX, but its current balance is '
+      + (Number(balance) / 1e6).toFixed(6) + ' TRX. Obtain additional delegated Energy/Bandwidth or fund the same owner account. No wallet prompt, signature, or broadcast was attempted.')
+  }
   return {
     energyRequired: energy.toString(),
     energyWithSafetyMargin: bufferedEnergy.toString(),
@@ -988,10 +992,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // Pace the preflight reads instead of bursting resource, permission and
   // deployment-simulation requests at the public TronGrid endpoint together.
   const resourceSnapshot = await readResources(tronWeb, wallet.address)
-  if (BigInt(String(resourceSnapshot.nativeBalanceSun ?? '0')) <= 0n) {
-    throw new Error('The connected transaction owner / fee payer ' + wallet.address
-      + ' has zero native TRX. TRON deployment fees are charged to the CreateSmartContract owner account; a different gas address is not automatically charged. Fund this same owner account or connect the funded configured owner account. No wallet prompt or broadcast was attempted.')
-  }
+  // A zero TRX balance is not automatically fatal when the owner has enough
+  // delegated/staked Energy and Bandwidth to cover the complete deployment.
+  // The exact resource budget is checked below before any wallet prompt.
   const permissionSnapshot = await readPermissions(tronWeb, wallet.address)
   let energyEstimate = null
   let energyEstimateWarning = ''
@@ -1030,41 +1033,15 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     throw new Error('Mainnet node changed the requested deployment fee_limit. No wallet signature or broadcast was attempted.')
   }
   let resourceBudget
-  if (energyEstimate) {
-    resourceBudget = calculateDeploymentResourceBudget({
-      energyRequired: energyEstimate.energyUsed,
-      resourceSnapshot,
-      rawDataHex: unsigned.raw_data_hex,
-      feeLimitSun,
-    })
-  } else {
-    // Do not fabricate an Energy estimate using triggerconstantcontract: that
-    // endpoint simulates calls to an existing contract. If this Mainnet node
-    // has disabled its optional deployment estimate service, the canonical
-    // wallet/deploycontract response is still validated and TronLink displays
-    // the wallet's own fee/balance review before the user signs.
-    const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
-    const selectedFeeLimit = BigInt(String(feeLimitSun))
-    if (maxFeeLimit !== null && selectedFeeLimit > maxFeeLimit) {
-      throw new Error('Selected fee_limit exceeds the current TRON Mainnet protocol maximum of ' + maxFeeLimit.toString() + ' SUN.')
-    }
-    resourceBudget = {
-      energyEstimateAvailable: false,
-      energyEstimateWarning,
-      energyRequired: null,
-      energyWithSafetyMargin: null,
-      energyShortfall: null,
-      estimatedBandwidthBytes: null,
-      bandwidthShortfall: null,
-      energyBurnSun: null,
-      bandwidthBurnSun: null,
-      requiredTrxSun: null,
-      feeLimitSun: selectedFeeLimit.toString(),
-      availableEnergy: resourceSnapshot.energyAvailable,
-      availableBandwidth: (BigInt(resourceSnapshot.freeBandwidthAvailable) + BigInt(resourceSnapshot.stakedBandwidthAvailable)).toString(),
-      nativeBalanceSun: resourceSnapshot.nativeBalanceSun,
-    }
+  if (!energyEstimate) {
+    throw new Error('Deployment Energy simulation is unavailable on the selected TRON Mainnet node. The app will not ask TronLink to sign or broadcast an unpriced deployment. Switch to a Mainnet node that supports wallet/estimateenergy, then retry. No signature or broadcast was attempted.')
   }
+  resourceBudget = calculateDeploymentResourceBudget({
+    energyRequired: energyEstimate.energyUsed,
+    resourceSnapshot,
+    rawDataHex: unsigned.raw_data_hex,
+    feeLimitSun,
+  })
   assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned deployment transaction')
   const computedUnsignedTxID = await sha256HexFromBytes(unsigned.raw_data_hex)
   if (computedUnsignedTxID.toLowerCase() !== String(unsigned.txID).toLowerCase()) {
