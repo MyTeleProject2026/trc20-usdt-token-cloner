@@ -5,7 +5,16 @@ Read-only Mainnet resource monitor for the TRON Transfer frontend.
 ## Endpoints
 
 - `GET /health` — service health and upstream identity.
-- `GET /v1/resources/:base58Address` — account Energy, free/staked/delegated Bandwidth totals, native TRX balance, and current chain fee parameters.
+- `GET /v1/resources/:base58Address` — account Energy, free and staked/delegated Bandwidth by source, the maximum Bandwidth available to cover one transaction, native TRX balance, and current chain fee parameters.
+
+## Bandwidth accounting
+
+TRON does not add free Bandwidth and staked/delegated Bandwidth together to cover a single transaction. The API therefore returns:
+- `bandwidth.maxSingleTransactionAvailable`: the larger of the two available quotas; use this for one-transaction coverage checks.
+- `bandwidth.availableAcrossSeparateTransactions` (and legacy `totalAvailable`): an aggregate that may be used across separate transactions, not as a single-transaction budget.
+- `bandwidth.singleTransactionCoverageRule`: a text explanation of the full-coverage rule.
+
+The TRӾ deployment preflight uses the same one-source coverage rule and blocks any estimated TRX fallback when zero-TRX-burn mode is active.
 
 ## Deployment
 
