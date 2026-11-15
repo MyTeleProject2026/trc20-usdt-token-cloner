@@ -11,6 +11,9 @@ test('TRӾ is owner-issued and has no reserve or redemption dependency', () => {
   assert.match(contract, /contract Restricted1TRAX/)
   assert.match(contract, /function mint\(address recipient, uint256 amount\) external onlyOwner/)
   assert.match(contract, /function credit\(address recipient, uint256 amount, bytes32 referenceId\)/)
+  assert.match(contract, /mapping\(bytes32 => bool\) public creditReferenceUsed;/)
+  assert.match(contract, /!creditReferenceUsed\\[referenceId\\]/)
+  assert.match(contract, /!creditReferenceUsed\\[referenceIds\\[i\\]\\]/)
   assert.doesNotMatch(contract, /reserveVault|redeemForOwner|releaseForRedemption|insufficient-trx-reserve/)
 })
 
