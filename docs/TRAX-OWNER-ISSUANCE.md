@@ -5,7 +5,7 @@
 - Issuance: owner-authorized, with no fixed supply cap other than Solidity's uint256 range.
 - Backing: none. Minting does not require a native TRX deposit.
 - Redemption: none. The token contract has no TRX vault and no redemption function.
-- Price: no peg or guaranteed market value. TRӾ is not native TRX and is not the official TRON asset.
+- Price: no peg or guaranteed market value. TRӾ is not native TRX and is not the official TRON asset. The on-chain ticker is TRAX to avoid colliding with the native TRX ticker.
 - Authorization: the current on-chain owner can enable issuance, mint, pause, and transfer ownership. The next owner must accept ownership.
 - Transfers: standard TRC-20-style transfers, approvals, and delegated transfers; account-level locks have been removed so external wallets can use the token normally.
 
