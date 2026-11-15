@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/trax-mainnet.mjs'
+import { buildDeploymentOptions, estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -24,6 +24,16 @@ test('Pinned Solidity compiler artifact exposes owner-issued TRӾ functions', ()
   for (const name of ['reserveVault','redeemForOwner','isLocked','setRecipientLocked']) {
     assert.ok(!functions.includes(name), 'Legacy reserve/lock ABI must be absent: ' + name)
   }
+})
+
+test('CreateSmartContract receives ABI JSON text in TronWeb builder options', () => {
+  const options = buildDeploymentOptions({
+    abi: [{ type: 'function', name: 'totalSupply', inputs: [], outputs: [{ type: 'uint256' }] }],
+    bytecode: '0x6001600055',
+  }, 'Restricted1TRAX', 150000000)
+  assert.equal(typeof options.abi, 'string')
+  assert.deepEqual(JSON.parse(options.abi), [{ type: 'function', name: 'totalSupply', inputs: [], outputs: [{ type: 'uint256' }] }])
+  assert.equal(options.bytecode, '6001600055')
 })
 
 test('TRӾ artifacts are compiled directly with the pinned compiler, not TronBox', () => {
