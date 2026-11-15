@@ -249,14 +249,12 @@ test('deployment resource budget requires zero Energy and Bandwidth burn for the
   assert.equal(budget.bandwidthBurnSun, '0')
   assert.equal(assertZeroTrxBurnBudget(budget), true)
 
-  const noEnergy = calculateDeploymentResourceBudget({
+  assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '100',
     resourceSnapshot: { ...resourceSnapshot, energyAvailable: '0' },
     rawDataHex: 'ab'.repeat(100),
     feeLimitSun: '12500',
-  })
-  assert.equal(noEnergy.requiredTrxSun, '12500')
-  assert.throws(() => assertZeroTrxBurnBudget(noEnergy), /Zero-TRX deployment preflight blocked/)
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*0\.012500 TRX.*No wallet prompt/)
 })
 
 test('zero-cost deployment guard blocks any estimated Energy or Bandwidth TRX burn before signing', () => {
