@@ -120,6 +120,7 @@ test('deployment Energy estimator sends exact init bytecode to estimateenergy', 
       owner_address: '41' + '11'.repeat(20),
       data: '6001600055',
       call_value: 0,
+      visible: false,
     })
     assert.equal(result.energyUsed, '123456')
     assert.equal(result.energyPenalty, '2345')
