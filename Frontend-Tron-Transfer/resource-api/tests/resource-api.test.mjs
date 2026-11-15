@@ -24,7 +24,11 @@ test('calculates free Bandwidth, staked/delegated Bandwidth, and Energy separate
   assert.deepEqual(result.bandwidth, {
     freeAvailable: 480, freeLimit: 600, freeUsed: 120,
     stakedOrDelegatedAvailable: 1180, stakedOrDelegatedLimit: 1500,
-    stakedOrDelegatedUsed: 320, totalAvailable: 1660,
+    stakedOrDelegatedUsed: 320,
+    totalAvailable: 1660,
+    availableAcrossSeparateTransactions: 1660,
+    maxSingleTransactionAvailable: 1180,
+    singleTransactionCoverageRule: 'free and staked/delegated Bandwidth are not combined for one transaction; one source must cover the full byte cost',
   })
   assert.deepEqual(result.energy, {
     available: 75000, limit: 100000, used: 25000,
@@ -116,4 +120,16 @@ test('TEnergy promo routes reject other wallets and malformed signatures before 
   assert.equal(denied.status, 403)
   const malformed = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address, nonce: 'nonce-12345678', signature: 'not-a-signature' }) })
   assert.equal(malformed.status, 400)
+})
+
+test('does not treat free and staked Bandwidth as additive for a single transaction', () => {
+  const result = summarizeResources({
+    freeNetLimit: 600, freeNetUsed: 0,
+    NetLimit: 350, NetUsed: 0,
+    EnergyLimit: 0, EnergyUsed: 0,
+  }, { balance: 0 }, [])
+  assert.equal(result.bandwidth.totalAvailable, 950)
+  assert.equal(result.bandwidth.availableAcrossSeparateTransactions, 950)
+  assert.equal(result.bandwidth.maxSingleTransactionAvailable, 600)
+  assert.equal(result.bandwidth.maxSingleTransactionAvailable >= 7000, false)
 })
