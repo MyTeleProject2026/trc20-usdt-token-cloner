@@ -232,7 +232,7 @@ test('zero-cost deployment guard blocks any estimated Energy or Bandwidth TRX bu
   assert.equal(assertZeroTrxBurnBudget({ requiredTrxSun: '0', energyBurnSun: '0', bandwidthBurnSun: '0' }), true)
   assert.throws(() => assertZeroTrxBurnBudget({
     requiredTrxSun: '7080000', energyBurnSun: '0', bandwidthBurnSun: '7080000',
-  }), /Zero-TRX deployment preflight blocked.*0\.708000 TRX.*Bandwidth.*No wallet prompt/)
+  }), /Zero-TRX deployment preflight blocked.*7\.080000 TRX.*Bandwidth.*No wallet prompt/)
   assert.throws(() => assertZeroTrxBurnBudget({
     requiredTrxSun: '10000000', energyBurnSun: '9000000', bandwidthBurnSun: '1000000',
   }), /Zero-TRX deployment preflight blocked.*10\.000000 TRX.*Energy.*Bandwidth/)
