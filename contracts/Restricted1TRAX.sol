@@ -6,7 +6,7 @@ pragma solidity ^0.8.25;
 /// @dev Every mint increases supply without requiring a deposit. Holders can transfer freely unless paused.
 contract Restricted1TRAX {
     string public constant name = unicode"TRӾ";
-    string public constant symbol = "TRX";
+    string public constant symbol = "TRAX";
     uint8 public constant decimals = 6;
 
     address public owner;
@@ -140,7 +140,7 @@ contract Restricted1TRAX {
 
     function _transfer(address from, address to, uint256 amount) internal {
         require(from != address(0) && to != address(0), "zero-address");
-        require(amount > 0, "zero-amount");
+        // ERC-20 permits zero-value transfers; emit Transfer and leave balances unchanged.
         require(_balances[from] >= amount, "insufficient-balance");
         _balances[from] -= amount;
         _balances[to] += amount;
