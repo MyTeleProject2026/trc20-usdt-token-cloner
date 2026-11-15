@@ -24,7 +24,7 @@ test('TronBox generated artifact exposes owner-issued TRӾ functions', () => {
 test('TRӾ metadata, unbacked economics, and owner authorization are explicit', () => {
   assert.ok(tokenSource.includes('pragma solidity ^0.8.25;'))
   assert.ok(tokenSource.includes('string public constant name = unicode"TRӾ";'))
-  assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
+  assert.ok(tokenSource.includes('string public constant symbol = "TRAX";'))
   assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
   assert.ok(tokenSource.includes('bool public paused = true;'))
   assert.ok(tokenSource.includes('function mint(address recipient, uint256 amount) external onlyOwner whenNotPaused'))
