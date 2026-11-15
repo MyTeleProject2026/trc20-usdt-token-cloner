@@ -828,9 +828,6 @@ export async function preflightContractDeployments(wallet, deployments, {
     return { deployments: [], requiredTrxSun: '0', availableTrxSun: '0' }
   }
   const tronWeb = createVerifier()
-  if (typeof tronWeb?.transactionBuilder?.createSmartContract !== 'function') {
-    throw new Error('The Mainnet transaction-construction client is unavailable.')
-  }
   const resourceSnapshot = await readResources(tronWeb, wallet.address)
   const permissionSnapshot = await readPermissions(tronWeb, wallet.address)
   if (!permissionSnapshot.connectedSignerCanAuthorizeAlone) {
@@ -870,38 +867,45 @@ export async function preflightContractDeployments(wallet, deployments, {
       || Number(unsigned.raw_data?.fee_limit) !== Number(feeLimitSun)) {
       throw new Error('Mainnet returned an incomplete or unexpected unsigned transaction during combined deployment preflight. No wallet signature or broadcast was attempted.')
     }
-    const snapshotForThisDeployment = {
-      ...resourceSnapshot,
-      energyAvailable: remainingEnergy.toString(),
-      freeBandwidthAvailable: remainingFreeBandwidth.toString(),
-      stakedBandwidthAvailable: remainingStakedBandwidth.toString(),
+    if (energyEstimate) {
+      const snapshotForThisDeployment = {
+        ...resourceSnapshot,
+        energyAvailable: remainingEnergy.toString(),
+        freeBandwidthAvailable: remainingFreeBandwidth.toString(),
+        stakedBandwidthAvailable: remainingStakedBandwidth.toString(),
+      }
+      const budget = calculateDeploymentResourceBudget({
+        energyRequired: energyEstimate.energyUsed,
+        resourceSnapshot: snapshotForThisDeployment,
+        rawDataHex: unsigned.raw_data_hex,
+        feeLimitSun,
+      })
+      remainingEnergy = BigInt(budget.energyShortfall) > 0n
+        ? 0n
+        : remainingEnergy - BigInt(budget.energyWithSafetyMargin)
+      const txBandwidth = BigInt(budget.estimatedBandwidthBytes)
+      if (remainingFreeBandwidth >= txBandwidth) remainingFreeBandwidth -= txBandwidth
+      else if (remainingStakedBandwidth >= txBandwidth) remainingStakedBandwidth -= txBandwidth
+      combinedRequiredTrxSun += BigInt(budget.requiredTrxSun)
+      results.push({
+        contractName: String(contractName),
+        energyEstimateAvailable: true,
+        energyRequired: budget.energyRequired,
+        energyWithSafetyMargin: budget.energyWithSafetyMargin,
+        estimatedBandwidthBytes: budget.estimatedBandwidthBytes,
+        requiredTrxSun: budget.requiredTrxSun,
+      })
+    } else {
+      results.push({
+        contractName: String(contractName),
+        energyEstimateAvailable: false,
+        energyEstimateWarning,
+        energyRequired: null,
+        energyWithSafetyMargin: null,
+        estimatedBandwidthBytes: null,
+        requiredTrxSun: null,
+      })
     }
-    const budget = calculateDeploymentResourceBudget({
-      energyRequired: energyEstimate.energyUsed,
-      resourceSnapshot: snapshotForThisDeployment,
-      rawDataHex: unsigned.raw_data_hex,
-      feeLimitSun,
-    })
-    remainingEnergy = BigInt(budget.energyShortfall) > 0n
-      ? 0n
-      : remainingEnergy - BigInt(budget.energyWithSafetyMargin)
-    const txBandwidth = BigInt(budget.estimatedBandwidthBytes)
-    // The protocol accepts one complete Bandwidth source per transaction.
-    // Consume the source selected by the estimator; otherwise the full tx
-    // byte cost is priced in TRX and neither quota is incorrectly deducted.
-    if (remainingFreeBandwidth >= txBandwidth) {
-      remainingFreeBandwidth -= txBandwidth
-    } else if (remainingStakedBandwidth >= txBandwidth) {
-      remainingStakedBandwidth -= txBandwidth
-    }
-    combinedRequiredTrxSun += BigInt(budget.requiredTrxSun)
-    results.push({
-      contractName: String(contractName),
-      energyRequired: budget.energyRequired,
-      energyWithSafetyMargin: budget.energyWithSafetyMargin,
-      estimatedBandwidthBytes: budget.estimatedBandwidthBytes,
-      requiredTrxSun: budget.requiredTrxSun,
-    })
   }
   const availableTrxSun = BigInt(resourceSnapshot.nativeBalanceSun)
   // Balance sufficiency is left to TronLink / the TRON node at signing and broadcast.
@@ -910,7 +914,8 @@ export async function preflightContractDeployments(wallet, deployments, {
     deployments: results,
     requiredTrxSun: combinedRequiredTrxSun.toString(),
     availableTrxSun: availableTrxSun.toString(),
-    conservative: true,
+    conservative: results.every(item => item.energyEstimateAvailable),
+    energyEstimateAvailable: results.every(item => item.energyEstimateAvailable),
   }
 }
 
