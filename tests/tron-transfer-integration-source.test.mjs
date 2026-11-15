@@ -140,12 +140,12 @@ test('TRӾ manager is wallet-accessible and contract administration remains on-c
   assert.match(app, /<TRXMainnetPanel wallet=\{unlocked\} onConnect=/)
   assert.doesNotMatch(app, /if \(!ownerSession\) return/)
   assert.doesNotMatch(app, /if \(!ownerSessionResolved\) return/)
-  assert.match(panel, /Connect any TronLink wallet on TRON Mainnet/)
+  assert.match(panel, /EXPECTED_OWNER_ADDRESS/)
   assert.match(panel, /callMainnetView\(token\.owner\(\)\)/)
   assert.doesNotMatch(panel, /\.call\(\)/)
-  assert.match(panel, /getMainnetNativeBalance\(tronWeb,\s*vaultAddress\)/)
+  assert.match(panel, /getMainnetNativeBalance\(tronWeb, connectedAddress\)/)
   assert.match(panel, /addressesEqual\(tronWeb, owner, connectedAddress\)/)
-  assert.match(panel, /addressesEqual\(tronWeb, vaultOwner, connectedAddress\)/)
+  assert.doesNotMatch(panel, /vaultAddress|vaultOwner|TRAX_VAULT_ARTIFACT/)
 })
 
 test('provider readiness is private, performs only read-only Fincra diagnostics, and remains fail-closed', () => {
