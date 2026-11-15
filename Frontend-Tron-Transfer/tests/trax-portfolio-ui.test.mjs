@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const panelUrl = new URL('../src/TRXMainnetPanel.jsx', import.meta.url)
-const iconUrl = new URL('../public/trax-token-mark.svg', import.meta.url)
+const iconUrl = new URL('../public/trax-token-mark.png', import.meta.url)
 
 test('portfolio shows native TRX and custom TRAX as separate, identified holdings', async () => {
   const panel = await readFile(panelUrl, 'utf8')
@@ -15,7 +15,7 @@ test('portfolio shows native TRX and custom TRAX as separate, identified holding
   assert.match(panel, /native TRX does not have a TRC-20 contract address/)
 })
 
-test('TRAX icon is an original mark and is not represented as the official TRON logo', async () => {
+test('TRAX token uses the exact user-supplied red and black TRON-style icon', async () => {
   const panel = await readFile(panelUrl, 'utf8')
   const icon = await readFile(iconUrl, 'utf8')
   assert.match(panel, /src="\/trax-token-mark\.svg"/)
