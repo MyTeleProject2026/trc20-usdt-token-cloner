@@ -116,6 +116,14 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     setNotice('TRӾ contract deployment is confirmed and the deployed bytecode and owner were verified.')
   })
 
+  const clearSavedTokenAddress = () => {
+    setTokenAddress('')
+    setSnapshot(null)
+    setLookupBalance('')
+    setNotice('The saved contract address was cleared from this browser only. No blockchain contract or tokens were changed. You can now deploy a new TRӾ contract.')
+    setError('')
+  }
+
   const activate = () => run('Enabling owner issuance · two TronLink approvals', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
@@ -219,8 +227,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     {step && <div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
 
     <div className="trax-addresses">
-      <label>TRӾ / TRAX custom-token contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Deploy TRӾ or enter its verified Mainnet contract address"/></label><p id="trax-contract-address-note" className="fine-print">This address uniquely identifies the custom TRC-20 asset. Verify it before accepting deposits; native TRX does not have a TRC-20 contract address.</p>
-      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ automatically</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button></div>
+      <label>TRӾ / TRAX custom-token contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Deploy TRӾ or enter its verified Mainnet contract address"/></label><p id="trax-contract-address-note" className="fine-print">This address uniquely identifies the custom TRC-20 asset. Verify it before accepting deposits; native TRX does not have a TRC-20 contract address. Clearing a saved address only removes this browser's reference; it never deletes an on-chain contract.</p>
+      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ automatically</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={clearSavedTokenAddress}>Clear saved address</button>}</div>
       <label>Maximum deployment fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label><p className="fine-print">This is the transaction fee_limit ceiling, not a fee charged upfront or a promise that the full amount will be spent. TRON resource quotas are used first; actual TRX burn depends on Energy and Bandwidth remaining at execution. TronLink and the network still enforce the available balance. The app checks the estimated Energy against this ceiling to avoid submitting an underfunded deployment transaction.</p>
       <p className="fine-print">Deployment is an irreversible Mainnet transaction. The deployer becomes the initial owner. This dashboard does not deploy automatically; you must click the deployment button and approve the TronLink prompt yourself.</p>
     </div>
