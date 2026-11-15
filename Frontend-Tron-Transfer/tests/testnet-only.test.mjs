@@ -36,6 +36,18 @@ test('TRӾ frontend uses Mainnet deployment gates and validates the signer befor
     < client.indexOf('sendRawTransaction(signedTransaction)'))
 })
 
+test('Mainnet deployment signs a canonical FullNode transaction, not a locally encoded wallet-builder payload', async () => {
+  const client = await read('../src/trax-mainnet.mjs')
+  const start = client.indexOf('export async function deployContractFromTronLink')
+  const end = client.indexOf('\nexport async function ', start + 40)
+  const deployment = client.slice(start, end > start ? end : undefined)
+  assert.ok(deployment.includes('createMainnetDeploymentTransaction(tronWeb, options, wallet.address)'))
+  assert.ok(!deployment.includes('createMainnetDeploymentTransaction(walletTronWeb, options, wallet.address)'))
+  assert.ok(deployment.includes('walletTronWeb.trx.sign(walletTransaction)'))
+  assert.ok(deployment.includes('walletTronWeb.trx.sendRawTransaction(signedTransaction)'))
+  assert.ok(deployment.includes('walletTxCheck'))
+})
+
 test('wallet discovery supports injected TRON providers without importing private keys', async () => {
   const provider = await read('../src/tronlink-provider.mjs')
   for (const value of [
