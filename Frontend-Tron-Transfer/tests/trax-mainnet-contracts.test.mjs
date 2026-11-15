@@ -80,15 +80,15 @@ test('external credits emit standard Transfer and a nonzero-reference audit even
   assert.ok(tokenSource.includes('emit OwnerCredit(recipient, amount, referenceId)'))
 })
 
-test('deployment Energy estimation uses the dedicated estimateenergy deployment endpoint', async () => {
+test('deployment Energy estimation prefers estimateenergy and supports the documented triggerconstantcontract fallback', async () => {
   const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
   const start = helper.indexOf('export async function estimateMainnetDeploymentEnergy')
   const end = helper.indexOf('export function isMainnetEnergyEstimateUnavailable', start)
   const estimator = helper.slice(start, end)
   assert.ok(estimator.includes("'/wallet/estimateenergy'"))
+  assert.ok(estimator.includes("'/wallet/triggerconstantcontract'"))
   assert.ok(estimator.includes('data: bytecode'))
   assert.ok(estimator.includes('owner_address: tronWeb.address.toHex(ownerAddress)'))
-  assert.ok(!estimator.includes("'/wallet/triggerconstantcontract'"))
 })
 
 test('hex-encoded unsupported estimateenergy node error is recognized', () => {
@@ -123,6 +123,37 @@ test('deployment Energy estimator sends exact init bytecode to estimateenergy', 
     })
     assert.equal(result.energyUsed, '123456')
     assert.equal(result.energyPenalty, '2345')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('unsupported estimateenergy falls back to read-only triggerconstantcontract deployment simulation', async () => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) })
+    if (url.endsWith('/wallet/estimateenergy')) {
+      return { ok: false, status: 404, text: async () => 'this node does not support estimate energy' }
+    }
+    return { ok: true, json: async () => ({ result: { result: true }, energy_used: 765432 }) }
+  }
+  try {
+    const tronWeb = {
+      isAddress: address => address === 'TMainnetOwnerAddress',
+      address: { toHex: address => address === 'TMainnetOwnerAddress' ? '41' + '11'.repeat(20) : '' },
+    }
+    const result = await estimateMainnetDeploymentEnergy(tronWeb, 'TMainnetOwnerAddress', { bytecode: '0x6001600055' })
+    assert.equal(calls.length, 2)
+    assert.match(calls[0].url, /\/wallet\/estimateenergy$/)
+    assert.match(calls[1].url, /\/wallet\/triggerconstantcontract$/)
+    assert.deepEqual(calls[1].body, {
+      owner_address: '41' + '11'.repeat(20),
+      data: '6001600055',
+      call_value: 0,
+      visible: false,
+    })
+    assert.equal(result.energyUsed, '765432')
   } finally {
     globalThis.fetch = originalFetch
   }
