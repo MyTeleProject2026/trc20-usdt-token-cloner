@@ -3,41 +3,48 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import solc from 'solc'
 
-test('TRӾ and native-TRX reserve vault compile for the TRON Paris-compatible target', async () => {
+test('owner-issued TRӾ compiles for the TRON Paris-compatible target', async () => {
   const tokenSource = await fs.readFile(new URL('../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
-  const vaultSource = await fs.readFile(new URL('../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8')
   const output = JSON.parse(solc.compile(JSON.stringify({
     language: 'Solidity',
-    sources: {
-      'Restricted1TRAX.sol': { content: tokenSource },
-      'OneTraxReserveVault.sol': { content: vaultSource },
-    },
+    sources: { 'Restricted1TRAX.sol': { content: tokenSource } },
     settings: {
       evmVersion: 'paris',
       optimizer: { enabled: true, runs: 200 },
       outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } },
     },
   })))
-  const errors = (output.errors || []).filter((entry) => entry.severity === 'error')
+  const errors = (output.errors || []).filter(entry => entry.severity === 'error')
   assert.deepEqual(errors, [])
   const token = output.contracts?.['Restricted1TRAX.sol']?.Restricted1TRAX
-  const vault = output.contracts?.['OneTraxReserveVault.sol']?.OneTraxReserveVault
   assert.ok(token?.evm?.bytecode?.object?.length > 0)
-  assert.ok(vault?.evm?.bytecode?.object?.length > 0)
-  const tokenFunctions = token.abi.filter((entry) => entry.type === 'function').map((entry) => entry.name)
-  const vaultFunctions = vault.abi.filter((entry) => entry.type === 'function').map((entry) => entry.name)
-  for (const name of ['name','symbol','decimals','owner','pendingOwner','transferOwnership','acceptOwnership','totalSupply','balanceOf','allowance','isLocked','setRecipientLocked','setReserveVault','setPaused','setMintingEnabled','mint','redeemForOwner','transfer','approve','transferFrom']) {
-    assert.ok(tokenFunctions.includes(name), 'missing TRӾ function: ' + name)
+  const functions = token.abi.filter(entry => entry.type === 'function').map(entry => entry.name)
+  for (const name of ['name','symbol','decimals','owner','pendingOwner','transferOwnership','acceptOwnership','totalSupply','balanceOf','allowance','setPaused','setMintingEnabled','mint','credit','batchCredit','transfer','approve','transferFrom']) {
+    assert.ok(functions.includes(name), 'missing TRӾ function: ' + name)
   }
-  for (const name of ['owner','authorizedToken','reserveBalance','setAuthorizedToken','releaseForRedemption']) assert.ok(vaultFunctions.includes(name))
+  for (const name of ['isLocked','setRecipientLocked','setReserveVault','redeemForOwner']) {
+    assert.ok(!functions.includes(name), 'legacy reserve/lock function must not exist: ' + name)
+  }
   assert.ok(tokenSource.includes('name = unicode"TRӾ"'))
   assert.ok(tokenSource.includes('symbol = "TRX"'))
   assert.ok(tokenSource.includes('decimals = 6'))
-  assert.ok(tokenSource.includes('require(IOneTraxReserveVault(reserveVault).reserveBalance() >= _totalSupply + amount'))
-  assert.ok(tokenSource.includes('function isLocked(address account) public view returns (bool) { return !_unlocked[account]; }'))
-  assert.ok(tokenSource.includes('data.ownerLockNonce != _lockNonce[tokenOwner]'))
-  assert.ok(tokenSource.includes('data.spenderLockNonce != _lockNonce[spender]'))
-  assert.ok(tokenSource.includes('function redeemForOwner'))
-  assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
-  assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
+  assert.ok(tokenSource.includes('MAX_BATCH_CREDITS = 50'))
+  assert.ok(tokenSource.includes('require(_totalSupply <= type(uint256).max - amount'))
+  assert.ok(!/reserveVault|redeemForOwner|releaseForRedemption|insufficient-trx-reserve/.test(tokenSource))
+})
+
+test('owner issuance starts disabled and the token starts paused', async () => {
+  const source = await fs.readFile(new URL('../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
+  assert.match(source, /bool public paused = true;/)
+  assert.match(source, /bool public mintingEnabled;/)
+  assert.match(source, /function setMintingEnabled\(bool value\) external onlyOwner/)
+  assert.match(source, /function setPaused\(bool value\) external onlyOwner/)
+})
+
+test('external credit emits standard mint Transfer and OwnerCredit audit event', async () => {
+  const source = await fs.readFile(new URL('../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
+  assert.match(source, /event Transfer\(address indexed from, address indexed to, uint256 value\)/)
+  assert.match(source, /event OwnerCredit\(address indexed recipient, uint256 amount, bytes32 indexed reference\)/)
+  assert.match(source, /emit Transfer\(address\(0\), recipient, amount\)/)
+  assert.match(source, /emit OwnerCredit\(recipient, amount, reference\)/)
 })
