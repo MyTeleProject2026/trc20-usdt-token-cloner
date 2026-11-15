@@ -5,15 +5,20 @@ import { readFile } from 'node:fs/promises'
 const panelUrl = new URL('../src/TRXMainnetPanel.jsx', import.meta.url)
 const appUrl = new URL('../src/App.jsx', import.meta.url)
 const iconUrl = new URL('../public/trax-token-mark.svg', import.meta.url)
+const pricingUrl = new URL('../src/trax-pricing.mjs', import.meta.url)
 
-test('portfolio shows native TRX and custom TRAX as separate, identified holdings', async () => {
+test('portfolio presents one estimated USD total while preserving each underlying asset quantity', async () => {
   const panel = await readFile(panelUrl, 'utf8')
-  assert.match(panel, /Wallet portfolio overview/)
-  assert.match(panel, /Native TRX · network fees/)
-  assert.match(panel, /TRӾ \/ TRAX · custom TRC-20/)
-  assert.match(panel, /different units and transfer rules/)
-  assert.match(panel, /custom-token contract address/)
-  assert.match(panel, /native TRX does not have a TRC-20 contract address/)
+  const pricing = await readFile(pricingUrl, 'utf8')
+  assert.match(panel, /Combined wallet portfolio value/)
+  assert.match(panel, /Estimated combined portfolio value/)
+  assert.match(panel, /Native TRX/)
+  assert.match(panel, /TRӾ reference value/)
+  assert.match(panel, /Official USDT/)
+  assert.match(panel, /not a guaranteed exchange trading price/)
+  assert.match(panel, /Combined estimated portfolio value/)
+  assert.match(pricing, /traxReferenceUsd: tronUsd/)
+  assert.match(pricing, /valuationType: 'reference-estimate'/)
 })
 
 test('TRAX uses the user-supplied red-circle, black-geometric-mark image', async () => {
