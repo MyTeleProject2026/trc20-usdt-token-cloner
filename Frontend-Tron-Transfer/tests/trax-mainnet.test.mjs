@@ -111,5 +111,5 @@ test('zero-TRX policy blocks even when the owner balance could pay a resource sh
       nativeBalanceSun: '20000000',
       maxFeeLimitSun: '15000000000',
     },
-  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*12\\.639000 TRX.*0\\.000000 TRX.*No wallet prompt/)
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*12\.639000 TRX.*20\.000000 TRX.*No wallet prompt/)
 })
