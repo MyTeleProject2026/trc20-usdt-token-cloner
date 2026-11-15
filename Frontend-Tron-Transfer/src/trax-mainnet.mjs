@@ -500,15 +500,25 @@ export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, art
   const bytecode = String(artifact?.bytecode || '').replace(/^0x/, '')
   if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled contract init bytecode is missing or invalid.')
 
-  // TronWeb 6.5.2 deployConstantContract uses /wallet/estimateenergy with
-  // {data, owner_address, call_value}. triggerconstantcontract is for invoking
-  // an existing contract, not for simulating CreateSmartContract deployment.
-  const response = await postNode(tronWeb, '/wallet/estimateenergy', {
+  const request = {
     owner_address: tronWeb.address.toHex(ownerAddress),
     data: bytecode,
     call_value: 0,
-  })
-  return normalizeDeploymentEnergyEstimate(response)
+    visible: false,
+  }
+  try {
+    // Prefer the dedicated deployment estimator when the selected node exposes it.
+    const response = await postNode(tronWeb, '/wallet/estimateenergy', request)
+    return normalizeDeploymentEnergyEstimate(response)
+  } catch (error) {
+    if (!isMainnetEnergyEstimateUnavailable(error)) throw error
+    // TRON's official FeeLimit documentation also supports the universal
+    // triggerconstantcontract simulation for contract creation by passing
+    // the compiled init bytecode in data. This is a read-only simulation:
+    // it neither signs nor broadcasts a CreateSmartContract transaction.
+    const response = await postNode(tronWeb, '/wallet/triggerconstantcontract', request)
+    return normalizeDeploymentEnergyEstimate(response)
+  }
 }
 
 export function isMainnetEnergyEstimateUnavailable(error) {
