@@ -50,6 +50,11 @@ test('Mainnet deployment signs a canonical FullNode transaction, not a locally e
   assert.ok(deployment.includes('safetyMarginBps: 12500'))
   assert.ok(deployment.indexOf('const finalResourceSnapshot = await readResources(tronWeb, wallet.address)')
     < deployment.indexOf('walletTronWeb.trx.sign(walletTransaction)'))
+  assert.ok(deployment.includes('const preBroadcastResourceSnapshot = await readResources(tronWeb, wallet.address)'))
+  assert.ok(deployment.indexOf('const preBroadcastResourceSnapshot = await readResources(tronWeb, wallet.address)')
+    > deployment.indexOf('walletTronWeb.trx.sign(walletTransaction)'))
+  assert.ok(deployment.indexOf('assertZeroTrxBurnBudget(preBroadcastBudget)')
+    < deployment.indexOf('walletTronWeb.trx.sendRawTransaction(signedTransaction)'))
 })
 
 test('wallet discovery supports injected TRON providers without importing private keys', async () => {
