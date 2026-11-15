@@ -75,7 +75,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const refresh = () => run('Reading TRON Mainnet token state', async () => {
     const { tronWeb, token } = await getToken()
     const [owner, name, symbol, decimals, totalSupply, paused, mintingEnabled, ownerBalance, ownerTrx] = await Promise.all([
-      token.owner().call(), callMainnetView(token.name()), callMainnetView(token.symbol()), callMainnetView(token.decimals()),
+      callMainnetView(token.owner()), callMainnetView(token.name()), callMainnetView(token.symbol()), callMainnetView(token.decimals()),
       callMainnetView(token.totalSupply()), callMainnetView(token.paused()), callMainnetView(token.mintingEnabled()),
       callMainnetView(token.balanceOf(connectedAddress)), getMainnetNativeBalance(tronWeb, connectedAddress),
     ])
@@ -106,8 +106,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const activate = () => run('Enabling owner issuance · two TronLink approvals', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
-    const paused = await token.paused().call()
-    const enabled = await token.mintingEnabled().call()
+    const paused = await callMainnetView(token.paused())
+    const enabled = await callMainnetView(token.mintingEnabled())
     if (!paused && enabled) { setNotice('Owner issuance is already enabled.'); return }
     if (paused) {
       const unpause = await sendAndVerifyContractCall(tronWeb, token.setPaused(false), feeCapSun, connectedAddress)
@@ -127,7 +127,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     if (!tronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
     if (!feeCapSun) throw new Error('Enter a valid transaction fee cap.')
     const units = parseTokenUnits(amount)
-    const [paused, enabled] = await Promise.all([token.paused().call(), token.mintingEnabled().call()])
+    const [paused, enabled] = await Promise.all([callMainnetView(token.paused()), callMainnetView(token.mintingEnabled())])
     if (paused || !enabled) throw new Error('Token is paused or owner issuance is disabled. Activate it first.')
     const reference = makeReference()
     const result = await sendAndVerifyContractCall(tronWeb, token.credit(recipient.trim(), units, reference), feeCapSun, connectedAddress)
@@ -143,7 +143,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     if (!feeCapSun) throw new Error('Enter a valid transaction fee cap.')
     const { recipients, amounts } = parseBatchCreditRows(batchInput, (address) => tronWeb.isAddress(address), 50)
     const references = recipients.map(() => makeReference())
-    const [paused, enabled] = await Promise.all([token.paused().call(), token.mintingEnabled().call()])
+    const [paused, enabled] = await Promise.all([callMainnetView(token.paused()), callMainnetView(token.mintingEnabled())])
     if (paused || !enabled) throw new Error('Token is paused or owner issuance is disabled. Activate it first.')
     const result = await sendAndVerifyContractCall(tronWeb, token.batchCredit(recipients, amounts, references), feeCapSun, connectedAddress)
     setLastTx(result.txID)
@@ -164,7 +164,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     await assertOwner(token, tronWeb)
     if (!tronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
     const units = parseTokenUnits(amount)
-    const balance = await token.balanceOf(connectedAddress).call()
+    const balance = await callMainnetView(token.balanceOf(connectedAddress))
     if (BigInt(String(balance)) < BigInt(units)) throw new Error('Owner wallet token balance is insufficient. Use owner credit to issue new tokens.')
     const result = await sendAndVerifyContractCall(tronWeb, token.transfer(recipient.trim(), units), feeCapSun, connectedAddress)
     setLastTx(result.txID)
