@@ -28,7 +28,7 @@ test('TRӾ metadata, unbacked economics, and owner authorization are explicit', 
   assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
   assert.ok(tokenSource.includes('bool public paused = true;'))
   assert.ok(tokenSource.includes('function mint(address recipient, uint256 amount) external onlyOwner whenNotPaused'))
-  assert.ok(tokenSource.includes('function credit(address recipient, uint256 amount, bytes32 reference)'))
+  assert.ok(tokenSource.includes('function credit(address recipient, uint256 amount, bytes32 referenceId)'))
   assert.ok(tokenSource.includes('external onlyOwner whenNotPaused'))
   assert.ok(tokenSource.includes('MAX_BATCH_CREDITS = 50'))
   assert.ok(!/reserveVault|redeemForOwner|releaseForRedemption|insufficient-trx-reserve/.test(tokenSource))
@@ -36,9 +36,9 @@ test('TRӾ metadata, unbacked economics, and owner authorization are explicit', 
 
 test('external credits emit standard Transfer and a nonzero-reference audit event', () => {
   assert.ok(tokenSource.includes('event Transfer(address indexed from, address indexed to, uint256 value)'))
-  assert.ok(tokenSource.includes('event OwnerCredit(address indexed recipient, uint256 amount, bytes32 indexed reference)'))
-  assert.ok(tokenSource.includes('require(reference != bytes32(0), "reference-required")'))
-  assert.ok(tokenSource.includes('emit OwnerCredit(recipient, amount, reference)'))
+  assert.ok(tokenSource.includes('event OwnerCredit(address indexed recipient, uint256 amount, bytes32 indexed referenceId)'))
+  assert.ok(tokenSource.includes('require(referenceId != bytes32(0), "reference-required")'))
+  assert.ok(tokenSource.includes('emit OwnerCredit(recipient, amount, referenceId)'))
 })
 
 test('deployment Energy estimation never misuses triggerconstantcontract for init bytecode', async () => {
