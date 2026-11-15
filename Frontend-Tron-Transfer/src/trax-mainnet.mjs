@@ -4,7 +4,6 @@ import { TronWeb } from 'tronweb'
 export const TRON_MAINNET_HOST = 'https://api.trongrid.io'
 export const TRAX_STORAGE_KEY = 'tron-transfer:trax-mainnet-contracts:v1'
 export const TRAX_TOKEN_ARTIFACT = artifacts.token
-export const TRAX_VAULT_ARTIFACT = artifacts.vault
 
 export function assertMainnetWallet(wallet) {
   if (!wallet?.tronWeb || !wallet?.address) throw new Error('Connect a TronLink wallet first.')
