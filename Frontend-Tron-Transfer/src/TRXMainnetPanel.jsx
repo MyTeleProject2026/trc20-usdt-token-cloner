@@ -16,7 +16,7 @@ function makeReference() {
   return '0x' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 }
 
-function NetworkMark() { return <Network aria-label="TRON network"/> }\n\nfunction TraxTokenMark() { return <span className="trax-token-mark" aria-label="TRAX custom token icon" title="TRAX custom TRC-20 token">Ӿ</span> }\n\nfunction shorten(value) {
+function NetworkMark() { return <Network aria-label="TRON network"/> }\n\nfunction TraxTokenMark() { return <img className="trax-token-mark" src="/trax-token-mark.svg" alt="TRAX custom token icon" width="22" height="22"/> }\n\nfunction shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
 }
 
