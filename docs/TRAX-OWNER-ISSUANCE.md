@@ -13,6 +13,8 @@
 
 The owner calls `credit(recipient, amount, referenceId)`. This mints directly to the supplied TRON address, emits the standard `Transfer(address(0), recipient, amount)` event, and emits `OwnerCredit` with a nonzero referenceId. `batchCredit` supports up to 50 recipients per transaction to limit execution cost and prevent oversized batches.
 
+The contract rejects zero or previously used reference identifiers, preventing a credit reference from being replayed for a second issuance. Batch credits use the same uniqueness check for every row.
+
 A successful on-chain transfer or mint only proves that the token contract credited a blockchain address. It does not prove an exchange has credited an internal customer account. The exchange must explicitly support this exact TRON Mainnet contract address, token, and network, and independently process its deposit.
 
 ## Operational warnings
