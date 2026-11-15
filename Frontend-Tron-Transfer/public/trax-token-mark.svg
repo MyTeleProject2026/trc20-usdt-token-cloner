@@ -1,8 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">TRAX custom token</title>
-  <desc id="desc">Original red circular icon with a white stylized X, distinct from the official TRON logo.</desc>
-  <circle cx="32" cy="32" r="30" fill="#9f2535"/>
-  <path d="M17 18h30v7H35v21h-7V25H17z" fill="#fff"/>
-  <path d="m22 28 8 0 12 17h-8z" fill="#fff" opacity=".92"/>
-  <path d="m42 28-8 0-12 17h8z" fill="#fff" opacity=".92"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>TRӾ custom token icon supplied by the user</title>
+  <desc>Red circular field with a transparent cutout matching the user's uploaded geometric TRON-style mark. This image identifies the custom TRAX token in this application.</desc>
+  <path fill="#ff0013" fill-rule="evenodd" d="M244,21 L223,23 L197,28 L162,40 L140,51 L118,65 L97,82 L82,97 L55,133 L36,172 L28,197 L23,223 L21,244 L21,267 L23,288 L28,314 L40,349 L51,371 L65,393 L82,414 L97,429 L133,456 L172,475 L197,483 L223,488 L244,490 L267,490 L288,488 L314,483 L349,471 L371,460 L393,446 L414,429 L429,414 L456,378 L475,339 L483,314 L488,288 L490,267 L490,244 L488,223 L483,197 L471,162 L460,140 L446,118 L429,97 L414,82 L378,55 L339,36 L314,28 L288,23 L267,21Z M111,136 L345,159 L420,234 L231,447 L229,446 L113,145 L110,137Z M376,250 L266,267 L250,393Z M380,227 L340,186 L286,240 L373,229Z M154,184 L230,382 L244,259Z M163,164 L255,240 L317,179Z"/>
 </svg>
