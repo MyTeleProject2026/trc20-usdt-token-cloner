@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { buildDeploymentOptions, estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/trax-mainnet.mjs'
+import { buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -80,27 +80,25 @@ test('external credits emit standard Transfer and a nonzero-reference audit even
   assert.ok(tokenSource.includes('emit OwnerCredit(recipient, amount, referenceId)'))
 })
 
-test('deployment Energy estimation uses triggerconstantcontract for creation bytecode', async () => {
+test('deployment Energy estimation uses the dedicated estimateenergy deployment endpoint', async () => {
   const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
   const start = helper.indexOf('export async function estimateMainnetDeploymentEnergy')
-  const end = helper.indexOf('export async function waitForSolidifiedReceipt', start)
+  const end = helper.indexOf('export function isMainnetEnergyEstimateUnavailable', start)
   const estimator = helper.slice(start, end)
-  assert.ok(estimator.includes("'/wallet/triggerconstantcontract'"))
+  assert.ok(estimator.includes("'/wallet/estimateenergy'"))
   assert.ok(estimator.includes('data: bytecode'))
   assert.ok(estimator.includes('owner_address: tronWeb.address.toHex(ownerAddress)'))
-  assert.ok(!estimator.includes('deployConstantContract'))
-  assert.ok(!estimator.includes("'/wallet/estimateenergy'"))
-  assert.ok(estimator.includes('No wallet signature or broadcast was attempted.'))
+  assert.ok(!estimator.includes("'/wallet/triggerconstantcontract'"))
 })
 
-test('deployment Energy estimator simulates exact init bytecode through the universal node endpoint', async () => {
+test('deployment Energy estimator sends exact init bytecode to estimateenergy', async () => {
   const originalFetch = globalThis.fetch
   const calls = []
   globalThis.fetch = async (url, options) => {
     calls.push({ url, body: JSON.parse(options.body) })
     return {
       ok: true,
-      json: async () => ({ result: { result: true }, energy_used: 123456, energy_penalty: 2345 }),
+      json: async () => ({ result: { result: true }, energy_required: 123456, energy_penalty: 2345 }),
     }
   }
   try {
@@ -112,15 +110,84 @@ test('deployment Energy estimator simulates exact init bytecode through the univ
       bytecode: '0x6001600055',
     })
     assert.equal(calls.length, 1)
-    assert.match(calls[0].url, /\/wallet\/triggerconstantcontract$/)
+    assert.match(calls[0].url, /\/wallet\/estimateenergy$/)
     assert.deepEqual(calls[0].body, {
       owner_address: '41' + '11'.repeat(20),
       data: '6001600055',
       call_value: 0,
-      visible: false,
     })
     assert.equal(result.energyUsed, '123456')
     assert.equal(result.energyPenalty, '2345')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('an explicitly unsupported deployment Energy estimator is identified without faking a fallback estimate', () => {
+  assert.equal(isMainnetEnergyEstimateUnavailable(new Error('This node does not support estimate energy')), true)
+  assert.equal(isMainnetEnergyEstimateUnavailable(new Error('Network request failed')), false)
+})
+
+test('TRON deployment construction requests the canonical wallet/deploycontract transaction', async () => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+  const ownerHex = '41' + '11'.repeat(20)
+  const predictedHex = '41' + '22'.repeat(20)
+  const transaction = {
+    visible: false,
+    txID: 'a'.repeat(64),
+    contract_address: predictedHex,
+    raw_data: {
+      contract: [{
+        type: 'CreateSmartContract',
+        parameter: {
+          type_url: 'type.googleapis.com/protocol.CreateSmartContract',
+          value: {
+            owner_address: ownerHex,
+            new_contract: {
+              bytecode: '6001600055',
+              abi: { entrys: [{ type: 'Function', name: 'totalSupply' }] },
+            },
+          },
+        },
+      }],
+      fee_limit: 150000000,
+    },
+    raw_data_hex: 'ab'.repeat(20),
+  }
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) })
+    return { ok: true, json: async () => transaction }
+  }
+  try {
+    const tronWeb = {
+      isAddress: address => address === 'TMainnetOwnerAddress',
+      address: { toHex: address => address === 'TMainnetOwnerAddress' ? ownerHex : '' },
+    }
+    const result = await createMainnetDeploymentTransaction(tronWeb, {
+      abi: JSON.stringify([{ type: 'function', name: 'totalSupply' }]),
+      bytecode: '6001600055',
+      feeLimit: 150000000,
+      originEnergyLimit: 10000000,
+      name: 'Restricted1TRAX',
+      callValue: 0,
+      userFeePercentage: 100,
+    }, 'TMainnetOwnerAddress')
+    assert.equal(calls.length, 1)
+    assert.match(calls[0].url, /\/wallet\/deploycontract$/)
+    assert.deepEqual(calls[0].body, {
+      owner_address: ownerHex,
+      abi: JSON.stringify([{ type: 'function', name: 'totalSupply' }]),
+      bytecode: '6001600055',
+      fee_limit: 150000000,
+      origin_energy_limit: 10000000,
+      name: 'Restricted1TRAX',
+      call_value: 0,
+      consume_user_resource_percent: 100,
+      visible: false,
+    })
+    assert.strictEqual(result, transaction)
+    assert.equal(result.raw_data.contract[0].type, 'CreateSmartContract')
   } finally {
     globalThis.fetch = originalFetch
   }
