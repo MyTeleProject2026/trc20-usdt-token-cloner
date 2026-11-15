@@ -388,7 +388,6 @@ function decodeNodeErrorText(value) {
   }
   return raw
 }
-}
 
 export function normalizeDeploymentEnergyEstimate(response) {
   if (!response || response.Error || response.result?.result !== true) {
