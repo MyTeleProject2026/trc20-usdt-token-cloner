@@ -15,6 +15,8 @@ test('Pinned Solidity compiler artifact exposes owner-issued TRӾ functions', ()
   assert.equal(artifact.evmVersion, 'paris')
   assert.equal(artifact.token.contractName, 'Restricted1TRAX')
   assert.ok(artifact.token.bytecode.length > 0)
+  assert.ok(artifact.token.deployedBytecode.length > 0)
+  assert.equal(artifact.token.deployedBytecode.length % 2, 0)
   const functions = artifact.token.abi.filter(item => item.type === 'function').map(item => item.name)
   for (const name of ['name','symbol','decimals','totalSupply','balanceOf','allowance','transfer','approve','transferFrom','owner','pendingOwner','transferOwnership','acceptOwnership','setPaused','setMintingEnabled','mint','credit','batchCredit']) {
     assert.ok(functions.includes(name), 'Missing TRӾ ABI function: ' + name)
@@ -29,6 +31,15 @@ test('TRӾ artifacts are compiled directly with the pinned compiler, not TronBox
   assert.ok(compileScript.includes("compilerVersion !== '0.8.25'"))
   assert.ok(compileScript.includes("evmVersion: 'paris'"))
   assert.doesNotMatch(compileScript.toLowerCase(), /tronbox/)
+})
+
+test('the dashboard verifies exact runtime bytecode before owner-issued credits', async () => {
+  const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  assert.ok(helper.includes("postNode(tronWeb, '/wallet/getcontract'"))
+  assert.ok(helper.includes('deployedCode !== expectedCode'))
+  assert.ok(helper.includes("String(name) !== 'TRӾ'"))
+  assert.ok(helper.includes("String(symbol) !== 'TRAX'"))
+  assert.ok(helper.includes('Number(decimals) !== 6'))
 })
 
 test('TRӾ metadata, unbacked economics, and owner authorization are explicit', () => {
