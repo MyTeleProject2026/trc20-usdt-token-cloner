@@ -26,6 +26,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [snapshot, setSnapshot] = useState(null)
   const [recipient, setRecipient] = useState(DEFAULT_RECIPIENT)
   const [amount, setAmount] = useState('100')
+  const [batchInput, setBatchInput] = useState('')
   const [lookupAddress, setLookupAddress] = useState(DEFAULT_RECIPIENT)
   const [lookupBalance, setLookupBalance] = useState('')
   const [feeCap, setFeeCap] = useState(DEFAULT_FEE_CAP)
@@ -135,6 +136,31 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     await refresh()
   })
 
+
+  const batchCredit = () => run('Preparing batch credits to external TRON addresses', async () => {
+    const { tronWeb, token } = await getToken()
+    await assertOwner(token, tronWeb)
+    if (!feeCapSun) throw new Error('Enter a valid transaction fee cap.')
+    const rows = batchInput.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean)
+    if (rows.length === 0 || rows.length > 50) throw new Error('Enter between 1 and 50 recipient,amount rows.')
+    const recipients = []
+    const amounts = []
+    const references = []
+    for (const [index, row] of rows.entries()) {
+      const parts = row.split(',').map(value => value.trim())
+      if (parts.length !== 2 || !tronWeb.isAddress(parts[0])) throw new Error('Invalid recipient row ' + (index + 1) + '. Use TRON_ADDRESS,AMOUNT.')
+      recipients.push(parts[0])
+      amounts.push(parseTokenUnits(parts[1]))
+      references.push(makeReference())
+    }
+    const [paused, enabled] = await Promise.all([token.paused().call(), token.mintingEnabled().call()])
+    if (paused || !enabled) throw new Error('Token is paused or owner issuance is disabled. Activate it first.')
+    const result = await sendAndVerifyContractCall(tronWeb, token.batchCredit(recipients, amounts, references), feeCapSun, connectedAddress)
+    setLastTx(result.txID)
+    setNotice('Batch credit confirmed for ' + recipients.length + ' TRON addresses. Every row has a unique on-chain reference.')
+    await refresh()
+  })
+
   const readBalance = () => run('Reading external wallet token balance', async () => {
     const { tronWeb, token } = await getToken()
     if (!tronWeb.isAddress(lookupAddress.trim())) throw new Error('Enter a valid TRON Mainnet address.')
@@ -216,6 +242,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <label>Amount to issue (TRӾ)<input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal"/></label>
       <div className="trax-balance-note">Raw token units: {(() => { try { return parseTokenUnits(amount) } catch { return '—' } })()}</div>
       <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || snapshot?.paused || !feeCapSun} onClick={issueCredit}><Coins size={15}/> Review &amp; issue credit</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !feeCapSun} onClick={transfer}>Transfer existing balance</button></div>
+      <label>Batch credits (one TRON_ADDRESS,AMOUNT per line; maximum 50)<textarea value={batchInput} onChange={e => setBatchInput(e.target.value)} rows={5} placeholder={'TAddressOne,100\\nTAddressTwo,250'}/></label>
+      <button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || snapshot?.paused || !feeCapSun || !batchInput.trim()} onClick={batchCredit}>Review &amp; batch-credit addresses</button>
       <p className="fine-print">Issue credit mints new TRӾ directly to the entered address and records an on-chain reference event. It does not require the recipient to have an existing TRӾ balance. This cannot force an exchange to recognize or credit its internal customer account; the exchange must explicitly support this exact TRON contract address and network.</p>
     </div>
 
