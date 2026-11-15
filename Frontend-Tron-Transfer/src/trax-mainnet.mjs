@@ -821,7 +821,7 @@ export async function preflightContractDeployments(wallet, deployments, {
     const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
     let unsigned
     try {
-      unsigned = await createMainnetDeploymentTransaction(tronWeb, options, wallet.address)
+      unsigned = await createMainnetDeploymentTransaction(walletTronWeb, options, wallet.address)
     } catch (error) {
       throw new Error(explainTronLinkError(error, 'Combined deployment preflight transaction construction failed'))
     }
@@ -886,13 +886,17 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
 } = {}) {
-  // Construct the unsigned Mainnet transaction through the pinned read-only
-  // TronWeb client, then ask the connected TronLink wallet to sign that exact
-  // raw_data payload and broadcast the verified signed transaction. The wallet
-  // provider never receives private keys or any server-side signing request.
+  // Build the unsigned deployment transaction with the SAME injected
+  // TronWeb instance that will sign it. TronLink's provider can use a different
+  // TronWeb/protobuf version than the app's pinned verifier; constructing with
+  // the app copy and handing it to the wallet copy can make the wallet reject
+  // CreateSmartContract as "Invalid transaction provided" before its prompt.
+  // The separate pinned client remains read-only and independently verifies
+  // raw_data, txID, signatures, permissions, receipts and deployed bytecode.
   const walletTronWeb = assertMainnetWallet(wallet)
   const tronWeb = createVerifier()
-  if (typeof walletTronWeb?.trx?.sign !== 'function'
+  if (typeof walletTronWeb?.transactionBuilder?.createSmartContract !== 'function'
+    || typeof walletTronWeb?.trx?.sign !== 'function'
     || typeof walletTronWeb?.trx?.sendRawTransaction !== 'function'
     || !tronWeb?.utils?.transaction?.txCheck
     || !tronWeb?.utils?.crypto?.ecRecover
