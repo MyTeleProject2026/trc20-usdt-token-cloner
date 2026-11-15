@@ -4,7 +4,29 @@ import { TronWeb } from 'tronweb'
 export const TRON_MAINNET_HOST = 'https://api.trongrid.io'
 export const TRAX_STORAGE_KEY = 'tron-transfer:trax-mainnet-contracts:v1'
 export const TRAX_TOKEN_ARTIFACT = artifacts.token
-export const TRAX_VAULT_ARTIFACT = artifacts.vault
+
+export async function verifyTRAXTokenContract(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet TRӾ contract address.')
+  const expectedCode = String(TRAX_TOKEN_ARTIFACT.deployedBytecode || '').replace(/^0x/, '').toLowerCase()
+  if (!/^(?:[0-9a-f]{2})+$/i.test(expectedCode)) {
+    throw new Error('Compiled TRӾ runtime bytecode is missing. Rebuild the frontend artifact before using this contract.')
+  }
+  const info = await postNode(tronWeb, '/wallet/getcontractinfo', { value: address, visible: true })
+  const deployedCode = String(info?.runtimecode || '').replace(/^0x/, '').toLowerCase()
+  if (!deployedCode || deployedCode !== expectedCode) {
+    throw new Error('The saved address does not contain the exact TRӾ contract bytecode compiled for this release. Refusing to issue credits or transfer tokens.')
+  }
+  const token = await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(address)
+  const [name, symbol, decimals] = await Promise.all([
+    callMainnetView(token.name()),
+    callMainnetView(token.symbol()),
+    callMainnetView(token.decimals()),
+  ])
+  if (String(name) !== 'TRӾ' || String(symbol) !== 'TRAX' || Number(decimals) !== 6) {
+    throw new Error('TRӾ contract metadata mismatch. Expected TRӾ / TRAX / 6 decimals.')
+  }
+  return token
+}
 
 export function assertMainnetWallet(wallet) {
   if (!wallet?.tronWeb || !wallet?.address) throw new Error('Connect a TronLink wallet first.')
@@ -39,19 +61,14 @@ export function addressesEqual(tronWeb, a, b) {
 export function loadSavedContracts() {
   try {
     const value = JSON.parse(window.localStorage.getItem(TRAX_STORAGE_KEY) || '{}')
-    return {
-      tokenAddress: typeof value.tokenAddress === 'string' ? value.tokenAddress : '',
-      vaultAddress: typeof value.vaultAddress === 'string' ? value.vaultAddress : '',
-    }
-  } catch { return { tokenAddress: '', vaultAddress: '' } }
+    return { tokenAddress: typeof value.tokenAddress === 'string' ? value.tokenAddress : '' }
+  } catch { return { tokenAddress: '' } }
 }
 
-export function saveContractAddresses(addresses) {
-  const value = {
-    tokenAddress: String(addresses.tokenAddress || ''),
-    vaultAddress: String(addresses.vaultAddress || ''),
-  }
-  window.localStorage.setItem(TRAX_STORAGE_KEY, JSON.stringify(value))
+export function saveContractAddresses({ tokenAddress }) {
+  window.localStorage.setItem(TRAX_STORAGE_KEY, JSON.stringify({
+    tokenAddress: String(tokenAddress || ''),
+  }))
 }
 
 const CHAIN_PARAMETERS_CACHE_TTL_MS = 60000
@@ -102,11 +119,12 @@ export async function callMainnetView(method) {
       try {
         return { value: await method.call() }
       } catch (error) {
-        const message = String(error?.message || error || '')
         const status = Number(error?.response?.status || error?.status || error?.statusCode)
-        const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
+        const detail = String(error?.message || error || '')
+          + ' ' + String(error?.response?.data?.Error || error?.response?.data?.message || '')
+        const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(detail)
         if (rateLimited) {
-          const cooldown = retryDelayMs(error?.response, attempt, message)
+          const cooldown = retryDelayMs(error?.response, attempt, detail)
           nodeCooldownUntil = Math.max(nodeCooldownUntil, Date.now() + cooldown)
         }
         return { error, rateLimited }
@@ -115,7 +133,26 @@ export async function callMainnetView(method) {
     if (!result.error) return result.value
     if (!result.rateLimited || attempt === NODE_MAX_RETRIES_429) throw result.error
   }
-  throw new Error('TRON Mainnet contract read failed after rate-limit retries.')
+  throw new Error('TRON Mainnet contract read failed after bounded rate-limit retries.')
+}
+
+export function parseBatchCreditRows(input, isAddress, maxEntries = 50) {
+  if (typeof isAddress !== 'function') throw new Error('A TRON address validator is required.')
+  const rows = String(input ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  if (rows.length === 0 || rows.length > maxEntries) {
+    throw new Error('Enter between 1 and ' + maxEntries + ' recipient,amount rows.')
+  }
+  const recipients = []
+  const amounts = []
+  for (const [index, row] of rows.entries()) {
+    const parts = row.split(',').map(value => value.trim())
+    if (parts.length !== 2 || !isAddress(parts[0])) {
+      throw new Error('Invalid recipient row ' + (index + 1) + '. Use TRON_ADDRESS,AMOUNT.')
+    }
+    recipients.push(parts[0])
+    amounts.push(parseTokenUnits(parts[1]))
+  }
+  return { recipients, amounts }
 }
 
 export async function getMainnetNativeBalance(tronWeb, address) {
@@ -853,7 +890,7 @@ export async function preflightContractDeployments(wallet, deployments, {
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
   createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
-  verifyDeployedContract = async (client, address) => client.trx.getContract(address),
+  verifyDeployedContract = async (client, address) => client.trx.getContractInfo(address),
   verifyDeployedOwner = async (client, artifact, address) => {
     const instance = await client.contract(artifact.abi).at(address)
     return instance.owner().call()
@@ -991,7 +1028,12 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   const receipt = await waitForReceipt(tronWeb, unsigned.txID)
   if (receipt?.receipt?.result !== 'SUCCESS') throw new Error('Deployment transaction is not confirmed successful. Transaction: ' + unsigned.txID)
   const deployed = await verifyDeployedContract(tronWeb, predictedAddress)
-  if (!deployed?.bytecode) throw new Error('Deployment receipt succeeded, but deployed contract bytecode could not be verified. Transaction: ' + unsigned.txID)
+  if (!deployed?.runtimecode) throw new Error('Deployment receipt succeeded, but deployed runtime bytecode could not be verified. Transaction: ' + unsigned.txID)
+  const expectedRuntimeCode = String(artifact.deployedBytecode || '').replace(/^0x/, '').toLowerCase()
+  const deployedRuntimeCode = String(deployed.runtimecode || '').replace(/^0x/, '').toLowerCase()
+  if (!expectedRuntimeCode || deployedRuntimeCode !== expectedRuntimeCode) {
+    throw new Error('Deployment receipt succeeded, but deployed runtime bytecode does not match the compiled contract artifact. Transaction: ' + unsigned.txID)
+  }
   let deployedOwner
   try { deployedOwner = await verifyDeployedOwner(tronWeb, artifact, predictedAddress) } catch (error) {
     throw new Error('Deployment receipt and bytecode were verified, but the deployed contract owner could not be read. Transaction: ' + unsigned.txID + '. ' + (error?.message || String(error)))
@@ -1041,4 +1083,23 @@ export async function sendNativeTrxFromTronLink(wallet, toAddress, amountSun) {
   if (broadcast?.result !== true) throw new Error('TRON Mainnet rejected the TRX funding transfer.')
   const receipt = await waitForSolidifiedReceipt(tronWeb, unsigned.txID)
   return { txID: unsigned.txID, receipt }
+}
+
+export const MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const MAINNET_ERC20_BALANCE_ABI = [{
+  constant: true,
+  inputs: [{ name: 'account', type: 'address' }],
+  name: 'balanceOf',
+  outputs: [{ name: '', type: 'uint256' }],
+  stateMutability: 'view',
+  type: 'function',
+}]
+
+export async function getMainnetUSDTBalance(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet account address.')
+  const token = await tronWeb.contract(MAINNET_ERC20_BALANCE_ABI).at(MAINNET_USDT_CONTRACT)
+  const balance = await callMainnetView(token.balanceOf(address))
+  const normalized = String(balance)
+  if (!/^(?:0|[1-9][0-9]*)$/.test(normalized)) throw new Error('Official USDT contract returned an invalid balance.')
+  return normalized
 }
