@@ -10,7 +10,7 @@ import './trax-mainnet.css'
 
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const DEFAULT_RECIPIENT = ''
-const DEFAULT_FEE_CAP = '60'
+const DEFAULT_FEE_CAP = '150'
 
 function makeReference() {
   const bytes = new Uint8Array(32)
@@ -221,7 +221,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     <div className="trax-addresses">
       <label>TRӾ / TRAX custom-token contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Deploy TRӾ or enter its verified Mainnet contract address"/></label><p id="trax-contract-address-note" className="fine-print">This address uniquely identifies the custom TRC-20 asset. Verify it before accepting deposits; native TRX does not have a TRC-20 contract address.</p>
       <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ automatically</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button></div>
-      <label>Transaction fee cap (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
+      <label>Maximum deployment fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label><p className="fine-print">This is the transaction fee_limit ceiling, not a fee charged upfront or a promise that the full amount will be spent. TRON resource quotas are used first; actual TRX burn depends on Energy and Bandwidth remaining at execution. TronLink and the network still enforce the available balance. The app checks the estimated Energy against this ceiling to avoid submitting an underfunded deployment transaction.</p>
       <p className="fine-print">Deployment is an irreversible Mainnet transaction. The deployer becomes the initial owner. This dashboard does not deploy automatically; you must click the deployment button and approve the TronLink prompt yourself.</p>
     </div>
 
