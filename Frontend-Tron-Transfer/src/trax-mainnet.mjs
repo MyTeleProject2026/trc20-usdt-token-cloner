@@ -377,9 +377,21 @@ export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
   return normalizeMainnetAccountResources(accountResources, chainParameters, nativeBalanceSun)
 }
 
+function decodeNodeErrorText(value) {
+  const raw = String(value ?? '')
+  const hex = raw.trim().replace(/^0x/i, '')
+  if (/^(?:[0-9a-f]{2}){8,}$/i.test(hex)) {
+    try {
+      const decoded = new TextDecoder().decode(Uint8Array.from(hex.match(/.{2}/g), pair => parseInt(pair, 16))).replace(/\0+$/g, '').trim()
+      if (/[a-z]{3}/i.test(decoded)) return decoded
+    } catch {}
+  }
+  return raw
+}
+
 export function normalizeDeploymentEnergyEstimate(response) {
   if (!response || response.Error || response.result?.result !== true) {
-    const detail = response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not estimate contract creation Energy'
+    const detail = decodeNodeErrorText(response?.result?.message || response?.result?.code || response?.Error || 'Mainnet node could not estimate contract creation Energy')
     throw new Error('TRON Mainnet deployment Energy estimation failed: ' + detail)
   }
   // wallet/estimateenergy reports energy_required; triggerconstantcontract
@@ -496,7 +508,7 @@ export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, art
 }
 
 export function isMainnetEnergyEstimateUnavailable(error) {
-  const message = String(error?.message || error || '')
+  const message = decodeNodeErrorText(error?.message || error || '')
   return /does not support estimate energy|estimateenergy.{0,50}(?:not supported|disabled|unavailable)|(?:not supported|disabled|unavailable).{0,50}estimateenergy|HTTP (?:404|405|501).*estimateenergy/i.test(message)
 }
 
