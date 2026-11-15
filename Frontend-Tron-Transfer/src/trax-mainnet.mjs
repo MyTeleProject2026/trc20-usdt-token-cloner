@@ -424,7 +424,7 @@ export function calculateDeploymentResourceBudget({
   resourceSnapshot,
   rawDataHex,
   feeLimitSun,
-  safetyMarginBps = 12000,
+  safetyMarginBps = 12500,
 }) {
   let energy, feeLimit
   try {
@@ -1065,6 +1065,18 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       throw new Error('The connected TronLink TronWeb validator rejects the node-issued CreateSmartContract payload before signing. No wallet prompt or broadcast was attempted. Check the wallet version and transaction serialization.')
     }
   }
+  // Re-read the exact fee-paying owner account immediately before opening
+  // TronLink. The initial balance/resource snapshot may become stale while
+  // simulation and transaction construction run; do not rely on it for a
+  // high-cost Mainnet deployment.
+  const finalResourceSnapshot = await readResources(tronWeb, wallet.address)
+  resourceBudget = calculateDeploymentResourceBudget({
+    energyRequired: energyEstimate.energyUsed,
+    resourceSnapshot: finalResourceSnapshot,
+    rawDataHex: walletTransaction.raw_data_hex,
+    feeLimitSun,
+    safetyMarginBps: 12500,
+  })
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
