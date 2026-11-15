@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const contract = await fs.readFile(path.resolve(here, '../../contracts/Restricted1TRAX.sol'), 'utf8')
 
-test('TRӾ is explicitly owner-issued and has no reserve or redemption dependency', () => {
+test('TRӾ is owner-issued and has no reserve or redemption dependency', () => {
   assert.match(contract, /contract Restricted1TRAX/)
   assert.match(contract, /function mint\(address recipient, uint256 amount\) external onlyOwner/)
-  assert.match(contract, /function credit\(address recipient, uint256 amount, bytes32 reference\)/)
+  assert.match(contract, /function credit\(address recipient, uint256 amount, bytes32 referenceId\)/)
   assert.doesNotMatch(contract, /reserveVault|redeemForOwner|releaseForRedemption|insufficient-trx-reserve/)
 })
 
@@ -20,17 +20,17 @@ test('only owner can authorize issuance and pause controls', () => {
   assert.match(contract, /function batchCredit\([\s\S]*?external onlyOwner whenNotPaused/)
 })
 
-test('external credits emit both standard TRC-20 Transfer and auditable owner-credit events', () => {
+test('external credits emit standard TRC-20 Transfer and auditable owner-credit events', () => {
   assert.match(contract, /event Transfer\(address indexed from, address indexed to, uint256 value\)/)
-  assert.match(contract, /event OwnerCredit\(address indexed recipient, uint256 amount, bytes32 indexed reference\)/)
+  assert.match(contract, /event OwnerCredit\(address indexed recipient, uint256 amount, bytes32 indexed referenceId\)/)
   assert.match(contract, /emit Transfer\(address\(0\), recipient, amount\)/)
-  assert.match(contract, /emit OwnerCredit\(recipient, amount, reference\)/)
+  assert.match(contract, /emit OwnerCredit\(recipient, amount, referenceId\)/)
 })
 
 test('batch credit is bounded and validates parallel array lengths', () => {
   assert.match(contract, /MAX_BATCH_CREDITS = 50/)
-  assert.match(contract, /recipients\.length <= MAX_BATCH_CREDITS/)
-  assert.match(contract, /amounts\.length == length && references\.length == length/)
+  assert.match(contract, /length <= MAX_BATCH_CREDITS/)
+  assert.match(contract, /amounts\.length == length && referenceIds\.length == length/)
 })
 
 test('minting rejects zero recipients, zero amounts, and uint256 supply overflow', () => {
