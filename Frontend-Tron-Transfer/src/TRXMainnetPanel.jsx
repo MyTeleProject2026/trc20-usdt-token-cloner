@@ -3,8 +3,9 @@ import { AlertTriangle, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, Sh
 import {
   TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, deployContractFromTronLink,
   callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts, parseBatchCreditRows, parseTokenUnits, saveContractAddresses,
-  sendAndVerifyContractCall, verifyTRAXTokenContract,
+  sendAndVerifyContractCall, verifyTRAXTokenContract, getMainnetUSDTBalance,
 } from './trax-mainnet.mjs'
+import { calculatePortfolioValue, fetchTRXReferencePrice } from './trax-pricing.mjs'
 
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const DEFAULT_RECIPIENT = ''
@@ -17,6 +18,8 @@ function makeReference() {
 }
 
 function TraxTokenMark() { return <img className="trax-token-mark" src="/trax-token-mark.svg" alt="TRAX custom token icon" width="22" height="22" style={{background:"#000",borderRadius:"50%"}}/> }
+
+function formatUsd(value) { return Number.isFinite(Number(value)) ? '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Unavailable' }
 
 function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
@@ -31,6 +34,10 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [batchInput, setBatchInput] = useState('')
   const [lookupAddress, setLookupAddress] = useState(DEFAULT_RECIPIENT)
   const [lookupBalance, setLookupBalance] = useState('')
+  const [lookupNativeBalance, setLookupNativeBalance] = useState('')
+  const [lookupUsdtBalance, setLookupUsdtBalance] = useState('')
+  const [lookupPortfolioValue, setLookupPortfolioValue] = useState(null)
+  const [referencePrice, setReferencePrice] = useState(null)
   const [feeCap, setFeeCap] = useState(DEFAULT_FEE_CAP)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -76,17 +83,20 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const refresh = () => run('Reading TRON Mainnet token state', async () => {
     const { tronWeb, token } = await getToken()
-    const [owner, name, symbol, decimals, totalSupply, paused, mintingEnabled, ownerBalance, ownerTrx] = await Promise.all([
+    const [owner, name, symbol, decimals, totalSupply, paused, mintingEnabled, ownerBalance, ownerTrx, ownerUsdt] = await Promise.all([
       callMainnetView(token.owner()), callMainnetView(token.name()), callMainnetView(token.symbol()), callMainnetView(token.decimals()),
       callMainnetView(token.totalSupply()), callMainnetView(token.paused()), callMainnetView(token.mintingEnabled()),
       callMainnetView(token.balanceOf(connectedAddress)), getMainnetNativeBalance(tronWeb, connectedAddress),
+      getMainnetUSDTBalance(tronWeb, connectedAddress),
     ])
+    const livePrice = await fetchTRXReferencePrice().catch(() => null)
+    setReferencePrice(livePrice)
     const valid = name === 'TRӾ' && symbol === 'TRAX' && Number(decimals) === 6
     const ownerValid = addressesEqual(tronWeb, owner, connectedAddress)
     const next = {
       owner: String(owner), name, symbol, decimals: Number(decimals), totalSupply: String(totalSupply),
       paused: Boolean(paused), mintingEnabled: Boolean(mintingEnabled), ownerBalance: String(ownerBalance),
-      ownerTrx: String(ownerTrx), valid, ownerValid,
+      ownerTrx: String(ownerTrx), ownerUsdt: String(ownerUsdt), valid, ownerValid,
     }
     setSnapshot(next)
     if (!valid) throw new Error('Token metadata mismatch. Expected TRӾ / TRAX / 6 decimals.')
@@ -156,8 +166,12 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const readBalance = () => run('Reading external wallet token balance', async () => {
     const { tronWeb, token } = await getToken()
     if (!tronWeb.isAddress(lookupAddress.trim())) throw new Error('Enter a valid TRON Mainnet address.')
-    const balance = await callMainnetView(token.balanceOf(lookupAddress.trim()))
-    setLookupBalance(String(balance))
+    const [balance, nativeBalance, usdtBalance, livePrice] = await Promise.all([
+      callMainnetView(token.balanceOf(lookupAddress.trim())), getMainnetNativeBalance(tronWeb, lookupAddress.trim()),
+      getMainnetUSDTBalance(tronWeb, lookupAddress.trim()), fetchTRXReferencePrice().catch(() => null),
+    ])
+    setLookupBalance(String(balance)); setLookupNativeBalance(String(nativeBalance)); setLookupUsdtBalance(String(usdtBalance))
+    setLookupPortfolioValue(livePrice ? calculatePortfolioValue({ trx: formatTokenUnits(nativeBalance), trax: formatTokenUnits(balance), usdt: formatTokenUnits(usdtBalance), prices: livePrice }) : null)
     return balance
   })
 
@@ -210,14 +224,16 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <p className="fine-print">Deployment is an irreversible Mainnet transaction. The deployer becomes the initial owner. This dashboard does not deploy automatically; you must click the deployment button and approve the TronLink prompt yourself.</p>
     </div>
 
-    <div className="trax-actions trax-portfolio" aria-label="Wallet portfolio overview">
-      <h3>Wallet portfolio overview</h3>
-      <p className="fine-print">Holdings appear together in one portfolio view, but remain separate assets with different units and transfer rules. No combined token quantity or exchange rate is assumed.</p>
+    <div className="trax-actions trax-portfolio" aria-label="Combined wallet portfolio valuation">
+      <h3>Combined wallet portfolio value</h3>
+      <p className="fine-print">A single USD portfolio estimate, with each underlying asset quantity still identified separately.</p>
       <div className="trax-stats">
-        <article><span>Native TRX · network fees</span><b>{snapshot ? formatTokenUnits(snapshot.ownerTrx) : 'Refresh contract state'} TRX</b></article>
-        <article><span><TraxTokenMark/> TRӾ / TRAX · custom TRC-20</span><b>{snapshot ? formatTokenUnits(snapshot.ownerBalance) : 'Refresh contract state'} TRAX</b></article>
+        <article><span>Native TRX</span><b>{snapshot ? formatTokenUnits(snapshot.ownerTrx) : 'Refresh contract state'} TRX</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerTrx)) * referencePrice.trxUsd) : 'Live quote unavailable'}</small></article>
+        <article><span><TraxTokenMark/> TRӾ reference value · TRAX</span><b>{snapshot ? formatTokenUnits(snapshot.ownerBalance) : 'Refresh contract state'} TRӾ</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerBalance)) * referencePrice.traxReferenceUsd) : 'Live quote unavailable'}</small></article>
+        <article><span>Official USDT · TRC20</span><b>{snapshot ? formatTokenUnits(snapshot.ownerUsdt) : 'Refresh contract state'} USDT</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerUsdt)) * referencePrice.usdtUsd) : 'Live quote unavailable'}</small></article>
       </div>
-      <p className="fine-print">TRӾ is an independently issued custom token, not native TRX. No combined fiat value is assumed without reliable, separately sourced prices for both assets.</p>
+      <div className="trax-balance-note"><b>Estimated combined portfolio value: </b>{snapshot && referencePrice ? formatUsd(calculatePortfolioValue({ trx: formatTokenUnits(snapshot.ownerTrx), trax: formatTokenUnits(snapshot.ownerBalance), usdt: formatTokenUnits(snapshot.ownerUsdt), prices: referencePrice })?.totalUsd) : 'Unavailable — refresh when live prices are available'}</div>
+      <p className="fine-print">{referencePrice ? 'TRX/USD reference: ' + formatUsd(referencePrice.trxUsd) + ' · TRӾ reference uses the same TRX/USD quote · USDT/USD: ' + formatUsd(referencePrice.usdtUsd) + ' · Source: ' + referencePrice.source + ' · Updated: ' + new Date(referencePrice.updatedAt).toLocaleString() : 'Live reference prices are unavailable or stale. No price is invented or carried forward.'} TRӾ has no backing or redemption; its reference value is not a guaranteed exchange trading price.</p>
     </div>
 
     <div className="trax-actions">
@@ -253,7 +269,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <h3>Check any external wallet balance</h3>
       <label>TRON address<input value={lookupAddress} onChange={e => setLookupAddress(e.target.value)} autoComplete="off" spellCheck="false"/></label>
       <button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={readBalance}>Read on-chain TRӾ balance</button>
-      {lookupBalance !== '' && <div className="trax-recipient-result"><b>{formatTokenUnits(lookupBalance)} TRӾ</b><span>{lookupAddress}</span></div>}
+      {lookupBalance !== '' && <div className="trax-recipient-result"><b>{formatTokenUnits(lookupBalance)} TRӾ</b><span>{lookupAddress}</span><p>Native TRX: {formatTokenUnits(lookupNativeBalance)} · Official USDT: {formatTokenUnits(lookupUsdtBalance)}</p><b>Combined estimated portfolio value: {lookupPortfolioValue ? formatUsd(lookupPortfolioValue.totalUsd) : 'Unavailable — live quote missing or stale'}</b><small>TRӾ is valued using the TRX/USD reference quote, not a verified exchange trade price.</small></div>}
     </div>
 
     {lastTx && <div className="notice notice-success"><CheckCircle2 size={16}/><div><b>Solidified Mainnet transaction verified</b><p>{lastTx}</p><a href={'https://tronscan.org/#/transaction/' + lastTx} target="_blank" rel="noreferrer">Open transaction on TRONSCAN <ExternalLink size={12}/></a></div></div>}
