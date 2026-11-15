@@ -94,5 +94,5 @@ test('zero-TRX owner is blocked before signing when delegated/staked resources l
       nativeBalanceSun: '0',
       maxFeeLimitSun: '15000000000',
     },
-  }), /still needs .* TRX, but its current balance is 0\.000000 TRX/)
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*12\.639000 TRX.*0\.000000 TRX.*No wallet prompt/)
 })
