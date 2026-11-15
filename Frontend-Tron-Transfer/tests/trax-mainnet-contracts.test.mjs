@@ -11,7 +11,7 @@ const compileScript = await fs.readFile(new URL('../scripts/compile-trax-contrac
 test('Pinned Solidity compiler artifact exposes owner-issued TRӾ functions', () => {
   assert.equal(artifact.compiler, 'TRON solc 0.8.25')
   assert.equal(artifact.optimizer.enabled, true)
-  assert.equal(artifact.optimizer.runs, 200)
+  assert.equal(artifact.optimizer.runs, 1)
   assert.equal(artifact.evmVersion, 'paris')
   assert.equal(artifact.token.contractName, 'Restricted1TRAX')
   assert.ok(artifact.token.bytecode.length > 0)
