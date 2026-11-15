@@ -1195,3 +1195,53 @@ export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 1
     throw new Error('Could not verify the Mainnet wallet balance. Refusing contract call.')
   }
   let nativeBalance
+  try { nativeBalance = BigInt(account.balance ?? 0) } catch {
+    throw new Error('Mainnet wallet returned an invalid native TRX balance. Refusing contract call.')
+  }
+  // A positive TRX balance is permitted: Tron protocol resource quotas are
+  // consumed first, and feeLimit caps caller-side Energy burn for any shortfall.
+  // The wallet still displays and requires explicit approval for each write.
+  const result = await method.send({
+    feeLimit: feeLimitSun,
+    callValue: 0,
+    shouldPollResponse: false,
+    keepTxID: true,
+  })
+  const txID = Array.isArray(result) ? result[0] : result
+  if (typeof txID !== 'string' || !/^[0-9a-f]{64}$/i.test(txID)) throw new Error('TronLink did not return a valid transaction ID.')
+  const receipt = await waitForSolidifiedReceipt(tronWeb, txID)
+  return { txID, receipt }
+}
+
+export async function sendNativeTrxFromTronLink(wallet, toAddress, amountSun) {
+  const tronWeb = assertMainnetWallet(wallet)
+  if (!tronWeb.isAddress(toAddress)) throw new Error('Invalid reserve-vault TRON address.')
+  const amount = BigInt(String(amountSun))
+  if (amount <= 0n || amount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Invalid TRX funding amount.')
+  const unsigned = await tronWeb.transactionBuilder.sendTrx(toAddress, Number(amount), wallet.address)
+  const signed = await tronWeb.trx.sign(unsigned)
+  if (!signed?.signature?.length) throw new Error('TronLink did not sign the native TRX funding transaction.')
+  const broadcast = await tronWeb.trx.sendRawTransaction(signed)
+  if (broadcast?.result !== true) throw new Error('TRON Mainnet rejected the TRX funding transfer.')
+  const receipt = await waitForSolidifiedReceipt(tronWeb, unsigned.txID)
+  return { txID: unsigned.txID, receipt }
+}
+
+export const MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const MAINNET_ERC20_BALANCE_ABI = [{
+  constant: true,
+  inputs: [{ name: 'account', type: 'address' }],
+  name: 'balanceOf',
+  outputs: [{ name: '', type: 'uint256' }],
+  stateMutability: 'view',
+  type: 'function',
+}]
+
+export async function getMainnetUSDTBalance(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet account address.')
+  const token = await tronWeb.contract(MAINNET_ERC20_BALANCE_ABI).at(MAINNET_USDT_CONTRACT)
+  const balance = await callMainnetView(token.balanceOf(address))
+  const normalized = String(balance)
+  if (!/^(?:0|[1-9][0-9]*)$/.test(normalized)) throw new Error('Official USDT contract returned an invalid balance.')
+  return normalized
+}
