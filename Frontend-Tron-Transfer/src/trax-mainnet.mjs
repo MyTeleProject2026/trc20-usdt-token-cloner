@@ -195,32 +195,61 @@ async function postNode(tronWeb, path, body) {
   }
 }
 
-async function createMainnetDeploymentTransaction(tronWeb, options, ownerAddress) {
-  if (typeof tronWeb?.transactionBuilder?.createSmartContract !== 'function') {
-    throw new Error('The Mainnet transaction-construction client is unavailable.')
+export async function createMainnetDeploymentTransaction(tronWeb, options, ownerAddress) {
+  if (!tronWeb?.isAddress?.(ownerAddress)) {
+    throw new Error('A valid connected TRON Mainnet owner address is required to construct the deployment transaction.')
   }
-  let lastError
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const result = await enqueueNodeRequest(async () => {
-      try {
-        return { value: await tronWeb.transactionBuilder.createSmartContract(options, ownerAddress) }
-      } catch (error) {
-        const message = String(error?.message || error || '')
-        const status = Number(error?.response?.status || error?.status || error?.statusCode)
-        const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
-        return { error, detail: message, response: rateLimited ? { status: 429 } : null }
-      }
-    })
-    if (!result.error) return result.value
-    lastError = result.error
-    const message = String(lastError?.message || lastError || '')
-    const status = Number(lastError?.response?.status || lastError?.status || lastError?.statusCode)
-    const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(message)
-    if (!rateLimited || attempt === 3) break
+  const abi = typeof options?.abi === 'string' ? options.abi : JSON.stringify(options?.abi || [])
+  let parsedAbi
+  try { parsedAbi = JSON.parse(abi) } catch {
+    throw new Error('Compiled TRӾ ABI is not valid JSON; refusing to construct a deployment transaction.')
   }
-  throw new Error('TRON Mainnet transaction construction failed after bounded rate-limit retries: '
-    + String(lastError?.message || lastError || 'unknown provider error')
-    + '. No wallet signature or broadcast was attempted.')
+  if (!Array.isArray(parsedAbi)) throw new Error('Compiled TRӾ ABI must be a JSON array.')
+  const bytecode = String(options?.bytecode || '').replace(/^0x/, '')
+  if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled TRӾ creation bytecode is malformed.')
+  const feeLimit = Number(options?.feeLimit)
+  if (!Number.isSafeInteger(feeLimit) || feeLimit <= 0) throw new Error('A positive whole-number fee_limit in SUN is required.')
+
+  // Ask java-tron to create the canonical unsigned CreateSmartContract
+  // transaction. Do not locally encode protobuf using a browser TronWeb build:
+  // TronLink may use another protobuf implementation and reject that object.
+  // This endpoint never signs or broadcasts; the returned transaction is passed
+  // unchanged to the user's connected wallet for explicit approval.
+  const request = {
+    owner_address: tronWeb.address.toHex(ownerAddress),
+    abi,
+    bytecode,
+    fee_limit: feeLimit,
+    origin_energy_limit: Number(options.originEnergyLimit ?? 10000000),
+    name: String(options.name || 'TRӾ'),
+    call_value: Number(options.callValue ?? 0),
+    consume_user_resource_percent: Number(options.userFeePercentage ?? 100),
+    visible: false,
+  }
+  const response = await postNode(tronWeb, '/wallet/deploycontract', request)
+  if (response?.Error || response?.result?.result === false) {
+    const detail = response?.result?.message || response?.result?.code || response?.Error || 'node rejected deployment construction'
+    throw new Error('TRON Mainnet wallet/deploycontract rejected the request: ' + String(detail))
+  }
+  const transaction = response?.transaction?.raw_data
+    ? { ...response.transaction, ...(response.contract_address ? { contract_address: response.contract_address } : {}) }
+    : response
+  const contract = transaction?.raw_data?.contract?.[0]
+  const value = contract?.parameter?.value
+  const newContract = value?.new_contract
+  const expectedOwner = tronWeb.address.toHex(ownerAddress).toLowerCase()
+  if (!transaction?.txID || !/^[0-9a-f]{64}$/i.test(transaction.txID)
+    || !transaction?.raw_data_hex || !/^(?:[0-9a-f]{2})+$/i.test(transaction.raw_data_hex)
+    || contract?.type !== 'CreateSmartContract'
+    || contract?.parameter?.type_url !== 'type.googleapis.com/protocol.CreateSmartContract'
+    || String(value?.owner_address || '').toLowerCase() !== expectedOwner
+    || !newContract || String(newContract.bytecode || '').replace(/^0x/, '').toLowerCase() !== bytecode.toLowerCase()
+    || !Array.isArray(newContract.abi?.entrys)
+    || newContract.abi.entrys.length !== parsedAbi.length
+    || !transaction.contract_address) {
+    throw new Error('TRON Mainnet returned an incomplete or mismatched CreateSmartContract transaction from wallet/deploycontract. No wallet signature or broadcast was attempted.')
+  }
+  return transaction
 }
 
 async function getCachedChainParameters(tronWeb) {
@@ -457,23 +486,20 @@ export async function estimateMainnetDeploymentEnergy(tronWeb, ownerAddress, art
   const bytecode = String(artifact?.bytecode || '').replace(/^0x/, '')
   if (!/^(?:[0-9a-f]{2})+$/i.test(bytecode)) throw new Error('Compiled contract init bytecode is missing or invalid.')
 
-  // java-tron's estimateenergy service is optional and may be disabled by a
-  // public node. triggerconstantcontract is the documented universal local
-  // simulation endpoint; for contract creation its data field is init bytecode.
-  // This simulation creates no transaction and cannot request a wallet signature.
-  try {
-    const response = await postNode(tronWeb, '/wallet/triggerconstantcontract', {
-      owner_address: tronWeb.address.toHex(ownerAddress),
-      data: bytecode,
-      call_value: 0,
-      visible: false,
-    })
-    return normalizeDeploymentEnergyEstimate(response)
-  } catch (error) {
-    throw new Error('TRON Mainnet contract-creation simulation failed using wallet/triggerconstantcontract: '
-      + String(error?.message || error || 'unknown node error')
-      + '. No wallet signature or broadcast was attempted.')
-  }
+  // TronWeb 6.5.2 deployConstantContract uses /wallet/estimateenergy with
+  // {data, owner_address, call_value}. triggerconstantcontract is for invoking
+  // an existing contract, not for simulating CreateSmartContract deployment.
+  const response = await postNode(tronWeb, '/wallet/estimateenergy', {
+    owner_address: tronWeb.address.toHex(ownerAddress),
+    data: bytecode,
+    call_value: 0,
+  })
+  return normalizeDeploymentEnergyEstimate(response)
+}
+
+export function isMainnetEnergyEstimateUnavailable(error) {
+  const message = String(error?.message || error || '')
+  return /does not support estimate energy|estimateenergy.{0,50}(?:not supported|disabled|unavailable)|(?:not supported|disabled|unavailable).{0,50}estimateenergy|HTTP (?:404|405|501).*estimateenergy/i.test(message)
 }
 
 export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 180000, intervalMs = 3000 } = {}) {
@@ -641,7 +667,11 @@ export function toWalletSignableTransaction(transaction) {
   // or whitelist fields here: CreateSmartContract has protocol-specific fields
   // (including contract_address and ABI encoding) that wallet versions may
   // validate as part of the complete builder result.
-  return JSON.parse(JSON.stringify(transaction))
+  // Pass the exact node-issued transaction object to TronLink. Its own
+  // trx.sign implementation clones and validates the object internally.
+  // Avoid an application-side JSON round-trip that could alter provider-specific
+  // field representations before the wallet validates the payload.
+  return transaction
 
 }
 
