@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { assertZeroTrxBurnBudget, buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
+import { assertZeroTrxBurnBudget, calculateDeploymentResourceBudget, buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -226,6 +226,37 @@ test('TRON deployment construction requests the canonical wallet/deploycontract 
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('deployment resource budget requires zero Energy and Bandwidth burn for the zero-cost path', () => {
+  const resourceSnapshot = {
+    energyFeeSun: '100',
+    bandwidthFeeSun: '1000',
+    energyAvailable: '1000',
+    freeBandwidthAvailable: '1000',
+    stakedBandwidthAvailable: '0',
+    nativeBalanceSun: '70000',
+    maxFeeLimitSun: '15000000000',
+  }
+  const budget = calculateDeploymentResourceBudget({
+    energyRequired: '100',
+    resourceSnapshot,
+    rawDataHex: 'ab'.repeat(100),
+    feeLimitSun: '12500',
+  })
+  assert.equal(budget.requiredTrxSun, '0')
+  assert.equal(budget.energyBurnSun, '0')
+  assert.equal(budget.bandwidthBurnSun, '0')
+  assert.equal(assertZeroTrxBurnBudget(budget), true)
+
+  const noEnergy = calculateDeploymentResourceBudget({
+    energyRequired: '100',
+    resourceSnapshot: { ...resourceSnapshot, energyAvailable: '0' },
+    rawDataHex: 'ab'.repeat(100),
+    feeLimitSun: '12500',
+  })
+  assert.equal(noEnergy.requiredTrxSun, '12500')
+  assert.throws(() => assertZeroTrxBurnBudget(noEnergy), /Zero-TRX deployment preflight blocked/)
 })
 
 test('zero-cost deployment guard blocks any estimated Energy or Bandwidth TRX burn before signing', () => {
