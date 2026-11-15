@@ -44,7 +44,7 @@ test('owner issuance starts disabled and the token starts paused', async () => {
 test('external credit emits standard mint Transfer and OwnerCredit audit event', async () => {
   const source = await fs.readFile(new URL('../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
   assert.match(source, /event Transfer\(address indexed from, address indexed to, uint256 value\)/)
-  assert.match(source, /event OwnerCredit\(address indexed recipient, uint256 amount, bytes32 indexed reference\)/)
+  assert.match(source, /event OwnerCredit\(address indexed recipient, uint256 amount, bytes32 indexed referenceId\)/)
   assert.match(source, /emit Transfer\(address\(0\), recipient, amount\)/)
-  assert.match(source, /emit OwnerCredit\(recipient, amount, reference\)/)
+  assert.match(source, /emit OwnerCredit\(recipient, amount, referenceId\)/)
 })
