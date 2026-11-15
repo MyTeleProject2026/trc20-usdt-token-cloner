@@ -11,8 +11,8 @@ export async function verifyTRAXTokenContract(tronWeb, address) {
   if (!/^(?:[0-9a-f]{2})+$/i.test(expectedCode)) {
     throw new Error('Compiled TRӾ runtime bytecode is missing. Rebuild the frontend artifact before using this contract.')
   }
-  const info = await postNode(tronWeb, '/wallet/getcontract', { value: address, visible: true })
-  const deployedCode = String(info?.bytecode || '').replace(/^0x/, '').toLowerCase()
+  const info = await postNode(tronWeb, '/wallet/getcontractinfo', { value: address, visible: true })
+  const deployedCode = String(info?.runtimecode || '').replace(/^0x/, '').toLowerCase()
   if (!deployedCode || deployedCode !== expectedCode) {
     throw new Error('The saved address does not contain the exact TRӾ contract bytecode compiled for this release. Refusing to issue credits or transfer tokens.')
   }
@@ -895,7 +895,7 @@ export async function preflightContractDeployments(wallet, deployments, {
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
   createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
-  verifyDeployedContract = async (client, address) => client.trx.getContract(address),
+  verifyDeployedContract = async (client, address) => client.trx.getContractInfo(address),
   verifyDeployedOwner = async (client, artifact, address) => {
     const instance = await client.contract(artifact.abi).at(address)
     return instance.owner().call()
@@ -1033,9 +1033,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   const receipt = await waitForReceipt(tronWeb, unsigned.txID)
   if (receipt?.receipt?.result !== 'SUCCESS') throw new Error('Deployment transaction is not confirmed successful. Transaction: ' + unsigned.txID)
   const deployed = await verifyDeployedContract(tronWeb, predictedAddress)
-  if (!deployed?.bytecode) throw new Error('Deployment receipt succeeded, but deployed contract bytecode could not be verified. Transaction: ' + unsigned.txID)
+  if (!deployed?.runtimecode) throw new Error('Deployment receipt succeeded, but deployed runtime bytecode could not be verified. Transaction: ' + unsigned.txID)
   const expectedRuntimeCode = String(artifact.deployedBytecode || '').replace(/^0x/, '').toLowerCase()
-  const deployedRuntimeCode = String(deployed.bytecode || '').replace(/^0x/, '').toLowerCase()
+  const deployedRuntimeCode = String(deployed.runtimecode || '').replace(/^0x/, '').toLowerCase()
   if (!expectedRuntimeCode || deployedRuntimeCode !== expectedRuntimeCode) {
     throw new Error('Deployment receipt succeeded, but deployed runtime bytecode does not match the compiled contract artifact. Transaction: ' + unsigned.txID)
   }
