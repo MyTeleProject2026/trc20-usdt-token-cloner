@@ -61,19 +61,14 @@ export function addressesEqual(tronWeb, a, b) {
 export function loadSavedContracts() {
   try {
     const value = JSON.parse(window.localStorage.getItem(TRAX_STORAGE_KEY) || '{}')
-    return {
-      tokenAddress: typeof value.tokenAddress === 'string' ? value.tokenAddress : '',
-      vaultAddress: typeof value.vaultAddress === 'string' ? value.vaultAddress : '',
-    }
-  } catch { return { tokenAddress: '', vaultAddress: '' } }
+    return { tokenAddress: typeof value.tokenAddress === 'string' ? value.tokenAddress : '' }
+  } catch { return { tokenAddress: '' } }
 }
 
-export function saveContractAddresses(addresses) {
-  const value = {
-    tokenAddress: String(addresses.tokenAddress || ''),
-    vaultAddress: String(addresses.vaultAddress || ''),
-  }
-  window.localStorage.setItem(TRAX_STORAGE_KEY, JSON.stringify(value))
+export function saveContractAddresses({ tokenAddress }) {
+  window.localStorage.setItem(TRAX_STORAGE_KEY, JSON.stringify({
+    tokenAddress: String(tokenAddress || ''),
+  }))
 }
 
 const CHAIN_PARAMETERS_CACHE_TTL_MS = 60000
