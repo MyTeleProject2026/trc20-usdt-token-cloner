@@ -231,9 +231,8 @@ export async function createMainnetDeploymentTransaction(tronWeb, options, owner
     const detail = response?.result?.message || response?.result?.code || response?.Error || 'node rejected deployment construction'
     throw new Error('TRON Mainnet wallet/deploycontract rejected the request: ' + String(detail))
   }
-  const transaction = response?.transaction?.raw_data
-    ? { ...response.transaction, ...(response.contract_address ? { contract_address: response.contract_address } : {}) }
-    : response
+  // Keep the protocol transaction exactly as returned. Predicted address is derived separately.
+  const transaction = response?.transaction?.raw_data ? response.transaction : response
   const contract = transaction?.raw_data?.contract?.[0]
   const value = contract?.parameter?.value
   const newContract = value?.new_contract
@@ -245,8 +244,7 @@ export async function createMainnetDeploymentTransaction(tronWeb, options, owner
     || String(value?.owner_address || '').toLowerCase() !== expectedOwner
     || !newContract || String(newContract.bytecode || '').replace(/^0x/, '').toLowerCase() !== bytecode.toLowerCase()
     || !Array.isArray(newContract.abi?.entrys)
-    || newContract.abi.entrys.length !== parsedAbi.length
-    || !transaction.contract_address) {
+    || newContract.abi.entrys.length !== parsedAbi.length) {
     throw new Error('TRON Mainnet returned an incomplete or mismatched CreateSmartContract transaction from wallet/deploycontract. No wallet signature or broadcast was attempted.')
   }
   return transaction
@@ -648,6 +646,21 @@ export async function sha256HexFromBytes(hex) {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
+export function predictMainnetContractAddress(tronWeb, ownerAddress, txID) {
+  if (!tronWeb?.isAddress?.(ownerAddress)) throw new Error('Cannot predict a TRON contract address without a valid owner address.')
+  if (!/^[0-9a-f]{64}$/i.test(String(txID || ''))) throw new Error('Cannot predict a TRON contract address without a valid transaction ID.')
+  const ownerHex = String(tronWeb.address.toHex(ownerAddress) || '').replace(/^0x/, '').toLowerCase()
+  if (!/^41[0-9a-f]{40}$/.test(ownerHex)) throw new Error('TRON returned an invalid owner address encoding for contract-address prediction.')
+  const bytes = tronWeb.utils?.code?.hexStr2byteArray?.(String(txID).toLowerCase() + ownerHex)
+  const keccak256 = tronWeb.utils?.ethersUtils?.keccak256
+  if (!bytes || typeof keccak256 !== 'function') throw new Error('The pinned TronWeb client cannot derive the predicted Mainnet contract address.')
+  const digest = String(keccak256(new Uint8Array(bytes))).replace(/^0x/, '').toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(digest)) throw new Error('TronWeb returned an invalid Keccak hash for contract-address prediction.')
+  const predictedAddress = tronWeb.address.fromHex('41' + digest.slice(24))
+  if (!tronWeb.isAddress(predictedAddress)) throw new Error('TronWeb derived an invalid predicted Mainnet contract address.')
+  return predictedAddress
+}
+
 export function toWalletSignableTransaction(transaction) {
   if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) {
     throw new Error('TRON node returned a malformed deployment transaction.')
@@ -951,7 +964,14 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // deployment-simulation requests at the public TronGrid endpoint together.
   const resourceSnapshot = await readResources(tronWeb, wallet.address)
   const permissionSnapshot = await readPermissions(tronWeb, wallet.address)
-  const energyEstimate = await estimateEnergy(tronWeb, wallet.address, artifact)
+  let energyEstimate = null
+  let energyEstimateWarning = ''
+  try {
+    energyEstimate = await estimateEnergy(tronWeb, wallet.address, artifact)
+  } catch (error) {
+    if (!isMainnetEnergyEstimateUnavailable(error)) throw error
+    energyEstimateWarning = String(error?.message || error)
+  }
   if (!permissionSnapshot.connectedSignerCanAuthorizeAlone) {
     throw new Error('Connected wallet cannot satisfy the TRON owner permission threshold alone. Collected weight '
       + permissionSnapshot.connectedSignerWeight + '; required threshold ' + permissionSnapshot.threshold
@@ -965,7 +985,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment transaction construction failed'))
   }
-  if (!unsigned?.txID || !/^[0-9a-f]{64}$/i.test(unsigned.txID) || !unsigned?.contract_address || !unsigned?.raw_data?.contract?.length) {
+  if (!unsigned?.txID || !/^[0-9a-f]{64}$/i.test(unsigned.txID) || !unsigned?.raw_data?.contract?.length) {
     throw new Error('TRON Mainnet returned an incomplete deployment transaction. No signature or broadcast was attempted.')
   }
   const createContract = unsigned.raw_data.contract[0]
@@ -976,8 +996,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     || !addressesEqual(tronWeb, transactionOwner, wallet.address)) {
     throw new Error('Deployment transaction owner does not match the connected TronLink account. Reconnect the intended account and retry. No signature or broadcast was attempted.')
   }
-  const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
-  if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
+  const predictedAddress = predictMainnetContractAddress(tronWeb, wallet.address, unsigned.txID)
   if (Number(unsigned.raw_data?.fee_limit) !== Number(feeLimitSun)) {
     throw new Error('Mainnet node changed the requested deployment fee_limit. No wallet signature or broadcast was attempted.')
   }
@@ -1052,6 +1071,8 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       walletTronWebVersion: String(walletTronWeb.version || 'unknown'),
       walletProviderKind: String(wallet.provider?.isTronLink ? 'TronLink' : wallet.provider?.constructor?.name || 'injected-provider'),
       walletTransactionIntegrity,
+      energyEstimateAvailable: Boolean(energyEstimate),
+      energyEstimateWarning: energyEstimateWarning || null,
       transactionType: contract?.type || 'unknown',
       parameterTypeUrl: contract?.parameter?.type_url || 'missing',
       hasOwnerAddress: Boolean(value.owner_address),
