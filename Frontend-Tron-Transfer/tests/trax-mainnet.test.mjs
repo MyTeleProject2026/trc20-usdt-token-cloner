@@ -71,8 +71,7 @@ test('zero-TRX owner can pass preflight only when delegated/staked Energy and Ba
       energyAvailable: '125000',
       freeBandwidthAvailable: '139',
       stakedBandwidthAvailable: '0',
-      nativeBalanceSun: '0',
-      maxFeeLimitSun: '15000000000',
+            maxFeeLimitSun: '15000000000',
     },
   })
   assert.equal(budget.requiredTrxSun, '0')
@@ -80,7 +79,7 @@ test('zero-TRX owner can pass preflight only when delegated/staked Energy and Ba
   assert.equal(budget.bandwidthShortfall, '0')
 })
 
-test('zero-TRX owner is blocked before signing when delegated/staked resources leave any TRX shortfall', () => {
+test('zero-TRX policy blocks resource shortfalls without reading native TRX balance', () => {
   assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '100000',
     rawDataHex: '6001600055',
@@ -91,13 +90,12 @@ test('zero-TRX owner is blocked before signing when delegated/staked resources l
       energyAvailable: '0',
       freeBandwidthAvailable: '0',
       stakedBandwidthAvailable: '0',
-      nativeBalanceSun: '0',
-      maxFeeLimitSun: '15000000000',
+            maxFeeLimitSun: '15000000000',
     },
   }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*12\.639000 TRX.*0\.000000 TRX.*No wallet prompt/)
 })
 
-test('zero-TRX policy blocks even when the owner balance could pay a resource shortfall', () => {
+test('zero-TRX policy blocks resource shortfalls independently of native TRX balance', () => {
   assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '100000',
     rawDataHex: '6001600055',
@@ -108,8 +106,7 @@ test('zero-TRX policy blocks even when the owner balance could pay a resource sh
       energyAvailable: '0',
       freeBandwidthAvailable: '0',
       stakedBandwidthAvailable: '0',
-      nativeBalanceSun: '20000000',
-      maxFeeLimitSun: '15000000000',
+            maxFeeLimitSun: '15000000000',
     },
   }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*12\.639000 TRX.*20\.000000 TRX.*No wallet prompt/)
 })
