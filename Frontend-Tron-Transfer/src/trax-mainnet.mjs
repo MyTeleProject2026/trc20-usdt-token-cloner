@@ -476,9 +476,9 @@ export function calculateDeploymentResourceBudget({
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
   if (requiredTrxSun > balance) {
     const shortfall = requiredTrxSun - balance
-    throw new Error('Insufficient resources for a safe TRӾ deployment: after available delegated/staked Energy and Bandwidth, this owner account still needs '
-      + (Number(shortfall) / 1e6).toFixed(6) + ' TRX, but its current balance is '
-      + (Number(balance) / 1e6).toFixed(6) + ' TRX. Obtain additional delegated Energy/Bandwidth or fund the same owner account. No wallet prompt, signature, or broadcast was attempted.')
+    throw new Error('ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT: after available delegated/staked Energy and Bandwidth, this owner account still has an estimated TRX resource shortfall of '
+      + (Number(shortfall) / 1e6).toFixed(6) + ' TRX; its current balance is '
+      + (Number(balance) / 1e6).toFixed(6) + ' TRX. The app will not spend TRX to cover this shortage. Obtain sufficient delegated Energy/Bandwidth or keep deployment blocked. No wallet prompt, signature, or broadcast was attempted.')
   }
   return {
     energyRequired: energy.toString(),
