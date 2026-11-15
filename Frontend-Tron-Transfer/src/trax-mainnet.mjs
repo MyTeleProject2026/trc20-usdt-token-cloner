@@ -961,7 +961,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
   let unsigned
   try {
-    unsigned = await createMainnetDeploymentTransaction(walletTronWeb, options, wallet.address)
+    unsigned = await createMainnetDeploymentTransaction(tronWeb, options, wallet.address)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'Deployment transaction construction failed'))
   }
