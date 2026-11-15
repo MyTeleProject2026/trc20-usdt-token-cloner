@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, ShieldCheck, Wallet, Network } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import {
   TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, deployContractFromTronLink,
   callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts, parseBatchCreditRows, parseTokenUnits, saveContractAddresses,
@@ -15,8 +15,6 @@ function makeReference() {
   window.crypto.getRandomValues(bytes)
   return '0x' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 }
-
-function NetworkMark() { return <Network aria-label="TRON network"/> }
 
 function TraxTokenMark() { return <img className="trax-token-mark" src="/trax-token-mark.svg" alt="TRAX custom token icon" width="22" height="22"/> }
 
@@ -195,7 +193,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   })
 
   return <section className="trax-workspace">
-    <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token &amp; external wallet credit manager</h2><p>Deploy and administer the TRӾ TRC-20 contract from the configured owner wallet. Every write requires a separate TronLink approval.</p></div><div className="panel-icon" aria-label="TRON Mainnet network"><NetworkMark/><small>TRON Mainnet</small></div></div>
+    <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token &amp; external wallet credit manager</h2><p>Deploy and administer the TRӾ TRC-20 contract from the configured owner wallet. Every write requires a separate TronLink approval.</p></div><div className="panel-icon" aria-label="TRӾ custom token"><TraxTokenMark/><small>TRӾ / TRAX</small></div></div>
 
     <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>UNBACKED OWNER-ISSUED TOKEN — NOT NATIVE TRX</b><p>The owner can mint without depositing TRX. There is no reserve, collateral, guaranteed redemption, fixed 1:1 TRX value, or promised market price. Unlimited issuance can dilute holders and reduce market value. TRӾ is not TRON's native TRX asset.</p></div></div>
 
