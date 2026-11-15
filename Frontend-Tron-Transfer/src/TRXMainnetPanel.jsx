@@ -18,7 +18,7 @@ function makeReference() {
 
 function NetworkMark() { return <Network aria-label="TRON network"/> }
 
-function TraxTokenMark() { return <img className="trax-token-mark" src="/trax-token-mark.png" alt="TRAX custom token icon" width="22" height="22"/> }
+function TraxTokenMark() { return <img className="trax-token-mark" src="/trax-token-mark.svg" alt="TRAX custom token icon" width="22" height="22"/> }
 
 function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
