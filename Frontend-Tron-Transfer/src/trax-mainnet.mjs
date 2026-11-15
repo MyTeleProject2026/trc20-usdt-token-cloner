@@ -633,15 +633,20 @@ export function toWalletSignableTransaction(transaction) {
   if (!/^[0-9a-f]{64}$/i.test(txID) || !/^[0-9a-f]+$/i.test(rawDataHex)) {
     throw new Error('TRON node returned incomplete transaction signing fields.')
   }
-  // TronLink's trx.sign accepts the protocol transaction shape only:
-  // visible (optional), txID, raw_data and raw_data_hex. createSmartContract
-  // also returns contract_address as UI metadata; passing that extra field
-  // through to the wallet can fail its strict transaction validator.
+  // TronWeb 6.5.2 models contract_address on CreateSmartContractTransaction.
+  // Keep this protocol field when handing the transaction to TronLink; stripping
+  // it can make the wallet's strict transaction validator reject an otherwise
+  // correctly hashed CreateSmartContract payload as "Invalid transaction provided".
+  const contractAddress = String(transaction.contract_address || '')
+  if (!/^(?:41)?[0-9a-f]{40}$/i.test(contractAddress)) {
+    throw new Error('TRON node returned an invalid predicted contract_address in the CreateSmartContract transaction.')
+  }
   const signable = {
     ...(typeof transaction.visible === 'boolean' ? { visible: transaction.visible } : {}),
     txID,
     raw_data: JSON.parse(JSON.stringify(rawData)),
     raw_data_hex: rawDataHex,
+    contract_address: contractAddress,
   }
   return signable
 }
@@ -972,7 +977,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       hasOwnerAddress: Boolean(value.owner_address),
       hasNewContract: Boolean(value.new_contract),
       bytecodeLength: String(newContract.bytecode || '').length,
-      abiEntries: Array.isArray(newContract.abi) ? newContract.abi.length : null,
+      abiEntries: Array.isArray(newContract.abi?.entrys) ? newContract.abi.entrys.length : Array.isArray(newContract.abi) ? newContract.abi.length : null,
       feeLimitSun: walletTransaction.raw_data.fee_limit ?? null,
       rawDataHexLength: walletTransaction.raw_data_hex.length,
       estimatedEnergy: resourceBudget.energyRequired,
