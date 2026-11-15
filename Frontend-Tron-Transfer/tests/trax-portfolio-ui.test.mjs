@@ -18,7 +18,7 @@ test('portfolio shows native TRX and custom TRAX as separate, identified holding
 test('TRAX uses the exact user-supplied red-circle, black-TRON-mark image', async () => {
   const panel = await readFile(panelUrl, 'utf8')
   const icon = await readFile(iconUrl, 'utf8')
-  assert.match(panel, /src="\\/trax-token-mark\\.svg"/)
+  assert.ok(panel.includes('src="/trax-token-mark.svg"'))
   assert.match(icon, /viewBox="0 0 512 512"/)
   assert.match(icon, /fill="#ff0013"/)
   assert.match(icon, /L231,447/)
