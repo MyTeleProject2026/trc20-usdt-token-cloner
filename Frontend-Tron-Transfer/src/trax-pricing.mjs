@@ -14,7 +14,7 @@ export async function fetchTRXReferencePrice({ fetchImpl = fetch, now = Date.now
   if (!Number.isFinite(updatedAt) || updatedAt <= 0 || now() - updatedAt > maxAgeMs || updatedAt > now() + 30000) {
     throw new Error('TRX reference-price quote is missing or stale; no live valuation will be shown.')
   }
-  return { trxUsd, traxReferenceUsd: tronUsd, usdtUsd, updatedAt, source: 'CoinGecko simple-price API' }
+  return { trxUsd: tronUsd, traxReferenceUsd: tronUsd, usdtUsd, updatedAt, source: 'CoinGecko simple-price API' }
 }
 
 export function calculatePortfolioValue({ trx = '0', trax = '0', usdt = '0', prices }) {
