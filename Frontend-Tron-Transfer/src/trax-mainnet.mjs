@@ -630,25 +630,16 @@ export function toWalletSignableTransaction(transaction) {
   }
   const txID = String(transaction.txID || '')
   const rawDataHex = String(transaction.raw_data_hex || '')
-  if (!/^[0-9a-f]{64}$/i.test(txID) || !/^[0-9a-f]+$/i.test(rawDataHex)) {
+  if (!/^[0-9a-f]{64}$/i.test(txID) || !/^(?:[0-9a-f]{2})+$/i.test(rawDataHex)) {
     throw new Error('TRON node returned incomplete transaction signing fields.')
   }
-  // TronWeb 6.5.2 models contract_address on CreateSmartContractTransaction.
-  // Keep this protocol field when handing the transaction to TronLink; stripping
-  // it can make the wallet's strict transaction validator reject an otherwise
-  // correctly hashed CreateSmartContract payload as "Invalid transaction provided".
-  const contractAddress = String(transaction.contract_address || '')
-  if (!/^(?:41)?[0-9a-f]{40}$/i.test(contractAddress)) {
-    throw new Error('TRON node returned an invalid predicted contract_address in the CreateSmartContract transaction.')
-  }
-  const signable = {
-    ...(typeof transaction.visible === 'boolean' ? { visible: transaction.visible } : {}),
-    txID,
-    raw_data: JSON.parse(JSON.stringify(rawData)),
-    raw_data_hex: rawDataHex,
-    contract_address: contractAddress,
-  }
-  return signable
+  // TronLink documents trx.sign(transaction) as accepting the unsigned
+  // TronWeb transaction object returned by transactionBuilder. Do not rebuild
+  // or whitelist fields here: CreateSmartContract has protocol-specific fields
+  // (including contract_address and ABI encoding) that wallet versions may
+  // validate as part of the complete builder result.
+  return JSON.parse(JSON.stringify(transaction))
+
 }
 
 export function assertTransactionIntegrity(tronWeb, transaction, stage = 'TRON transaction') {
