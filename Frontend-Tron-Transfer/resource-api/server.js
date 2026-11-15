@@ -58,6 +58,14 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
   const freeNetLimit = number(resource.freeNetLimit)
   const freeNetUsed = number(resource.freeNetUsed)
   const freeEnergy = 0
+  const freeBandwidthAvailable = available(freeNetLimit, freeNetUsed)
+  const stakedOrDelegatedBandwidthAvailable = available(netLimit, netUsed)
+  // Free and staked/delegated Bandwidth are separate coverage sources. TRON
+  // does not add them together to cover one transaction: one source must cover
+  // the entire byte cost. Keep the aggregate only for multi-transaction
+  // reporting, and expose the safe single-transaction coverage separately.
+  const maxSingleTransactionAvailable = Math.max(freeBandwidthAvailable, stakedOrDelegatedBandwidthAvailable)
+  const availableAcrossSeparateTransactions = freeBandwidthAvailable + stakedOrDelegatedBandwidthAvailable
   return {
     energy: {
       available: available(energyLimit, energyUsed),
@@ -67,13 +75,16 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
       source: 'staked-or-delegated',
     },
     bandwidth: {
-      freeAvailable: available(freeNetLimit, freeNetUsed),
+      freeAvailable: freeBandwidthAvailable,
       freeLimit: freeNetLimit,
       freeUsed: freeNetUsed,
-      stakedOrDelegatedAvailable: available(netLimit, netUsed),
+      stakedOrDelegatedAvailable: stakedOrDelegatedBandwidthAvailable,
       stakedOrDelegatedLimit: netLimit,
       stakedOrDelegatedUsed: netUsed,
-      totalAvailable: available(freeNetLimit, freeNetUsed) + available(netLimit, netUsed),
+      totalAvailable: availableAcrossSeparateTransactions,
+      availableAcrossSeparateTransactions,
+      maxSingleTransactionAvailable,
+      singleTransactionCoverageRule: 'free and staked/delegated Bandwidth are not combined for one transaction; one source must cover the full byte cost',
     },
     balanceSun: String(account.balance ?? '0'),
     chainParameters: {
