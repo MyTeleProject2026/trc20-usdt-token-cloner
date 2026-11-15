@@ -7,7 +7,7 @@ const generated = await fs.readFile(new URL('../src/generated/trax-contract-arti
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
 const tokenSource = await fs.readFile(new URL('../../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
 
-test('TronBox generated artifact exposes owner-issued TRӾ functions', () => {
+test('Pinned Solidity compiler artifact exposes owner-issued TRӾ functions', () => {
   assert.equal(artifact.compiler, 'TRON solc 0.8.25')
   assert.equal(artifact.optimizer.enabled, true)
   assert.equal(artifact.optimizer.runs, 200)
