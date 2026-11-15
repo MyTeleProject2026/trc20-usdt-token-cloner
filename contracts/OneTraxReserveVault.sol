@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-/// @title Tron Transfer TRӾ native TRX reserve vault
-/// @notice Holds real native TRX independently from the custom TRӾ TRC-20 supply.
-/// @dev No owner withdrawal function exists. Only the one-time authorized token contract can release TRX for an owner-initiated redemption.
+/// @title LEGACY OneTraxReserveVault (not used by current TRӾ economics)
+/// @notice Deprecated reserve-vault source retained for historical reference only.
+/// @dev The current owner-issued TRӾ contract is unbacked and has no redemption path. Do not deploy or link this legacy vault as part of the current TRӾ deployment.
 contract OneTraxReserveVault {
     address public immutable owner;
     address public authorizedToken;
