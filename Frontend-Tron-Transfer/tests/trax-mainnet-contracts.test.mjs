@@ -284,7 +284,7 @@ test('zero-TRX protection explains an unaffordable resource shortfall before wal
     resourceSnapshot,
     rawDataHex: 'ab'.repeat(100),
     feeLimitSun: '12500',
-  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*0\\.000070 TRX.*No wallet prompt, signature, or broadcast was attempted/)
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*0\.000070 TRX.*No wallet prompt, signature, or broadcast was attempted/)
 })
 
 test('predicted TRON contract address matches TronWeb genContractAddress algorithm', () => {
