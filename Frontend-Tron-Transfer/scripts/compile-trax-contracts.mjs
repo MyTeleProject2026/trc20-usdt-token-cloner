@@ -7,20 +7,20 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(here, '..')
 const repositoryRoot = path.resolve(frontendRoot, '..')
 const tokenPath = path.join(repositoryRoot, 'contracts', 'Restricted1TRAX.sol')
-const vaultPath = path.join(repositoryRoot, 'contracts', 'OneTraxReserveVault.sol')
+const tokenSource = await fs.readFile(tokenPath, 'utf8')
 
-const [tokenSource, vaultSource] = await Promise.all([
-  fs.readFile(tokenPath, 'utf8'),
-  fs.readFile(vaultPath, 'utf8'),
-])
+const compilerVersion = solc.version().split('+')[0]
+if (compilerVersion !== '0.8.25') {
+  throw new Error('Expected pinned Solidity compiler 0.8.25, but found ' + compilerVersion + '.')
+}
 
 const input = {
   language: 'Solidity',
   sources: {
     'Restricted1TRAX.sol': { content: tokenSource },
-    'OneTraxReserveVault.sol': { content: vaultSource },
   },
   settings: {
+    evmVersion: 'paris',
     optimizer: { enabled: true, runs: 200 },
     outputSelection: {
       '*': {
@@ -33,41 +33,37 @@ const input = {
 const output = JSON.parse(solc.compile(JSON.stringify(input)))
 const diagnostics = output.errors || []
 for (const diagnostic of diagnostics) {
-  const render = (diagnostic.formattedMessage || diagnostic.message || '').trim()
-  if (diagnostic.severity === 'error') console.error(render)
-  else if (render) console.warn(render)
+  const message = (diagnostic.formattedMessage || diagnostic.message || '').trim()
+  if (diagnostic.severity === 'error') console.error(message)
+  else if (message) console.warn(message)
 }
-const fatalErrors = diagnostics.filter(item => item.severity === 'error')
-if (fatalErrors.length) {
-  throw new Error('TRӾ Solidity compilation failed with ' + fatalErrors.length + ' error(s). No deployment should be attempted.')
-}
-
-function artifact(sourceName, contractName) {
-  const compiled = output.contracts?.[sourceName]?.[contractName]
-  const bytecode = compiled?.evm?.bytecode?.object || ''
-  if (!compiled || !Array.isArray(compiled.abi) || !/^(?:[0-9a-f]{2})+$/i.test(bytecode)) {
-    throw new Error('Solidity compiler did not produce a valid ABI and init bytecode for ' + contractName)
-  }
-  return { contractName, abi: compiled.abi, bytecode }
+const errors = diagnostics.filter(item => item.severity === 'error')
+if (errors.length) {
+  throw new Error('TRӾ Solidity compilation failed with ' + errors.length + ' error(s). No deployment should be attempted.')
 }
 
-const token = artifact('Restricted1TRAX.sol', 'Restricted1TRAX')
-const vault = artifact('OneTraxReserveVault.sol', 'OneTraxReserveVault')
-const compilerVersion = solc.version().split('+')[0]
-if (compilerVersion !== '0.8.25') {
-  throw new Error('Expected Solidity compiler 0.8.25 but found ' + compilerVersion + '.')
+const compiled = output.contracts?.['Restricted1TRAX.sol']?.Restricted1TRAX
+const bytecode = compiled?.evm?.bytecode?.object || ''
+if (!compiled || !Array.isArray(compiled.abi) || !/^(?:[0-9a-f]{2})+$/i.test(bytecode)) {
+  throw new Error('Solidity compiler did not produce a valid TRӾ ABI and init bytecode.')
+}
+
+const artifact = {
+  compiler: 'TRON solc ' + compilerVersion,
+  evmVersion: 'paris',
+  optimizer: { enabled: true, runs: 200 },
+  token: {
+    contractName: 'Restricted1TRAX',
+    abi: compiled.abi,
+    bytecode,
+    deployedBytecode: compiled.evm.deployedBytecode.object,
+  },
 }
 
 const outputDir = path.join(frontendRoot, 'src', 'generated')
 await fs.mkdir(outputDir, { recursive: true })
-const compiledArtifacts = {
-  compiler: 'TRON solc ' + compilerVersion,
-  optimizer: { enabled: true, runs: 200 },
-  token,
-  vault,
-}
 await fs.writeFile(
   path.join(outputDir, 'trax-contract-artifacts.js'),
-  'export default ' + JSON.stringify(compiledArtifacts) + ';\n',
+  'export default ' + JSON.stringify(artifact) + ';' + String.fromCharCode(10),
 )
-console.log('TRӾ and native TRX reserve vault compiled with Solidity ' + compilerVersion + '.')
+console.log('Owner-issued TRӾ compiled with Solidity ' + compilerVersion + ' (Paris EVM, optimizer 200).')

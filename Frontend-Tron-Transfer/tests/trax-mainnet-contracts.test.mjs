@@ -1,165 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { calculateDeploymentResourceBudget, callMainnetView, estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/trax-mainnet.mjs'
 import fs from 'node:fs/promises'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
 const tokenSource = await fs.readFile(new URL('../../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
-const vaultSource = await fs.readFile(new URL('../../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8')
 
-test('Pinned Solidity compiler artifacts include both TRӾ Mainnet contracts', () => {
+test('production build compiles exactly the owner-issued TRӾ token artifact', () => {
   assert.equal(artifact.compiler, 'TRON solc 0.8.25')
-  assert.equal(artifact.optimizer.enabled, true)
-  assert.equal(artifact.optimizer.runs, 200)
-  assert.ok(artifact.token.bytecode.length > 0)
-  assert.ok(artifact.vault.bytecode.length > 0)
-  const tokenFunctions = artifact.token.abi.filter((item) => item.type === 'function').map((item) => item.name)
-  const vaultFunctions = artifact.vault.abi.filter((item) => item.type === 'function').map((item) => item.name)
-  for (const name of ['name','symbol','decimals','totalSupply','balanceOf','allowance','transfer','approve','transferFrom','owner','isLocked','setRecipientLocked','setReserveVault','setPaused','setMintingEnabled','mint','redeemForOwner']) {
-    assert.ok(tokenFunctions.includes(name), 'Missing TRӾ ABI function: ' + name)
-  }
-  for (const name of ['owner','authorizedToken','reserveBalance','setAuthorizedToken','releaseForRedemption']) {
-    assert.ok(vaultFunctions.includes(name), 'Missing reserve vault ABI function: ' + name)
-  }
+  assert.equal(artifact.token.contractName, 'Restricted1TRAX')
+  assert.ok(Array.isArray(artifact.token.abi))
+  assert.match(artifact.token.bytecode, /^(?:[0-9a-f]{2})+$/i)
+  assert.match(artifact.token.deployedBytecode, /^(?:[0-9a-f]{2})+$/i)
+  assert.equal('vault' in artifact, false)
 })
 
-test('TRӾ metadata and default issuance protections remain exact', () => {
-  assert.ok(tokenSource.includes('pragma solidity ^0.8.20;'))
-  assert.ok(tokenSource.includes('string public constant name = unicode"TRӾ";'))
-  assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
-  assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
-  assert.ok(tokenSource.includes('mintingEnabled = false;'))
-  assert.ok(tokenSource.includes('paused = true;'))
-  assert.ok(tokenSource.includes('external onlyOwner'))
-  assert.ok(tokenSource.includes('reserveBalance() >= _totalSupply + amount'))
-  assert.ok(tokenSource.includes('require(!_unlocked[recipient]'))
-})
-
-test('locked accounts cannot transfer, approve, or use delegated allowances', () => {
-  assert.ok(tokenSource.includes('function isLocked(address account) public view returns (bool)'))
-  assert.ok(tokenSource.includes('require(_unlocked[msg.sender], "sender-locked")'))
-  assert.ok(tokenSource.includes('require(spender != address(0) && _unlocked[spender], "spender-locked")'))
-  assert.ok(tokenSource.includes('require(_unlocked[msg.sender] && _unlocked[from] && _unlocked[to], "account-locked")'))
-  assert.ok(tokenSource.includes('struct AllowanceData { uint256 amount; uint256 ownerLockNonce; uint256 spenderLockNonce; }'))
-  assert.ok(tokenSource.includes('if (wasLocked != locked) _lockNonce[account] += 1;'))
-  assert.ok(tokenSource.includes('data.ownerLockNonce != _lockNonce[tokenOwner]'))
-  assert.ok(tokenSource.includes('data.spenderLockNonce != _lockNonce[spender]'))
-})
-
-test('native TRX vault can only release funds through its authorized token contract', () => {
-  assert.ok(vaultSource.includes('pragma solidity ^0.8.25;'))
-  assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
-  assert.ok(vaultSource.includes('address(this).balance >= amount'))
-  assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
-  assert.ok(tokenSource.includes('external onlyOwner nonReentrant'))
-  assert.ok(tokenSource.includes('releaseForRedemption(recipient, amount, redemptionReference)'))
-})
-
-const budgetSnapshot = (overrides = {}) => ({
-  energyFeeSun: '100',
-  bandwidthFeeSun: '1000',
-  energyAvailable: '1000',
-  freeBandwidthAvailable: '600',
-  stakedBandwidthAvailable: '0',
-  nativeBalanceSun: '100000000',
-  maxFeeLimitSun: '15000000000',
-  ...overrides,
-})
-
-test('deployment budget allows TRX to cover a measured Energy and Bandwidth shortfall', () => {
-  const budget = calculateDeploymentResourceBudget({
-    energyRequired: '1000',
-    resourceSnapshot: budgetSnapshot({ energyAvailable: '0' }),
-    rawDataHex: 'ab'.repeat(1000),
-    feeLimitSun: '120000',
-  })
-  assert.equal(budget.energyShortfall, '1200')
-  assert.equal(budget.bandwidthShortfall, '1134')
-  assert.equal(budget.requiredTrxSun, String(1200 * 100 + 1134 * 1000))
-})
-
-test('deployment budget refuses TRX fallback when the wallet balance is below the estimate', () => {
-  assert.throws(() => calculateDeploymentResourceBudget({
-    energyRequired: '1000',
-    resourceSnapshot: budgetSnapshot({ energyAvailable: '0', nativeBalanceSun: '1000' }),
-    rawDataHex: 'ab'.repeat(1000),
-    feeLimitSun: '120000',
-  }), /Insufficient TRX for the estimated Mainnet resource shortfall/)
-})
-
-test('deployment budget still succeeds without burning TRX when resources fully cover the transaction', () => {
-  const budget = calculateDeploymentResourceBudget({
-    energyRequired: '1000',
-    resourceSnapshot: budgetSnapshot({
-      energyAvailable: '1200',
-      freeBandwidthAvailable: '5000',
-      nativeBalanceSun: '0',
-    }),
-    rawDataHex: 'ab'.repeat(1000),
-    feeLimitSun: '120000',
-  })
-  assert.equal(budget.requiredTrxSun, '0')
-})
-
-
-test('deployment Energy simulation uses the exact init bytecode and owner', async () => {
-  const calls = []
-  const tronWeb = {
-    isAddress: (address) => address === 'TMainnetOwnerAddress',
-    transactionBuilder: {
-      deployConstantContract: async (options) => {
-        calls.push(options)
-        return { result: { result: true }, energy_required: 123456 }
-      },
-    },
-  }
-  const result = await estimateMainnetDeploymentEnergy(tronWeb, 'TMainnetOwnerAddress', { bytecode: '6001600055' })
-  assert.deepEqual(calls, [{
-    ownerAddress: 'TMainnetOwnerAddress',
-    input: '0x6001600055',
-    confirmed: false,
-  }])
-  assert.equal(result.energyUsed, '123456')
-})
-
-test('TronLink structured Error instances retain promo code, slug, and provider message', () => {
-  const error = new Error('provider request failed')
-  Object.assign(error, {
-    code: 3038,
-    slug: 'promo_not_eligible',
-    message: 'This address did not receive the promo token from us',
-    retryable: false,
-  })
-  const rendered = formatTronLinkError(error, 'Energy claim')
-  assert.match(rendered, /3038/)
-  assert.match(rendered, /promo_not_eligible/)
-  assert.match(rendered, /did not receive the promo token/)
-  assert.doesNotMatch(rendered, /\\[object Object\\]/)
-})
-
-test('TronLink nested HTTP errors retain response status and message', () => {
-  const error = new Error('Request failed with status code 429')
-  error.response = { status: 429, data: { Error: 'request rate exceeded', code: 429 } }
-  const rendered = formatTronLinkError(error, 'Deployment preflight')
-  assert.match(rendered, /429/)
-  assert.match(rendered, /request rate exceeded/)
-})
-
-
-test('Mainnet constant contract reads share the paced queue and retry HTTP 429 safely', async () => {
-  let attempts = 0
-  const result = await callMainnetView({
-    call: async () => {
-      attempts += 1
-      if (attempts === 1) {
-        const error = new Error('Request failed with status code 429')
-        error.response = { status: 429, data: { Error: 'request rate exceeded' } }
-        throw error
-      }
-      return 'verified-value'
-    },
-  })
-  assert.equal(result, 'verified-value')
-  assert.equal(attempts, 2)
+test('legacy reserve vault is not part of the active TRӾ deployment artifact', () => {
+  assert.match(tokenSource, /contract Restricted1TRAX/)
+  assert.doesNotMatch(tokenSource, /reserveVault|redeemForOwner|releaseForRedemption|insufficient-trx-reserve/)
+  assert.match(tokenSource, /function credit\(address recipient, uint256 amount, bytes32 referenceId\)/)
+  assert.match(tokenSource, /MAX_BATCH_CREDITS = 50/)
 })

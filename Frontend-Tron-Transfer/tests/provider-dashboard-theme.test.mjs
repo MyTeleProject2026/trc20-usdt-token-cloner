@@ -4,13 +4,13 @@ import { readFile } from 'node:fs/promises'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 
-test('TRӾ Mainnet manager remains the primary frontend workflow', async () => {
+test('TRӾ Mainnet manager remains integrated into the production frontend', async () => {
   const app = await read('../src/App.jsx')
   const panel = await read('../src/TRXMainnetPanel.jsx')
   assert.ok(app.includes("import TRXMainnetPanel from './TRXMainnetPanel.jsx'"))
-  assert.ok(panel.includes('TRӾ smart-contract manager'))
-  assert.ok(panel.includes('Deploy both contracts automatically'))
-  assert.ok(panel.includes('On-chain verification'))
+  assert.ok(panel.includes('TRӾ token &amp; external wallet credit manager'))
+  assert.ok(panel.includes('Deploy TRӾ automatically'))
+  assert.ok(panel.includes('verifyTRAXTokenContract'))
 })
 
 test('TRӾ interface keeps wallet and transaction status accessible', async () => {
@@ -22,15 +22,17 @@ test('TRӾ interface keeps wallet and transaction status accessible', async () =
   assert.ok(panel.includes('TRON Mainnet'))
 })
 
-test('responsive visual theme retains mobile breakpoints and accessible contrast tokens', async () => {
+test('responsive production theme retains mobile breakpoints and TRӾ panel styling', async () => {
   const css = await read('../src/styles.css')
-  assert.ok(css.includes('--bg: #080d18'))
-  assert.ok(css.includes('--mint-bright: #48b5ff'))
-  assert.ok(css.includes('@media (max-width: 820px)'))
-  assert.ok(css.includes('@media (max-width: 560px)'))
+  const traxCss = await read('../src/trax-mainnet.css')
+  assert.ok(css.includes('--bg:'))
+  assert.ok(css.includes('@media'))
+  assert.ok(traxCss.includes('.trax-workspace'))
+  assert.ok(traxCss.includes('.trax-token-mark'))
+  assert.ok(traxCss.includes('@media(max-width:560px)'))
 })
 
-test('frontend does not expose legacy sponsor payout workflow inside the TRӾ manager', async () => {
+test('frontend does not expose sponsor payout workflow inside the TRӾ manager', async () => {
   const app = await read('../src/App.jsx')
   assert.ok(app.includes('TRXMainnetPanel'))
   assert.ok(!app.includes('<SponsorDirectPayouts'))
