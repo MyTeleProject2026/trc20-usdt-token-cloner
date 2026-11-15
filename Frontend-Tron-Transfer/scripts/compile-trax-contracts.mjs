@@ -63,6 +63,6 @@ const outputDir = path.join(frontendRoot, 'src', 'generated')
 await fs.mkdir(outputDir, { recursive: true })
 await fs.writeFile(
   path.join(outputDir, 'trax-contract-artifacts.js'),
-  'export default ' + JSON.stringify(artifact) + ';\\n',
+  'export default ' + JSON.stringify(artifact) + ';' + String.fromCharCode(10),
 )
 console.log('Owner-issued TRӾ compiled with Solidity ' + compilerVersion + ' (Paris EVM, optimizer 200).')
