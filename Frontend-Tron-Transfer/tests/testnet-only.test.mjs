@@ -7,7 +7,7 @@ const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 test('TRӾ workspace renders a single owner-issued Mainnet token deployment flow', async () => {
   const app = await read('../src/App.jsx')
   const panel = await read('../src/TRXMainnetPanel.jsx')
-  assert.ok(panel.includes("const DEFAULT_FEE_CAP = '60'"))
+  assert.ok(panel.includes("const DEFAULT_FEE_CAP = '150'"))
   assert.ok(panel.includes('const deployToken'))
   assert.ok(panel.includes('deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT'))
   assert.ok(panel.includes('Restricted1TRAX'))
