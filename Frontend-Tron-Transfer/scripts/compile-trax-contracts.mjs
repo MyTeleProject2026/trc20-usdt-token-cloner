@@ -21,7 +21,7 @@ const input = {
   },
   settings: {
     evmVersion: 'paris',
-    optimizer: { enabled: true, runs: 200 },
+    optimizer: { enabled: true, runs: 1 },
     outputSelection: {
       '*': {
         '*': ['abi', 'evm.bytecode.object', 'evm.deployedBytecode.object'],
@@ -51,7 +51,7 @@ if (!compiled || !Array.isArray(compiled.abi) || !/^(?:[0-9a-f]{2})+$/i.test(byt
 const artifact = {
   compiler: 'TRON solc ' + compilerVersion,
   evmVersion: 'paris',
-  optimizer: { enabled: true, runs: 200 },
+  optimizer: { enabled: true, runs: 1 },
   token: {
     contractName: 'Restricted1TRAX',
     abi: compiled.abi,
@@ -66,4 +66,4 @@ await fs.writeFile(
   path.join(outputDir, 'trax-contract-artifacts.js'),
   'export default ' + JSON.stringify(artifact) + ';' + String.fromCharCode(10),
 )
-console.log('Owner-issued TRӾ compiled with Solidity ' + compilerVersion + ' (Paris EVM, optimizer 200).')
+console.log('Owner-issued TRӾ compiled with Solidity ' + compilerVersion + ' (Paris EVM, optimizer 1). Init bytecode: ' + (bytecode.length / 2) + ' bytes; runtime bytecode: ' + (compiled.evm.deployedBytecode.object.length / 2) + ' bytes.')
