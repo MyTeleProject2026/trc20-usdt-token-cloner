@@ -1157,6 +1157,26 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   assertTransactionIntegrity(tronWeb, signedTransaction, 'Signed deployment transaction')
   verifyTransactionSigner(tronWeb, signedTransaction, wallet.address)
   await assertTransactionPermission(tronWeb, signedTransaction, wallet.address)
+
+  // Resources can change while the user reviews the TronLink signature prompt.
+  // Re-read the exact fee-paying owner immediately after signing and directly
+  // before broadcast. If any TRX fallback has appeared, discard the signature.
+  try {
+    const preBroadcastResourceSnapshot = await readResources(tronWeb, wallet.address)
+    const preBroadcastBudget = calculateDeploymentResourceBudget({
+      energyRequired: energyEstimate.energyUsed,
+      resourceSnapshot: preBroadcastResourceSnapshot,
+      rawDataHex: signedTransaction.raw_data_hex,
+      feeLimitSun,
+      safetyMarginBps: 12500,
+    })
+    assertZeroTrxBurnBudget(preBroadcastBudget)
+  } catch (error) {
+    throw new Error('TronLink signed the deployment, but the transaction was NOT broadcast because the final zero-TRX-burn resource recheck failed: '
+      + String(error?.message || error)
+      + '. The signed transaction was discarded. No network fee was paid.')
+  }
+
   if (!MAINNET_DEPLOYMENT_BROADCAST_ENABLED) {
     throw new Error('Mainnet deployment broadcasting is disabled. Signature was validated, but the transaction was not broadcast.')
   }
