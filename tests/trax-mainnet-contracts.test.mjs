@@ -16,7 +16,7 @@ test('owner-issued TRӾ compiles for the TRON Paris-compatible target', async ()
     sources: { 'Restricted1TRAX.sol': { content: tokenSource } },
     settings: {
       evmVersion: 'paris',
-      optimizer: { enabled: true, runs: 200 },
+      optimizer: { enabled: true, runs: 1 },
       outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } },
     },
   })))
