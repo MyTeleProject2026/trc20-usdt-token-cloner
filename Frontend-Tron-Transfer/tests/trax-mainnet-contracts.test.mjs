@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
+import { assertZeroTrxBurnBudget, buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -226,6 +226,16 @@ test('TRON deployment construction requests the canonical wallet/deploycontract 
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('zero-cost deployment guard blocks any estimated Energy or Bandwidth TRX burn before signing', () => {
+  assert.equal(assertZeroTrxBurnBudget({ requiredTrxSun: '0', energyBurnSun: '0', bandwidthBurnSun: '0' }), true)
+  assert.throws(() => assertZeroTrxBurnBudget({
+    requiredTrxSun: '7080000', energyBurnSun: '0', bandwidthBurnSun: '7080000',
+  }), /Zero-TRX deployment preflight blocked.*0\.708000 TRX.*Bandwidth.*No wallet prompt/)
+  assert.throws(() => assertZeroTrxBurnBudget({
+    requiredTrxSun: '10000000', energyBurnSun: '9000000', bandwidthBurnSun: '1000000',
+  }), /Zero-TRX deployment preflight blocked.*10\.000000 TRX.*Energy.*Bandwidth/)
 })
 
 test('predicted TRON contract address matches TronWeb genContractAddress algorithm', () => {
