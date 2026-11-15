@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, ShieldCheck, Wallet, Network } from 'lucide-react'
 import {
   TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, deployContractFromTronLink,
   callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts, parseBatchCreditRows, parseTokenUnits, saveContractAddresses,
@@ -16,7 +16,7 @@ function makeReference() {
   return '0x' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 }
 
-function shorten(value) {
+function NetworkMark() { return <Network aria-label="TRON network"/> }\n\nfunction TraxTokenMark() { return <span className="trax-token-mark" aria-label="TRAX custom token icon" title="TRAX custom TRC-20 token">Ӿ</span> }\n\nfunction shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
 }
 
@@ -191,7 +191,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   })
 
   return <section className="trax-workspace">
-    <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token &amp; external wallet credit manager</h2><p>Deploy and administer the TRӾ TRC-20 contract from the configured owner wallet. Every write requires a separate TronLink approval.</p></div><div className="panel-icon"><Coins/></div></div>
+    <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token &amp; external wallet credit manager</h2><p>Deploy and administer the TRӾ TRC-20 contract from the configured owner wallet. Every write requires a separate TronLink approval.</p></div><div className="panel-icon" aria-label="TRON Mainnet network"><NetworkMark/><small>TRON Mainnet</small></div></div>
 
     <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>UNBACKED OWNER-ISSUED TOKEN — NOT NATIVE TRX</b><p>The owner can mint without depositing TRX. There is no reserve, collateral, guaranteed redemption, fixed 1:1 TRX value, or promised market price. Unlimited issuance can dilute holders and reduce market value. TRӾ is not TRON's native TRX asset.</p></div></div>
 
@@ -202,10 +202,20 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     {step && <div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
 
     <div className="trax-addresses">
-      <label>TRӾ Mainnet contract address<input value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Deploy TRӾ or paste a verified contract address"/></label>
+      <label>TRӾ / TRAX custom-token contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Deploy TRӾ or enter its verified Mainnet contract address"/></label><p id="trax-contract-address-note" className="fine-print">This address uniquely identifies the custom TRC-20 asset. Verify it before accepting deposits; native TRX does not have a TRC-20 contract address.</p>
       <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ token</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button></div>
       <label>Transaction fee cap (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
       <p className="fine-print">Deployment is an irreversible Mainnet transaction. The deployer becomes the initial owner. This dashboard does not deploy automatically; you must click the deployment button and approve the TronLink prompt yourself.</p>
+    </div>
+
+    <div className="trax-actions trax-portfolio" aria-label="Wallet portfolio overview">
+      <h3>Wallet portfolio overview</h3>
+      <p className="fine-print">Holdings appear together in one portfolio view, but remain separate assets with different units and transfer rules. No combined token quantity or exchange rate is assumed.</p>
+      <div className="trax-stats">
+        <article><span>Native TRX · network fees</span><b>{snapshot ? formatTokenUnits(snapshot.ownerTrx) : 'Refresh contract state'} TRX</b></article>
+        <article><span><TraxTokenMark/> TRӾ / TRAX · custom TRC-20</span><b>{snapshot ? formatTokenUnits(snapshot.ownerBalance) : 'Refresh contract state'} TRAX</b></article>
+      </div>
+      <p className="fine-print">TRӾ is an independently issued custom token, not native TRX. No combined fiat value is assumed without reliable, separately sourced prices for both assets.</p>
     </div>
 
     <div className="trax-actions">
@@ -217,7 +227,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         <article><span>Transfers</span><b>{snapshot.paused ? 'Paused' : 'Active'}</b></article>
         <article><span>Owner TRX for fees</span><b>{formatTokenUnits(snapshot.ownerTrx)} TRX</b></article>
       </div> : <p>Refresh the deployed contract to read its current Mainnet state.</p>}
-      {snapshot && <div className="trax-checks"><span className={snapshot.valid ? 'ok' : 'bad'}>{snapshot.valid ? '✓' : '!'} TRӾ / TRX / 6 decimals</span><span className={snapshot.ownerValid ? 'ok' : 'bad'}>{snapshot.ownerValid ? '✓' : '!'} Owner matches connected wallet</span><span className="bad">! No TRX backing or redemption</span></div>}
+      {snapshot && <div className="trax-checks"><span className={snapshot.valid ? 'ok' : 'bad'}>{snapshot.valid ? '✓' : '!'} TRӾ / TRAX / 6 decimals</span><span className={snapshot.ownerValid ? 'ok' : 'bad'}>{snapshot.ownerValid ? '✓' : '!'} Owner matches connected wallet</span><span className="bad">! No TRX backing or redemption</span></div>}
     </div>
 
     <div className="trax-actions">
