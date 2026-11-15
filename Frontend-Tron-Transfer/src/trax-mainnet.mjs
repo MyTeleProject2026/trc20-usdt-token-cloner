@@ -508,7 +508,10 @@ export function buildDeploymentOptions(artifact, contractName, feeLimitSun) {
   const bytecode = String(artifact.bytecode || '').replace(/^0x/, '')
   if (!bytecode || !/^[0-9a-f]+$/i.test(bytecode)) throw new Error('Compiled contract bytecode is missing or invalid. Rebuild the TRӾ contract artifacts before deployment.')
   return {
-    abi: artifact.abi,
+    // TronWeb transactionBuilder.createSmartContract expects ABI as JSON text.
+    // Passing the compiler's raw ABI array can produce a CreateSmartContract
+    // payload that TronLink rejects as 'Invalid transaction provided'.
+    abi: JSON.stringify(artifact.abi),
     bytecode,
     feeLimit,
     callValue: 0,
