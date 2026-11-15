@@ -16,11 +16,12 @@ test('portfolio shows native TRX and custom TRAX as separate, identified holding
   assert.match(panel, /native TRX does not have a TRC-20 contract address/)
 })
 
-test('TRAX uses the exact user-supplied red-circle, black-TRON-mark image', async () => {
+test('TRAX uses the user-supplied red-circle, black-geometric-mark image', async () => {
   const panel = await readFile(panelUrl, 'utf8')
   const app = await readFile(appUrl, 'utf8')
   const icon = await readFile(iconUrl, 'utf8')
   assert.ok(panel.includes('src="/trax-token-mark.svg"'))
+  assert.ok(panel.includes('aria-label="TRӾ custom token"'))
   assert.ok(app.includes('src="/trax-token-mark.svg"'))
   assert.ok(app.includes('icon:TraxNavIcon'))
   assert.match(icon, /viewBox="0 0 512 512"/)
