@@ -41,7 +41,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const [step, setStep] = useState('')
 
   useEffect(() => {
-    try { saveContractAddresses({ tokenAddress, vaultAddress: '' }) } catch {}
+    try { saveContractAddresses({ tokenAddress }) } catch {}
   }, [tokenAddress])
 
   const connectedAddress = wallet?.address || ''
