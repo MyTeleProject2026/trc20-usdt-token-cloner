@@ -70,41 +70,51 @@ test('external credits emit standard Transfer and a nonzero-reference audit even
   assert.ok(tokenSource.includes('emit OwnerCredit(recipient, amount, referenceId)'))
 })
 
-test('deployment Energy estimation never misuses triggerconstantcontract for init bytecode', async () => {
+test('deployment Energy estimation uses triggerconstantcontract for creation bytecode', async () => {
   const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
   const start = helper.indexOf('export async function estimateMainnetDeploymentEnergy')
   const end = helper.indexOf('export async function waitForSolidifiedReceipt', start)
   const estimator = helper.slice(start, end)
-  assert.ok(estimator.includes('transactionBuilder.deployConstantContract'))
-  assert.ok(estimator.includes("input: '0x' + bytecode"))
+  assert.ok(estimator.includes("'/wallet/triggerconstantcontract'"))
+  assert.ok(estimator.includes('data: bytecode'))
+  assert.ok(estimator.includes('owner_address: tronWeb.address.toHex(ownerAddress)'))
+  assert.ok(!estimator.includes('deployConstantContract'))
   assert.ok(!estimator.includes("'/wallet/estimateenergy'"))
-  assert.ok(!estimator.includes("'/wallet/triggerconstantcontract'"))
   assert.ok(estimator.includes('No wallet signature or broadcast was attempted.'))
 })
 
-
-test('deployment Energy estimator calls TronWeb deployConstantContract with the exact init bytecode and owner', async () => {
+test('deployment Energy estimator simulates exact init bytecode through the universal node endpoint', async () => {
+  const originalFetch = globalThis.fetch
   const calls = []
-  const tronWeb = {
-    isAddress: (address) => address === 'TMainnetOwnerAddress',
-    transactionBuilder: {
-      deployConstantContract: async (options) => {
-        calls.push(options)
-        return { result: { result: true }, energy_required: 123456 }
-      },
-    },
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) })
+    return {
+      ok: true,
+      json: async () => ({ result: { result: true }, energy_used: 123456, energy_penalty: 2345 }),
+    }
   }
-  const result = await estimateMainnetDeploymentEnergy(tronWeb, 'TMainnetOwnerAddress', {
-    bytecode: '6001600055',
-  })
-  assert.deepEqual(calls, [{
-    ownerAddress: 'TMainnetOwnerAddress',
-    input: '0x6001600055',
-    confirmed: false,
-  }])
-  assert.equal(result.energyUsed, '123456')
+  try {
+    const tronWeb = {
+      isAddress: address => address === 'TMainnetOwnerAddress',
+      address: { toHex: address => address === 'TMainnetOwnerAddress' ? '41' + '11'.repeat(20) : '' },
+    }
+    const result = await estimateMainnetDeploymentEnergy(tronWeb, 'TMainnetOwnerAddress', {
+      bytecode: '0x6001600055',
+    })
+    assert.equal(calls.length, 1)
+    assert.match(calls[0].url, /\/wallet\/triggerconstantcontract$/)
+    assert.deepEqual(calls[0].body, {
+      owner_address: '41' + '11'.repeat(20),
+      data: '6001600055',
+      call_value: 0,
+      visible: false,
+    })
+    assert.equal(result.energyUsed, '123456')
+    assert.equal(result.energyPenalty, '2345')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
-
 
 test('TronLink structured provider errors are rendered as useful diagnostics, not [object Object]', () => {
   const error = new Error('provider request failed')
