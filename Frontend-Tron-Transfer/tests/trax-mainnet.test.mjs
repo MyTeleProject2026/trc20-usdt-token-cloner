@@ -68,7 +68,7 @@ test('zero-TRX owner can pass preflight only when delegated/staked Energy and Ba
     resourceSnapshot: {
       energyFeeSun: '100',
       bandwidthFeeSun: '1000',
-      energyAvailable: '120000',
+      energyAvailable: '125000',
       freeBandwidthAvailable: '139',
       stakedBandwidthAvailable: '0',
       nativeBalanceSun: '0',
