@@ -7,7 +7,7 @@ import {
 } from './trax-mainnet.mjs'
 
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const DEFAULT_RECIPIENT = 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk'
+const DEFAULT_RECIPIENT = ''
 const DEFAULT_FEE_CAP = '60'
 
 function makeReference() {
