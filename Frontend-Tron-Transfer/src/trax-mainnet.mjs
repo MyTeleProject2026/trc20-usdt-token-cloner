@@ -5,6 +5,29 @@ export const TRON_MAINNET_HOST = 'https://api.trongrid.io'
 export const TRAX_STORAGE_KEY = 'tron-transfer:trax-mainnet-contracts:v1'
 export const TRAX_TOKEN_ARTIFACT = artifacts.token
 
+export async function verifyTRAXTokenContract(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet TRӾ contract address.')
+  const expectedCode = String(TRAX_TOKEN_ARTIFACT.deployedBytecode || '').replace(/^0x/, '').toLowerCase()
+  if (!/^(?:[0-9a-f]{2})+$/i.test(expectedCode)) {
+    throw new Error('Compiled TRӾ runtime bytecode is missing. Rebuild the frontend artifact before using this contract.')
+  }
+  const info = await postNode(tronWeb, '/wallet/getcontract', { value: address, visible: true })
+  const deployedCode = String(info?.bytecode || '').replace(/^0x/, '').toLowerCase()
+  if (!deployedCode || deployedCode !== expectedCode) {
+    throw new Error('The saved address does not contain the exact TRӾ contract bytecode compiled for this release. Refusing to issue credits or transfer tokens.')
+  }
+  const token = await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(address)
+  const [name, symbol, decimals] = await Promise.all([
+    callMainnetView(token.name()),
+    callMainnetView(token.symbol()),
+    callMainnetView(token.decimals()),
+  ])
+  if (String(name) !== 'TRӾ' || String(symbol) !== 'TRAX' || Number(decimals) !== 6) {
+    throw new Error('TRӾ contract metadata mismatch. Expected TRӾ / TRAX / 6 decimals.')
+  }
+  return token
+}
+
 export function assertMainnetWallet(wallet) {
   if (!wallet?.tronWeb || !wallet?.address) throw new Error('Connect a TronLink wallet first.')
   let host = ''
