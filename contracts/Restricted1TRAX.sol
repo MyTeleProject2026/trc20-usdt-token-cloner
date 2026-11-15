@@ -14,6 +14,7 @@ contract Restricted1TRAX {
     uint256 private _totalSupply;
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
+    mapping(bytes32 => bool) public creditReferenceUsed;
 
     bool public paused = true;
     bool public mintingEnabled;
@@ -88,6 +89,8 @@ contract Restricted1TRAX {
     {
         require(mintingEnabled, "minting-disabled");
         require(referenceId != bytes32(0), "referenceId-required");
+        require(!creditReferenceUsed[referenceId], "reference-already-used");
+        creditReferenceUsed[referenceId] = true;
         _mint(recipient, amount);
         emit OwnerCredit(recipient, amount, referenceId);
     }
@@ -102,6 +105,8 @@ contract Restricted1TRAX {
         require(amounts.length == length && referenceIds.length == length, "array-length-mismatch");
         for (uint256 i = 0; i < length; i++) {
             require(referenceIds[i] != bytes32(0), "referenceId-required");
+            require(!creditReferenceUsed[referenceIds[i]], "reference-already-used");
+            creditReferenceUsed[referenceIds[i]] = true;
             _mint(recipients[i], amounts[i]);
             emit OwnerCredit(recipients[i], amounts[i], referenceIds[i]);
         }
