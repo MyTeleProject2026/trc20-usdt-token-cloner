@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits, addressesEqual } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView } from '../src/trax-mainnet.mjs'
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
@@ -22,4 +22,39 @@ test('TRӾ address comparison normalizes TRON address forms', () => {
     addressesEqual(tronWeb, 'TABC', 'tabc'),
     true,
   )
+})
+
+
+test('batch credit parser handles newline-separated addresses and exact six-decimal amounts', () => {
+  const parsed = parseBatchCreditRows('TAddress111111111111111111,12.5\\r\\nTAddress222222222222222222,0.000001\\n', value => value.startsWith('T'))
+  assert.deepEqual(parsed, {
+    recipients: ['TAddress111111111111111111', 'TAddress222222222222222222'],
+    amounts: ['12500000', '1'],
+  })
+})
+
+test('batch credit parser rejects malformed rows, invalid addresses, and over-limit batches', () => {
+  const validate = value => value.startsWith('T')
+  assert.throws(() => parseBatchCreditRows('', validate))
+  assert.throws(() => parseBatchCreditRows('TAddress111111111111111111', validate))
+  assert.throws(() => parseBatchCreditRows('NotAnAddress,1', validate))
+  assert.throws(() => parseBatchCreditRows('TAddress111111111111111111,0', validate))
+  assert.throws(() => parseBatchCreditRows(Array.from({length: 51}, (_, i) => 'TAddress' + String(i).padStart(20, '0') + ',1').join('\\n'), validate))
+})
+
+test('paced contract-view helper retries one HTTP 429 and returns the successful read', async () => {
+  let calls = 0
+  const value = await callMainnetView({
+    call: async () => {
+      calls += 1
+      if (calls === 1) {
+        const error = new Error('Request failed with status code 429')
+        error.response = { status: 429, data: { Error: 'request rate exceeded' } }
+        throw error
+      }
+      return 'ok'
+    },
+  })
+  assert.equal(value, 'ok')
+  assert.equal(calls, 2)
 })
