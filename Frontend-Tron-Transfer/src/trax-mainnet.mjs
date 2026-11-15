@@ -79,7 +79,7 @@ function retryDelayMs(response, attempt, detail = '') {
 function enqueueNodeRequest(task) {
   const queued = nodeRequestQueue.then(async () => {
     const waitMs = Math.max(nodeNextRequestAt, nodeCooldownUntil) - Date.now()
-    if (waitMs > 0) await new Promise((resolve) => window.setTimeout(resolve, waitMs))
+    if (waitMs > 0) await new Promise((resolve) => globalThis.setTimeout(resolve, waitMs))
     const result = await task()
     nodeNextRequestAt = Date.now() + NODE_MIN_REQUEST_INTERVAL_MS
     if (result.response?.status === 429) {
@@ -90,6 +90,64 @@ function enqueueNodeRequest(task) {
   })
   nodeRequestQueue = queued.then(() => undefined, () => undefined)
   return queued
+}
+
+export async function callMainnetView(method) {
+  if (!method || typeof method.call !== 'function') {
+    throw new Error('The requested Mainnet contract read is unavailable.')
+  }
+  for (let attempt = 0; attempt <= NODE_MAX_RETRIES_429; attempt += 1) {
+    const result = await enqueueNodeRequest(async () => {
+      try {
+        return { value: await method.call() }
+      } catch (error) {
+        const status = Number(error?.response?.status || error?.status || error?.statusCode)
+        const detail = String(error?.message || error || '')
+          + ' ' + String(error?.response?.data?.Error || error?.response?.data?.message || '')
+        const rateLimited = status === 429 || /(?:HTTP\s*429|status code 429|rate limit|request rate exceeded|too many requests)/i.test(detail)
+        if (rateLimited) {
+          const cooldown = retryDelayMs(error?.response, attempt, detail)
+          nodeCooldownUntil = Math.max(nodeCooldownUntil, Date.now() + cooldown)
+        }
+        return { error, rateLimited }
+      }
+    })
+    if (!result.error) return result.value
+    if (!result.rateLimited || attempt === NODE_MAX_RETRIES_429) throw result.error
+  }
+  throw new Error('TRON Mainnet contract read failed after bounded rate-limit retries.')
+}
+
+export function parseBatchCreditRows(input, isAddress, maxEntries = 50) {
+  if (typeof isAddress !== 'function') throw new Error('A TRON address validator is required.')
+  const rows = String(input ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  if (rows.length === 0 || rows.length > maxEntries) {
+    throw new Error('Enter between 1 and ' + maxEntries + ' recipient,amount rows.')
+  }
+  const recipients = []
+  const amounts = []
+  for (const [index, row] of rows.entries()) {
+    const parts = row.split(',').map(value => value.trim())
+    if (parts.length !== 2 || !isAddress(parts[0])) {
+      throw new Error('Invalid recipient row ' + (index + 1) + '. Use TRON_ADDRESS,AMOUNT.')
+    }
+    recipients.push(parts[0])
+    amounts.push(parseTokenUnits(parts[1]))
+  }
+  return { recipients, amounts }
+}
+
+export async function getMainnetNativeBalance(tronWeb, address) {
+  if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet account address.')
+  const account = await postNode(tronWeb, '/wallet/getaccount', { address, visible: true })
+  if (!account || typeof account !== 'object' || account.Error) {
+    throw new Error('TRON Mainnet could not return the requested native TRX balance.')
+  }
+  const balance = String(account.balance ?? '0')
+  if (!/^(?:0|[1-9][0-9]*)$/.test(balance)) {
+    throw new Error('TRON Mainnet returned an invalid native TRX balance.')
+  }
+  return balance
 }
 
 async function postNode(tronWeb, path, body) {
@@ -423,7 +481,7 @@ export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 1800
       if (error instanceof Error && /execution failed/.test(error.message)) throw error
       lastError = error
     }
-    await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
+    await new Promise((resolve) => globalThis.setTimeout(resolve, intervalMs))
   }
   throw new Error('Transaction has not been verified in the solidified Mainnet chain. Keep its ID and check again: ' + txID + (lastError ? ' (' + lastError.message + ')' : ''))
 }
