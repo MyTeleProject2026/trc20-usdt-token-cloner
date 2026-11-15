@@ -35,7 +35,7 @@ test('TRӾ artifacts are compiled directly with the pinned compiler, not TronBox
 
 test('the dashboard verifies exact runtime bytecode before owner-issued credits', async () => {
   const helper = await fs.readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
-  assert.ok(helper.includes("postNode(tronWeb, '/wallet/getcontract'"))
+  assert.ok(helper.includes("postNode(tronWeb, '/wallet/getcontractinfo'"))
   assert.ok(helper.includes('deployedCode !== expectedCode'))
   assert.ok(helper.includes("String(name) !== 'TRӾ'"))
   assert.ok(helper.includes("String(symbol) !== 'TRAX'"))
