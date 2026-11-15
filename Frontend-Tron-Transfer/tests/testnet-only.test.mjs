@@ -66,7 +66,7 @@ test('production build runs the complete frontend regression suite', async () =>
   assert.equal(pkg.overrides.tmp, '0.2.7')
 })
 
-test('TronLink receives the complete unmodified TronWeb CreateSmartContract builder transaction', () => {
+test('TronLink receives the exact canonical node-issued CreateSmartContract transaction', () => {
   const transaction = {
     visible: false,
     txID: 'a'.repeat(64),
@@ -79,6 +79,17 @@ test('TronLink receives the complete unmodified TronWeb CreateSmartContract buil
     providerMetadata: { retain: true },
   }
   const signable = toWalletSignableTransaction(transaction)
-  assert.deepEqual(signable, transaction)
-  assert.notEqual(signable, transaction)
+  assert.strictEqual(signable, transaction)
+})
+
+
+test('deployment transaction construction uses the FullNode deploycontract endpoint, not browser protobuf encoding', async () => {
+  const helper = await read('../src/trax-mainnet.mjs')
+  const start = helper.indexOf('export async function createMainnetDeploymentTransaction')
+  const end = helper.indexOf('async function getCachedChainParameters', start)
+  const builder = helper.slice(start, end)
+  assert.ok(builder.includes("'/wallet/deploycontract'"))
+  assert.ok(builder.includes('owner_address: tronWeb.address.toHex(ownerAddress)'))
+  assert.ok(builder.includes('fee_limit: feeLimit'))
+  assert.ok(!builder.includes('transactionBuilder.createSmartContract'))
 })
