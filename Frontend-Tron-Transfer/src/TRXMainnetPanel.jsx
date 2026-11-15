@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, Sh
 import {
   TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, deployContractFromTronLink,
   callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts, parseBatchCreditRows, parseTokenUnits, saveContractAddresses,
-  sendAndVerifyContractCall,
+  sendAndVerifyContractCall, verifyTRAXTokenContract,
 } from './trax-mainnet.mjs'
 
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -62,7 +62,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   const getToken = useCallback(async () => {
     const tronWeb = assertMainnetWallet(wallet)
     if (!tronWeb.isAddress(tokenAddress)) throw new Error('Enter a valid deployed TRON Mainnet TRӾ contract address.')
-    const token = await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)
+    const token = await verifyTRAXTokenContract(tronWeb, tokenAddress)
     return { tronWeb, token }
   }, [wallet, tokenAddress])
 
