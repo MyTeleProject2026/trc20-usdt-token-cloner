@@ -296,7 +296,8 @@ export function normalizeMainnetAccountResources(accountResources, chainParamete
   const energyFee = parameter('getEnergyFee')
   const bandwidthFee = parameter('getTransactionFee')
   const maxFeeLimit = parameter('getMaxFeeLimit')
-  if (nativeBalance < 0n) throw new Error('TRON returned a negative native TRX balance.')  if (energyFee === null || energyFee <= 0n) throw new Error('TRON Mainnet did not return a valid current Energy fee.')
+  if (nativeBalance < 0n) throw new Error('TRON returned a negative native TRX balance.')
+  if (energyFee === null || energyFee <= 0n) throw new Error('TRON Mainnet did not return a valid current Energy fee.')
   return {
     energyLimit: energyLimit.toString(),
     energyUsed: energyUsed.toString(),
