@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable } from '../src/trax-mainnet.mjs'
+import { buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -132,11 +132,9 @@ test('TRON deployment construction requests the canonical wallet/deploycontract 
   const originalFetch = globalThis.fetch
   const calls = []
   const ownerHex = '41' + '11'.repeat(20)
-  const predictedHex = '41' + '22'.repeat(20)
   const transaction = {
     visible: false,
     txID: 'a'.repeat(64),
-    contract_address: predictedHex,
     raw_data: {
       contract: [{
         type: 'CreateSmartContract',
@@ -157,7 +155,7 @@ test('TRON deployment construction requests the canonical wallet/deploycontract 
   }
   globalThis.fetch = async (url, options) => {
     calls.push({ url, body: JSON.parse(options.body) })
-    return { ok: true, json: async () => transaction }
+    return { ok: true, json: async () => ({ result: { result: true }, transaction }) }
   }
   try {
     const tronWeb = {
@@ -191,6 +189,26 @@ test('TRON deployment construction requests the canonical wallet/deploycontract 
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('predicted TRON contract address matches TronWeb genContractAddress algorithm', () => {
+  const ownerHex = '41' + '11'.repeat(20)
+  const txID = '22'.repeat(32)
+  const inputs = []
+  const predictedHex = '41' + 'ab'.repeat(20)
+  const tronWeb = {
+    isAddress: address => address === 'TMainnetOwnerAddress' || address === 'TPredictedContractAddress',
+    address: {
+      toHex: address => address === 'TMainnetOwnerAddress' ? ownerHex : '',
+      fromHex: hex => hex === predictedHex ? 'TPredictedContractAddress' : '',
+    },
+    utils: {
+      code: { hexStr2byteArray: value => { inputs.push(value); return Array.from(Buffer.from(value, 'hex')) } },
+      ethersUtils: { keccak256: bytes => '0x' + 'ab'.repeat(32) },
+    },
+  }
+  assert.equal(predictMainnetContractAddress(tronWeb, 'TMainnetOwnerAddress', txID), 'TPredictedContractAddress')
+  assert.deepEqual(inputs, [txID + ownerHex])
 })
 
 test('TronLink structured provider errors are rendered as useful diagnostics, not [object Object]', () => {
