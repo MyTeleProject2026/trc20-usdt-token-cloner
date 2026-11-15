@@ -235,8 +235,7 @@ test('deployment resource budget requires zero Energy and Bandwidth burn for the
     energyAvailable: '1000',
     freeBandwidthAvailable: '1000',
     stakedBandwidthAvailable: '0',
-    nativeBalanceSun: '70000',
-    maxFeeLimitSun: '15000000000',
+        maxFeeLimitSun: '15000000000',
   }
   const budget = calculateDeploymentResourceBudget({
     energyRequired: '100',
@@ -274,8 +273,7 @@ test('zero-TRX protection explains an unaffordable resource shortfall before wal
     energyAvailable: '0',
     freeBandwidthAvailable: '0',
     stakedBandwidthAvailable: '0',
-    nativeBalanceSun: '70',
-    maxFeeLimitSun: '15000000000',
+        maxFeeLimitSun: '15000000000',
   }
   assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '100',
