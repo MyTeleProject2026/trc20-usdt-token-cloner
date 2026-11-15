@@ -37,7 +37,7 @@ test('TRӾ metadata, unbacked economics, and owner authorization are explicit', 
 test('external credits emit standard Transfer and a nonzero-reference audit event', () => {
   assert.ok(tokenSource.includes('event Transfer(address indexed from, address indexed to, uint256 value)'))
   assert.ok(tokenSource.includes('event OwnerCredit(address indexed recipient, uint256 amount, bytes32 indexed referenceId)'))
-  assert.ok(tokenSource.includes('require(referenceId != bytes32(0), "reference-required")'))
+  assert.ok(tokenSource.includes('require(referenceId != bytes32(0), "referenceId-required")'))
   assert.ok(tokenSource.includes('emit OwnerCredit(recipient, amount, referenceId)'))
 })
 
