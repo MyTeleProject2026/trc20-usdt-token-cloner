@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget } from '../src/trax-mainnet.mjs'
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
@@ -57,4 +57,42 @@ test('paced contract-view helper retries one HTTP 429 and returns the successful
   })
   assert.equal(value, 'ok')
   assert.equal(calls, 2)
+})
+
+
+test('zero-TRX owner can pass preflight only when delegated/staked Energy and Bandwidth cover deployment', () => {
+  const budget = calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    rawDataHex: '6001600055',
+    feeLimitSun: '150000000',
+    resourceSnapshot: {
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      energyAvailable: '120000',
+      freeBandwidthAvailable: '139',
+      stakedBandwidthAvailable: '0',
+      nativeBalanceSun: '0',
+      maxFeeLimitSun: '15000000000',
+    },
+  })
+  assert.equal(budget.requiredTrxSun, '0')
+  assert.equal(budget.energyShortfall, '0')
+  assert.equal(budget.bandwidthShortfall, '0')
+})
+
+test('zero-TRX owner is blocked before signing when delegated/staked resources leave any TRX shortfall', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    rawDataHex: '6001600055',
+    feeLimitSun: '150000000',
+    resourceSnapshot: {
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      energyAvailable: '0',
+      freeBandwidthAvailable: '0',
+      stakedBandwidthAvailable: '0',
+      nativeBalanceSun: '0',
+      maxFeeLimitSun: '15000000000',
+    },
+  }), /still needs .* TRX, but its current balance is 0\.000000 TRX/)
 })
