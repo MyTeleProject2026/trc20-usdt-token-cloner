@@ -269,6 +269,24 @@ test('zero-cost deployment guard blocks any estimated Energy or Bandwidth TRX bu
   }), /Zero-TRX deployment preflight blocked.*10\.000000 TRX.*Energy.*Bandwidth/)
 })
 
+test('zero-TRX protection explains an unaffordable resource shortfall before wallet signing', () => {
+  const resourceSnapshot = {
+    energyFeeSun: '100',
+    bandwidthFeeSun: '1000',
+    energyAvailable: '0',
+    freeBandwidthAvailable: '0',
+    stakedBandwidthAvailable: '0',
+    nativeBalanceSun: '70',
+    maxFeeLimitSun: '15000000000',
+  }
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '100',
+    resourceSnapshot,
+    rawDataHex: 'ab'.repeat(100),
+    feeLimitSun: '12500',
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*0\\.000070 TRX.*No wallet prompt, signature, or broadcast was attempted/)
+})
+
 test('predicted TRON contract address matches TronWeb genContractAddress algorithm', () => {
   const ownerHex = '41' + '11'.repeat(20)
   const txID = '22'.repeat(32)
