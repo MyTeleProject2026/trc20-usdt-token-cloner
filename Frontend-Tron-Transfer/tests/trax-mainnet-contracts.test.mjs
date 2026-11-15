@@ -91,6 +91,11 @@ test('deployment Energy estimation uses the dedicated estimateenergy deployment 
   assert.ok(!estimator.includes("'/wallet/triggerconstantcontract'"))
 })
 
+test('hex-encoded unsupported estimateenergy node error is recognized', () => {
+  const hex = Buffer.from('this node does not support estimate energy', 'utf8').toString('hex')
+  assert.equal(isMainnetEnergyEstimateUnavailable(new Error('TRON Mainnet deployment Energy estimation failed: ' + hex)), true)
+})
+
 test('deployment Energy estimator sends exact init bytecode to estimateenergy', async () => {
   const originalFetch = globalThis.fetch
   const calls = []
