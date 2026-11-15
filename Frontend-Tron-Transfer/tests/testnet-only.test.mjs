@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 
@@ -63,4 +64,23 @@ test('production build runs the complete frontend regression suite', async () =>
   assert.ok(pkg.scripts.build.includes('vite build'))
   assert.equal(pkg.dependencies.tronweb, '6.5.2')
   assert.equal(pkg.overrides.tmp, '0.2.7')
+})
+
+test('TronWeb 6.5.2 CreateSmartContract wallet payload preserves contract_address', () => {
+  const transaction = {
+    visible: false,
+    txID: 'a'.repeat(64),
+    contract_address: '41' + 'b'.repeat(40),
+    raw_data: {
+      contract: [{ type: 'CreateSmartContract', parameter: { type_url: 'type.googleapis.com/protocol.CreateSmartContract', value: { owner_address: '41' + 'c'.repeat(40), new_contract: { bytecode: '6000', abi: { entrys: [] } } } } }],
+      fee_limit: 150000000,
+    },
+    raw_data_hex: '0a02abcd',
+  }
+  const signable = toWalletSignableTransaction(transaction)
+  assert.equal(signable.contract_address, transaction.contract_address)
+  assert.equal(signable.txID, transaction.txID)
+  assert.equal(signable.raw_data_hex, transaction.raw_data_hex)
+  assert.deepEqual(signable.raw_data, transaction.raw_data)
+  assert.equal(signable.raw_data.contract[0].type, 'CreateSmartContract')
 })
