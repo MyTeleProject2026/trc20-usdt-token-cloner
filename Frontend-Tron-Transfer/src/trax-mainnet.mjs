@@ -379,14 +379,15 @@ export async function getMainnetAccountResourceSnapshot(tronWeb, address) {
 
 function decodeNodeErrorText(value) {
   const raw = String(value ?? '')
-  const hex = raw.trim().replace(/^0x/i, '')
-  if (/^(?:[0-9a-f]{2}){8,}$/i.test(hex)) {
+  const match = raw.trim().match(/(?:^|:\s*)(?:0x)?((?:[0-9a-f]{2}){8,})$/i)
+  if (match) {
     try {
-      const decoded = new TextDecoder().decode(Uint8Array.from(hex.match(/.{2}/g), pair => parseInt(pair, 16))).replace(/\0+$/g, '').trim()
+      const decoded = new TextDecoder().decode(Uint8Array.from(match[1].match(/.{2}/g), pair => parseInt(pair, 16))).replace(/\0+$/g, '').trim()
       if (/[a-z]{3}/i.test(decoded)) return decoded
     } catch {}
   }
   return raw
+}
 }
 
 export function normalizeDeploymentEnergyEstimate(response) {
