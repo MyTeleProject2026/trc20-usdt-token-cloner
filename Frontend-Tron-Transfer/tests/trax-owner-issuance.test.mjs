@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const contract = await fs.readFile(path.resolve(here, '../../../contracts/Restricted1TRAX.sol'), 'utf8')
+const contract = await fs.readFile(path.resolve(here, '../../contracts/Restricted1TRAX.sol'), 'utf8')
 
 test('TRӾ is explicitly owner-issued and has no reserve or redemption dependency', () => {
   assert.match(contract, /contract Restricted1TRAX/)
