@@ -22,6 +22,8 @@ test('TRAX uses the user-supplied red-circle, black-geometric-mark image', async
   const icon = await readFile(iconUrl, 'utf8')
   assert.ok(panel.includes('src="/trax-token-mark.svg"'))
   assert.ok(panel.includes('aria-label="TRӾ custom token"'))
+  assert.ok(panel.includes('background:"#000"'))
+  assert.ok(app.includes('background:"#000"'))
   assert.ok(app.includes('src="/trax-token-mark.svg"'))
   assert.ok(app.includes('icon:TraxNavIcon'))
   assert.match(icon, /viewBox="0 0 512 512"/)
