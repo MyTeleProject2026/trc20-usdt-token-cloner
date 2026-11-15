@@ -26,7 +26,7 @@ test('production frontend remains Mainnet-only and TRӾ dashboard uses owner-iss
   assert.ok(traxPanel.includes('token.batchCredit(recipients, amounts, references)'))
   assert.ok(traxPanel.includes('maximum 50'))
   assert.ok(traxPanel.includes('UNBACKED OWNER-ISSUED TOKEN'))
-  assert.ok(traxPanel.includes('No reserve, collateral, guaranteed redemption'))
+  assert.ok(traxPanel.includes('There is no reserve, collateral, guaranteed redemption'))
   assert.ok(!/redeemForOwner|releaseForRedemption|reserveBalance|TRAX_VAULT_ARTIFACT/.test(traxPanel))
   const contractCalls = [...traxPanel.matchAll(/sendAndVerifyContractCall\([^\n]+/g)].map(match => match[0])
   assert.equal(contractCalls.length, 7)
