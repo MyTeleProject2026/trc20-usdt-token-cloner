@@ -6,11 +6,14 @@ import { estimateMainnetDeploymentEnergy, formatTronLinkError } from '../src/tra
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
 const tokenSource = await fs.readFile(new URL('../../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
+const compileScript = await fs.readFile(new URL('../scripts/compile-trax-contracts.mjs', import.meta.url), 'utf8')
 
 test('Pinned Solidity compiler artifact exposes owner-issued TRӾ functions', () => {
   assert.equal(artifact.compiler, 'TRON solc 0.8.25')
   assert.equal(artifact.optimizer.enabled, true)
   assert.equal(artifact.optimizer.runs, 200)
+  assert.equal(artifact.evmVersion, 'paris')
+  assert.equal(artifact.token.contractName, 'Restricted1TRAX')
   assert.ok(artifact.token.bytecode.length > 0)
   const functions = artifact.token.abi.filter(item => item.type === 'function').map(item => item.name)
   for (const name of ['name','symbol','decimals','totalSupply','balanceOf','allowance','transfer','approve','transferFrom','owner','pendingOwner','transferOwnership','acceptOwnership','setPaused','setMintingEnabled','mint','credit','batchCredit']) {
@@ -19,6 +22,13 @@ test('Pinned Solidity compiler artifact exposes owner-issued TRӾ functions', ()
   for (const name of ['reserveVault','redeemForOwner','isLocked','setRecipientLocked']) {
     assert.ok(!functions.includes(name), 'Legacy reserve/lock ABI must be absent: ' + name)
   }
+})
+
+test('TRӾ artifacts are compiled directly with the pinned compiler, not TronBox', () => {
+  assert.ok(compileScript.includes("import solc from 'solc'"))
+  assert.ok(compileScript.includes("compilerVersion !== '0.8.25'"))
+  assert.ok(compileScript.includes("evmVersion: 'paris'"))
+  assert.doesNotMatch(compileScript.toLowerCase(), /tronbox/)
 })
 
 test('TRӾ metadata, unbacked economics, and owner authorization are explicit', () => {
