@@ -5,6 +5,12 @@ import solc from 'solc'
 
 test('owner-issued TRӾ compiles for the TRON Paris-compatible target', async () => {
   const tokenSource = await fs.readFile(new URL('../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
+  const frontendPackage = JSON.parse(await fs.readFile(new URL('../Frontend-Tron-Transfer/package.json', import.meta.url), 'utf8'))
+  const compileScript = await fs.readFile(new URL('../Frontend-Tron-Transfer/scripts/compile-trax-contracts.mjs', import.meta.url), 'utf8')
+  assert.equal(frontendPackage.dependencies.solc, '0.8.25')
+  assert.equal(frontendPackage.overrides.tmp, '0.2.7')
+  assert.ok(compileScript.includes("compilerVersion !== '0.8.25'"))
+  assert.ok(compileScript.includes("evmVersion: 'paris'"))
   const output = JSON.parse(solc.compile(JSON.stringify({
     language: 'Solidity',
     sources: { 'Restricted1TRAX.sol': { content: tokenSource } },
