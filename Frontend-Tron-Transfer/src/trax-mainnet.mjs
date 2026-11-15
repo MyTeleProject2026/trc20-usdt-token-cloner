@@ -847,30 +847,13 @@ export async function preflightContractDeployments(wallet, deployments, {
   readResources = getMainnetAccountResourceSnapshot,
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
-  expectedOwnerAddress = '',
-} = {}) {
+ } = {}) {
   const walletTronWeb = assertMainnetWallet(wallet)
   if (!Array.isArray(deployments) || deployments.length === 0) {
     return { deployments: [], requiredTrxSun: '0', availableTrxSun: '0' }
   }
   const tronWeb = createVerifier()
-  if (expectedOwnerAddress && !addressesEqual(tronWeb, wallet.address, expectedOwnerAddress)) {
-    throw new Error('Configured TRӾ owner does not match the connected funded Mainnet account. Expected '
-      + expectedOwnerAddress + '; connected ' + wallet.address + '. No wallet prompt or broadcast was attempted.')
-  }
-  const injectedSignerAddress = walletTronWeb.defaultAddress?.base58
-    || walletTronWeb.defaultAddress?.hex
-    || ''
-  if (injectedSignerAddress && !addressesEqual(tronWeb, injectedSignerAddress, wallet.address)) {
-    throw new Error('TronLink active signing address (' + injectedSignerAddress
-      + ') differs from the connected app account (' + wallet.address
-      + '). Switch TronLink to the funded configured owner account and reconnect. No signature or broadcast was attempted.')
-  }
   const resourceSnapshot = await readResources(tronWeb, wallet.address)
-  if (BigInt(String(resourceSnapshot.nativeBalanceSun ?? '0')) <= 0n) {
-    throw new Error('The connected transaction owner / fee payer ' + wallet.address
-      + ' has zero native TRX. TRON deployment fees are charged to the CreateSmartContract owner account; a different gas address is not automatically charged. Fund this same owner account or connect the funded configured owner account. No wallet prompt or broadcast was attempted.')
-  }
   const permissionSnapshot = await readPermissions(tronWeb, wallet.address)
   if (!permissionSnapshot.connectedSignerCanAuthorizeAlone) {
     throw new Error('Connected wallet cannot satisfy the TRON owner permission threshold alone. Collected weight '
@@ -972,6 +955,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   readResources = getMainnetAccountResourceSnapshot,
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
+  expectedOwnerAddress = '',
 } = {}) {
   // Build the unsigned deployment transaction with the SAME injected
   // TronWeb instance that will sign it. TronLink's provider can use a different
@@ -982,6 +966,18 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // raw_data, txID, signatures, permissions, receipts and deployed bytecode.
   const walletTronWeb = assertMainnetWallet(wallet)
   const tronWeb = createVerifier()
+  if (expectedOwnerAddress && !addressesEqual(tronWeb, wallet.address, expectedOwnerAddress)) {
+    throw new Error('Configured TRӾ owner does not match the connected funded Mainnet account. Expected '
+      + expectedOwnerAddress + '; connected ' + wallet.address + '. No wallet prompt or broadcast was attempted.')
+  }
+  const injectedSignerAddress = walletTronWeb.defaultAddress?.base58
+    || walletTronWeb.defaultAddress?.hex
+    || ''
+  if (injectedSignerAddress && !addressesEqual(tronWeb, injectedSignerAddress, wallet.address)) {
+    throw new Error('TronLink active signing address (' + injectedSignerAddress
+      + ') differs from the connected app account (' + wallet.address
+      + '). Switch TronLink to the funded configured owner account and reconnect. No signature or broadcast was attempted.')
+  }
   if (typeof walletTronWeb?.trx?.sign !== 'function'
     || typeof walletTronWeb?.trx?.sendRawTransaction !== 'function'
     || !tronWeb?.utils?.transaction?.txCheck
@@ -992,6 +988,10 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // Pace the preflight reads instead of bursting resource, permission and
   // deployment-simulation requests at the public TronGrid endpoint together.
   const resourceSnapshot = await readResources(tronWeb, wallet.address)
+  if (BigInt(String(resourceSnapshot.nativeBalanceSun ?? '0')) <= 0n) {
+    throw new Error('The connected transaction owner / fee payer ' + wallet.address
+      + ' has zero native TRX. TRON deployment fees are charged to the CreateSmartContract owner account; a different gas address is not automatically charged. Fund this same owner account or connect the funded configured owner account. No wallet prompt or broadcast was attempted.')
+  }
   const permissionSnapshot = await readPermissions(tronWeb, wallet.address)
   let energyEstimate = null
   let energyEstimateWarning = ''
