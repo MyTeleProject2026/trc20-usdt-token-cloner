@@ -1034,6 +1034,11 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   if (receipt?.receipt?.result !== 'SUCCESS') throw new Error('Deployment transaction is not confirmed successful. Transaction: ' + unsigned.txID)
   const deployed = await verifyDeployedContract(tronWeb, predictedAddress)
   if (!deployed?.bytecode) throw new Error('Deployment receipt succeeded, but deployed contract bytecode could not be verified. Transaction: ' + unsigned.txID)
+  const expectedRuntimeCode = String(artifact.deployedBytecode || '').replace(/^0x/, '').toLowerCase()
+  const deployedRuntimeCode = String(deployed.bytecode || '').replace(/^0x/, '').toLowerCase()
+  if (!expectedRuntimeCode || deployedRuntimeCode !== expectedRuntimeCode) {
+    throw new Error('Deployment receipt succeeded, but deployed runtime bytecode does not match the compiled contract artifact. Transaction: ' + unsigned.txID)
+  }
   let deployedOwner
   try { deployedOwner = await verifyDeployedOwner(tronWeb, artifact, predictedAddress) } catch (error) {
     throw new Error('Deployment receipt and bytecode were verified, but the deployed contract owner could not be read. Transaction: ' + unsigned.txID + '. ' + (error?.message || String(error)))
