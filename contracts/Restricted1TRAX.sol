@@ -26,7 +26,7 @@ contract Restricted1TRAX {
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event PauseStatusChanged(bool paused);
     event MintingStatusChanged(bool enabled);
-    event OwnerCredit(address indexed recipient, uint256 amount, bytes32 indexed reference);
+    event OwnerCredit(address indexed recipient, uint256 amount, bytes32 indexed referenceId);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "owner-only");
@@ -81,29 +81,29 @@ contract Restricted1TRAX {
         _mint(recipient, amount);
     }
 
-    /// @notice Owner credit with an auditable off-chain reference identifier.
-    /// @dev The reference is metadata only; it does not prove an exchange credited its customer ledger.
-    function credit(address recipient, uint256 amount, bytes32 reference)
+    /// @notice Owner credit with an auditable off-chain referenceId identifier.
+    /// @dev The referenceId is metadata only; it does not prove an exchange credited its customer ledger.
+    function credit(address recipient, uint256 amount, bytes32 referenceId)
         external onlyOwner whenNotPaused
     {
         require(mintingEnabled, "minting-disabled");
-        require(reference != bytes32(0), "reference-required");
+        require(referenceId != bytes32(0), "referenceId-required");
         _mint(recipient, amount);
-        emit OwnerCredit(recipient, amount, reference);
+        emit OwnerCredit(recipient, amount, referenceId);
     }
 
     /// @notice Credit multiple external TRON addresses in one owner-authorized transaction.
-    function batchCredit(address[] calldata recipients, uint256[] calldata amounts, bytes32[] calldata references)
+    function batchCredit(address[] calldata recipients, uint256[] calldata amounts, bytes32[] calldata referenceIds)
         external onlyOwner whenNotPaused
     {
         require(mintingEnabled, "minting-disabled");
         uint256 length = recipients.length;
         require(length > 0 && length <= MAX_BATCH_CREDITS, "invalid-batch-size");
-        require(amounts.length == length && references.length == length, "array-length-mismatch");
+        require(amounts.length == length && referenceIds.length == length, "array-length-mismatch");
         for (uint256 i = 0; i < length; i++) {
-            require(references[i] != bytes32(0), "reference-required");
+            require(referenceIds[i] != bytes32(0), "referenceId-required");
             _mint(recipients[i], amounts[i]);
-            emit OwnerCredit(recipients[i], amounts[i], references[i]);
+            emit OwnerCredit(recipients[i], amounts[i], referenceIds[i]);
         }
     }
 
