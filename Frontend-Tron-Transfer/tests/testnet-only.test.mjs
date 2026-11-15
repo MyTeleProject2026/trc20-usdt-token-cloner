@@ -66,7 +66,7 @@ test('production build runs the complete frontend regression suite', async () =>
   assert.equal(pkg.overrides.tmp, '0.2.7')
 })
 
-test('TronWeb 6.5.2 CreateSmartContract wallet payload preserves contract_address', () => {
+test('TronLink receives the complete unmodified TronWeb CreateSmartContract builder transaction', () => {
   const transaction = {
     visible: false,
     txID: 'a'.repeat(64),
@@ -76,11 +76,9 @@ test('TronWeb 6.5.2 CreateSmartContract wallet payload preserves contract_addres
       fee_limit: 150000000,
     },
     raw_data_hex: '0a02abcd',
+    providerMetadata: { retain: true },
   }
   const signable = toWalletSignableTransaction(transaction)
-  assert.equal(signable.contract_address, transaction.contract_address)
-  assert.equal(signable.txID, transaction.txID)
-  assert.equal(signable.raw_data_hex, transaction.raw_data_hex)
-  assert.deepEqual(signable.raw_data, transaction.raw_data)
-  assert.equal(signable.raw_data.contract[0].type, 'CreateSmartContract')
+  assert.deepEqual(signable, transaction)
+  assert.notEqual(signable, transaction)
 })
