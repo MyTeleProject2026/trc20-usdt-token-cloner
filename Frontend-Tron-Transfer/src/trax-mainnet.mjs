@@ -435,11 +435,8 @@ export function calculateDeploymentResourceBudget({
   }
   const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
-  if (balance < requiredTrxSun) {
-    throw new Error('Insufficient TRX for the estimated Mainnet resource shortfall. Estimated fee fallback: '
-      + requiredTrxSun.toString() + ' SUN (' + (Number(requiredTrxSun) / 1e6).toFixed(6)
-      + ' TRX); available balance: ' + balance.toString() + ' SUN. Add TRX or obtain more Energy/Bandwidth delegation. No wallet signature or broadcast was attempted.')
-  }
+  // Do not pre-empt TronLink or the TRON node with an estimated balance rejection.
+  // The estimate is informational; the signed transaction and network enforce the real fee.
   return {
     energyRequired: energy.toString(),
     energyWithSafetyMargin: bufferedEnergy.toString(),
@@ -871,14 +868,8 @@ export async function preflightContractDeployments(wallet, deployments, {
     })
   }
   const availableTrxSun = BigInt(resourceSnapshot.nativeBalanceSun)
-  if (availableTrxSun < combinedRequiredTrxSun) {
-    throw new Error('Combined Mainnet deployment preflight failed before any TronLink prompt. Conservative estimated fee fallback for '
-      + results.map(item => item.contractName).join(' and ') + ': '
-      + combinedRequiredTrxSun.toString() + ' SUN (' + (Number(combinedRequiredTrxSun) / 1e6).toFixed(6)
-      + ' TRX); available balance: ' + availableTrxSun.toString() + ' SUN ('
-      + (Number(availableTrxSun) / 1e6).toFixed(6)
-      + ' TRX). Add TRX or obtain real Energy/Bandwidth resources, refresh, and retry. No wallet signature or broadcast was attempted.')
-  }
+  // Balance sufficiency is left to TronLink / the TRON node at signing and broadcast.
+  // This preflight reports estimated network burn but does not block on a stale balance snapshot.
   return {
     deployments: results,
     requiredTrxSun: combinedRequiredTrxSun.toString(),
