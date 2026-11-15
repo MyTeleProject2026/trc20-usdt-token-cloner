@@ -4,29 +4,20 @@ import { readFile } from 'node:fs/promises'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 
-test('TRӾ workspace renders the dedicated Mainnet contract manager', async () => {
+test('TRӾ workspace renders a single owner-issued Mainnet token deployment flow', async () => {
   const app = await read('../src/App.jsx')
   const panel = await read('../src/TRXMainnetPanel.jsx')
   assert.ok(panel.includes("const DEFAULT_FEE_CAP = '60'"))
-  const deployStart = panel.indexOf('const deployMissingContracts')
-  const deployEnd = panel.indexOf('const deployVault =', deployStart)
-  const deployFlow = panel.slice(deployStart, deployEnd)
-  assert.equal([...deployFlow.matchAll(/feeLimitSun: feeCapSun/g)].length, 2)
-  assert.ok(deployFlow.includes('callMainnetView(existing.owner())'))
-  assert.ok(deployFlow.includes('callMainnetView(existing.authorizedToken())'))
-  assert.ok(deployFlow.includes('callMainnetView(existing.reserveVault())'))
+  assert.ok(panel.includes('const deployToken'))
+  assert.ok(panel.includes('deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT'))
+  assert.ok(panel.includes('Restricted1TRAX'))
+  assert.ok(panel.includes('Deploy TRӾ automatically'))
+  assert.ok(panel.includes('verifyTRAXTokenContract'))
+  assert.doesNotMatch(panel, /TRAX_VAULT_ARTIFACT|vaultAddress|deployVault|preflightContractDeployments/)
   assert.doesNotMatch(panel, /\.call\(\)/, 'all Mainnet contract reads must use the paced RPC queue')
   assert.ok(panel.includes('callMainnetView('))
   assert.ok(panel.includes('getMainnetNativeBalance('))
   assert.ok(app.includes('TRXMainnetPanel'))
-  for (const value of [
-    'TRӾ smart-contract manager',
-    'Deploy both contracts automatically',
-    'Authorize token in vault',
-    'Fund the native TRX reserve',
-    'Issue restricted TRӾ',
-    'Owner-controlled redemption',
-  ]) assert.ok(panel.includes(value), 'missing TRӾ manager capability: ' + value)
 })
 
 test('TRӾ frontend uses Mainnet deployment gates and validates the signer before broadcast', async () => {
@@ -58,11 +49,12 @@ test('wallet discovery supports injected TRON providers without importing privat
   assert.doesNotMatch(provider, /privateKey\s*[:=]/i)
 })
 
-test('contract administration is determined by deployed on-chain owners', async () => {
+test('contract administration checks the configured owner against the on-chain token owner', async () => {
   const panel = await read('../src/TRXMainnetPanel.jsx')
-  for (const value of ['callMainnetView(token.owner())', 'callMainnetView(vault.owner())', 'connectedAddress']) {
+  for (const value of ['callMainnetView(token.owner())', 'EXPECTED_OWNER_ADDRESS', 'connectedAddress']) {
     assert.ok(panel.includes(value), 'missing on-chain owner check: ' + value)
   }
+  assert.doesNotMatch(panel, /vaultAddress|vaultOwner|TRAX_VAULT_ARTIFACT/)
 })
 
 test('production build runs the complete frontend regression suite', async () => {
