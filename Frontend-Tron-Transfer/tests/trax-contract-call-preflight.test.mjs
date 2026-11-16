@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { sendAndVerifyContractCall } from '../src/trax-mainnet.mjs'
+import { sendAndVerifyContractCall, estimateMainnetContractCallEnergy } from '../src/trax-mainnet.mjs'
 
 const TX_ID = '1'.repeat(64)
 const RAW_DATA_HEX = 'ab'.repeat(100)
@@ -172,4 +172,50 @@ test('owner write rejects a signer address different from the supplied payer', a
   )
   assert.equal(h.counts().signCalls, 0)
   assert.equal(h.counts().broadcastCalls, 0)
+})
+
+test('exact-call Energy estimator uses estimateenergy and returns a validated result', async () => {
+  let constantCalls = 0
+  const tronWeb = {
+    isAddress: value => value.startsWith('T'),
+    address: { toHex: value => value },
+    transactionBuilder: {
+      estimateEnergy: async (contract, selector, options, params, owner) => {
+        assert.equal(contract, 'TToken')
+        assert.equal(selector, 'credit(address,uint256,bytes32)')
+        assert.equal(owner, 'TOwner')
+        assert.equal(options.parametersV2[1], '1000000')
+        assert.deepEqual(params, [])
+        return { result: { result: true }, energy_required: 321 }
+      },
+      triggerConstantContract: async () => {
+        constantCalls += 1
+        throw new Error('fallback should not execute')
+      },
+    },
+  }
+  const method = { abi: { name: 'credit' }, functionSelector: 'credit(address,uint256,bytes32)' }
+  const result = await estimateMainnetContractCallEnergy(tronWeb, 'TToken', method, args, 'TOwner')
+  assert.deepEqual(result, { energyUsed: '321', energyPenalty: '0' })
+  assert.equal(constantCalls, 0)
+})
+
+test('exact-call Energy estimator falls back to read-only triggerconstantcontract on unsupported estimator', async () => {
+  const calls = []
+  const tronWeb = {
+    isAddress: value => value.startsWith('T'),
+    address: { toHex: value => value },
+    transactionBuilder: {
+      estimateEnergy: async () => { throw new Error('This node does not support estimate energy') },
+      triggerConstantContract: async (contract, selector, options, params, owner) => {
+        calls.push({ contract, selector, options, params, owner })
+        return { result: { result: true }, energy_used: 654, energy_penalty: 12 }
+      },
+    },
+  }
+  const method = { abi: { name: 'credit' }, functionSelector: 'credit(address,uint256,bytes32)' }
+  const result = await estimateMainnetContractCallEnergy(tronWeb, 'TToken', method, args, 'TOwner')
+  assert.deepEqual(result, { energyUsed: '654', energyPenalty: '12' })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].options.parametersV2[1], '1000000')
 })
