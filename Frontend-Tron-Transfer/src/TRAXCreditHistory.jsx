@@ -31,7 +31,7 @@ function mapEvent(event) {
   }
 }
 
-export default function TRAXCreditHistory({ wallet, tokenAddress, run }) {
+export default function TRAXCreditHistory({ wallet, tokenAddress, run, busy = false }) {
   const [events, setEvents] = useState([])
   const [loaded, setLoaded] = useState(false)
   const [fingerprint, setFingerprint] = useState('')
@@ -75,7 +75,7 @@ export default function TRAXCreditHistory({ wallet, tokenAddress, run }) {
   return <section className="trax-actions">
     <div className="button-row" style={{justifyContent:'space-between',alignItems:'center'}}>
       <h3><History size={16}/> Confirmed issuance history</h3>
-      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.tronWeb} onClick={() => { setFingerprint(''); setHasMore(false); fetchPage(false) }}><RefreshCw size={14}/> Refresh history</button>
+      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.tronWeb || busy} onClick={() => { setFingerprint(''); setHasMore(false); fetchPage(false) }}><RefreshCw size={14}/> Refresh history</button>
     </div>
     <p className="fine-print">Read-only history of confirmed OwnerCredit events indexed by TronGrid. This records on-chain token credits, not exchange customer-ledger deposits. Pages contain up to 50 events; use Load more to follow the API pagination cursor.</p>
     {!loaded ? <p className="fine-print">Refresh to load confirmed Mainnet credits.</p> : events.length === 0
