@@ -2164,3 +2164,7 @@ td { color: #d2e1f5; }
   .trax-spin { animation:none; }
   .trax-admin-shell *, .trax-admin-shell *::before, .trax-admin-shell *::after { scroll-behavior:auto !important; transition:none !important; }
 }
+
+.trax-admin-shell:has(.trax-sidebar.collapsed){grid-template-columns:82px minmax(0,1fr)}
+.trax-sidebar.collapsed .trax-sidebar-connect{font-size:0;min-height:40px}
+.trax-sidebar.collapsed .trax-sidebar-connect::after{content:'↔';font-size:16px}
