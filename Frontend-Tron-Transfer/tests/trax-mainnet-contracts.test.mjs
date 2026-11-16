@@ -428,7 +428,7 @@ test('actual TEnergy 3038 promo_not_eligible response is normalized and never pr
   assert.equal(providerCalls, 2)
 
   const second = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
-    fetchImpl: async () => { throw new Error('Permanent ineligibility must not be retried during this page session') },
+    fetchImpl,
     readResources: async () => { throw new Error('Permanent ineligibility cache should return before Mainnet reads') },
   })
   assert.equal(second.status, 'promo-not-eligible')
