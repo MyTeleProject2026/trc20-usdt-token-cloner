@@ -3,7 +3,7 @@ import { ArrowRightLeft, ShieldCheck } from 'lucide-react'
 import { addressesEqual, callMainnetView, sendAndVerifyContractCall } from './trax-mainnet.mjs'
 
 export default function TRAXOwnershipControls({
-  wallet, connectedAddress, tokenAddress, feeCapSun,
+  wallet, connectedAddress, tokenAddress, feeCapSun, busy = false,
   getToken, assertOwner, run, refresh, setLastTx, setNotice,
 }) {
   const [nextOwner, setNextOwner] = useState('')
@@ -54,11 +54,11 @@ export default function TRAXOwnershipControls({
     <p className="fine-print">The current owner proposes a new address. Only that exact address can accept ownership in a separate Mainnet transaction. Never enter an address unless its owner controls the corresponding wallet.</p>
     <label>New owner TRON Mainnet address<input value={nextOwner} onChange={event => setNextOwner(event.target.value)} autoComplete="off" spellCheck="false" placeholder="T..."/></label>
     <div className="button-row">
-      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.tronWeb || !feeCapSun} onClick={startTransfer}><ArrowRightLeft size={15}/> Propose ownership transfer</button>
-      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.tronWeb} onClick={readPendingOwner}>Read pending owner</button>
+      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.tronWeb || !feeCapSun || busy} onClick={startTransfer}><ArrowRightLeft size={15}/> Propose ownership transfer</button>
+      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.tronWeb || busy} onClick={readPendingOwner}>Read pending owner</button>
     </div>
     {pendingOwner && <div className="trax-balance-note"><b>Pending owner:</b> {pendingOwner}</div>}
-    <button type="button" className="primary-button" disabled={!tokenAddress || !wallet?.tronWeb || !isPendingOwner || !feeCapSun} onClick={acceptTransfer}><ShieldCheck size={15}/> Accept ownership from this wallet</button>
+    <button type="button" className="primary-button" disabled={!tokenAddress || !wallet?.tronWeb || !isPendingOwner || !feeCapSun || busy} onClick={acceptTransfer}><ShieldCheck size={15}/> Accept ownership from this wallet</button>
     <p className="fine-print">If the new owner is a different wallet, reconnect TronLink to that address before accepting. This dashboard's configured-owner restriction remains in force for issuance and emergency controls; acceptance is available only to the exact on-chain pending owner.</p>
   </div>
 }
