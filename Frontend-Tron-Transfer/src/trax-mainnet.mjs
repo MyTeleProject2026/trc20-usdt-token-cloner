@@ -9,7 +9,7 @@ const TENERGY_PROMO_API_BASE = String(
   import.meta.env?.VITE_RESOURCE_API_BASE_URL
   || import.meta.env?.VITE_API_BASE_URL
   || 'https://tron-transfer-resource-api.onrender.com',
-).replace(/\\/+$/, '')
+).replace(/\/+$/, '')
 
 async function tenergyPromoRequest(path, { method = 'GET', body, fetchImpl = fetch } = {}) {
   const response = await fetchImpl(TENERGY_PROMO_API_BASE + '/api/tron/tenergy/promo' + path, {
