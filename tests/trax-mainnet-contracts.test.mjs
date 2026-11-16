@@ -32,7 +32,7 @@ test('owner-issued TRӾ compiles for the TRON Paris-compatible target', async ()
     assert.ok(!functions.includes(name), 'legacy reserve/lock function must not exist: ' + name)
   }
   assert.ok(tokenSource.includes('name = unicode"TRӾ"'))
-  assert.ok(tokenSource.includes('symbol = "TRAX"'))
+  assert.ok(tokenSource.includes('symbol = unicode"TRӾ"'))
   assert.ok(tokenSource.includes('decimals = 6'))
   assert.ok(tokenSource.includes('MAX_BATCH_CREDITS = 50'))
   assert.ok(tokenSource.includes('mapping(bytes32 => bool) public creditReferenceUsed;'))
