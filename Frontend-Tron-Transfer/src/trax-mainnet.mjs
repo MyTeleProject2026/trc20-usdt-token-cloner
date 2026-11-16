@@ -5,6 +5,23 @@ export const TRON_MAINNET_HOST = 'https://api.trongrid.io'
 export const TRAX_STORAGE_KEY = 'tron-transfer:trax-mainnet-contracts:v1'
 export const TRAX_TOKEN_ARTIFACT = artifacts.token
 
+// A provider's non-retryable one-time promo rejection is stable for this page session.
+// Cache only the eligibility result; never store a signature, nonce, or provider ticket.
+const TENERGY_INELIGIBLE_OWNER_ADDRESSES = new WeakMap()
+
+function hasCachedTenergyIneligibility(fetchImpl, address) {
+  return Boolean(TENERGY_INELIGIBLE_OWNER_ADDRESSES.get(fetchImpl)?.has(address))
+}
+
+function cacheTenergyIneligibility(fetchImpl, address) {
+  let addresses = TENERGY_INELIGIBLE_OWNER_ADDRESSES.get(fetchImpl)
+  if (!addresses) {
+    addresses = new Set()
+    TENERGY_INELIGIBLE_OWNER_ADDRESSES.set(fetchImpl, addresses)
+  }
+  addresses.add(address)
+}
+
 const TENERGY_PROMO_API_BASE = String(
   import.meta.env?.VITE_RESOURCE_API_BASE_URL
   || 'https://tron-transfer-resource-api.onrender.com',
@@ -43,6 +60,17 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
   const tronWeb = assertMainnetWallet(wallet)
   if (!addressesEqual(tronWeb, wallet.address, ownerAddress)) {
     throw new Error('TEnergy promo claim is restricted to the connected TRӾ owner wallet.')
+  }
+
+  const promoOwnerKey = String(ownerAddress).toLowerCase()
+  if (hasCachedTenergyIneligibility(fetchImpl, promoOwnerKey)) {
+    return {
+      status: 'promo-not-eligible',
+      providerCode: '3038',
+      retryable: false,
+      energyVerified: false,
+      message: 'TEnergy previously confirmed that this owner address was not included in the one-time promotional distribution. The provider marks this result non-retryable; no new claim or wallet signature was attempted.',
+    }
   }
 
   const getStatus = async () => {
@@ -166,9 +194,29 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
     })
     challenge = result.payload
     if (!result.response.ok || challenge?.success !== true) {
-      const claimStatus = challenge?.status || 'challenge-unavailable'
+      const providerError = challenge?.error ?? challenge?.error_code ?? challenge?.code ?? null
+      const providerSlug = String(challenge?.slug || '').toLowerCase()
+      const permanentIneligibility = Number(providerError) === 3038
+        || providerSlug === 'promo_not_eligible'
+        || String(providerError || '').toUpperCase() === 'PROMO_NOT_ELIGIBLE'
+        || challenge?.status === 'promo-not-eligible'
+      if (permanentIneligibility || challenge?.retryable === false) {
+        if (permanentIneligibility) cacheTenergyIneligibility(fetchImpl, promoOwnerKey)
+        return {
+          status: permanentIneligibility ? 'promo-not-eligible' : (challenge?.status || 'promo-claim-rejected'),
+          providerCode: providerError === null ? null : String(providerError),
+          providerSlug: providerSlug || null,
+          retryable: false,
+          energyVerified: false,
+          message: permanentIneligibility
+            ? 'TEnergy confirms this owner address was not included in the one-time promotional distribution (provider code 3038). No wallet signature or claim redemption was requested. The normal zero-TRX deployment resource check remains in force.'
+            : (challenge?.message || 'The promotional provider rejected this claim and marked it non-retryable. No wallet signature or redemption was requested.'),
+        }
+      }
       return {
-        status: claimStatus,
+        status: challenge?.status || 'challenge-unavailable',
+        providerCode: providerError === null ? null : String(providerError),
+        retryable: challenge?.retryable !== false,
         energyVerified: false,
         message: challenge?.message || 'The owner wallet is not eligible for this promotion. Continuing to the normal deployment resource gate.',
       }
