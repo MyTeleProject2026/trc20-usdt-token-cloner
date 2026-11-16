@@ -7,6 +7,7 @@ import {
 } from './trax-mainnet.mjs'
 import { calculatePortfolioValue, fetchTRXReferencePrice } from './trax-pricing.mjs'
 import TRAXOwnershipControls from './TRAXOwnershipControls.jsx'
+import TRAXCreditHistory from './TRAXCreditHistory.jsx'
 import './trax-mainnet.css'
 
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -277,6 +278,8 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       setLastTx={setLastTx}
       setNotice={setNotice}
     />
+
+    <TRAXCreditHistory wallet={wallet} tokenAddress={tokenAddress} run={run} />
 
     <div className="trax-actions">
       <h3>External wallet credit manager</h3>
