@@ -214,7 +214,14 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
       return payload
     }
     const promoRoot = '/api/tron/resources/free-delegation/tenergy'
-    const promoMatch = url.pathname.startsWith(promoRoot + '/') ? [url.pathname, url.pathname.slice(promoRoot.length + 1)] : null
+    const promoAliasRoot = '/api/tron/tenergy/promo'
+    const legacyPromoMatch = url.pathname.startsWith(promoRoot + '/') ? [url.pathname, url.pathname.slice(promoRoot.length + 1)] : null
+    const aliasPromoMatch = url.pathname.startsWith(promoAliasRoot + '/') ? [url.pathname, url.pathname.slice(promoAliasRoot.length + 1)] : null
+    const promoMatch = legacyPromoMatch || aliasPromoMatch
+    const isPromoAlias = Boolean(aliasPromoMatch)
+    const promoAction = !promoMatch ? null : isPromoAlias
+      ? ({ status: 'promo', challenge: 'challenge', redeem: 'redeem', redemption: 'redemption' }[promoMatch[1]] || promoMatch[1])
+      : promoMatch[1]
     if (promoMatch) {
       let body = null
       if (req.method === 'POST') {
@@ -232,29 +239,55 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
       const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
       if (!allowRequest(ip)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       try {
-        if (promoMatch[1] === 'promo' && req.method === 'GET') {
+        if (promoAction === 'promo' && req.method === 'GET') {
           const terms = await tenergyRequest('/promo')
           if (terms.network !== 'mainnet') return send(res, 502, { success: false, error: 'PROVIDER_NETWORK_MISMATCH' }, origin)
           let redemption = null
           try { redemption = await tenergyRequest('/promo/redemptions/' + encodeURIComponent(walletAddress)) }
           catch (error) { if (error.status !== 404) throw error }
+          if (isPromoAlias) {
+            return send(res, 200, {
+              success: true,
+              provider: 'TEnergy',
+              network: 'mainnet',
+              promo: { state: terms.state || 'unknown', grant: terms.grant && typeof terms.grant === 'object' ? terms.grant : null },
+              redemption,
+              requiresOwnerMessageSignature: !redemption && terms.state === 'active',
+              claimSubmitsNoTransaction: true,
+              resourceCoverage: { energy: true, bandwidth: false, contractDeploymentFee: false },
+              claimMethod: 'wallet-message-signature',
+              transactionRequired: false,
+            }, origin)
+          }
           return send(res, 200, { success: true, provider: 'TEnergy', network: 'mainnet', terms, redemption, claimMethod: 'wallet-message-signature', transactionRequired: false, note: 'One-time promotional Energy only for addresses the provider marked eligible while its Mainnet promotion is active. No paid order or TRX transfer is used.' }, origin)
         }
-        if (promoMatch[1] === 'challenge' && req.method === 'POST') {
+        if (promoAction === 'challenge' && req.method === 'POST') {
           const terms = await tenergyRequest('/promo')
           if (terms.network !== 'mainnet' || terms.state !== 'active' || !Number(terms.left_today)) return send(res, 409, { success: false, error: 'FREE_PROMO_NOT_ACTIVE', terms }, origin)
           const challenge = await tenergyRequest('/promo/redeem/challenge', 'POST', { address: walletAddress })
           if (challenge.address !== walletAddress || typeof challenge.nonce !== 'string' || typeof challenge.message !== 'string') return send(res, 502, { success: false, error: 'INVALID_PROVIDER_CHALLENGE' }, origin)
+          if (isPromoAlias) {
+            return send(res, 201, {
+              success: true,
+              provider: 'TEnergy',
+              network: 'mainnet',
+              address: challenge.address,
+              nonce: challenge.nonce,
+              message: challenge.message,
+              expiresAt: challenge.expires_at || null,
+              approval: 'Sign this exact message in TronLink; this is not a transaction.',
+            }, origin)
+          }
           return send(res, 201, { success: true, provider: 'TEnergy', network: 'mainnet', challenge, approval: 'Sign this exact message in TronLink; this is not a transaction.' }, origin)
         }
-        if (promoMatch[1] === 'redeem' && req.method === 'POST') {
+        if (promoAction === 'redeem' && req.method === 'POST') {
           const { nonce, signature } = body
           if (typeof nonce !== 'string' || nonce.length < 8 || nonce.length > 256 || typeof signature !== 'string' || !/^(?:0x)?[0-9a-fA-F]{130}$/.test(signature)) return send(res, 400, { success: false, error: 'INVALID_NONCE_OR_SIGNATURE' }, origin)
           const result = await tenergyRequest('/promo/redeem', 'POST', { address: walletAddress, nonce, signature })
           if (result.address !== walletAddress || !['granting', 'delegated', 'failed'].includes(result.status)) return send(res, 502, { success: false, error: 'INVALID_PROVIDER_REDEMPTION' }, origin)
           return send(res, 201, { success: true, provider: 'TEnergy', network: 'mainnet', redemption: result, verificationPath: promoRoot + '/redemption?address=' + encodeURIComponent(walletAddress) }, origin)
         }
-        if (promoMatch[1] === 'redemption' && req.method === 'GET') {
+        if (promoAction === 'redemption' && req.method === 'GET') {
           const redemption = await tenergyRequest('/promo/redemptions/' + encodeURIComponent(walletAddress))
           if (redemption.address !== walletAddress) return send(res, 502, { success: false, error: 'PROVIDER_ADDRESS_MISMATCH' }, origin)
           return send(res, 200, { success: true, provider: 'TEnergy', network: 'mainnet', redemption }, origin)
