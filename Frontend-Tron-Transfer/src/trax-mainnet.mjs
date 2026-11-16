@@ -7,7 +7,20 @@ export const TRAX_TOKEN_ARTIFACT = artifacts.token
 
 // A provider's non-retryable one-time promo rejection is stable for this page session.
 // Cache only the eligibility result; never store a signature, nonce, or provider ticket.
-const TENERGY_INELIGIBLE_OWNER_ADDRESSES = new Set()
+const TENERGY_INELIGIBLE_OWNER_ADDRESSES = new WeakMap()
+
+function hasCachedTenergyIneligibility(fetchImpl, address) {
+  return Boolean(TENERGY_INELIGIBLE_OWNER_ADDRESSES.get(fetchImpl)?.has(address))
+}
+
+function cacheTenergyIneligibility(fetchImpl, address) {
+  let addresses = TENERGY_INELIGIBLE_OWNER_ADDRESSES.get(fetchImpl)
+  if (!addresses) {
+    addresses = new Set()
+    TENERGY_INELIGIBLE_OWNER_ADDRESSES.set(fetchImpl, addresses)
+  }
+  addresses.add(address)
+}
 
 const TENERGY_PROMO_API_BASE = String(
   import.meta.env?.VITE_RESOURCE_API_BASE_URL
@@ -50,7 +63,7 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
   }
 
   const promoOwnerKey = String(ownerAddress).toLowerCase()
-  if (TENERGY_INELIGIBLE_OWNER_ADDRESSES.has(promoOwnerKey)) {
+  if (hasCachedTenergyIneligibility(fetchImpl, promoOwnerKey)) {
     return {
       status: 'promo-not-eligible',
       providerCode: '3038',
@@ -188,7 +201,7 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
         || String(providerError || '').toUpperCase() === 'PROMO_NOT_ELIGIBLE'
         || challenge?.status === 'promo-not-eligible'
       if (permanentIneligibility || challenge?.retryable === false) {
-        if (permanentIneligibility) TENERGY_INELIGIBLE_OWNER_ADDRESSES.add(promoOwnerKey)
+        if (permanentIneligibility) cacheTenergyIneligibility(fetchImpl, promoOwnerKey)
         return {
           status: permanentIneligibility ? 'promo-not-eligible' : (challenge?.status || 'promo-claim-rejected'),
           providerCode: providerError === null ? null : String(providerError),
