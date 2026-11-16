@@ -6,6 +6,7 @@ import {
   sendAndVerifyContractCall, verifyTRAXTokenContract, getMainnetUSDTBalance,
 } from './trax-mainnet.mjs'
 import { calculatePortfolioValue, fetchTRXReferencePrice } from './trax-pricing.mjs'
+import TRAXOwnershipControls from './TRAXOwnershipControls.jsx'
 import './trax-mainnet.css'
 
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -263,6 +264,19 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || (snapshot?.mintingEnabled && !snapshot?.paused)} onClick={activate}><ShieldCheck size={15}/> Unpause &amp; enable owner minting</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled} onClick={disableMinting}>Disable minting</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || snapshot?.paused} onClick={pause}>Emergency pause</button></div>
       <p className="fine-print">Only the on-chain owner can enable or disable minting and pause transfers. Ownership transfer requires the new owner to accept it on-chain.</p>
     </div>
+
+    <TRAXOwnershipControls
+      wallet={wallet}
+      connectedAddress={connectedAddress}
+      tokenAddress={tokenAddress}
+      feeCapSun={feeCapSun}
+      getToken={getToken}
+      assertOwner={assertOwner}
+      run={run}
+      refresh={refresh}
+      setLastTx={setLastTx}
+      setNotice={setNotice}
+    />
 
     <div className="trax-actions">
       <h3>External wallet credit manager</h3>
