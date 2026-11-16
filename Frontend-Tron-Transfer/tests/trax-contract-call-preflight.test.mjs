@@ -157,7 +157,7 @@ test('unavailable Energy simulation fails closed without signing or broadcasting
     sendAndVerifyContractCall(h.tronWeb, h.tokenContract, 'credit', args, 150000000, 'TOwner', h.dependencies),
     /Energy preflight failed/
   )
-  assert.equal(h.counts().buildCalls, 0)
+  assert.equal(h.counts().buildCalls, 1, 'the unsigned payload must be built so its exact data can be simulated')
   assert.equal(h.counts().signCalls, 0)
   assert.equal(h.counts().broadcastCalls, 0)
 })
