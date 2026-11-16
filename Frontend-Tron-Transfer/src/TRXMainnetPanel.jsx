@@ -148,6 +148,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
   const unpauseTransfers = () => run('Unpausing TRӾ transfers · TronLink approval required', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
+    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
     if (!await callMainnetView(token.paused())) { setNotice('Transfers are already active.'); return }
     const result = await sendAndVerifyContractCall(tronWeb, token.setPaused(false), feeCapSun, connectedAddress)
     setLastTx(result.txID)
@@ -158,6 +159,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
   const enableMinting = () => run('Enabling owner issuance · TronLink approval required', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
+    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
     if (await callMainnetView(token.mintingEnabled())) { setNotice('Owner issuance is already enabled.'); return }
     const result = await sendAndVerifyContractCall(tronWeb, token.setMintingEnabled(true), feeCapSun, connectedAddress)
     setLastTx(result.txID)
@@ -224,6 +226,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
   const transfer = () => run('Preparing owner wallet TRӾ transfer', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
+    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
     if (!tronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
     const units = parseTokenUnits(amount)
     const balance = await callMainnetView(token.balanceOf(connectedAddress))
@@ -237,6 +240,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
   const pause = () => run('Emergency pause · TronLink approval required', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
+    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
     const result = await sendAndVerifyContractCall(tronWeb, token.setPaused(true), feeCapSun, connectedAddress)
     setLastTx(result.txID)
     setNotice('Token transfers and owner issuance are paused.')
@@ -246,6 +250,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
   const disableMinting = () => run('Disabling owner issuance · TronLink approval required', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
+    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
     const result = await sendAndVerifyContractCall(tronWeb, token.setMintingEnabled(false), feeCapSun, connectedAddress)
     setLastTx(result.txID)
     setNotice('Owner minting is disabled. Existing token transfers remain available unless the token is paused.')
