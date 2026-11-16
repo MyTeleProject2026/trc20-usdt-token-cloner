@@ -51,14 +51,14 @@ test('the dashboard verifies exact runtime bytecode before owner-issued credits'
   assert.ok(helper.includes('deployed.runtimecode'))
   assert.ok(helper.includes('deployedCode !== expectedCode'))
   assert.ok(helper.includes("String(name) !== 'TRӾ'"))
-  assert.ok(helper.includes("String(symbol) !== 'TRAX'"))
+  assert.ok(helper.includes("String(symbol) !== 'TRӾ'"))
   assert.ok(helper.includes('Number(decimals) !== 6'))
 })
 
 test('TRӾ metadata, unbacked economics, and owner authorization are explicit', () => {
   assert.ok(tokenSource.includes('pragma solidity ^0.8.25;'))
   assert.ok(tokenSource.includes('string public constant name = unicode"TRӾ";'))
-  assert.ok(tokenSource.includes('string public constant symbol = "TRAX";'))
+  assert.ok(tokenSource.includes('string public constant symbol = unicode"TRӾ";'))
   const transferBody = tokenSource.slice(tokenSource.indexOf('function _transfer('))
   assert.ok(transferBody.includes('emit Transfer(from, to, amount);'))
   assert.doesNotMatch(transferBody, /amount > 0/, 'standard ERC-20 zero-value transfers must be allowed')
