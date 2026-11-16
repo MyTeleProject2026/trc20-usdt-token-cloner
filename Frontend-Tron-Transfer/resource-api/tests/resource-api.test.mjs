@@ -127,6 +127,7 @@ test('TRӾ deploy-flow TEnergy aliases are served by the production resource API
   const { createServer } = await import('../server.js')
   const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
   const providerCalls = []
+  let redemptionReads = 0
   const fetchImpl = async (url, options = {}) => {
     providerCalls.push({ url, options })
     if (url.endsWith('/promo')) {
@@ -147,6 +148,12 @@ test('TRӾ deploy-flow TEnergy aliases are served by the production resource API
       }), { status: 201, headers: { 'content-type': 'application/json' } })
     }
     if (url.endsWith('/promo/redemptions/' + address)) {
+      redemptionReads += 1
+      if (redemptionReads === 1) {
+        return new Response(JSON.stringify({ code: 'promo_not_redeemed' }), {
+          status: 404, headers: { 'content-type': 'application/json' },
+        })
+      }
       return new Response(JSON.stringify({
         address, status: 'delegated', energy: 65000, method: 'signature',
       }), { status: 200, headers: { 'content-type': 'application/json' } })
