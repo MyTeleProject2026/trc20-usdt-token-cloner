@@ -7,7 +7,6 @@ export const TRAX_TOKEN_ARTIFACT = artifacts.token
 
 const TENERGY_PROMO_API_BASE = String(
   import.meta.env?.VITE_RESOURCE_API_BASE_URL
-  || import.meta.env?.VITE_API_BASE_URL
   || 'https://tron-transfer-resource-api.onrender.com',
 ).replace(/\/+$/, '')
 
