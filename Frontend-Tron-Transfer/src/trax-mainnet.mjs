@@ -1239,6 +1239,10 @@ export async function sendAndVerifyContractCall(
     waitForReceipt = waitForSolidifiedReceipt,
     signTransaction = (transaction) => tronWeb.trx.sign(transaction),
     broadcastTransaction = (transaction) => tronWeb.trx.sendRawTransaction(transaction),
+    checkTransactionIntegrity = assertTransactionIntegrity,
+    hashRawData = sha256HexFromBytes,
+    checkTransactionSigner = verifyTransactionSigner,
+    checkTransactionPermission = assertTransactionPermission,
   } = {}
 ) {
   if (!tronWeb?.isAddress?.(ownerAddress)) {
@@ -1330,8 +1334,8 @@ export async function sendAndVerifyContractCall(
     || Number(unsigned.raw_data.fee_limit) !== feeLimit) {
     throw new Error('Unsigned TRӾ ' + methodName + ' transaction does not match the verified owner, contract, method selector, zero call value or selected fee limit. No signature or broadcast was attempted.')
   }
-  assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ ' + methodName + ' transaction')
-  const computedTxID = await sha256HexFromBytes(unsigned.raw_data_hex)
+  checkTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ ' + methodName + ' transaction')
+  const computedTxID = await hashRawData(unsigned.raw_data_hex)
   if (computedTxID.toLowerCase() !== unsigned.txID.toLowerCase()) {
     throw new Error('TRON node transaction ID does not match SHA-256(raw_data_hex) for TRӾ ' + methodName + '. No signature or broadcast was attempted.')
   }
@@ -1379,9 +1383,9 @@ export async function sendAndVerifyContractCall(
     throw new Error('TronLink signing result changed or omitted the expected TRӾ ' + methodName + ' transaction payload. Nothing was broadcast.')
   }
   const signedTransaction = { ...unsigned, signature: [...signatures] }
-  assertTransactionIntegrity(tronWeb, signedTransaction, 'Signed TRӾ ' + methodName + ' transaction')
-  verifyTransactionSigner(tronWeb, signedTransaction, ownerAddress)
-  await assertTransactionPermission(tronWeb, signedTransaction, ownerAddress)
+  checkTransactionIntegrity(tronWeb, signedTransaction, 'Signed TRӾ ' + methodName + ' transaction')
+  checkTransactionSigner(tronWeb, signedTransaction, ownerAddress)
+  await checkTransactionPermission(tronWeb, signedTransaction, ownerAddress)
 
   // A user may leave the TronLink prompt open long enough for quotas to change.
   // Discard an accepted signature if the final pre-broadcast snapshot no longer
