@@ -80,7 +80,7 @@ export default function App() {
     <div className="trax-admin-main">
       <header className="trax-admin-topbar">
         <div className="trax-topbar-title">
-          <span className="trax-kicker">TRON TRANSFER / OWNER CONSOLE</span>
+          <span className="trax-kicker">TRӾ smart-contract manager · TRON TRANSFER OWNER CONSOLE</span>
           <h1>{page.label}</h1>
           <p>{page.description}</p>
         </div>
