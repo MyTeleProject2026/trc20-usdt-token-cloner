@@ -225,16 +225,16 @@ test('all TRӾ owner writes use the resource-preflighted method-name-and-args he
   const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
   const ownership = await readFile(new URL('../src/TRAXOwnershipControls.jsx', import.meta.url), 'utf8')
   const helper = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
-  const allWrites = panel + '\\n' + ownership
-  const calls = allWrites.match(/sendAndVerifyContractCall\\(/g) || []
+  const allWrites = panel + '\n' + ownership
+  const calls = allWrites.match(/sendAndVerifyContractCall\(/g) || []
   assert.equal(calls.length, 12, 'every panel and ownership write must use the shared preflight helper')
-  assert.doesNotMatch(allWrites, /sendAndVerifyContractCall\\(tronWeb,\\s*token\\.[A-Za-z0-9_]+\\(/)
+  assert.doesNotMatch(allWrites, /sendAndVerifyContractCall\(tronWeb,\s*token\.[A-Za-z0-9_]+\(/)
   assert.match(helper, /export async function estimateMainnetContractCallEnergy/)
-  assert.match(helper, /transactionBuilder\\.estimateEnergy/)
+  assert.match(helper, /transactionBuilder\.estimateEnergy/)
   assert.match(helper, /triggerConstantContract/)
-  assert.match(helper, /checkTransactionSigner\\(tronWeb, signedTransaction, ownerAddress\\)/)
-  assert.match(helper, /checkTransactionPermission\\(tronWeb, signedTransaction, ownerAddress\\)/)
-  assert.match(helper, /assertZeroTrxBurnBudget\\(initialBudget\\)/)
-  assert.match(helper, /assertZeroTrxBurnBudget\\(finalBudget\\)/)
-  assert.doesNotMatch(helper.slice(helper.indexOf('export async function sendAndVerifyContractCall'), helper.indexOf('export async function sendNativeTrxFromTronLink')), /getBalance\\(|\\/wallet\\/getaccount['"]|method\\.send\\(/)
+  assert.match(helper, /checkTransactionSigner\(tronWeb, signedTransaction, ownerAddress\)/)
+  assert.match(helper, /checkTransactionPermission\(tronWeb, signedTransaction, ownerAddress\)/)
+  assert.match(helper, /assertZeroTrxBurnBudget\(initialBudget\)/)
+  assert.match(helper, /assertZeroTrxBurnBudget\(finalBudget\)/)
+  assert.doesNotMatch(helper.slice(helper.indexOf('export async function sendAndVerifyContractCall'), helper.indexOf('export async function sendNativeTrxFromTronLink')), /getBalance\(|\/wallet\/getaccount['"]|method\.send\(/)
 })
