@@ -275,7 +275,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
       <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Energy and Bandwidth are used first; any shortfall can still burn TRX. Zero-TRX-burn protection remains active, and the application will block signing when its resource preflight detects a shortfall.</p>
       {show('deploy') && <div className="trax-deploy-actions">
         <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Review the compiled contract and resource estimate.</span><span>3. Approve the unsigned deployment in TronLink.</span><span>4. Wait for a solidified receipt and bytecode verification.</span></div>
-        <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ on Mainnet</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+        <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ automatically</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
       </div>}
       {show('overview') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
     </div>
@@ -355,7 +355,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
 
     {show('ownership') && <TRAXOwnershipControls wallet={wallet} connectedAddress={connectedAddress} tokenAddress={tokenAddress} feeCapSun={feeCapSun} getToken={getToken} assertOwner={assertOwner} run={run} refresh={refresh} setLastTx={setLastTx} setNotice={setNotice}/>}
 
-    {show('history') && <TRAXCreditHistory wallet={wallet} tokenAddress={tokenAddress} run={run}/>}
+    {show('history') && <TRAXCreditHistory wallet={wallet} tokenAddress={tokenAddress} run={run} busy={busy}/>}
 
     {show('balance') && <div className="trax-actions">
       <h3>External wallet balance lookup</h3>
