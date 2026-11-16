@@ -397,27 +397,45 @@ test('eligible TEnergy promo is claimed with an off-chain wallet message and ver
   assert.ok(statusReads >= 2)
 })
 
-test('ineligible TEnergy promo is detected before any wallet signature or redemption request', async () => {
+test('actual TEnergy 3038 promo_not_eligible response is normalized and never prompts or retries', async () => {
   let signatureCalls = 0
-  const fetchImpl = async (url, init = {}) => {
-    if (url.includes('/api/tron/resources/free-delegation/status')) {
-      return promoFetchResponse({ success: true, inboundDelegations: { records: [] } })
-    }
+  let providerCalls = 0
+  const fetchImpl = async (url) => {
+    providerCalls += 1
     if (url.includes('/api/tron/tenergy/promo/status')) {
       return promoFetchResponse({ success: true, promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } }, redemption: null })
     }
     if (url.endsWith('/api/tron/tenergy/promo/challenge')) {
-      return promoFetchResponse({ success: false, status: 'promo-not-eligible', message: 'The owner was not in the original drop.' }, 403)
+      return promoFetchResponse({
+        success: false,
+        provider: 'TEnergy',
+        network: 'mainnet',
+        error: 3038,
+        message: 'This address did not receive the promo token from us',
+        retryable: false,
+      }, 403)
     }
-    throw new Error('no signature or redemption should be requested')
+    throw new Error('No resource query, signature, or redemption should follow a permanent provider rejection')
   }
   const wallet = promoWallet(async () => { signatureCalls += 1; return 'ab'.repeat(65) })
-  const result = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
-    fetchImpl,
-    readResources: async () => ({ energyLimit: '0', energyAvailable: '0' }),
-  })
-  assert.equal(result.status, 'promo-not-eligible')
+  const readResources = async () => ({ energyLimit: '0', energyAvailable: '0' })
+  const first = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, { fetchImpl, readResources })
+  assert.equal(first.status, 'promo-not-eligible')
+  assert.equal(first.providerCode, '3038')
+  assert.equal(first.retryable, false)
+  assert.match(first.message, /not included in the one-time promotional distribution/)
   assert.equal(signatureCalls, 0)
+  assert.equal(providerCalls, 2)
+
+  const second = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
+    fetchImpl: async () => { throw new Error('Permanent ineligibility must not be retried during this page session') },
+    readResources: async () => { throw new Error('Permanent ineligibility cache should return before Mainnet reads') },
+  })
+  assert.equal(second.status, 'promo-not-eligible')
+  assert.equal(second.providerCode, '3038')
+  assert.equal(second.retryable, false)
+  assert.equal(signatureCalls, 0)
+  assert.equal(providerCalls, 2)
 })
 
 test('declining the off-chain promo message does not submit a claim or a TRON transaction', async () => {
