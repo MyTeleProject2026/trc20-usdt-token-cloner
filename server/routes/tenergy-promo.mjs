@@ -179,10 +179,13 @@ export function createTenergyPromoRouter({
               : 'TEnergy did not issue an eligible claim challenge. No wallet signature was requested.',
         })
       }
-      if (payload?.address !== address || typeof payload?.message !== 'string'
-        || !payload.message || typeof payload?.nonce !== 'string' || !NONCE_RE.test(payload.nonce)
-        || !Number.isFinite(Date.parse(payload.expires_at))) {
-        return res.status(502).json({ success: false, status: 'invalid-provider-challenge', message: 'TEnergy returned an incomplete or mismatched claim challenge.' })
+      const challengeExpiresAt = Date.parse(payload?.expires_at)
+      if (payload?.address !== address || payload?.purpose !== 'promo_redeem'
+        || typeof payload?.message !== 'string' || !payload.message
+        || payload.message.length > 4000
+        || typeof payload?.nonce !== 'string' || !NONCE_RE.test(payload.nonce)
+        || !Number.isFinite(challengeExpiresAt) || challengeExpiresAt <= now()) {
+        return res.status(502).json({ success: false, status: 'invalid-provider-challenge', message: 'TEnergy returned an incomplete, mismatched, expired, or unexpected-purpose claim challenge.' })
       }
       return res.status(200).json({
         success: true,
@@ -191,7 +194,7 @@ export function createTenergyPromoRouter({
         message: payload.message,
         nonce: payload.nonce,
         expiresAt: payload.expires_at,
-        purpose: payload.purpose === 'promo_redeem' ? 'promo_redeem' : null,
+        purpose: 'promo_redeem',
         fee: '0',
         transactionRequired: false,
       })
