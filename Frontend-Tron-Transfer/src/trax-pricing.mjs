@@ -26,6 +26,7 @@ export async function fetchTRXReferencePrice({ fetchImpl = fetch, now = Date.now
   }
 }
 
+// Only publish a complete total when every non-zero asset quantity has a defensible quote.
 export function calculatePortfolioValue({ trx = '0', trax = '0', usdt = '0', prices }) {
   if (!prices || ![prices.trxUsd, prices.usdtUsd].every((value) => Number.isFinite(Number(value)) && Number(value) > 0)) {
     return null
