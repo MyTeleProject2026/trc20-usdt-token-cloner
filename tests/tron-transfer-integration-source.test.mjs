@@ -137,7 +137,7 @@ test('recipient inspection and TRON RPC require the configured owner session', (
 test('TRӾ manager is wallet-accessible and contract administration remains on-chain-owner-only', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   const panel = await readFile(new URL('../Frontend-Tron-Transfer/src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
-  assert.match(app, /<TRXMainnetPanel wallet=\{unlocked\} onConnect=/)
+  assert.match(app, /<TRXMainnetPanel wallet=\{wallet\} onConnect=\{connectWallet\} activePage=\{activePage\}/)
   assert.doesNotMatch(app, /if \(!ownerSession\) return/)
   assert.doesNotMatch(app, /if \(!ownerSessionResolved\) return/)
   assert.match(panel, /EXPECTED_OWNER_ADDRESS/)
@@ -187,7 +187,7 @@ test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow a
 test('TRӾ Mainnet manager remains scoped to the requested smart-contract panel', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   const panel = await readFile(new URL('../Frontend-Tron-Transfer/src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
-  assert.match(app, /<TRXMainnetPanel wallet=\{unlocked\} onConnect=/)
+  assert.match(app, /<TRXMainnetPanel wallet=\{wallet\} onConnect=\{connectWallet\} activePage=\{activePage\}/)
   assert.match(app, /TRӾ smart-contract manager/)
   assert.match(panel, /Deploy TRӾ automatically/)
   assert.match(panel, /verifyTRAXTokenContract/)
