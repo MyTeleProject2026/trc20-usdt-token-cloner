@@ -112,7 +112,7 @@ test('zero-TRX preflight blocks the exact Bandwidth quota shortfall before signi
       stakedBandwidthAvailable: '40',
       maxFeeLimitSun: '15000000000',
     },
-  }), /estimated TRX fallback cost of 0\\.039000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
+  }), /estimated TRX fallback cost of 0[.]039000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
 })
 
 test('zero-TRX policy blocks resource shortfalls without reading native TRX balance', () => {
