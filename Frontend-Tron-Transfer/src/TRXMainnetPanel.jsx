@@ -122,6 +122,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     const promo = await claimTenergyPromoForDeployment(wallet, EXPECTED_OWNER_ADDRESS, {
       onStage: (message) => setStep(message),
     })
+    if (!promo.energyVerified) setNotice(promo.message)
     const result = await deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, { expectedOwnerAddress: EXPECTED_OWNER_ADDRESS })
     setTokenAddress(result.address)
     setLastTx(result.txID)
