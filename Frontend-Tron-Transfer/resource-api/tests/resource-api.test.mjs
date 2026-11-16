@@ -196,6 +196,38 @@ test('TRӾ deploy-flow TEnergy aliases are served by the production resource API
   assert.ok(providerCalls.every(call => call.url.startsWith('https://api.tenergy.me/v1/')))
 })
 
+
+test('TEnergy promo polling has an independent rate budget from Mainnet resource reads', async (t) => {
+  const { createServer } = await import('../server.js')
+  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const server = createServer({
+    allowedAddress: address,
+    readFreeDelegationStatus: async () => ({
+      success: true, network: 'mainnet', resourceRead: true,
+      inboundDelegations: { records: [] },
+    }),
+    fetchImpl: async (url) => {
+      if (url.endsWith('/promo')) return new Response(JSON.stringify({
+        network: 'mainnet', state: 'active', left_today: 5,
+        grant: { resource: 'energy', amount: 65000 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+      if (url.endsWith('/promo/redemptions/' + address)) return new Response('{}', {
+        status: 404, headers: { 'content-type': 'application/json' },
+      })
+      throw new Error('unexpected provider request: ' + url)
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  for (let i = 0; i < 20; i += 1) {
+    const promo = await fetch(base + '/api/tron/tenergy/promo/status?address=' + address)
+    assert.equal(promo.status, 200)
+    const resources = await fetch(base + '/api/tron/resources/free-delegation/status?address=' + address)
+    assert.equal(resources.status, 200)
+  }
+})
+
 test('does not treat free and staked Bandwidth as additive for a single transaction', () => {
   const result = summarizeResources({
     freeNetLimit: 600, freeNetUsed: 0,
