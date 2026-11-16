@@ -12,7 +12,7 @@ test('portfolio presents one estimated USD total while preserving each underlyin
   assert.match(panel, /Native TRX/)
   assert.match(panel, /TRӾ reference value/)
   assert.match(panel, /Official USDT/)
-  assert.match(panel, /no reserve, collateral, guaranteed redemption, fixed 1:1 TRX value/)
+  assert.match(panel, /without reserves, collateral, guaranteed redemption or a promised market price/)
   assert.match(pricing, /traxReferenceUsd = Number\(\(trxReferenceUsd \+ 0\.000001\)/)
   assert.match(pricing, /owner-defined TRӾ reference adjustment/)
   assert.match(pricing, /valuationType: 'reference-estimate'/)
