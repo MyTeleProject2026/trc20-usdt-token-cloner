@@ -459,7 +459,7 @@ export function calculateDeploymentResourceBudget({
   const estimatedBandwidthBytes = BigInt(Math.ceil(rawDataHex.length / 2) + 3 + 64 + 67)
   // Resource quotas are consumed first; TRX covers the remaining Energy
   // and the full Bandwidth transaction cost when neither quota can cover it.
-  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes : 0n
+  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes - availableBandwidth : 0n
 
   const energyBurnSun = energyShortfall * energyFee
   if (bandwidthShortfall > 0n && (bandwidthFee === null || bandwidthFee <= 0n)) {
