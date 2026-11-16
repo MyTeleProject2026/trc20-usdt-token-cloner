@@ -79,8 +79,28 @@ test('zero-TRX owner can pass preflight only when delegated/staked Energy and Ba
   assert.equal(budget.bandwidthShortfall, '0')
 })
 
-test('zero-TRX preflight combines staked and free Bandwidth quotas', () => {
+test('zero-TRX preflight accepts a single Bandwidth source that covers the full transaction', () => {
   const budget = calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    rawDataHex: '6001600055',
+    feeLimitSun: '150000000',
+    resourceSnapshot: {
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      energyAvailable: '125000',
+      freeBandwidthAvailable: '150',
+      stakedBandwidthAvailable: '100',
+      maxFeeLimitSun: '15000000000',
+    },
+  })
+  assert.equal(budget.estimatedBandwidthBytes, '139')
+  assert.equal(budget.availableBandwidth, '150')
+  assert.equal(budget.bandwidthShortfall, '0')
+  assert.equal(budget.requiredTrxSun, '0')
+})
+
+test('zero-TRX preflight does not pool free and staked Bandwidth for one transaction', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '100000',
     rawDataHex: '6001600055',
     feeLimitSun: '150000000',
@@ -92,11 +112,7 @@ test('zero-TRX preflight combines staked and free Bandwidth quotas', () => {
       stakedBandwidthAvailable: '100',
       maxFeeLimitSun: '15000000000',
     },
-  })
-  assert.equal(budget.estimatedBandwidthBytes, '139')
-  assert.equal(budget.availableBandwidth, '180')
-  assert.equal(budget.bandwidthShortfall, '0')
-  assert.equal(budget.requiredTrxSun, '0')
+  }), /estimated TRX fallback cost of 0[.]139000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
 })
 
 test('zero-TRX preflight blocks the exact Bandwidth quota shortfall before signing', () => {
@@ -112,7 +128,7 @@ test('zero-TRX preflight blocks the exact Bandwidth quota shortfall before signi
       stakedBandwidthAvailable: '40',
       maxFeeLimitSun: '15000000000',
     },
-  }), /estimated TRX fallback cost of 0[.]039000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
+  }), /estimated TRX fallback cost of 0[.]139000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
 })
 
 test('zero-TRX policy blocks resource shortfalls without reading native TRX balance', () => {

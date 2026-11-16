@@ -433,12 +433,12 @@ export function calculateDeploymentResourceBudget({
   const energyFee = BigInt(resourceSnapshot.energyFeeSun)
   const bandwidthFee = resourceSnapshot.bandwidthFeeSun == null ? null : BigInt(resourceSnapshot.bandwidthFeeSun)
   const availableEnergy = BigInt(resourceSnapshot.energyAvailable)
-  // TRON applies the account's staked/delegated Bandwidth first, then its
-  // free daily Bandwidth quota, before burning TRX for any remaining bytes.
-  // Both available quotas therefore contribute to the transaction budget.
+  // TRON does not pool free and staked/delegated Bandwidth for one transaction.
+  // A single source must cover the complete byte cost; otherwise the network
+  // burns TRX for the full Bandwidth cost rather than only the uncovered bytes.
   const freeBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable)
   const stakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable)
-  const availableBandwidth = freeBandwidth + stakedBandwidth
+  const availableBandwidth = freeBandwidth > stakedBandwidth ? freeBandwidth : stakedBandwidth
   const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
   if (energyFee <= 0n) throw new Error('Mainnet returned an invalid Energy price.')
   if (maxFeeLimit === null || maxFeeLimit <= 0n) {
@@ -457,9 +457,10 @@ export function calculateDeploymentResourceBudget({
   }
   const energyShortfall = bufferedEnergy > availableEnergy ? bufferedEnergy - availableEnergy : 0n
   const estimatedBandwidthBytes = BigInt(Math.ceil(rawDataHex.length / 2) + 3 + 64 + 67)
-  // Resource quotas are consumed first; TRX covers the remaining Energy
-  // and the full Bandwidth transaction cost when neither quota can cover it.
-  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes - availableBandwidth : 0n
+  // Energy can be covered partially, but Bandwidth requires one complete
+  // quota source. If neither source covers the whole transaction, all bytes
+  // fall back to TRX rather than just the difference between quotas and bytes.
+  const bandwidthShortfall = estimatedBandwidthBytes > availableBandwidth ? estimatedBandwidthBytes : 0n
 
   const energyBurnSun = energyShortfall * energyFee
   if (bandwidthShortfall > 0n && (bandwidthFee === null || bandwidthFee <= 0n)) {
