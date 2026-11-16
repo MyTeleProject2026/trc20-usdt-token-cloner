@@ -111,3 +111,25 @@ test('promo routes reject other wallets and malformed fields', async () => {
   await routeHandler(router, '/tenergy/promo/redeem', 'post')({ body: { address: OWNER, nonce: 'x', signature: 'bad', privateKey: 'never' } }, invalid)
   assert.equal(invalid.statusCode, 400)
 })
+
+
+test('provider challenge with wrong purpose or expired nonce is rejected before the wallet sees it', async () => {
+  for (const challenge of [
+    { address: OWNER, purpose: 'login', message: 'wrong purpose', nonce: 'nonce-12345678', expires_at: new Date(Date.now() + 600000).toISOString() },
+    { address: OWNER, purpose: 'promo_redeem', message: 'expired challenge', nonce: 'nonce-12345678', expires_at: new Date(Date.now() - 1000).toISOString() },
+  ]) {
+    const router = createTenergyPromoRouter({
+      allowedAddress: OWNER,
+      fetchImpl: async (url) => {
+        if (url.endsWith('/promo')) return fakeResponse({ state: 'active', grant: { resource: 'energy', amount: 65000 } })
+        if (url.includes('/redemptions/')) return fakeResponse({}, 404)
+        if (url.endsWith('/redeem/challenge')) return fakeResponse(challenge, 201)
+        throw new Error('unexpected endpoint')
+      },
+    })
+    const res = responseHarness()
+    await routeHandler(router, '/tenergy/promo/challenge', 'post')({ body: { address: OWNER } }, res)
+    assert.equal(res.statusCode, 502)
+    assert.equal(res.body.status, 'invalid-provider-challenge')
+  }
+})
