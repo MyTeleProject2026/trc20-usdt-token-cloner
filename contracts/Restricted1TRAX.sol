@@ -6,7 +6,7 @@ pragma solidity ^0.8.25;
 /// @dev Every mint increases supply without requiring a deposit. Holders can transfer freely unless paused.
 contract Restricted1TRAX {
     string public constant name = unicode"TRӾ";
-    string public constant symbol = "TRAX";
+    string public constant symbol = unicode"TRӾ";
     uint8 public constant decimals = 6;
 
     address public owner;
