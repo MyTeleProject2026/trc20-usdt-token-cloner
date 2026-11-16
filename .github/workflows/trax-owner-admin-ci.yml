@@ -1,0 +1,39 @@
+name: TRӾ Owner Admin Frontend CI
+
+on:
+  push:
+    branches:
+      - feature/trax-owner-controls-audit
+    paths:
+      - 'Frontend-Tron-Transfer/**'
+      - 'contracts/**'
+      - '.github/workflows/trax-owner-admin-ci.yml'
+  pull_request:
+    branches:
+      - ui/modern-crypto-dashboard-theme
+    paths:
+      - 'Frontend-Tron-Transfer/**'
+      - 'contracts/**'
+      - '.github/workflows/trax-owner-admin-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-build-and-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: Frontend-Tron-Transfer
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Configure Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+      - name: Compile TRӾ contract and run all tests/build
+        run: npm run build

@@ -79,6 +79,42 @@ test('zero-TRX owner can pass preflight only when delegated/staked Energy and Ba
   assert.equal(budget.bandwidthShortfall, '0')
 })
 
+test('zero-TRX preflight combines staked and free Bandwidth quotas', () => {
+  const budget = calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    rawDataHex: '6001600055',
+    feeLimitSun: '150000000',
+    resourceSnapshot: {
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      energyAvailable: '125000',
+      freeBandwidthAvailable: '80',
+      stakedBandwidthAvailable: '100',
+      maxFeeLimitSun: '15000000000',
+    },
+  })
+  assert.equal(budget.estimatedBandwidthBytes, '139')
+  assert.equal(budget.availableBandwidth, '180')
+  assert.equal(budget.bandwidthShortfall, '0')
+  assert.equal(budget.requiredTrxSun, '0')
+})
+
+test('zero-TRX preflight blocks the exact Bandwidth quota shortfall before signing', () => {
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    rawDataHex: '6001600055',
+    feeLimitSun: '150000000',
+    resourceSnapshot: {
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      energyAvailable: '125000',
+      freeBandwidthAvailable: '60',
+      stakedBandwidthAvailable: '40',
+      maxFeeLimitSun: '15000000000',
+    },
+  }), /estimated TRX fallback cost of 0[.]039000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
+})
+
 test('zero-TRX policy blocks resource shortfalls without reading native TRX balance', () => {
   assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '100000',

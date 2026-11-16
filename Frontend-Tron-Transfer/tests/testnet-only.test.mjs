@@ -5,17 +5,31 @@ import { toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 
-test('TRӾ workspace renders a single owner-issued Mainnet token deployment flow', async () => {
+test('TRӾ workspace exposes dedicated owner-admin pages and one Mainnet deployment flow', async () => {
   const app = await read('../src/App.jsx')
   const panel = await read('../src/TRXMainnetPanel.jsx')
+  const mobile = await read('../src/MobileNavBar.jsx')
+  const sidebar = await read('../src/TRAXSidebar.jsx')
   assert.ok(panel.includes("const DEFAULT_FEE_CAP = '150'"))
   assert.ok(panel.includes('const deployToken'))
   assert.ok(panel.includes('deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT'))
   assert.ok(panel.includes('Restricted1TRAX'))
   assert.ok(panel.includes('Deploy TRӾ automatically'))
   assert.ok(panel.includes('verifyTRAXTokenContract'))
-  assert.doesNotMatch(panel, /TRAX_VAULT_ARTIFACT|vaultAddress|deployVault|preflightContractDeployments/)
-  assert.doesNotMatch(panel, /\.call\(\)/, 'all Mainnet contract reads must use the paced RPC queue')
+  assert.ok(panel.includes("activePage = 'overview'"))
+  for (const page of ['overview','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
+    assert.ok(app.includes("id: '" + page + "'"), 'missing navigation page: ' + page)
+  }
+  for (const action of ['issueOwnerSupply','issueCredit','batchCredit','pause','unpauseTransfers','enableMinting','disableMinting','transfer']) {
+    assert.ok(panel.includes('const ' + action + ' ='), 'missing contract action: ' + action)
+  }
+  assert.ok(panel.includes('<TRAXOwnershipControls'))
+  assert.ok(panel.includes('<TRAXCreditHistory'))
+  assert.ok(mobile.includes('trax-mobile-nav'))
+  assert.ok(mobile.includes('More workspace'))
+  assert.ok(sidebar.includes('collapsed'))
+  assert.ok(!/TRAX_VAULT_ARTIFACT|vaultAddress|deployVault|preflightContractDeployments/.test(panel))
+  assert.doesNotMatch(panel, /\\.call\\(\\)/, 'all Mainnet contract reads must use the paced RPC queue')
   assert.ok(panel.includes('callMainnetView('))
   assert.ok(panel.includes('getMainnetNativeBalance('))
   assert.ok(app.includes('TRXMainnetPanel'))

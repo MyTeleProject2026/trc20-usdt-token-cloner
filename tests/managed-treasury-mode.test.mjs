@@ -14,7 +14,7 @@ test('managed Fireblocks treasury router is mounted under the authenticated trea
 })
 
 test('TRӾ-only dashboard does not expose the legacy managed-treasury readiness or payout UI', () => {
-  assert.match(dashboard, /<TRXMainnetPanel wallet=\{unlocked\}/)
+  assert.match(dashboard, /<TRXMainnetPanel wallet=\{wallet\} onConnect=\{connectWallet\} activePage=\{activePage\}/)
   assert.doesNotMatch(dashboard, /Refresh readiness/)
   assert.doesNotMatch(dashboard, /Real-value payout execution/)
 })
