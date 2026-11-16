@@ -28,7 +28,7 @@ function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
 }
 
-export default function TRXMainnetPanel({ wallet, onConnect }) {
+export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overview', onNavigate }) {
   const initial = useMemo(() => loadSavedContracts(), [])
   const [tokenAddress, setTokenAddress] = useState(initial.tokenAddress)
   const [snapshot, setSnapshot] = useState(null)
@@ -144,6 +144,26 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     await refresh()
   })
 
+  const unpauseTransfers = () => run('Unpausing TRӾ transfers · TronLink approval required', async () => {
+    const { tronWeb, token } = await getToken()
+    await assertOwner(token, tronWeb)
+    if (!await callMainnetView(token.paused())) { setNotice('Transfers are already active.'); return }
+    const result = await sendAndVerifyContractCall(tronWeb, token.setPaused(false), feeCapSun, connectedAddress)
+    setLastTx(result.txID)
+    setNotice('TRӾ transfers are active again.')
+    await refresh()
+  })
+
+  const enableMinting = () => run('Enabling owner issuance · TronLink approval required', async () => {
+    const { tronWeb, token } = await getToken()
+    await assertOwner(token, tronWeb)
+    if (await callMainnetView(token.mintingEnabled())) { setNotice('Owner issuance is already enabled.'); return }
+    const result = await sendAndVerifyContractCall(tronWeb, token.setMintingEnabled(true), feeCapSun, connectedAddress)
+    setLastTx(result.txID)
+    setNotice('Owner TRӾ issuance has been enabled.')
+    await refresh()
+  })
+
   const issueCredit = () => run('Preparing owner credit to external TRON address', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
@@ -217,89 +237,118 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     await refresh()
   })
 
+  const show = (...pages) => pages.includes(activePage)
+
   return <section className="trax-workspace">
-    <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token &amp; external wallet credit manager</h2><p>Deploy and administer the TRӾ TRC-20 contract from the configured owner wallet. Every write requires a separate TronLink approval.</p></div><div className="panel-icon" aria-label="TRӾ custom token"><TraxTokenMark/><small>TRӾ / TRAX</small></div></div>
+    <div className="section-heading">
+      <div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token control center</h2><p>Manage the existing TRӾ TRC-20 contract. Every write is validated and separately approved in TronLink.</p></div>
+      <div className="panel-icon" aria-label="TRӾ token"><TraxTokenMark/><small>TRӾ / TRAX</small></div>
+    </div>
 
-    <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>UNBACKED OWNER-ISSUED TOKEN — NOT NATIVE TRX</b><p>The owner can mint without depositing TRX. There is no reserve, collateral, guaranteed redemption, fixed 1:1 TRX value, or promised market price. Unlimited issuance can dilute holders and reduce market value. TRӾ is not TRON's native TRX asset.</p></div></div>
+    <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>
 
-    {!walletReady ? <div className="trax-connect"><p>{connectedAddress ? 'Connected account does not match the configured owner wallet (' + EXPECTED_OWNER_ADDRESS + '). Switch accounts in TronLink and reconnect.' : 'Connect the configured owner TronLink wallet on TRON Mainnet to continue.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Connect owner TronLink</button></div> : <div className="trax-wallet-row"><span>Connected owner / deployment fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>Deployment transaction owner and fee payer: this same account. A separate gas address is not used.</small></div>}
+    {!walletReady ? <div className="trax-connect"><p>{connectedAddress ? 'Connected account does not match the configured contract owner (' + EXPECTED_OWNER_ADDRESS + '). Switch accounts in TronLink and reconnect.' : 'Connect the configured owner TronLink wallet on TRON Mainnet to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Connect owner TronLink</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
 
     {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/>{error}</div>}
     {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
-    {step && <div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
+    {step && <div className="trax-progress" role="status"><RefreshCw size={15} className="trax-spin"/>{step}</div>}
 
     <div className="trax-addresses">
-      <label>TRӾ / TRAX custom-token contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Deploy TRӾ or enter its verified Mainnet contract address"/></label><p id="trax-contract-address-note" className="fine-print">This address uniquely identifies the custom TRC-20 asset. Verify it before accepting deposits; native TRX does not have a TRC-20 contract address. Clearing a saved address only removes this browser's reference; it never deletes an on-chain contract.</p>
-      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ automatically</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={clearSavedTokenAddress}>Clear saved address</button>}</div>
-      <label>Maximum deployment fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label><p className="fine-print">This is the transaction fee_limit ceiling, not a fee charged upfront or a promise that the full amount will be spent. TRON resource quotas are used first; actual TRX burn depends on Energy and Bandwidth remaining at execution. TronLink and the network still enforce the available balance. The app checks the estimated Energy against this ceiling to avoid submitting an underfunded deployment transaction.</p>
-      <p className="fine-print">Payer check: before requesting a TronLink signature, the app verifies that the configured owner, connected app account, injected TronLink active signing address (when exposed), and CreateSmartContract owner_address all match. Deployment preflight reads Energy and Bandwidth resources for that exact owner account and estimates any TRX fallback from resource shortfalls; it does not read or gate on the owner's native TRX balance. Zero-TRX-burn protection remains active: any estimated resource shortfall blocks signing and broadcast. TRON protocol fees are still charged to the transaction owner if resources are insufficient; this app cannot redirect fees to another gas address.</p>
-      <p className="fine-print">Deployment is an irreversible Mainnet transaction. The deployer becomes the initial owner. This dashboard does not deploy automatically; you must click the deployment button and approve the TronLink prompt yourself.</p>
+      <label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
+      <p id="trax-contract-address-note" className="fine-print">The contract address identifies the custom token on TRON Mainnet. Verify its on-chain bytecode and metadata before accepting deposits.</p>
+      <label>Maximum transaction fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
+      <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Energy and Bandwidth are used first; any shortfall can still burn TRX. Zero-TRX-burn protection remains active, and the application will block signing when its resource preflight detects a shortfall.</p>
+      {show('deploy') && <div className="trax-deploy-actions">
+        <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Review the compiled contract and resource estimate.</span><span>3. Approve the unsigned deployment in TronLink.</span><span>4. Wait for a solidified receipt and bytecode verification.</span></div>
+        <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ on Mainnet</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+      </div>}
+      {show('overview') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
     </div>
 
-    <div className="trax-actions trax-portfolio" aria-label="Combined wallet portfolio valuation">
-      <h3>Combined wallet portfolio value</h3>
-      <p className="fine-print">A single USD portfolio estimate, with each underlying asset quantity still identified separately.</p>
-      <div className="trax-stats">
-        <article><span>Native TRX</span><b>{snapshot ? formatTokenUnits(snapshot.ownerTrx) : 'Refresh contract state'} TRX</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerTrx)) * referencePrice.trxUsd) : 'Live quote unavailable'}</small></article>
-        <article><span><TraxTokenMark/> TRӾ reference value · TRAX</span><b>{snapshot ? formatTokenUnits(snapshot.ownerBalance) : 'Refresh contract state'} TRӾ</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerBalance)) * referencePrice.traxReferenceUsd) : 'Live quote unavailable'}</small></article>
-        <article><span>Official USDT · TRC20</span><b>{snapshot ? formatTokenUnits(snapshot.ownerUsdt) : 'Refresh contract state'} USDT</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerUsdt)) * referencePrice.usdtUsd) : 'Live quote unavailable'}</small></article>
+    {show('overview') && <>
+      <div className="trax-actions trax-portfolio" aria-label="Combined wallet portfolio valuation">
+        <h3>Owner wallet portfolio</h3>
+        <p className="fine-print">Separate quantities and clearly labelled reference valuations for native TRX, TRӾ and official USDT.</p>
+        <div className="trax-stats">
+          <article><span>Native TRX</span><b>{snapshot ? formatTokenUnits(snapshot.ownerTrx) : 'Refresh contract state'} TRX</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerTrx)) * referencePrice.trxUsd) : 'Live quote unavailable'}</small></article>
+          <article><span><TraxTokenMark/> TRӾ reference value</span><b>{snapshot ? formatTokenUnits(snapshot.ownerBalance) : 'Refresh contract state'} TRӾ</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerBalance)) * referencePrice.traxReferenceUsd) : 'Live quote unavailable'}</small></article>
+          <article><span>Official USDT · TRC20</span><b>{snapshot ? formatTokenUnits(snapshot.ownerUsdt) : 'Refresh contract state'} USDT</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerUsdt)) * referencePrice.usdtUsd) : 'Live quote unavailable'}</small></article>
+        </div>
+        <div className="trax-balance-note"><b>Estimated combined portfolio value: </b>{snapshot && referencePrice ? formatUsd(calculatePortfolioValue({ trx: formatTokenUnits(snapshot.ownerTrx), trax: formatTokenUnits(snapshot.ownerBalance), usdt: formatTokenUnits(snapshot.ownerUsdt), prices: referencePrice })?.totalUsd) : 'Unavailable — refresh when live prices are available'}</div>
+        <p className="fine-print">{referencePrice ? 'TRX/USD: ' + formatUsd(referencePrice.trxUsd) + ' · TRӾ owner-defined reference: ' + formatUsd(referencePrice.traxReferenceUsd) + ' · USDT/USD: ' + formatUsd(referencePrice.usdtUsd) + ' · ' + referencePrice.source + ' · ' + new Date(referencePrice.updatedAt).toLocaleString() : 'Live prices unavailable or stale.'} A reference value is not a verified TRӾ exchange market price.</p>
       </div>
-      <div className="trax-balance-note"><b>Estimated combined portfolio value: </b>{snapshot && referencePrice ? formatUsd(calculatePortfolioValue({ trx: formatTokenUnits(snapshot.ownerTrx), trax: formatTokenUnits(snapshot.ownerBalance), usdt: formatTokenUnits(snapshot.ownerUsdt), prices: referencePrice })?.totalUsd) : 'Unavailable — refresh when live prices are available'}</div>
-      <p className="fine-print">{referencePrice ? 'TRX/USD reference: ' + formatUsd(referencePrice.trxUsd) + ' · TRӾ reference uses the same TRX/USD quote · USDT/USD: ' + formatUsd(referencePrice.usdtUsd) + ' · Source: ' + referencePrice.source + ' · Updated: ' + new Date(referencePrice.updatedAt).toLocaleString() : 'Live reference prices are unavailable or stale. No price is invented or carried forward.'} TRӾ has no backing or redemption; its reference value is not a guaranteed exchange trading price.</p>
-    </div>
+      <div className="trax-actions">
+        <div className="trax-section-title"><h3>Live on-chain contract status</h3><button className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={14}/> Refresh</button></div>
+        {snapshot ? <div className="trax-stats">
+          <article><span>Total TRӾ supply</span><b>{formatTokenUnits(snapshot.totalSupply)} TRӾ</b></article>
+          <article><span>Owner wallet balance</span><b>{formatTokenUnits(snapshot.ownerBalance)} TRӾ</b></article>
+          <article><span>Owner issuance</span><b>{snapshot.mintingEnabled ? 'Enabled' : 'Disabled'}</b></article>
+          <article><span>Transfers</span><b>{snapshot.paused ? 'Paused' : 'Active'}</b></article>
+        </div> : <p className="fine-print">Refresh the contract to read its current solidified Mainnet state.</p>}
+        {snapshot && <div className="trax-checks"><span className={snapshot.valid ? 'ok' : 'bad'}>{snapshot.valid ? '✓' : '!'} {snapshot.name} / {snapshot.symbol} / {snapshot.decimals} decimals</span><span className={snapshot.ownerValid ? 'ok' : 'bad'}>{snapshot.ownerValid ? '✓' : '!'} On-chain owner matches wallet</span><span className="bad">! No backing or redemption</span></div>}
+      </div>
+    </>}
 
-    <div className="trax-actions">
-      <h3>Live on-chain token status</h3>
-      {snapshot ? <div className="trax-stats">
-        <article><span>Total TRӾ supply</span><b>{formatTokenUnits(snapshot.totalSupply)} TRӾ</b></article>
-        <article><span>Owner wallet balance</span><b>{formatTokenUnits(snapshot.ownerBalance)} TRӾ</b></article>
-        <article><span>Owner issuance</span><b>{snapshot.mintingEnabled ? 'Enabled' : 'Disabled'}</b></article>
-        <article><span>Transfers</span><b>{snapshot.paused ? 'Paused' : 'Active'}</b></article>
-        <article><span>Owner TRX for fees</span><b>{formatTokenUnits(snapshot.ownerTrx)} TRX</b></article>
-      </div> : <p>Refresh the deployed contract to read its current Mainnet state.</p>}
-      {snapshot && <div className="trax-checks"><span className={snapshot.valid ? 'ok' : 'bad'}>{snapshot.valid ? '✓' : '!'} TRӾ / TRAX / 6 decimals</span><span className={snapshot.ownerValid ? 'ok' : 'bad'}>{snapshot.ownerValid ? '✓' : '!'} Owner matches connected wallet</span><span className="bad">! No TRX backing or redemption</span></div>}
-    </div>
+    {show('issuance') && <div className="trax-actions">
+      <h3>Owner issuance overview</h3>
+      <div className="trax-stats"><article><span>Total supply</span><b>{snapshot ? formatTokenUnits(snapshot.totalSupply) + ' TRӾ' : 'Not loaded'}</b></article><article><span>Owner authorization</span><b>{snapshot ? snapshot.mintingEnabled ? 'Enabled' : 'Disabled' : 'Not loaded'}</b></article><article><span>Transfer status</span><b>{snapshot ? snapshot.paused ? 'Paused' : 'Active' : 'Not loaded'}</b></article></div>
+      <p className="fine-print">The contract permits owner issuance up to the uint256 supply limit; that is not economically unlimited. Issuing tokens creates new TRӾ supply and can dilute existing holders. Every mint is an on-chain transaction requiring Energy and Bandwidth.</p>
+      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={14}/> Read issuance state</button><button type="button" className="primary-button" disabled={!walletReady || busy || !snapshot?.mintingEnabled || snapshot?.paused} onClick={() => onNavigate?.('credits')}><Coins size={14}/> Open external wallet credits</button></div>
+    </div>}
 
-    <div className="trax-actions">
-      <h3>Owner authorization controls</h3>
-      <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || (snapshot?.mintingEnabled && !snapshot?.paused)} onClick={activate}><ShieldCheck size={15}/> Unpause &amp; enable owner minting</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled} onClick={disableMinting}>Disable minting</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || snapshot?.paused} onClick={pause}>Emergency pause</button></div>
-      <p className="fine-print">Only the on-chain owner can enable or disable minting and pause transfers. Ownership transfer requires the new owner to accept it on-chain.</p>
-    </div>
+    {show('credits') && <div className="trax-actions">
+      <h3>External wallet credit</h3>
+      <p className="fine-print">Mint new TRӾ directly to a valid TRON Mainnet address. Recipient ownership signatures are not needed to receive tokens, but your owner wallet must approve and broadcast the mint transaction.</p>
+      <label>Recipient TRON Mainnet address<input value={recipient} onChange={e => setRecipient(e.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
+      <label>Amount to issue (TRӾ)<input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" placeholder="100"/></label>
+      <div className="trax-balance-note">Raw token units (6 decimals): {(() => { try { return parseTokenUnits(amount) } catch { return '—' } })()}</div>
+      <button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || snapshot?.paused || !feeCapSun} onClick={issueCredit}><Coins size={15}/> Review &amp; issue credit</button>
+      <p className="fine-print">This credits the recipient's on-chain TRӾ balance. It does not force an exchange to recognize or credit its internal customer account.</p>
+    </div>}
 
-    <TRAXOwnershipControls
-      wallet={wallet}
-      connectedAddress={connectedAddress}
-      tokenAddress={tokenAddress}
-      feeCapSun={feeCapSun}
-      getToken={getToken}
-      assertOwner={assertOwner}
-      run={run}
-      refresh={refresh}
-      setLastTx={setLastTx}
-      setNotice={setNotice}
-    />
+    {show('batch') && <div className="trax-actions">
+      <h3>Batch wallet credits</h3>
+      <p className="fine-print">Issue multiple recipient credits in one contract call. Maximum 50 addresses per batch. Review every address and amount before opening TronLink.</p>
+      <label>Recipient list (one TRON_ADDRESS,AMOUNT per line)<textarea value={batchInput} onChange={e => setBatchInput(e.target.value)} rows={7} placeholder={'TAddressOne,100\nTAddressTwo,250'}/></label>
+      <div className="trax-balance-note">Maximum 50 rows · Amounts use six token decimals.</div>
+      <button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || snapshot?.paused || !feeCapSun || !batchInput.trim()} onClick={batchCredit}>Review &amp; batch-credit addresses</button>
+    </div>}
 
-    <TRAXCreditHistory wallet={wallet} tokenAddress={tokenAddress} run={run} />
+    {show('pause') && <div className="trax-actions">
+      <h3>Emergency transfer controls</h3>
+      <div className={snapshot?.paused ? 'trax-state-banner warning' : 'trax-state-banner success'}><b>{snapshot ? snapshot.paused ? 'Transfers currently paused' : 'Transfers currently active' : 'Contract state not loaded'}</b><span>{snapshot ? snapshot.paused ? 'Token transfers and owner issuance are blocked until the owner unpauses.' : 'Transfers are available subject to normal TRC-20 balances and allowances.' : 'Refresh contract state before making an emergency change.'}</span></div>
+      <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot || snapshot.paused || !feeCapSun} onClick={pause}>Emergency pause transfers</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.paused || !feeCapSun} onClick={unpauseTransfers}>Unpause transfers</button></div>
+      <p className="fine-print">Only the current on-chain owner can change pause state. Both actions require a separate TronLink signature and network resources.</p>
+    </div>}
 
-    <div className="trax-actions">
-      <h3>External wallet credit manager</h3>
-      <label>Recipient TRON Mainnet address<input value={recipient} onChange={e => setRecipient(e.target.value)} autoComplete="off" spellCheck="false"/></label>
-      <label>Amount to issue (TRӾ)<input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal"/></label>
-      <div className="trax-balance-note">Raw token units: {(() => { try { return parseTokenUnits(amount) } catch { return '—' } })()}</div>
-      <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || snapshot?.paused || !feeCapSun} onClick={issueCredit}><Coins size={15}/> Review &amp; issue credit</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !feeCapSun} onClick={transfer}>Transfer existing balance</button></div>
-      <label>Batch credits (one TRON_ADDRESS,AMOUNT per line; maximum 50)<textarea value={batchInput} onChange={e => setBatchInput(e.target.value)} rows={5} placeholder={'TAddressOne,100\nTAddressTwo,250'}/></label>
-      <button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || snapshot?.paused || !feeCapSun || !batchInput.trim()} onClick={batchCredit}>Review &amp; batch-credit addresses</button>
-      <p className="fine-print">Issue credit mints new TRӾ directly to the entered address and records an on-chain reference event. It does not require the recipient to have an existing TRӾ balance. This cannot force an exchange to recognize or credit its internal customer account; the exchange must explicitly support this exact TRON contract address and network.</p>
-    </div>
+    {show('minting') && <div className="trax-actions">
+      <h3>Owner minting authorization</h3>
+      <div className={snapshot?.mintingEnabled ? 'trax-state-banner success' : 'trax-state-banner warning'}><b>{snapshot ? snapshot.mintingEnabled ? 'Owner issuance enabled' : 'Owner issuance disabled' : 'Contract state not loaded'}</b><span>{snapshot ? snapshot.mintingEnabled ? 'The authorized owner can issue new TRӾ.' : 'New owner credits are blocked until minting is enabled.' : 'Refresh contract state before changing authorization.'}</span></div>
+      <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot || snapshot.mintingEnabled || !feeCapSun} onClick={enableMinting}>Enable owner minting</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || !feeCapSun} onClick={disableMinting}>Disable owner minting</button></div>
+      <p className="fine-print">Disabling minting prevents new issuance but does not destroy existing tokens. Only the on-chain owner can change this setting.</p>
+    </div>}
 
-    <div className="trax-actions">
-      <h3>Check any external wallet balance</h3>
-      <label>TRON address<input value={lookupAddress} onChange={e => setLookupAddress(e.target.value)} autoComplete="off" spellCheck="false"/></label>
-      <button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={readBalance}>Read on-chain TRӾ balance</button>
-      {lookupBalance !== '' && <div className="trax-recipient-result"><b>{formatTokenUnits(lookupBalance)} TRӾ</b><span>{lookupAddress}</span><p>Native TRX: {formatTokenUnits(lookupNativeBalance)} · Official USDT: {formatTokenUnits(lookupUsdtBalance)}</p><b>Combined estimated portfolio value: {lookupPortfolioValue ? formatUsd(lookupPortfolioValue.totalUsd) : 'Unavailable — live quote missing or stale'}</b><small>TRӾ is valued using the TRX/USD reference quote, not a verified exchange trade price.</small></div>}
-    </div>
+    {show('transfers') && <div className="trax-actions">
+      <h3>Transfer existing TRӾ</h3>
+      <p className="fine-print">This sends existing TRӾ from the connected owner wallet; it does not mint new supply. The connected owner must hold enough TRӾ, and the transaction needs network resources.</p>
+      <label>Recipient TRON Mainnet address<input value={recipient} onChange={e => setRecipient(e.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
+      <label>Amount to transfer (TRӾ)<input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal"/></label>
+      <button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !feeCapSun} onClick={transfer}><ArrowUpRightIcon/> Review &amp; transfer existing balance</button>
+    </div>}
 
-    {lastTx && <div className="notice notice-success"><CheckCircle2 size={16}/><div><b>Solidified Mainnet transaction verified</b><p>{lastTx}</p><a href={'https://tronscan.org/#/transaction/' + lastTx} target="_blank" rel="noreferrer">Open transaction on TRONSCAN <ExternalLink size={12}/></a></div></div>}
+    {show('ownership') && <TRAXOwnershipControls wallet={wallet} connectedAddress={connectedAddress} tokenAddress={tokenAddress} feeCapSun={feeCapSun} getToken={getToken} assertOwner={assertOwner} run={run} refresh={refresh} setLastTx={setLastTx} setNotice={setNotice}/>}
+
+    {show('history') && <TRAXCreditHistory wallet={wallet} tokenAddress={tokenAddress} run={run}/>}
+
+    {show('balance') && <div className="trax-actions">
+      <h3>External wallet balance lookup</h3>
+      <p className="fine-print">Read the contract's actual TRӾ balance for any TRON Mainnet address. This is a read-only contract query; it does not credit or transfer tokens.</p>
+      <label>TRON Mainnet address<input value={lookupAddress} onChange={e => setLookupAddress(e.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
+      <button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={readBalance}><RefreshCw size={14}/> Read on-chain TRӾ balance</button>
+      {lookupBalance !== '' && <div className="trax-recipient-result"><b>{formatTokenUnits(lookupBalance)} TRӾ</b><span>{lookupAddress}</span><p>Native TRX: {formatTokenUnits(lookupNativeBalance)} · Official USDT: {formatTokenUnits(lookupUsdtBalance)}</p><b>Combined estimated portfolio value: {lookupPortfolioValue ? formatUsd(lookupPortfolioValue.totalUsd) : 'Unavailable — live quote missing or stale'}</b><small>TRӾ valuation is an owner-defined reference only, not a verified market trading price.</small></div>}
+    </div>}
+
+    {lastTx && <div className="notice notice-success trax-last-tx"><CheckCircle2 size={16}/><div><b>Solidified Mainnet transaction verified</b><p>{lastTx}</p><a href={'https://tronscan.org/#/transaction/' + lastTx} target="_blank" rel="noreferrer">Open transaction on TRONSCAN <ExternalLink size={12}/></a></div></div>}
     <div className="trax-footer-links"><a href="https://developers.tron.network/docs/trc20-protocol-interface" target="_blank" rel="noreferrer">TRON TRC-20 standard <ExternalLink size={12}/></a><a href="https://tronscan.org/#/token20" target="_blank" rel="noreferrer">TRONSCAN token directory <ExternalLink size={12}/></a></div>
   </section>
 }
