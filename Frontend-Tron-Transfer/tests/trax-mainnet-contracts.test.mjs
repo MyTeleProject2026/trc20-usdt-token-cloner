@@ -441,3 +441,40 @@ test('declining the off-chain promo message does not submit a claim or a TRON tr
   assert.equal(result.status, 'claim-signature-declined')
   assert.equal(redeemCalls, 0)
 })
+
+
+test('a previously accepted but pending promo claim resumes polling without requesting a second signature', async () => {
+  let statusReads = 0
+  let signatureCalls = 0
+  let resourceReads = 0
+  const fetchImpl = async (url) => {
+    if (url.includes('/api/tron/resources/free-delegation/status')) {
+      return promoFetchResponse({ success: true, inboundDelegations: { records: [{ energyStakeSun: '5000000', energyExpireTime: 0 }] } })
+    }
+    if (url.includes('/api/tron/tenergy/promo/status')) {
+      statusReads += 1
+      return promoFetchResponse({
+        success: true,
+        promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } },
+        redemption: { status: statusReads === 1 ? 'granting' : 'delegated', energy: 65000 },
+      })
+    }
+    throw new Error('a pending claim must not request another challenge or redeem operation')
+  }
+  const wallet = promoWallet(async () => { signatureCalls += 1; return 'ab'.repeat(65) })
+  const result = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
+    fetchImpl,
+    pollAttempts: 2,
+    pollIntervalMs: 0,
+    readResources: async () => {
+      resourceReads += 1
+      return resourceReads === 1
+        ? { energyLimit: '100', energyAvailable: '100' }
+        : { energyLimit: '65100', energyAvailable: '65100' }
+    },
+  })
+  assert.equal(result.status, 'delegated-and-chain-verified')
+  assert.equal(result.energyVerified, true)
+  assert.equal(signatureCalls, 0)
+  assert.ok(statusReads >= 2)
+})
