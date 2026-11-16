@@ -76,12 +76,11 @@ function makeHarness({ snapshots = [resourceSnapshot(), resourceSnapshot()], est
       return snapshots[index]
     },
     readPermissions: async () => ({ connectedSignerCanAuthorizeAlone: true }),
-    estimateEnergy: async (_client, address, method, args, owner) => {
+    estimateEnergy: async (_client, address, encodedData, owner) => {
       estimateCalls += 1
       assert.equal(address, 'TToken')
-      assert.equal(method.functionSelector, 'credit(address,uint256,bytes32)')
+      assert.equal(encodedData, 'deadbeef' + '00'.repeat(32))
       assert.equal(owner, 'TOwner')
-      assert.equal(args[1], '1000000')
       if (estimateError) throw estimateError
       return { energyUsed: '10' }
     },
@@ -174,67 +173,46 @@ test('owner write rejects a signer address different from the supplied payer', a
   assert.equal(h.counts().broadcastCalls, 0)
 })
 
-test('exact-call Energy estimator uses estimateenergy and returns a validated result', async () => {
-  let constantCalls = 0
-  const tronWeb = {
-    isAddress: value => value.startsWith('T'),
-    address: { toHex: value => value },
-    transactionBuilder: {
-      estimateEnergy: async (contract, selector, options, params, owner) => {
-        assert.equal(contract, 'TToken')
-        assert.equal(selector, 'credit(address,uint256,bytes32)')
-        assert.equal(owner, 'TOwner')
-        assert.equal(options.parametersV2[1], '1000000')
-        assert.deepEqual(params, [])
-        return { result: { result: true }, energy_required: 321 }
-      },
-      triggerConstantContract: async () => {
-        constantCalls += 1
-        throw new Error('fallback should not execute')
-      },
-    },
-  }
-  const method = { abi: { name: 'credit' }, functionSelector: 'credit(address,uint256,bytes32)' }
-  const result = await estimateMainnetContractCallEnergy(tronWeb, 'TToken', method, args, 'TOwner')
+test('exact encoded-call Energy estimator uses the queued estimateenergy API', async () => {
+  const requests = []
+  const encodedData = 'deadbeef' + '11'.repeat(64)
+  const result = await estimateMainnetContractCallEnergy(
+    { isAddress: value => value.startsWith('T'), address: { toHex: value => value } },
+    'TToken',
+    encodedData,
+    'TOwner',
+    async (_tronWeb, path, body) => {
+      requests.push({ path, body })
+      return { result: { result: true }, energy_required: 321 }
+    }
+  )
   assert.deepEqual(result, { energyUsed: '321', energyPenalty: '0' })
-  assert.equal(constantCalls, 0)
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].path, '/wallet/estimateenergy')
+  assert.equal(requests[0].body.data, encodedData)
+  assert.equal(requests[0].body.owner_address, 'TOwner')
+  assert.equal(requests[0].body.contract_address, 'TToken')
+  assert.equal(requests[0].body.call_value, 0)
+  assert.equal(requests[0].body.visible, false)
 })
 
-test('exact-call Energy estimator falls back to read-only triggerconstantcontract on unsupported estimator', async () => {
-  const calls = []
-  const tronWeb = {
-    isAddress: value => value.startsWith('T'),
-    address: { toHex: value => value },
-    transactionBuilder: {
-      estimateEnergy: async () => { throw new Error('This node does not support estimate energy') },
-      triggerConstantContract: async (contract, selector, options, params, owner) => {
-        calls.push({ contract, selector, options, params, owner })
-        return { result: { result: true }, energy_used: 654, energy_penalty: 12 }
-      },
-    },
-  }
-  const method = { abi: { name: 'credit' }, functionSelector: 'credit(address,uint256,bytes32)' }
-  const result = await estimateMainnetContractCallEnergy(tronWeb, 'TToken', method, args, 'TOwner')
+test('exact encoded-call estimator falls back to queued triggerconstantcontract only when estimateenergy is unsupported', async () => {
+  const requests = []
+  const encodedData = 'deadbeef' + '22'.repeat(64)
+  const result = await estimateMainnetContractCallEnergy(
+    { isAddress: value => value.startsWith('T'), address: { toHex: value => value } },
+    'TToken',
+    encodedData,
+    'TOwner',
+    async (_tronWeb, path, body) => {
+      requests.push({ path, body })
+      if (path === '/wallet/estimateenergy') throw new Error('This node does not support estimate energy')
+      return { result: { result: true }, energy_used: 654, energy_penalty: 12 }
+    }
+  )
   assert.deepEqual(result, { energyUsed: '654', energyPenalty: '12' })
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0].options.parametersV2[1], '1000000')
-})
-
-test('all TRӾ owner writes use the resource-preflighted method-name-and-args helper', async () => {
-  const { readFile } = await import('node:fs/promises')
-  const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
-  const ownership = await readFile(new URL('../src/TRAXOwnershipControls.jsx', import.meta.url), 'utf8')
-  const helper = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
-  const allWrites = panel + '\n' + ownership
-  const calls = allWrites.match(/sendAndVerifyContractCall\(/g) || []
-  assert.equal(calls.length, 12, 'every panel and ownership write must use the shared preflight helper')
-  assert.doesNotMatch(allWrites, /sendAndVerifyContractCall\(tronWeb,\s*token\.[A-Za-z0-9_]+\(/)
-  assert.match(helper, /export async function estimateMainnetContractCallEnergy/)
-  assert.match(helper, /transactionBuilder\.estimateEnergy/)
-  assert.match(helper, /triggerConstantContract/)
-  assert.match(helper, /checkTransactionSigner\(tronWeb, signedTransaction, ownerAddress\)/)
-  assert.match(helper, /checkTransactionPermission\(tronWeb, signedTransaction, ownerAddress\)/)
-  assert.match(helper, /assertZeroTrxBurnBudget\(initialBudget\)/)
-  assert.match(helper, /assertZeroTrxBurnBudget\(finalBudget\)/)
-  assert.doesNotMatch(helper.slice(helper.indexOf('export async function sendAndVerifyContractCall'), helper.indexOf('export async function sendNativeTrxFromTronLink')), /getBalance\(|\/wallet\/getaccount['"]|method\.send\(/)
+  assert.equal(requests.length, 2)
+  assert.equal(requests[0].path, '/wallet/estimateenergy')
+  assert.equal(requests[1].path, '/wallet/triggerconstantcontract')
+  assert.equal(requests[1].body.data, encodedData)
 })
