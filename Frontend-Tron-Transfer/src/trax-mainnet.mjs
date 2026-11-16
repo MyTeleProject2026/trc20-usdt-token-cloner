@@ -5,6 +5,200 @@ export const TRON_MAINNET_HOST = 'https://api.trongrid.io'
 export const TRAX_STORAGE_KEY = 'tron-transfer:trax-mainnet-contracts:v1'
 export const TRAX_TOKEN_ARTIFACT = artifacts.token
 
+const TENERGY_PROMO_API_BASE = String(
+  import.meta.env?.VITE_RESOURCE_API_BASE_URL
+  || import.meta.env?.VITE_API_BASE_URL
+  || 'https://tron-transfer-resource-api.onrender.com',
+).replace(/\\/+$/, '')
+
+async function tenergyPromoRequest(path, { method = 'GET', body, fetchImpl = fetch } = {}) {
+  const response = await fetchImpl(TENERGY_PROMO_API_BASE + '/api/tron/tenergy/promo' + path, {
+    method,
+    headers: body === undefined ? { accept: 'application/json' } : {
+      accept: 'application/json',
+      'content-type': 'application/json',
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  })
+  let payload = null
+  try { payload = await response.json() } catch {}
+  return { response, payload }
+}
+
+/**
+ * Attempts the eligible, one-time TEnergy promotional Energy grant.
+ * The claim itself is a TIP-191 message signature, not an on-chain transaction.
+ * The provider grant is accepted only after the provider reports delegation and
+ * a fresh Mainnet resource snapshot shows EnergyLimit increased. This grant
+ * never covers Bandwidth and never bypasses the normal deployment zero-burn gate.
+ */
+export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
+  onStage = () => {},
+  fetchImpl = fetch,
+  pollAttempts = 20,
+  pollIntervalMs = 3000,
+  readResources = getMainnetAccountResourceSnapshot,
+} = {}) {
+  const tronWeb = assertMainnetWallet(wallet)
+  if (!addressesEqual(tronWeb, wallet.address, ownerAddress)) {
+    throw new Error('TEnergy promo claim is restricted to the connected TRӾ owner wallet.')
+  }
+
+  const getStatus = async () => {
+    const { response, payload } = await tenergyPromoRequest(
+      '/status?address=' + encodeURIComponent(ownerAddress),
+      { fetchImpl },
+    )
+    if (!response.ok || payload?.success !== true) return null
+    return payload
+  }
+
+  let initialResources
+  try {
+    onStage('Checking owner resources before any promotional claim')
+    initialResources = await readResources(tronWeb, ownerAddress)
+  } catch {
+    return { status: 'resource-snapshot-unavailable', energyVerified: false, message: 'Could not establish a pre-claim Mainnet resource baseline. The promotional claim was not attempted.' }
+  }
+
+  let status
+  try {
+    onStage('Checking TEnergy one-time Mainnet promotion eligibility')
+    status = await getStatus()
+  } catch {
+    return { status: 'provider-unavailable', energyVerified: false, message: 'TEnergy promotion status could not be checked. Continuing to the normal deployment resource gate.' }
+  }
+  if (!status) {
+    return { status: 'provider-unavailable', energyVerified: false, message: 'TEnergy promotion status is unavailable. Continuing to the normal deployment resource gate.' }
+  }
+
+  if (status.redemption?.status === 'delegated') {
+    const current = await readResources(tronWeb, ownerAddress)
+    return {
+      status: 'already-redeemed',
+      energyVerified: BigInt(current.energyLimit) > BigInt(initialResources.energyLimit),
+      energyAvailable: current.energyAvailable,
+      bandwidthCovered: false,
+      message: 'TEnergy reports this wallet has already claimed its one-time Energy grant. The deployment preflight will independently verify all resources.',
+    }
+  }
+  if (status.redemption?.status === 'failed') {
+    return { status: 'previous-claim-failed', energyVerified: false, message: 'TEnergy records a failed one-time claim for this wallet. It cannot be claimed again through this promo.' }
+  }
+  if (status.promo?.state !== 'active' || status.promo?.grant?.resource !== 'energy') {
+    return {
+      status: 'promo-not-active',
+      energyVerified: false,
+      promoState: status.promo?.state || 'unknown',
+      message: 'No active TEnergy promotional Energy grant is currently available. Continuing to the normal deployment resource gate.',
+    }
+  }
+
+  let challenge
+  try {
+    onStage('Checking whether the owner address is eligible for the one-time Energy grant')
+    const result = await tenergyPromoRequest('/challenge', {
+      method: 'POST',
+      body: { address: ownerAddress },
+      fetchImpl,
+    })
+    challenge = result.payload
+    if (!result.response.ok || challenge?.success !== true) {
+      const claimStatus = challenge?.status || 'challenge-unavailable'
+      return {
+        status: claimStatus,
+        energyVerified: false,
+        message: challenge?.message || 'The owner wallet is not eligible for this promotion. Continuing to the normal deployment resource gate.',
+      }
+    }
+  } catch {
+    return { status: 'challenge-unavailable', energyVerified: false, message: 'TEnergy eligibility could not be confirmed. No wallet message was signed.' }
+  }
+
+  const signer = wallet?.tronWeb?.trx?.signMessageV2
+  if (typeof signer !== 'function') {
+    return { status: 'wallet-message-signing-unavailable', energyVerified: false, message: 'This TronLink version does not expose signMessageV2. No claim was submitted.' }
+  }
+
+  let signature
+  try {
+    onStage('Requesting the owner wallet signature for the fee-free promotional claim message')
+    signature = await signer.call(wallet.tronWeb.trx, challenge.message)
+  } catch (error) {
+    const code = Number(error?.code)
+    if (code === 4001 || /rejected|declined|cancel/i.test(String(error?.message || ''))) {
+      return { status: 'claim-signature-declined', energyVerified: false, message: 'The promotional message signature was declined. No TRON transaction was sent; normal deployment preflight will still run.' }
+    }
+    return { status: 'claim-signature-failed', energyVerified: false, message: 'TronLink could not sign the promotional message. No TRON transaction was sent.' }
+  }
+  const normalizedSignature = String(signature || '').replace(/^0x/i, '')
+  if (!/^[0-9a-f]{130}$/i.test(normalizedSignature)) {
+    return { status: 'invalid-wallet-signature', energyVerified: false, message: 'TronLink returned an invalid promotional message signature. No claim was submitted.' }
+  }
+
+  let redemption
+  try {
+    onStage('Submitting the signed promotional claim to TEnergy')
+    const result = await tenergyPromoRequest('/redeem', {
+      method: 'POST',
+      body: { address: ownerAddress, nonce: challenge.nonce, signature: normalizedSignature },
+      fetchImpl,
+    })
+    redemption = result.payload
+    if (!result.response.ok || redemption?.success !== true) {
+      return {
+        status: redemption?.status || 'redemption-rejected',
+        energyVerified: false,
+        message: redemption?.message || 'TEnergy rejected the promotional claim. No deployment transaction was sent.',
+      }
+    }
+  } catch {
+    return { status: 'redemption-outcome-unknown', energyVerified: false, message: 'The TEnergy claim response was unavailable. Check the provider redemption status before attempting another claim.' }
+  }
+
+  for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
+    const providerState = redemption.redemption?.status
+    if (providerState === 'failed') {
+      return { status: 'grant-failed', energyVerified: false, message: 'TEnergy accepted the claim but could not delegate Energy. No deployment transaction was sent by the claim step.' }
+    }
+    if (providerState === 'delegated') {
+      const freshResources = await readResources(tronWeb, ownerAddress)
+      const resourceIncrease = BigInt(freshResources.energyLimit) - BigInt(initialResources.energyLimit)
+      if (resourceIncrease > 0n && BigInt(freshResources.energyAvailable) > BigInt(initialResources.energyAvailable)) {
+        return {
+          status: 'delegated-and-chain-verified',
+          energyVerified: true,
+          energyIncrease: resourceIncrease.toString(),
+          energyAvailable: freshResources.energyAvailable,
+          bandwidthCovered: false,
+          message: 'The TEnergy Energy grant is reflected in a fresh Mainnet resource snapshot. Bandwidth remains independently unverified.',
+        }
+      }
+      // A provider status is not chain evidence. Keep polling the resource read
+      // instead of treating the provider's "delegated" flag as sufficient.
+    }
+    if (attempt + 1 < pollAttempts) {
+      onStage('Waiting for the provider delegation and rechecking Mainnet Energy (' + (attempt + 1) + '/' + pollAttempts + ')')
+      await new Promise((resolve) => globalThis.setTimeout(resolve, pollIntervalMs))
+      try {
+        const next = await getStatus()
+        if (next?.redemption) redemption = { ...redemption, redemption: next.redemption }
+      } catch {}
+    }
+  }
+
+  const finalResources = await readResources(tronWeb, ownerAddress).catch(() => null)
+  return {
+    status: redemption.redemption?.status === 'granting' ? 'grant-pending' : 'delegation-not-verified',
+    energyVerified: false,
+    energyAvailable: finalResources?.energyAvailable || '0',
+    bandwidthCovered: false,
+    message: 'The provider has not yet been independently confirmed by a fresh Mainnet Energy resource increase. The existing deployment preflight remains the final zero-burn gate.',
+  }
+}
+
 export async function verifyTRAXTokenContract(tronWeb, address) {
   if (!tronWeb?.isAddress?.(address)) throw new Error('Enter a valid TRON Mainnet TRӾ contract address.')
   const expectedCode = String(TRAX_TOKEN_ARTIFACT.deployedBytecode || '').replace(/^0x/, '').toLowerCase()
