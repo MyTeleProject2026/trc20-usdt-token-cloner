@@ -109,6 +109,44 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
   if (status.redemption?.status === 'failed') {
     return { status: 'previous-claim-failed', energyVerified: false, message: 'TEnergy records a failed one-time claim for this wallet. It cannot be claimed again through this promo.' }
   }
+  if (status.redemption?.status === 'granting') {
+    onStage('Resuming the existing TEnergy Energy delegation check; no second claim or signature will be requested')
+    for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => globalThis.setTimeout(resolve, pollIntervalMs))
+      let next
+      try { next = await getStatus() } catch {}
+      const redemption = next?.redemption
+      if (redemption?.status === 'failed') {
+        return { status: 'grant-failed', energyVerified: false, message: 'TEnergy reports that the existing promotional claim failed. The one-time grant cannot be repeated.' }
+      }
+      if (redemption?.status === 'delegated') {
+        const [freshResources, inboundEnergyDelegation] = await Promise.all([
+          readResources(tronWeb, ownerAddress),
+          readActiveInboundEnergyDelegation(),
+        ])
+        const resourceIncrease = BigInt(freshResources.energyLimit) - BigInt(initialResources.energyLimit)
+        if (inboundEnergyDelegation && resourceIncrease > 0n
+          && BigInt(freshResources.energyAvailable) > BigInt(initialResources.energyAvailable)) {
+          return {
+            status: 'delegated-and-chain-verified',
+            energyVerified: true,
+            energyIncrease: resourceIncrease.toString(),
+            energyAvailable: freshResources.energyAvailable,
+            bandwidthCovered: false,
+            message: 'The previously accepted TEnergy grant is now visible in a fresh Mainnet resource snapshot and active inbound delegation.',
+          }
+        }
+      }
+    }
+    const pendingResources = await readResources(tronWeb, ownerAddress).catch(() => null)
+    return {
+      status: 'grant-pending',
+      energyVerified: false,
+      energyAvailable: pendingResources?.energyAvailable || '0',
+      bandwidthCovered: false,
+      message: 'The existing TEnergy one-time claim is still pending or its delegation is not yet visible on Mainnet. No second claim was created; the normal deployment gate will check current resources.',
+    }
+  }
   if (status.promo?.state !== 'active' || status.promo?.grant?.resource !== 'energy') {
     return {
       status: 'promo-not-active',
