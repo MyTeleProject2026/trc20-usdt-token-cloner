@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { calculatePortfolioValue, fetchTRXReferencePrice } from '../src/trax-pricing.mjs'
 
-test('TRӾ reference price follows the live TRX reference quote without claiming exchange execution', async () => {
+test('TRӾ is never assigned a synthetic market quote from native TRX', async () => {
   const updatedAt = 1_800_000_000
   const quote = await fetchTRXReferencePrice({
     now: () => updatedAt * 1000 + 1000,
@@ -15,10 +15,9 @@ test('TRӾ reference price follows the live TRX reference quote without claiming
     }),
   })
   assert.equal(quote.trxUsd, 0.307369)
-  assert.equal(quote.traxReferenceUsd, 0.307370)
+  assert.equal(quote.traxReferenceUsd, null)
   assert.equal(quote.usdtUsd, 1.0001)
-  assert.match(quote.source, /CoinGecko TRX quote/)
-  assert.match(quote.source, /owner-defined TRӾ reference adjustment/)
+  assert.match(quote.source, /no verified TRӾ market quote/)
 })
 
 test('stale or invalid price data is rejected rather than shown as live', async () => {
@@ -31,14 +30,11 @@ test('stale or invalid price data is rejected rather than shown as live', async 
   }), /invalid/)
 })
 
-test('combined portfolio valuation sums TRX, TRӾ reference value and USDT without merging token units', () => {
-  const result = calculatePortfolioValue({
-    trx: '100',
-    trax: '10000',
-    usdt: '5000',
-    prices: { trxUsd: 0.307369, traxReferenceUsd: 0.307370, usdtUsd: 1 },
-  })
-  assert.equal(result.valuationType, 'reference-estimate')
-  assert.ok(Math.abs(result.totalUsd - (30.7369 + 3073.70 + 5000)) < 1e-8)
+test('combined portfolio value is withheld when TRӾ holdings have no verified market quote', () => {
+  const prices = { trxUsd: 0.307369, traxReferenceUsd: null, usdtUsd: 1 }
+  assert.equal(calculatePortfolioValue({ trx: '100', trax: '10000', usdt: '5000', prices }), null)
+  const partial = calculatePortfolioValue({ trx: '100', trax: '0', usdt: '5000', prices })
+  assert.equal(partial.valuationType, 'partial-reference-estimate')
+  assert.ok(Math.abs(partial.totalUsd - (30.7369 + 5000)) < 1e-8)
   assert.equal(calculatePortfolioValue({ trx: '1', trax: '1', usdt: '1' }), null)
 })
