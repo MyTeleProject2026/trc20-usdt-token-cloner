@@ -15,13 +15,22 @@ function normalizeReference(value) {
   return raw || 'Unavailable'
 }
 
-function mapEvent(event) {
+function normalizeTronAddress(tronWeb, rawAddress) {
+  const raw = String(rawAddress || '')
+  if (!raw) return 'Unavailable'
+  if (tronWeb.isAddress(raw)) return raw
+  const hex = raw.replace(/^0x/i, '')
+  if (!/^[0-9a-f]{40}$/i.test(hex)) return raw
+  try { return tronWeb.address.fromHex('41' + hex) || raw } catch { return raw }
+}
+
+function mapEvent(tronWeb, event) {
   const result = event.result || {}
   const amount = field(result, 'amount', '_amount')
   let displayAmount = 'Unavailable'
   try { displayAmount = formatTokenUnits(String(amount)) } catch {}
   return {
-    recipient: String(field(result, 'recipient', '_recipient') || 'Unavailable'),
+    recipient: normalizeTronAddress(tronWeb, field(result, 'recipient', '_recipient') || result['0']),
     amount: displayAmount,
     referenceId: normalizeReference(field(result, 'referenceId', 'reference_id', '_referenceId')),
     txID: String(event.transaction_id || event.transactionId || ''),
@@ -54,7 +63,7 @@ export default function TRAXCreditHistory({ wallet, tokenAddress, run, busy = fa
     if (!response || !Array.isArray(response.data)) {
       throw new Error('TRON Mainnet event service returned an unexpected response. No history was assumed.')
     }
-    const rows = response.data.map(mapEvent)
+    const rows = response.data.map(event => mapEvent(tronWeb, event))
     setEvents(previous => {
       const combined = append ? [...previous, ...rows] : rows
       const seen = new Set()
