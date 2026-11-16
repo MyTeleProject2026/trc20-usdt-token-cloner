@@ -239,3 +239,43 @@ test('does not treat free and staked Bandwidth as additive for a single transact
   assert.equal(result.bandwidth.maxSingleTransactionAvailable, 600)
   assert.equal(result.bandwidth.maxSingleTransactionAvailable >= 7000, false)
 })
+
+
+test('Mainnet resource reads use an optional server-side TronGrid API key without exposing it', async (t) => {
+  const { createServer } = await import('../server.js')
+  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const secret = 'test-server-only-trongrid-key'
+  const calls = []
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url, options })
+    let payload
+    if (url.endsWith('/wallet/getaccountresource')) payload = {
+      EnergyLimit: 120000, EnergyUsed: 20000,
+      NetLimit: 900, NetUsed: 100, freeNetLimit: 600, freeNetUsed: 50,
+    }
+    else if (url.endsWith('/wallet/getaccount')) payload = { balance: 0 }
+    else if (url.endsWith('/wallet/getchainparameters')) payload = { chainParameter: [
+      { key: 'getEnergyFee', value: 100 },
+      { key: 'getTransactionFee', value: 1000 },
+      { key: 'getMaxFeeLimit', value: 15000000000 },
+    ] }
+    else throw new Error('unexpected TronGrid URL ' + url)
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  const server = createServer({ fetchImpl, env: { TRONGRID_API_KEY: secret } })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  const health = await fetch(base + '/health')
+  const healthBody = await health.json()
+  assert.equal(healthBody.rpc, 'TronGrid API key configured')
+  assert.equal(JSON.stringify(healthBody).includes(secret), false)
+  const response = await fetch(base + '/v1/resources/' + address)
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.energy.available, 100000)
+  assert.equal(body.bandwidth.maxSingleTransactionAvailable, 800)
+  assert.equal(calls.length, 3)
+  assert.ok(calls.every(call => call.options.headers['TRON-PRO-API-KEY'] === secret))
+  assert.equal(JSON.stringify(body).includes(secret), false)
+})
