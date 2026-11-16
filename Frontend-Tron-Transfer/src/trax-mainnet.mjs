@@ -433,11 +433,12 @@ export function calculateDeploymentResourceBudget({
   const energyFee = BigInt(resourceSnapshot.energyFeeSun)
   const bandwidthFee = resourceSnapshot.bandwidthFeeSun == null ? null : BigInt(resourceSnapshot.bandwidthFeeSun)
   const availableEnergy = BigInt(resourceSnapshot.energyAvailable)
-  // TRON does not combine staked/delegated Bandwidth with the free quota for
-  // one transaction: either source must cover the complete byte cost.
+  // TRON applies the account's staked/delegated Bandwidth first, then its
+  // free daily Bandwidth quota, before burning TRX for any remaining bytes.
+  // Both available quotas therefore contribute to the transaction budget.
   const freeBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable)
   const stakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable)
-  const availableBandwidth = freeBandwidth > stakedBandwidth ? freeBandwidth : stakedBandwidth
+  const availableBandwidth = freeBandwidth + stakedBandwidth
   const maxFeeLimit = resourceSnapshot.maxFeeLimitSun == null ? null : BigInt(resourceSnapshot.maxFeeLimitSun)
   if (energyFee <= 0n) throw new Error('Mainnet returned an invalid Energy price.')
   if (maxFeeLimit === null || maxFeeLimit <= 0n) {
