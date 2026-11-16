@@ -140,11 +140,12 @@ async function readResources(address) {
   return summarizeResources(resource, account, parameters?.chainParameter || [])
 }
 
-function allowRequest(ip) {
+function allowRequest(ip, scope = 'default') {
+  const key = scope + ':' + ip
   const now = Date.now()
-  const entry = rate.get(ip)
+  const entry = rate.get(key)
   if (!entry || now - entry.startedAt >= RATE_WINDOW_MS) {
-    rate.set(ip, { startedAt: now, count: 1 })
+    rate.set(key, { startedAt: now, count: 1 })
     return true
   }
   entry.count += 1
@@ -237,7 +238,7 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
       const walletAddress = req.method === 'GET' ? (url.searchParams.get('address') || '') : body.address
       if (walletAddress !== allowedAddress || !isMainnetAddress(walletAddress)) return send(res, 403, { success: false, error: 'wallet-not-allowed' }, origin)
       const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
-      if (!allowRequest(ip)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      if (!allowRequest(ip, 'tenergy-promo')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       try {
         if (promoAction === 'promo' && req.method === 'GET') {
           const terms = await tenergyRequest('/promo')
