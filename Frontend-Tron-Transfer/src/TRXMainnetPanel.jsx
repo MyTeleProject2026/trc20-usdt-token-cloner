@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowUpRight, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import {
-  TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, deployContractFromTronLink,
+  TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, claimTenergyPromoForDeployment, deployContractFromTronLink,
   callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts, parseBatchCreditRows, parseTokenUnits, saveContractAddresses,
   sendAndVerifyContractCall, verifyTRAXTokenContract, getMainnetUSDTBalance,
 } from './trax-mainnet.mjs'
@@ -119,10 +119,17 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     if (!walletReady) throw new Error('Connect the configured owner TronLink wallet first.')
     if (!feeCapSun) throw new Error('Enter a valid deployment fee cap between 0.000001 and 500 TRX.')
     if (tokenAddress) throw new Error('A token contract address is already saved. Clear it only if you intend to deploy a new token.')
+    const promo = await claimTenergyPromoForDeployment(wallet, EXPECTED_OWNER_ADDRESS, {
+      onStage: (message) => setStep(message),
+    })
+    if (!promo.energyVerified) setNotice(promo.message)
     const result = await deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, { expectedOwnerAddress: EXPECTED_OWNER_ADDRESS })
     setTokenAddress(result.address)
     setLastTx(result.txID)
-    setNotice('TRӾ contract deployment is confirmed and the deployed bytecode and owner were verified.')
+    const promoNote = promo.energyVerified
+      ? ' The eligible one-time TEnergy Energy grant was independently observed in Mainnet resources.'
+      : ' Promotional Energy claim status: ' + promo.status + '. ' + promo.message
+    setNotice('TRӾ contract deployment is confirmed and the deployed bytecode and owner were verified.' + promoNote)
   })
 
   const clearSavedTokenAddress = () => {

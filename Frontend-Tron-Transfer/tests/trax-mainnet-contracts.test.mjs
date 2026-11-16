@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { assertZeroTrxBurnBudget, calculateDeploymentResourceBudget, buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
+import { assertZeroTrxBurnBudget, calculateDeploymentResourceBudget, buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable, claimTenergyPromoForDeployment, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -319,4 +319,162 @@ test('TronLink nested HTTP errors preserve provider response details', () => {
   const rendered = formatTronLinkError(error, 'Deployment preflight')
   assert.match(rendered, /request rate exceeded/)
   assert.match(rendered, /429/)
+})
+
+
+const PROMO_OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const PROMO_OWNER_HEX = '41' + '11'.repeat(20)
+
+function promoWallet(signMessageV2 = async () => 'ab'.repeat(65)) {
+  return {
+    address: PROMO_OWNER,
+    tronWeb: {
+      fullNode: { host: 'https://api.trongrid.io' },
+      isAddress: address => address === PROMO_OWNER,
+      address: { toHex: address => address === PROMO_OWNER ? PROMO_OWNER_HEX : '' },
+      trx: { signMessageV2 },
+    },
+  }
+}
+
+function promoFetchResponse(payload, status = 200) {
+  return { ok: status >= 200 && status < 300, status, json: async () => payload }
+}
+
+test('eligible TEnergy promo is claimed with an off-chain wallet message and verified by Mainnet delegation reads', async () => {
+  const calls = []
+  let statusReads = 0
+  let resourceReads = 0
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : null })
+    if (url.includes('/api/tron/resources/free-delegation/status')) {
+      return promoFetchResponse({
+        success: true,
+        inboundDelegations: {
+          records: [{ energyStakeSun: '5000000', energyExpireTime: 0 }],
+        },
+      })
+    }
+    if (url.includes('/api/tron/tenergy/promo/status')) {
+      statusReads += 1
+      return promoFetchResponse({
+        success: true,
+        promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } },
+        redemption: statusReads === 1 ? null : {
+          status: 'delegated', energy: 65000, expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        },
+      })
+    }
+    if (url.endsWith('/api/tron/tenergy/promo/challenge')) {
+      return promoFetchResponse({
+        success: true, address: PROMO_OWNER, nonce: 'nonce-12345678',
+        message: 'Sign this exact TEnergy promo challenge.',
+      })
+    }
+    if (url.endsWith('/api/tron/tenergy/promo/redeem')) {
+      return promoFetchResponse({
+        success: true, redemption: { status: 'granting', energy: 65000 },
+      })
+    }
+    throw new Error('unexpected promo request: ' + url)
+  }
+  const result = await claimTenergyPromoForDeployment(promoWallet(), PROMO_OWNER, {
+    fetchImpl,
+    pollAttempts: 3,
+    pollIntervalMs: 0,
+    readResources: async () => {
+      resourceReads += 1
+      return resourceReads === 1
+        ? { energyLimit: '100', energyAvailable: '100' }
+        : { energyLimit: '65100', energyAvailable: '65100' }
+    },
+  })
+  assert.equal(result.status, 'delegated-and-chain-verified')
+  assert.equal(result.energyVerified, true)
+  assert.equal(result.bandwidthCovered, false)
+  const redeem = calls.find(call => call.url.endsWith('/api/tron/tenergy/promo/redeem'))
+  assert.deepEqual(redeem.body, { address: PROMO_OWNER, nonce: 'nonce-12345678', signature: 'ab'.repeat(65) })
+  assert.ok(statusReads >= 2)
+})
+
+test('ineligible TEnergy promo is detected before any wallet signature or redemption request', async () => {
+  let signatureCalls = 0
+  const fetchImpl = async (url, init = {}) => {
+    if (url.includes('/api/tron/resources/free-delegation/status')) {
+      return promoFetchResponse({ success: true, inboundDelegations: { records: [] } })
+    }
+    if (url.includes('/api/tron/tenergy/promo/status')) {
+      return promoFetchResponse({ success: true, promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } }, redemption: null })
+    }
+    if (url.endsWith('/api/tron/tenergy/promo/challenge')) {
+      return promoFetchResponse({ success: false, status: 'promo-not-eligible', message: 'The owner was not in the original drop.' }, 403)
+    }
+    throw new Error('no signature or redemption should be requested')
+  }
+  const wallet = promoWallet(async () => { signatureCalls += 1; return 'ab'.repeat(65) })
+  const result = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
+    fetchImpl,
+    readResources: async () => ({ energyLimit: '0', energyAvailable: '0' }),
+  })
+  assert.equal(result.status, 'promo-not-eligible')
+  assert.equal(signatureCalls, 0)
+})
+
+test('declining the off-chain promo message does not submit a claim or a TRON transaction', async () => {
+  let redeemCalls = 0
+  const fetchImpl = async (url) => {
+    if (url.includes('/api/tron/resources/free-delegation/status')) return promoFetchResponse({ success: true, inboundDelegations: { records: [] } })
+    if (url.includes('/api/tron/tenergy/promo/status')) return promoFetchResponse({
+      success: true, promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } }, redemption: null,
+    })
+    if (url.endsWith('/api/tron/tenergy/promo/challenge')) return promoFetchResponse({
+      success: true, nonce: 'nonce-12345678', address: PROMO_OWNER, message: 'Exact challenge',
+    })
+    if (url.endsWith('/api/tron/tenergy/promo/redeem')) { redeemCalls += 1; return promoFetchResponse({}) }
+    throw new Error('unexpected request')
+  }
+  const wallet = promoWallet(async () => { throw Object.assign(new Error('User rejected the request'), { code: 4001 }) })
+  const result = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
+    fetchImpl,
+    readResources: async () => ({ energyLimit: '0', energyAvailable: '0' }),
+  })
+  assert.equal(result.status, 'claim-signature-declined')
+  assert.equal(redeemCalls, 0)
+})
+
+
+test('a previously accepted but pending promo claim resumes polling without requesting a second signature', async () => {
+  let statusReads = 0
+  let signatureCalls = 0
+  let resourceReads = 0
+  const fetchImpl = async (url) => {
+    if (url.includes('/api/tron/resources/free-delegation/status')) {
+      return promoFetchResponse({ success: true, inboundDelegations: { records: [{ energyStakeSun: '5000000', energyExpireTime: 0 }] } })
+    }
+    if (url.includes('/api/tron/tenergy/promo/status')) {
+      statusReads += 1
+      return promoFetchResponse({
+        success: true,
+        promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } },
+        redemption: { status: statusReads === 1 ? 'granting' : 'delegated', energy: 65000 },
+      })
+    }
+    throw new Error('a pending claim must not request another challenge or redeem operation')
+  }
+  const wallet = promoWallet(async () => { signatureCalls += 1; return 'ab'.repeat(65) })
+  const result = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
+    fetchImpl,
+    pollAttempts: 2,
+    pollIntervalMs: 0,
+    readResources: async () => {
+      resourceReads += 1
+      return resourceReads === 1
+        ? { energyLimit: '100', energyAvailable: '100' }
+        : { energyLimit: '65100', energyAvailable: '65100' }
+    },
+  })
+  assert.equal(result.status, 'delegated-and-chain-verified')
+  assert.equal(result.energyVerified, true)
+  assert.equal(signatureCalls, 0)
+  assert.ok(statusReads >= 2)
 })
