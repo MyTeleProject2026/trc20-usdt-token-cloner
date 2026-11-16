@@ -18,11 +18,11 @@ The TRӾ deployment preflight uses the same one-source coverage rule and blocks 
 
 ## Deployment
 
-This service is designed for a Render Web Service with root directory `Frontend-Tron-Transfer/resource-api`, Node runtime, `npm run check` build command, and `npm start` start command. It binds to `0.0.0.0:$PORT`. It needs no wallet key, private key, API secret, or environment variable.
+This service is designed for a Render Web Service with root directory `Frontend-Tron-Transfer/resource-api`, Node runtime, `npm run check` build command, and `npm start` start command. It binds to `0.0.0.0:$PORT`. It needs no wallet key or private key. `TRONGRID_API_KEY` is optional infrastructure configuration for reliable production RPC reads, not a wallet credential or transaction-signing permission.
 
 ## Important limits
 
-- Mainnet reads use the public TronGrid FullNode HTTP API without an API key. Official TronGrid documentation says production requests should use an API key and anonymous requests may be heavily rate limited or rejected. The API reports this honestly rather than fabricating resource data.
+- Mainnet reads use the public TronGrid FullNode HTTP API. Configure an optional server-side `TRONGRID_API_KEY` in Render to send the `TRON-PRO-API-KEY` header; the key is never returned by the health or resource endpoints. Without a key, the service falls back to anonymous public access, which may be heavily rate limited or rejected. The API reports this honestly rather than fabricating resource data.
 - The service is read-only. It cannot create Energy, delegate resources, sign, or broadcast transactions.
 - TRON has no protocol free Energy quota. Free Bandwidth is reported from the live account-resource response.
 - Exact smart-contract deployment Energy is not inferred from an arbitrary fee cap. A deployment-specific simulation or the exact node estimate is required.
