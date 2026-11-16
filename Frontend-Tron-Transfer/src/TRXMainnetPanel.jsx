@@ -17,7 +17,7 @@ function makeReference() {
   return '0x' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 }
 
-function TraxTokenMark() { return <img className="trax-token-mark" src="/trax-token-mark.svg" alt="TRAX custom token icon" width="22" height="22" style={{background:"#000",borderRadius:"50%"}}/> }
+function TraxTokenMark() { return <img className="trax-token-mark" src="https://thesvg.org/icons/tron/default.svg" alt="TRӾ token icon" width="22" height="22" style={{background:"#000",borderRadius:"50%"}}/> }
 
 function formatUsd(value) { return Number.isFinite(Number(value)) ? '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Unavailable' }
 
@@ -91,7 +91,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     ])
     const livePrice = await fetchTRXReferencePrice().catch(() => null)
     setReferencePrice(livePrice)
-    const valid = name === 'TRӾ' && symbol === 'TRAX' && Number(decimals) === 6
+    const valid = name === 'TRӾ' && symbol === 'TRӾ' && Number(decimals) === 6
     const ownerValid = addressesEqual(tronWeb, owner, connectedAddress)
     const next = {
       owner: String(owner), name, symbol, decimals: Number(decimals), totalSupply: String(totalSupply),
@@ -99,7 +99,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       ownerTrx: String(ownerTrx), ownerUsdt: String(ownerUsdt), valid, ownerValid,
     }
     setSnapshot(next)
-    if (!valid) throw new Error('Token metadata mismatch. Expected TRӾ / TRAX / 6 decimals.')
+    if (!valid) throw new Error('Token metadata mismatch. Expected TRӾ / TRӾ / 6 decimals.')
     if (!ownerValid) throw new Error('Connected TronLink account is not the token owner.')
     setNotice('Mainnet contract reads succeeded. This is an owner-issued, unbacked token; no reserve or redemption is represented.')
     return next
@@ -218,7 +218,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     {step && <div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
 
     <div className="trax-addresses">
-      <label>TRӾ / TRAX custom-token contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Deploy TRӾ or enter its verified Mainnet contract address"/></label><p id="trax-contract-address-note" className="fine-print">This address uniquely identifies the custom TRC-20 asset. Verify it before accepting deposits; native TRX does not have a TRC-20 contract address.</p>
+      <label>TRӾ custom-token contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Deploy TRӾ or enter its verified Mainnet contract address"/></label><p id="trax-contract-address-note" className="fine-print">This address uniquely identifies the custom TRC-20 asset. Verify it before accepting deposits; native TRX does not have a TRC-20 contract address.</p>
       <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ token</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button></div>
       <label>Transaction fee cap (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
       <p className="fine-print">Deployment is an irreversible Mainnet transaction. The deployer becomes the initial owner. This dashboard does not deploy automatically; you must click the deployment button and approve the TronLink prompt yourself.</p>
@@ -229,7 +229,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       <p className="fine-print">A single USD portfolio estimate, with each underlying asset quantity still identified separately.</p>
       <div className="trax-stats">
         <article><span>Native TRX</span><b>{snapshot ? formatTokenUnits(snapshot.ownerTrx) : 'Refresh contract state'} TRX</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerTrx)) * referencePrice.trxUsd) : 'Live quote unavailable'}</small></article>
-        <article><span><TraxTokenMark/> TRӾ reference value · TRAX</span><b>{snapshot ? formatTokenUnits(snapshot.ownerBalance) : 'Refresh contract state'} TRӾ</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerBalance)) * referencePrice.traxReferenceUsd) : 'Live quote unavailable'}</small></article>
+        <article><span><TraxTokenMark/> TRӾ reference value</span><b>{snapshot ? formatTokenUnits(snapshot.ownerBalance) : 'Refresh contract state'} TRӾ</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerBalance)) * referencePrice.traxReferenceUsd) : 'Live quote unavailable'}</small></article>
         <article><span>Official USDT · TRC20</span><b>{snapshot ? formatTokenUnits(snapshot.ownerUsdt) : 'Refresh contract state'} USDT</b><small>{referencePrice && snapshot ? formatUsd(Number(formatTokenUnits(snapshot.ownerUsdt)) * referencePrice.usdtUsd) : 'Live quote unavailable'}</small></article>
       </div>
       <div className="trax-balance-note"><b>Estimated combined portfolio value: </b>{snapshot && referencePrice ? formatUsd(calculatePortfolioValue({ trx: formatTokenUnits(snapshot.ownerTrx), trax: formatTokenUnits(snapshot.ownerBalance), usdt: formatTokenUnits(snapshot.ownerUsdt), prices: referencePrice })?.totalUsd) : 'Unavailable — refresh when live prices are available'}</div>
@@ -245,7 +245,7 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         <article><span>Transfers</span><b>{snapshot.paused ? 'Paused' : 'Active'}</b></article>
         <article><span>Owner TRX for fees</span><b>{formatTokenUnits(snapshot.ownerTrx)} TRX</b></article>
       </div> : <p>Refresh the deployed contract to read its current Mainnet state.</p>}
-      {snapshot && <div className="trax-checks"><span className={snapshot.valid ? 'ok' : 'bad'}>{snapshot.valid ? '✓' : '!'} TRӾ / TRAX / 6 decimals</span><span className={snapshot.ownerValid ? 'ok' : 'bad'}>{snapshot.ownerValid ? '✓' : '!'} Owner matches connected wallet</span><span className="bad">! No TRX backing or redemption</span></div>}
+      {snapshot && <div className="trax-checks"><span className={snapshot.valid ? 'ok' : 'bad'}>{snapshot.valid ? '✓' : '!'} TRӾ / TRӾ / 6 decimals</span><span className={snapshot.ownerValid ? 'ok' : 'bad'}>{snapshot.ownerValid ? '✓' : '!'} Owner matches connected wallet</span><span className="bad">! No TRX backing or redemption</span></div>}
     </div>
 
     <div className="trax-actions">
