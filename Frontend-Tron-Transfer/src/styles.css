@@ -2168,3 +2168,6 @@ td { color: #d2e1f5; }
 .trax-admin-shell:has(.trax-sidebar.collapsed){grid-template-columns:82px minmax(0,1fr)}
 .trax-sidebar.collapsed .trax-sidebar-connect{font-size:0;min-height:40px}
 .trax-sidebar.collapsed .trax-sidebar-connect::after{content:'↔';font-size:16px}
+
+@keyframes trax-page-enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+.trax-workspace > .trax-actions, .trax-workspace > .trax-addresses { animation: trax-page-enter .22s ease-out both; }
