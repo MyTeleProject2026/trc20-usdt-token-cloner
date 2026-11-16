@@ -12,7 +12,6 @@ export default function MobileNavBar({ items, activePage, onNavigate }) {
   const secondary = items.filter(item => !primaryIds.includes(item.id))
 
   useEffect(() => {
-    if (!moreOpen) return undefined
     const previousOverflow = document.body.style.overflow
     const close = event => { if (event.key === 'Escape') setMoreOpen(false) }
     if (moreOpen) {
