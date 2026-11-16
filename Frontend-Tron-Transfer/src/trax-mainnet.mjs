@@ -74,14 +74,37 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
     return { status: 'provider-unavailable', energyVerified: false, message: 'TEnergy promotion status is unavailable. Continuing to the normal deployment resource gate.' }
   }
 
+  const readActiveInboundEnergyDelegation = async () => {
+    try {
+      const response = await fetchImpl(TENERGY_PROMO_API_BASE + '/api/tron/resources/free-delegation/status?address='
+        + encodeURIComponent(ownerAddress) + '&refresh=1', {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(10000),
+      })
+      const payload = await response.json()
+      if (!response.ok || payload?.success !== true) return false
+      const now = Date.now()
+      return (payload.inboundDelegations?.records || []).some((record) => {
+        const amount = BigInt(String(record?.energyStakeSun || '0'))
+        const expiry = Number(record?.energyExpireTime || 0)
+        return amount > 0n && (expiry === 0 || expiry > now)
+      })
+    } catch {
+      return false
+    }
+  }
+
   if (status.redemption?.status === 'delegated') {
-    const current = await readResources(tronWeb, ownerAddress)
+    const [current, inboundEnergyDelegation] = await Promise.all([
+      readResources(tronWeb, ownerAddress),
+      readActiveInboundEnergyDelegation(),
+    ])
     return {
       status: 'already-redeemed',
-      energyVerified: BigInt(current.energyLimit) > BigInt(initialResources.energyLimit),
+      energyVerified: inboundEnergyDelegation && BigInt(current.energyAvailable) > 0n,
       energyAvailable: current.energyAvailable,
       bandwidthCovered: false,
-      message: 'TEnergy reports this wallet has already claimed its one-time Energy grant. The deployment preflight will independently verify all resources.',
+      message: 'TEnergy reports this wallet has already claimed its one-time Energy grant. A fresh Mainnet read checks for active inbound Energy; the deployment preflight independently verifies the exact required amount.',
     }
   }
   if (status.redemption?.status === 'failed') {
@@ -164,16 +187,20 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
       return { status: 'grant-failed', energyVerified: false, message: 'TEnergy accepted the claim but could not delegate Energy. No deployment transaction was sent by the claim step.' }
     }
     if (providerState === 'delegated') {
-      const freshResources = await readResources(tronWeb, ownerAddress)
+      const [freshResources, inboundEnergyDelegation] = await Promise.all([
+        readResources(tronWeb, ownerAddress),
+        readActiveInboundEnergyDelegation(),
+      ])
       const resourceIncrease = BigInt(freshResources.energyLimit) - BigInt(initialResources.energyLimit)
-      if (resourceIncrease > 0n && BigInt(freshResources.energyAvailable) > BigInt(initialResources.energyAvailable)) {
+      if (inboundEnergyDelegation && resourceIncrease > 0n
+        && BigInt(freshResources.energyAvailable) > BigInt(initialResources.energyAvailable)) {
         return {
           status: 'delegated-and-chain-verified',
           energyVerified: true,
           energyIncrease: resourceIncrease.toString(),
           energyAvailable: freshResources.energyAvailable,
           bandwidthCovered: false,
-          message: 'The TEnergy Energy grant is reflected in a fresh Mainnet resource snapshot. Bandwidth remains independently unverified.',
+          message: 'The TEnergy Energy grant is reflected in a fresh Mainnet resource snapshot and an active inbound Energy delegation. Bandwidth remains independently unverified.',
         }
       }
       // A provider status is not chain evidence. Keep polling the resource read
