@@ -113,10 +113,15 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
   }
 }
 
-async function rpcPost(path, body) {
-  const response = await fetch(MAINNET_RPC + path, {
+async function rpcPost(path, body, { fetchImpl = fetch, env = process.env } = {}) {
+  const apiKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
+  const response = await fetchImpl(MAINNET_RPC + path, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      ...(apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {}),
+    },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   })
@@ -131,11 +136,11 @@ async function rpcPost(path, body) {
   return data
 }
 
-async function readResources(address) {
+async function readResources(address, options = {}) {
   const [resource, account, parameters] = await Promise.all([
-    rpcPost('/wallet/getaccountresource', { address, visible: true }),
-    rpcPost('/wallet/getaccount', { address, visible: true }),
-    rpcPost('/wallet/getchainparameters', {}),
+    rpcPost('/wallet/getaccountresource', { address, visible: true }, options),
+    rpcPost('/wallet/getaccount', { address, visible: true }, options),
+    rpcPost('/wallet/getchainparameters', {}, options),
   ])
   return summarizeResources(resource, account, parameters?.chainParameter || [])
 }
@@ -167,7 +172,8 @@ function send(res, status, payload, origin) {
   res.end(JSON.stringify(payload))
 }
 
-export function createServer({ readFreeDelegationStatus = createFreeDelegationResourceReader({ addressValidator: isMainnetAddress }), allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch } = {}) {
+export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env } = {}) {
+  const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   return http.createServer(async (req, res) => {
     const origin = req.headers.origin
     if (origin && !ALLOWED_ORIGINS.has(origin)) return send(res, 403, { error: 'ORIGIN_NOT_ALLOWED' })
@@ -183,7 +189,7 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
     }
     const url = new URL(req.url || '/', 'http://localhost')
     if (req.method === 'GET' && url.pathname === '/health') {
-      return send(res, 200, { ok: true, network: 'TRON Mainnet', rpc: 'TronGrid public node (no API key configured)', service: 'tron-transfer-resource-api' }, origin)
+      return send(res, 200, { ok: true, network: 'TRON Mainnet', rpc: env.TRONGRID_API_KEY?.trim() ? 'TronGrid API key configured' : 'TronGrid public node (no API key configured)', service: 'tron-transfer-resource-api' }, origin)
     }
     if (req.method === 'GET' && url.pathname === '/api/tron/resources/free-delegation/status') {
       const address = typeof url.searchParams.get('address') === 'string' ? url.searchParams.get('address') : ''
@@ -194,7 +200,7 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
       if (refresh !== null && refresh !== '0' && refresh !== '1') return send(res, 400, { success: false, error: 'invalid-refresh' }, origin)
       const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
       if (!allowRequest(ip)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
-      const result = await readFreeDelegationStatus(address, { refresh: refresh === '1' })
+      const result = await readDelegationStatus(address, { refresh: refresh === '1' })
       return send(res, result.success ? 200 : 503, result, origin)
     }
 
@@ -308,7 +314,7 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
     const cached = cache.get(address)
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, cached.value, origin)
     try {
-      const value = await readResources(address)
+      const value = await readResources(address, { fetchImpl, env })
       cache.set(address, { at: Date.now(), value })
       return send(res, 200, { address, network: 'TRON Mainnet', ...value }, origin)
     } catch (error) {
@@ -317,7 +323,9 @@ export function createServer({ readFreeDelegationStatus = createFreeDelegationRe
       return send(res, status === 429 ? 503 : status, {
         error: isAuthOrRate ? 'PUBLIC_RPC_LIMITED' : 'TRON_RPC_UNAVAILABLE',
         message: isAuthOrRate
-          ? 'The public TRON RPC rejected anonymous requests or rate-limited this service. No API key or paid provider is configured; retry later or connect a public node you trust.'
+          ? env.TRONGRID_API_KEY?.trim()
+            ? 'TronGrid rejected or rate-limited the configured API key. Check its status and quota; no resource amount has been assumed.'
+            : 'The public TRON RPC rejected anonymous requests or rate-limited this service. Configure a server-side TRONGRID_API_KEY or retry later; no resource amount has been assumed.'
           : 'Could not read current Mainnet resources from the public TRON RPC. No resource amount has been assumed.',
       }, origin)
     }
