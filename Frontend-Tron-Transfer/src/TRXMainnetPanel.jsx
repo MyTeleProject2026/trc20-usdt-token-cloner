@@ -20,7 +20,7 @@ function makeReference() {
   return '0x' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 }
 
-function TraxTokenMark() { return <img className="trax-token-mark" src="/trax-token-mark.svg" alt="TRAX custom token icon" width="22" height="22" style={{background:"#000",borderRadius:"50%"}}/> }
+function TraxTokenMark() { return <img className="trax-token-mark" src="https://thesvg.org/icons/tron/default.svg" alt="TRӾ token icon" width="22" height="22" loading="lazy"/> }
 
 function formatUsd(value) { return Number.isFinite(Number(value)) ? '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Unavailable' }
 
@@ -34,6 +34,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
   const [snapshot, setSnapshot] = useState(null)
   const [recipient, setRecipient] = useState(DEFAULT_RECIPIENT)
   const [amount, setAmount] = useState('100')
+  const [ownerIssueAmount, setOwnerIssueAmount] = useState('100')
   const [batchInput, setBatchInput] = useState('')
   const [lookupAddress, setLookupAddress] = useState(DEFAULT_RECIPIENT)
   const [lookupBalance, setLookupBalance] = useState('')
@@ -94,7 +95,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     ])
     const livePrice = await fetchTRXReferencePrice().catch(() => null)
     setReferencePrice(livePrice)
-    const valid = name === 'TRӾ' && symbol === 'TRAX' && Number(decimals) === 6
+    const valid = name === 'TRӾ' && symbol === 'TRӾ' && Number(decimals) === 6
     const ownerValid = addressesEqual(tronWeb, owner, connectedAddress)
     const next = {
       owner: String(owner), name, symbol, decimals: Number(decimals), totalSupply: String(totalSupply),
@@ -102,7 +103,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
       ownerTrx: String(ownerTrx), ownerUsdt: String(ownerUsdt), valid, ownerValid,
     }
     setSnapshot(next)
-    if (!valid) throw new Error('Token metadata mismatch. Expected TRӾ / TRAX / 6 decimals.')
+    if (!valid) throw new Error('Token metadata mismatch. Expected TRӾ / TRӾ / 6 decimals.')
     if (!ownerValid) throw new Error('Connected TronLink account is not the token owner.')
     setNotice('Mainnet contract reads succeeded. This is an owner-issued, unbacked token; no reserve or redemption is represented.')
     return next
@@ -161,6 +162,20 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     const result = await sendAndVerifyContractCall(tronWeb, token.setMintingEnabled(true), feeCapSun, connectedAddress)
     setLastTx(result.txID)
     setNotice('Owner TRӾ issuance has been enabled.')
+    await refresh()
+  })
+
+  const issueOwnerSupply = () => run('Issuing new TRӾ to the connected owner wallet', async () => {
+    const { tronWeb, token } = await getToken()
+    await assertOwner(token, tronWeb)
+    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
+    const units = parseTokenUnits(ownerIssueAmount)
+    const [paused, enabled] = await Promise.all([callMainnetView(token.paused()), callMainnetView(token.mintingEnabled())])
+    if (paused || !enabled) throw new Error('Token is paused or owner issuance is disabled. Enable minting first.')
+    const reference = makeReference()
+    const result = await sendAndVerifyContractCall(tronWeb, token.credit(connectedAddress, units, reference), feeCapSun, connectedAddress)
+    setLastTx(result.txID)
+    setNotice(ownerIssueAmount + ' TRӾ issued to the connected owner wallet. Reference: ' + reference)
     await refresh()
   })
 
@@ -242,7 +257,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
   return <section className="trax-workspace">
     <div className="section-heading">
       <div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token control center</h2><p>Manage the existing TRӾ TRC-20 contract. Every write is validated and separately approved in TronLink.</p></div>
-      <div className="panel-icon" aria-label="TRӾ token"><TraxTokenMark/><small>TRӾ / TRAX</small></div>
+      <div className="panel-icon" aria-label="TRӾ token"><TraxTokenMark/><small>TRӾ / TRӾ</small></div>
     </div>
 
     <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>
@@ -292,8 +307,10 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     {show('issuance') && <div className="trax-actions">
       <h3>Owner issuance overview</h3>
       <div className="trax-stats"><article><span>Total supply</span><b>{snapshot ? formatTokenUnits(snapshot.totalSupply) + ' TRӾ' : 'Not loaded'}</b></article><article><span>Owner authorization</span><b>{snapshot ? snapshot.mintingEnabled ? 'Enabled' : 'Disabled' : 'Not loaded'}</b></article><article><span>Transfer status</span><b>{snapshot ? snapshot.paused ? 'Paused' : 'Active' : 'Not loaded'}</b></article></div>
-      <p className="fine-print">The contract permits owner issuance up to the uint256 supply limit; that is not economically unlimited. Issuing tokens creates new TRӾ supply and can dilute existing holders. Every mint is an on-chain transaction requiring Energy and Bandwidth.</p>
-      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={14}/> Read issuance state</button><button type="button" className="primary-button" disabled={!walletReady || busy || !snapshot?.mintingEnabled || snapshot?.paused} onClick={() => onNavigate?.('credits')}><Coins size={14}/> Open external wallet credits</button></div>
+      <p className="fine-print">Owner issuance can create new TRӾ up to the uint256 supply limit. The limit is finite, and issuing additional supply can dilute holders. Every mint requires Energy and Bandwidth; minting does not require TRX collateral or a reserve deposit.</p>
+      <label>Amount to issue to owner wallet (TRӾ)<input value={ownerIssueAmount} onChange={e => setOwnerIssueAmount(e.target.value)} inputMode="decimal"/></label>
+      <div className="trax-balance-note">Raw token units (6 decimals): {(() => { try { return parseTokenUnits(ownerIssueAmount) } catch { return '—' } })()}</div>
+      <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || snapshot?.paused || !feeCapSun} onClick={issueOwnerSupply}><Coins size={14}/> Issue to my owner wallet</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={14}/> Refresh issuance state</button></div>
     </div>}
 
     {show('credits') && <div className="trax-actions">
