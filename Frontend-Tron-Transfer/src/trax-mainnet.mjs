@@ -1193,33 +1193,37 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   return { address: predictedAddress, txID: unsigned.txID, receipt, resourceBudget, owner: deployedOwner, payerAddress: wallet.address, signerAddress: injectedSignerAddress || wallet.address }
 }
 
-export async function estimateMainnetContractCallEnergy(tronWeb, contractAddress, methodInstance, args, ownerAddress) {
+export async function estimateMainnetContractCallEnergy(
+  tronWeb,
+  contractAddress,
+  encodedCallData,
+  ownerAddress,
+  requestNode = postNode
+) {
   if (!tronWeb?.isAddress?.(contractAddress) || !tronWeb?.isAddress?.(ownerAddress)) {
     throw new Error('A valid TRӾ contract and transaction-owner address are required for Energy simulation.')
   }
-  if (!methodInstance?.abi || !methodInstance?.functionSelector || !Array.isArray(args)) {
-    throw new Error('The selected TRӾ contract method metadata or arguments are unavailable.')
+  const data = String(encodedCallData || '').replace(/^0x/, '')
+  if (!/^(?:[0-9a-f]{2}){4,}$/i.test(data)) {
+    throw new Error('The exact encoded TRӾ contract-call data is missing or malformed; refusing to estimate or sign.')
   }
-  const options = {
-    callValue: 0,
-    funcABIV2: methodInstance.abi,
-    parametersV2: args,
+  const request = {
+    owner_address: tronWeb.address.toHex(ownerAddress),
+    contract_address: tronWeb.address.toHex(contractAddress),
+    data,
+    call_value: 0,
+    visible: false,
   }
-  const issuerHex = tronWeb.address.toHex(ownerAddress)
   try {
-    const response = await tronWeb.transactionBuilder.estimateEnergy(
-      contractAddress, methodInstance.functionSelector, options, [], issuerHex
-    )
+    const response = await requestNode(tronWeb, '/wallet/estimateenergy', request)
     return normalizeDeploymentEnergyEstimate(response)
   } catch (error) {
     if (!isMainnetEnergyEstimateUnavailable(error)) throw error
     try {
-      const response = await tronWeb.transactionBuilder.triggerConstantContract(
-        contractAddress, methodInstance.functionSelector, options, [], issuerHex
-      )
+      const response = await requestNode(tronWeb, '/wallet/triggerconstantcontract', request)
       return normalizeDeploymentEnergyEstimate(response)
     } catch (fallbackError) {
-      throw new Error('TRON Mainnet could not simulate this exact TRӾ contract call for Energy. Refusing to request a signature. '
+      throw new Error('TRON Mainnet could not simulate the exact encoded TRӾ contract call for Energy. Refusing to request a signature. '
         + String(fallbackError?.message || fallbackError))
     }
   }
@@ -1280,18 +1284,6 @@ export async function sendAndVerifyContractCall(
     throw new Error('The active TronLink signer no longer matches the connected transaction owner.')
   }
 
-  // Estimate the exact method and arguments against Mainnet without broadcasting.
-  let energyEstimate
-  try {
-    energyEstimate = await estimateEnergy(tronWeb, contractAddress, methodInstance, methodArgs, ownerAddress)
-  } catch (error) {
-    throw new Error('TRӾ ' + methodName + ' Energy preflight failed. No wallet prompt or broadcast was attempted. '
-      + String(error?.message || error))
-  }
-  if (!energyEstimate?.energyUsed || BigInt(energyEstimate.energyUsed) <= 0n) {
-    throw new Error('TRON Mainnet did not return a valid positive Energy estimate for TRӾ ' + methodName + '. No signature or broadcast was attempted.')
-  }
-
   // Build the node-issued unsigned transaction for the same ABI function and arguments.
   // funcABIV2/parametersV2 make TronWeb encode with the method's own ABI fragment.
   const options = {
@@ -1337,6 +1329,20 @@ export async function sendAndVerifyContractCall(
     || Number(unsigned.raw_data.fee_limit) !== feeLimit) {
     throw new Error('Unsigned TRӾ ' + methodName + ' transaction does not match the verified owner, contract, method selector, zero call value or selected fee limit. No signature or broadcast was attempted.')
   }
+
+  // Simulate the exact encoded data from the transaction we will ask TronLink to sign.
+  // postNode routes both the preferred estimator and its fallback through the paced queue.
+  let energyEstimate
+  try {
+    energyEstimate = await estimateEnergy(tronWeb, contractAddress, txData, ownerAddress)
+  } catch (error) {
+    throw new Error('TRӾ ' + methodName + ' Energy preflight failed. No wallet prompt or broadcast was attempted. '
+      + String(error?.message || error))
+  }
+  if (!energyEstimate?.energyUsed || BigInt(energyEstimate.energyUsed) <= 0n) {
+    throw new Error('TRON Mainnet did not return a valid positive Energy estimate for TRӾ ' + methodName + '. No signature or broadcast was attempted.')
+  }
+
   checkTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ ' + methodName + ' transaction')
   const computedTxID = await hashRawData(unsigned.raw_data_hex)
   if (computedTxID.toLowerCase() !== unsigned.txID.toLowerCase()) {
