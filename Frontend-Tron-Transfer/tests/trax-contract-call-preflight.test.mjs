@@ -216,3 +216,20 @@ test('exact encoded-call estimator falls back to queued triggerconstantcontract 
   assert.equal(requests[1].path, '/wallet/triggerconstantcontract')
   assert.equal(requests[1].body.data, encodedData)
 })
+
+test('all TRӾ owner writes use the zero-burn preflight helper, never method.send', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  const ownership = await readFile(new URL('../src/TRAXOwnershipControls.jsx', import.meta.url), 'utf8')
+  const helper = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  const allWrites = panel + '\n' + ownership
+  const calls = allWrites.split('\n').filter(line => line.includes('sendAndVerifyContractCall('))
+  assert.equal(calls.length, 12)
+  assert.doesNotMatch(allWrites, /sendAndVerifyContractCall\(tronWeb,\s*token\.[A-Za-z0-9_]+\(/)
+  assert.match(helper, /requestNode\(tronWeb, '\/wallet\/estimateenergy', request\)/)
+  assert.match(helper, /requestNode\(tronWeb, '\/wallet\/triggerconstantcontract', request\)/)
+  assert.match(helper, /assertZeroTrxBurnBudget\(initialBudget\)/)
+  assert.match(helper, /assertZeroTrxBurnBudget\(finalBudget\)/)
+  const writeHelper = helper.slice(helper.indexOf('export async function sendAndVerifyContractCall'), helper.indexOf('export async function sendNativeTrxFromTronLink'))
+  assert.doesNotMatch(writeHelper, /getBalance\(|\/wallet\/getaccount['"]|method\.send\(/)
+})
