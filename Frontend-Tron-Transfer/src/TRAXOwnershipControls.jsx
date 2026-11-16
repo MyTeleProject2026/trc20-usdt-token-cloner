@@ -23,7 +23,7 @@ export default function TRAXOwnershipControls({
     if (!tronWeb.isAddress(candidate)) throw new Error('Enter a valid TRON Mainnet address for the new owner.')
     if (addressesEqual(tronWeb, candidate, connectedAddress)) throw new Error('The new owner must be a different address.')
     if (!feeCapSun) throw new Error('Enter a valid transaction fee cap.')
-    const result = await sendAndVerifyContractCall(tronWeb, token.transferOwnership(candidate), feeCapSun, connectedAddress)
+    const result = await sendAndVerifyContractCall(tronWeb, token, 'transferOwnership', [candidate], feeCapSun, connectedAddress)
     setLastTx(result.txID)
     setPendingOwner(candidate)
     setNotice('Ownership transfer has been proposed. The new owner must connect their own TronLink wallet and separately accept it on-chain.')
@@ -37,7 +37,7 @@ export default function TRAXOwnershipControls({
       throw new Error('The connected wallet is not the contract’s pending owner. Connect the exact pending-owner address.')
     }
     if (!feeCapSun) throw new Error('Enter a valid transaction fee cap.')
-    const result = await sendAndVerifyContractCall(tronWeb, token.acceptOwnership(), feeCapSun, connectedAddress)
+    const result = await sendAndVerifyContractCall(tronWeb, token, 'acceptOwnership', [], feeCapSun, connectedAddress)
     setLastTx(result.txID)
     setPendingOwner('')
     setNotice('Ownership acceptance was confirmed. Refreshing the contract under the new owner.')
