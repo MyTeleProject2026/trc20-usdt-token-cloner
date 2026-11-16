@@ -19,8 +19,9 @@ test('TRӾ Mainnet manager remains integrated into the production frontend', asy
 test('TRӾ interface keeps wallet and transaction status accessible', async () => {
   const app = await read('../src/App.jsx')
   const panel = await read('../src/TRXMainnetPanel.jsx')
-  assert.ok(app.includes('role="status"') || app.includes('role="status"'))
-  assert.ok(app.includes('role="alert"') || app.includes('role="alert"'))
+  assert.match(app, /role=\{walletError \? 'alert' : 'status'\}/)
+  assert.ok(panel.includes('role="status"'))
+  assert.ok(panel.includes('role="alert"'))
   assert.ok(panel.includes('trax-actions'))
   assert.ok(panel.includes('TRON Mainnet'))
 })
