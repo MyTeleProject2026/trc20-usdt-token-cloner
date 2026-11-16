@@ -22,7 +22,7 @@ export async function verifyTRAXTokenContract(tronWeb, address) {
     callMainnetView(token.symbol()),
     callMainnetView(token.decimals()),
   ])
-  if (String(name) !== 'TRӾ' || String(symbol) !== 'TRAX' || Number(decimals) !== 6) {
+  if (String(name) !== 'TRӾ' || String(symbol) !== 'TRӾ' || Number(decimals) !== 6) {
     throw new Error('TRӾ contract metadata mismatch. Expected TRӾ / TRAX / 6 decimals.')
   }
   return token
