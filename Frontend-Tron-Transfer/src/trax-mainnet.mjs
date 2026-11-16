@@ -1257,9 +1257,12 @@ export async function sendAndVerifyContractCall(
   }
   const methodInstance = tokenContract?.methodInstances?.[methodName]
   const contractAddress = tokenContract?.address
+  const methodContractAddress = methodInstance?.contract?.address
   if (!tronWeb.isAddress(contractAddress) || !tokenContract?.deployed || !methodInstance?.abi
-    || typeof methodInstance.functionSelector !== 'string' || !methodInstance.functionSelector) {
-    throw new Error('The selected TRӾ contract method is unavailable. Verify the contract ABI and deployed contract address.')
+    || typeof methodInstance.functionSelector !== 'string' || !methodInstance.functionSelector
+    || !tronWeb.isAddress(methodContractAddress)
+    || !addressesEqual(tronWeb, methodContractAddress, contractAddress)) {
+    throw new Error('The selected TRӾ contract method is unavailable or belongs to a different contract instance. Verify the ABI and deployed address.')
   }
   if (methodInstance.abi.stateMutability && ['view', 'pure'].includes(String(methodInstance.abi.stateMutability).toLowerCase())) {
     throw new Error('Read-only contract methods cannot be sent as owner transactions.')
