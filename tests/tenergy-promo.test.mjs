@@ -109,5 +109,5 @@ test('promo routes reject other wallets and malformed fields', async () => {
   assert.equal(status.statusCode, 403)
   const invalid = responseHarness()
   await routeHandler(router, '/tenergy/promo/redeem', 'post')({ body: { address: OWNER, nonce: 'x', signature: 'bad', privateKey: 'never' } }, invalid)
-  assert.equal(invalid.statusCode, 403)
+  assert.equal(invalid.statusCode, 400)
 })
