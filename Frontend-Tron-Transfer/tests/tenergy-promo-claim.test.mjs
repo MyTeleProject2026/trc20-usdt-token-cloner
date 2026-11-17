@@ -67,9 +67,15 @@ test('provider code 3038 is treated as permanent ineligibility without a wallet 
 test('cached permanent ineligibility prevents repeated provider requests and signatures', async () => {
   const connected = wallet()
   let fetchCalls = 0
-  const fetchImpl = async () => {
+  const fetchImpl = async (url) => {
     fetchCalls += 1
-    return jsonResponse({ success: true, promo: { state: 'active', grant: { resource: 'energy' } }, redemption: null })
+    if (String(url).includes('/status?')) {
+      return jsonResponse({ success: true, promo: { state: 'active', grant: { resource: 'energy' } }, redemption: null })
+    }
+    if (String(url).endsWith('/challenge')) {
+      return jsonResponse({ success: false, code: 3038, retryable: false }, false)
+    }
+    throw new Error('Unexpected provider request')
   }
   const options = {
     fetchImpl,
