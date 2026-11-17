@@ -78,3 +78,28 @@ Added verifySolidifiedDeploymentTransaction. After broadcast (and during recover
 Expanded Frontend-Tron-Transfer/tests/trax-deployment-recovery.test.mjs with rejection tests for a different transaction owner, altered creation bytecode, altered ABI, and an unexpected contract operation. No Solidity source or token parameters were changed.
 
 Stage 5 code and CI are not considered complete until all workflows for the latest commit pass. This is authorization and verification hardening, not a live deployment: no wallet signature was requested and no Mainnet transaction was broadcast by this implementation.
+
+## Stage 6 — final deployment verification and TRONSCAN activation
+
+Stage 6 implementation status: the final acceptance checklist and safe verification path are documented, but no live deployment or explorer verification can be completed by CI or a backend without the owner's TronLink approval and an actual Mainnet transaction.
+
+### Mandatory release gates
+
+1. All GitHub Actions workflows must pass on the same latest branch commit. A green workflow on an earlier commit is not sufficient.
+2. Connect the intended owner wallet to TRON Mainnet and confirm the configured owner address.
+3. Run a fresh exact-bytecode deployment simulation and read current Energy, free/delegated Bandwidth, chain fee parameters, and owner permission state.
+4. Require the calculated Energy and Bandwidth budget (including the configured safety margin) to be covered with zero TRX burn/fallback. If this condition is not met, stop; do not sign or broadcast.
+5. Review the exact unsigned CreateSmartContract transaction in TronLink and explicitly approve its signature. No backend or CI job may sign on the owner's behalf.
+6. After broadcast, retain the transaction ID. Verify it on a solidified node: transaction type, owner, exact creation bytecode/ABI, successful receipt, deployed address, runtime bytecode, owner(), and token metadata.
+7. Open TRONSCAN Mainnet using the confirmed contract address and transaction ID. Confirm the contract page and deployment transaction match the solidified-node results. Submit source verification only with the exact compiler version, optimizer settings, source files, constructor arguments, and metadata used for that deployed bytecode. Do not mark source verified merely because the contract page exists.
+
+### Live status
+
+- Code-level authorization and verification: implemented in the feature branch; latest test fixture correction commit: 5884d7dce6ab858321cbb0386c159e8e65254086.
+- Latest CI on commit 359e391913c5e6836063f22e8308b4c4e9fbc2fb: core CI passed, but Owner Admin Frontend CI and Tron Transfer Frontend failed on the metadata-mismatch recovery test fixture. The fixture has been corrected in the newer commit; fresh CI for that commit must be observed before declaring CI green.
+- Free Energy/Bandwidth coverage: not confirmed from a live owner wallet or provider grant.
+- Zero-TRX preflight: not run against the owner's currently connected wallet in this implementation session.
+- TronLink signature and Mainnet broadcast: not performed.
+- Contract address, solidified receipt, and TRONSCAN source verification: unavailable until a real successful deployment exists.
+
+TRONSCAN Mainnet explorer: https://tronscan.org/
