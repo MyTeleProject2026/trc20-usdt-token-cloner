@@ -191,6 +191,7 @@ export function createTronMainnetDelegationVerifier({
         network: 'mainnet',
         ownerAddress,
         transactionId,
+        delegatorAddress: delegators.size === 1 ? [...delegators][0] : null,
         delegatorAddresses: [...delegators],
         blockNumber: receipt.blockNumber,
         ENERGY,
