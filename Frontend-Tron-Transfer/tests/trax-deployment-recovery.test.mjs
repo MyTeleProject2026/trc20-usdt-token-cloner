@@ -86,7 +86,7 @@ test('refuses recovery when the deployed contract owner is not the configured ow
 })
 
 test('refuses recovery when TRӾ name, symbol or decimals do not match', async () => {
-  const client = makeClient()
+  const client = makeClient({ metadata: ['Wrong name', 'TRӾ', 6] })
   await assert.rejects(
     verifyExistingMainnetDeployment(client, {
       txID, ownerAddress: owner, artifact, contractAddress,
