@@ -79,5 +79,7 @@ jobs:
         run: npm ci
       - name: Run security, regression, and isolated PostgreSQL integration tests
         run: npm test
+      - name: Test and syntax-check the deployed TRON resource API
+        run: npm test --prefix Frontend-Tron-Transfer/resource-api && npm run check --prefix Frontend-Tron-Transfer/resource-api
       - name: Build frontend and compile contract
         run: npm run build
