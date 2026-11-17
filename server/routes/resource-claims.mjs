@@ -32,12 +32,24 @@ export function createResourceClaimsRouter(options = {}) {
       })
     }
 
-    const [resourceSnapshot, providerReadiness, publicProviderResources, publicProviderHealth] = await Promise.all([
+    // Diagnostics must remain available when one upstream is degraded.
+    // Preserve each source's failure explicitly rather than letting Promise.all
+    // turn a temporary provider outage into an unhandled route rejection.
+    const settled = await Promise.allSettled([
       readStatus(address, { refresh: req.query?.refresh === '1' }),
       orchestrator.getReadiness(address),
       publicProvider.readResources(address),
       publicProvider.health(),
     ])
+    const unavailable = (source) => ({
+      success: false,
+      status: 'upstream-check-unavailable',
+      source,
+    })
+    const [resourceSnapshot, providerReadiness, publicProviderResources, publicProviderHealth] =
+      settled.map((item, index) => item.status === 'fulfilled'
+        ? item.value
+        : unavailable(['owner-resource-snapshot', 'authorized-provider-readiness', 'tenergy-resource-observation', 'tenergy-service-health'][index]))
     const resources = resourceSnapshot?.success === true
       ? resourceSnapshot.resources
       : null
