@@ -56,6 +56,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
+      - run: node scripts/check-build-tool-dependency-scope.mjs
       - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
       - run: node --test tests/tron-transfer-integration-source.test.mjs
       - run: npm test --prefix Frontend-Tron-Transfer
