@@ -40,7 +40,9 @@ test('provider-managed adapter can request and independently verify a zero-cost 
     },
   }] })
   const readiness = await manager.getReadiness(ownerAddress)
-  assert.equal(readiness.canRequestGrant, true)
+  assert.equal(readiness.canRequestGrant, false)
+  assert.equal(readiness.providerReachable, true)
+  assert.equal(readiness.status, 'provider-reachable-eligibility-not-checked')
   const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
   assert.equal(result.success, true)
   assert.equal(result.status, 'mainnet-resource-grant-verified')
