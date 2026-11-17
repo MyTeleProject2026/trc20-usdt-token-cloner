@@ -78,24 +78,54 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
     }
     for (const adapter of providers) {
       if (!adapterReady(adapter)) continue
+      let eligible = false
       try {
         const health = await adapter.health()
         if (health?.reachable !== true) continue
         const eligibility = await adapter.checkEligibility({ ownerAddress, required, network })
-        if (eligibility?.eligible !== true || eligibility?.network !== 'mainnet'
-          || eligibility?.userCostSun !== '0') continue
-        const grant = await adapter.requestGrant({ ownerAddress, requestId, required, network })
-        const transactionIds = grant?.transactionIds && typeof grant.transactionIds === 'object'
-          ? grant.transactionIds
-          : { ENERGY: grant?.transactionId, BANDWIDTH: grant?.transactionId }
-        if (grant?.accepted !== true || grant?.userCostSun !== '0' || RESOURCE_TYPES.some((type) =>
-          typeof transactionIds[type] !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionIds[type]))) continue
+        eligible = eligibility?.eligible === true
+          && eligibility?.network === 'mainnet'
+          && eligibility?.userCostSun === '0'
+      } catch {
+        // No grant has been submitted yet; safely try another configured adapter.
+        continue
+      }
+      if (!eligible) continue
 
-        // Energy and Bandwidth providers commonly delegate in separate Stake
-        // 2.0 transactions. Verify each exact resource transaction separately
-        // against solidified state; a shared txid remains supported when one
-        // transaction contains both operations.
-        const verifications = await Promise.all(RESOURCE_TYPES.map((type) =>
+      // From this point onward, do not fall through to another provider after
+      // an ambiguous submission. A timeout can happen after the provider has
+      // already broadcast; retrying another provider could double-delegate.
+      let grant
+      try {
+        grant = await adapter.requestGrant({ ownerAddress, requestId, required, network })
+      } catch {
+        return {
+          success: false, network, provider: adapter.id,
+          status: 'grant-submission-outcome-unknown',
+          retrySafe: false,
+          blockers: ['provider-request-may-have-been-submitted', 'reconcile-provider-request-before-retrying'],
+        }
+      }
+      if (grant?.accepted !== true) continue
+
+      const transactionIds = grant?.transactionIds && typeof grant.transactionIds === 'object'
+        ? grant.transactionIds
+        : { ENERGY: grant?.transactionId, BANDWIDTH: grant?.transactionId }
+      if (grant?.userCostSun !== '0' || RESOURCE_TYPES.some((type) =>
+        typeof transactionIds[type] !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionIds[type]))) {
+        return {
+          success: false, network, provider: adapter.id,
+          status: 'grant-accepted-response-incomplete-or-not-zero-cost',
+          retrySafe: false,
+          transactionIds,
+        }
+      }
+
+      // Energy and Bandwidth providers commonly delegate in separate Stake
+      // 2.0 transactions. Verify each exact resource transaction separately.
+      let verifications
+      try {
+        verifications = await Promise.all(RESOURCE_TYPES.map((type) =>
           delegationVerifier.verifyDelegation({
             ownerAddress,
             transactionId: transactionIds[type],
@@ -105,39 +135,45 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
             },
             network,
           })))
-        const valid = verifications.every((verification, index) => {
-          const type = RESOURCE_TYPES[index]
-          return verification?.verified === true
-            && verification.solidified === true
-            && verification.network === 'mainnet'
-            && verification.ownerAddress === ownerAddress
-            && verification.transactionId === transactionIds[type]
-            && typeof verification[type] === 'string'
-            && UINT.test(verification[type])
-            && BigInt(verification[type]) >= BigInt(required[type])
-        })
-        if (!valid) {
-          return {
-            success: false, network, provider: adapter.id,
-            status: 'grant-not-independently-verified',
-            transactionIds,
-          }
-        }
-        const verifiedResources = {
-          ENERGY: verifications[0].ENERGY,
-          BANDWIDTH: verifications[1].BANDWIDTH,
-        }
-        return {
-          success: true, network, provider: adapter.id,
-          status: 'mainnet-resource-grant-verified',
-          ownerAddress,
-          transactionIds,
-          verifiedResources,
-          userCostSun: '0',
-          verifiedAt: new Date().toISOString(),
-        }
       } catch {
-        // Provider errors are intentionally not exposed; try the next trusted adapter.
+        return {
+          success: false, network, provider: adapter.id,
+          status: 'grant-submitted-verification-unavailable',
+          retrySafe: false,
+          transactionIds,
+        }
+      }
+      const valid = verifications.every((verification, index) => {
+        const type = RESOURCE_TYPES[index]
+        return verification?.verified === true
+          && verification.solidified === true
+          && verification.network === 'mainnet'
+          && verification.ownerAddress === ownerAddress
+          && verification.transactionId === transactionIds[type]
+          && typeof verification[type] === 'string'
+          && UINT.test(verification[type])
+          && BigInt(verification[type]) >= BigInt(required[type])
+      })
+      if (!valid) {
+        return {
+          success: false, network, provider: adapter.id,
+          status: 'grant-not-independently-verified',
+          retrySafe: false,
+          transactionIds,
+        }
+      }
+      const verifiedResources = {
+        ENERGY: verifications[0].ENERGY,
+        BANDWIDTH: verifications[1].BANDWIDTH,
+      }
+      return {
+        success: true, network, provider: adapter.id,
+        status: 'mainnet-resource-grant-verified',
+        ownerAddress,
+        transactionIds,
+        verifiedResources,
+        userCostSun: '0',
+        verifiedAt: new Date().toISOString(),
       }
     }
     return {
