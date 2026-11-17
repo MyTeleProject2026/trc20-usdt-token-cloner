@@ -36,7 +36,7 @@ test('provider-managed adapter can request and independently verify a zero-cost 
     },
     async verifyDelegation(input) {
       calls.push(['verify', input.transactionId])
-      return { verified: true, network: 'mainnet', ownerAddress, ENERGY: '900000', BANDWIDTH: '1200' }
+      return { verified: true, solidified: true, network: 'mainnet', ownerAddress, transactionId: txid, ENERGY: '900000', BANDWIDTH: '1200' }
     },
   }] })
   const readiness = await manager.getReadiness(ownerAddress)
@@ -58,7 +58,7 @@ test('provider adapter cannot pass grant through without on-chain verification',
     async health() { return { reachable: true } },
     async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
     async requestGrant() { return { accepted: true, transactionId: txid } },
-    async verifyDelegation() { return { verified: false, network: 'mainnet' } },
+    async verifyDelegation() { return { verified: false, solidified: false, network: 'mainnet', transactionId: txid } },
   }] })
   const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
   assert.equal(result.success, false)
