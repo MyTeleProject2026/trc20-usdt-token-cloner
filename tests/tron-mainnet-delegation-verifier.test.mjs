@@ -114,3 +114,17 @@ test('does not report sufficient resources when aggregate Mainnet coverage is sh
   assert.equal(result.solidified, true)
   assert.equal(result.status, 'solidified-delegation-found-resources-insufficient')
 })
+
+test('rejects malformed transaction IDs without making Mainnet requests', async () => {
+  let calls = 0
+  const verifier = createTronMainnetDelegationVerifier({
+    fetchImpl: async () => { calls++; throw new Error('must-not-call') },
+  })
+  const result = await verifier.verifyDelegation({
+    ownerAddress: owner, transactionId: 'not-a-transaction-id',
+    required: { ENERGY: '1', BANDWIDTH: '1' },
+  })
+  assert.equal(result.verified, false)
+  assert.equal(result.status, 'invalid-verification-request')
+  assert.equal(calls, 0)
+})
