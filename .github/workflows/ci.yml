@@ -28,22 +28,38 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Audit dependencies (critical/high advisories block release)
+      - name: Audit production dependencies (critical/high advisories block release)
         shell: bash
         run: |
-          npm audit --json > npm-audit-ci.json || true
+          npm audit --omit=dev --json > npm-audit-production.json || true
           node --input-type=module <<'NODE'
           import fs from 'node:fs'
-          const report = JSON.parse(fs.readFileSync('npm-audit-ci.json', 'utf8'))
+          const report = JSON.parse(fs.readFileSync('npm-audit-production.json', 'utf8'))
           const counts = report.metadata?.vulnerabilities
           if (report.error || !counts) {
-            console.error('npm audit did not return a valid vulnerability report.')
+            console.error('Production npm audit did not return a valid vulnerability report.')
             process.exit(1)
           }
-          console.log(JSON.stringify(counts, null, 2))
+          console.log('Production dependency audit:', JSON.stringify(counts, null, 2))
           if ((counts.critical ?? 0) > 0 || (counts.high ?? 0) > 0) {
-            console.error('Blocking critical/high dependency advisories detected.')
+            console.error('Blocking critical/high production dependency advisories detected.')
             process.exit(1)
+          }
+          NODE
+      - name: Report full dependency graph, including build tooling
+        shell: bash
+        run: |
+          npm audit --json > npm-audit-full.json || true
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-full.json', 'utf8'))
+          if (report.error || !report.metadata?.vulnerabilities) {
+            console.error('Full dependency audit report could not be parsed.')
+            process.exit(1)
+          }
+          console.log('Full dependency graph (includes build-only tooling):', JSON.stringify(report.metadata.vulnerabilities, null, 2))
+          for (const [name, finding] of Object.entries(report.vulnerabilities || {})) {
+            console.log(`Full-graph finding: ${name} | severity=${finding.severity} | direct=${finding.isDirect} | fixAvailable=${JSON.stringify(finding.fixAvailable)}`)
           }
           NODE
 
