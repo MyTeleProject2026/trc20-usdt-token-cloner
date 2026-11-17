@@ -4,7 +4,7 @@
 
 `server/resource-claim-orchestrator.mjs` provides a fail-closed orchestration contract for trusted provider adapters:
 
-- provider health and eligibility checks;
+- provider health checks, with health explicitly separated from amount-specific grant eligibility;
 - automatic grant requests through a provider-managed signer;
 - independent Mainnet delegation verification before a grant is reported as usable;
 - zero-cost eligibility enforcement (`userCostSun === "0"`);
@@ -28,9 +28,9 @@ The provider's signer must already be authorized by the resource-owning account 
 
 ## Current production status
 
-No provider adapter is registered by this change. Therefore the orchestrator correctly reports `no-authorized-provider-adapter` and does not claim resources. The existing TEnergy promotional integration remains a separate, one-time Energy promotion and is not a general Energy-plus-Bandwidth deployment grant.
+No provider adapter is registered by this change. Therefore the orchestrator reports `no-authorized-provider-adapter` and does not claim resources. Even if a future adapter passes a health check, readiness remains `canRequestGrant: false` until an exact amount-specific request independently passes eligibility and zero-cost checks. The existing TEnergy promotional integration remains a separate, one-time Energy promotion and is not a general Energy-plus-Bandwidth deployment grant.
 
-The new module is not yet mounted into the Express API, and no Render environment variables, provider credentials, provider agreement, resource grant, deployment transaction, or contract verification are created by this commit.
+The read-only readiness module is mounted into the Express API. Public TRONGrid Mainnet RPC is used as a credential-free read-only fallback for resource snapshots when no TRONGrid API key is present; this does not provide grant authority. No Render environment variables, provider credentials, provider agreement, resource grant, deployment transaction, or contract verification are created by this commit.
 
 ## Deployment gate
 
