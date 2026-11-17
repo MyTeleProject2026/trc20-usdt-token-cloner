@@ -63,3 +63,25 @@ test('resource claim readiness route denies addresses other than the configured 
   assert.equal(result.body.error, 'wallet-not-allowed')
   assert.equal(readCalled, false)
 })
+
+test('one unavailable upstream does not suppress successful owner and provider observations', async () => {
+  const router = createResourceClaimsRouter({
+    allowedAddress: owner,
+    readStatus: async () => ({ success: true, resources: { energyAvailable: '12345', freeBandwidthAvailable: '600' } }),
+    orchestrator: { async getReadiness() { throw new Error('provider timeout') } },
+    publicProvider: {
+      async readResources() { return { success: true, provider: 'tenergy', energy: '0' } },
+      async health() { throw new Error('health endpoint unavailable') },
+    },
+  })
+  const result = await invoke(router, owner, false)
+  assert.equal(result.statusCode, 200)
+  assert.equal(result.body.status, 'partial-resource-provider-observations-available')
+  assert.equal(result.body.resourceSnapshot.success, true)
+  assert.equal(result.body.resourceSnapshot.resources.energyAvailable, '12345')
+  assert.equal(result.body.publicProviderDiscovery.resourceObservation.success, true)
+  assert.equal(result.body.providerReadiness.status, 'provider-readiness-unavailable')
+  assert.equal(result.body.publicProviderDiscovery.health.reachable, false)
+  assert.equal(result.body.automaticClaim.enabled, false)
+  assert.equal(result.body.deployment.mayBroadcast, false)
+})
