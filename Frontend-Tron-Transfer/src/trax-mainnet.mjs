@@ -775,8 +775,20 @@ export function calculateDeploymentResourceBudget({
   const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
   if (requiredTrxSun > 0n) {
-    throw new Error('ZERO-TRX-BURN PROTECTION BLOCKED ' + String(transactionLabel).toUpperCase() + ': after available delegated/staked Energy and Bandwidth, this transaction still has an estimated TRX fallback cost of '
-      + (Number(requiredTrxSun) / 1e6).toFixed(6) + ' TRX. This deployment policy requires zero TRX burn, so any Energy or Bandwidth shortfall blocks the wallet prompt. Obtain enough Energy and Bandwidth on this owner account to cover the complete transaction. No wallet prompt, signature, or broadcast was attempted.')
+    const energyStatus = 'Energy required (with safety margin): ' + bufferedEnergy.toString()
+      + '; available: ' + availableEnergy.toString()
+      + '; shortfall: ' + energyShortfall.toString() + '.'
+    const bandwidthStatus = 'Bandwidth bytes required: ' + estimatedBandwidthBytes.toString()
+      + '; largest single available quota: ' + availableBandwidth.toString()
+      + '; shortfall: ' + bandwidthShortfall.toString() + '.'
+    const fallbackStatus = 'Estimated TRX fallback breakdown: Energy ' + (Number(energyBurnSun) / 1e6).toFixed(6)
+      + ' TRX; Bandwidth ' + (Number(bandwidthBurnSun) / 1e6).toFixed(6)
+      + ' TRX; total ' + (Number(requiredTrxSun) / 1e6).toFixed(6) + ' TRX.'
+    throw new Error('ZERO-TRX-BURN PROTECTION BLOCKED ' + String(transactionLabel).toUpperCase() + '. '
+      + energyStatus + ' ' + bandwidthStatus + ' ' + fallbackStatus
+      + ' This policy requires zero TRX burn, so any resource shortfall blocks the wallet prompt. '
+      + 'Obtain only the missing resource on this owner account, then run a fresh preflight. '
+      + 'No wallet prompt, signature, or broadcast was attempted.')
   }
   return {
     energyRequired: energy.toString(),
