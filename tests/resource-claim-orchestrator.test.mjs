@@ -32,7 +32,7 @@ test('provider-managed adapter can request and independently verify a zero-cost 
     },
     async requestGrant(input) {
       calls.push(['request', input.requestId])
-      return { accepted: true, transactionId: txid }
+      return { accepted: true, userCostSun: '0', transactionId: txid }
     },
   }] })
   const readiness = await manager.getReadiness(ownerAddress)
@@ -53,7 +53,7 @@ test('provider adapter cannot pass grant through without on-chain verification',
     authorizationMode: 'provider-managed-signer',
     async health() { return { reachable: true } },
     async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
-    async requestGrant() { return { accepted: true, transactionId: txid } },
+    async requestGrant() { return { accepted: true, userCostSun: '0', transactionId: txid } },
   }] })
   const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
   assert.equal(result.success, false)
@@ -81,4 +81,20 @@ test('deployment gate requires full Energy, full Bandwidth and exactly zero TRX 
     bandwidthRequired: '200', bandwidthAvailable: '200',
     trxBurnFallbackSun: '1',
   }).ready, false)
+})
+
+test('provider grant is rejected if final submission does not confirm zero user cost', async () => {
+  let verificationCalls = 0
+  const manager = createResourceClaimOrchestrator({ delegationVerifier: { async verifyDelegation() { verificationCalls += 1; return { verified: true, solidified: true, network: 'mainnet', ownerAddress, transactionId: txid, ENERGY: '900000', BANDWIDTH: '1200' } } }, adapters: [{
+    id: 'provider-final-cost-missing',
+    network: 'mainnet',
+    authorizationMode: 'provider-managed-signer',
+    async health() { return { reachable: true } },
+    async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
+    async requestGrant() { return { accepted: true, transactionId: txid } },
+  }] })
+  const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'no-eligible-zero-cost-provider-grant')
+  assert.equal(verificationCalls, 0)
 })
