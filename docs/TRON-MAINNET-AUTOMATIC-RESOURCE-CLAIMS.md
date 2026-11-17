@@ -68,3 +68,13 @@ A passing gate is a preflight result, not authorization to deploy. Keep the exis
 ## Required next integration
 
 Add a provider-specific adapter only after obtaining its official API documentation, provider-side eligibility rules, and explicit provider-side signer authorization. This user requested no environment-variable setup, so an adapter may use only a genuinely public, documented provider interface or a provider-managed public integration; do not embed private credentials, invent an endpoint, or rely on an unauthenticated undocumented API. Until a provider actually authorizes and funds a grant, automatic free Energy/Bandwidth claiming is unavailable and the deployment gate must continue to block any shortfall.
+
+## Stage 5 — Mainnet deployment authorization and transaction verification
+
+Deployment remains an explicit TronLink owner-wallet action. The backend never holds the private key and does not bypass owner permission thresholds. Before signature, deployContractFromTronLink verifies the configured owner against the connected app account and injected TronLink signer, checks the on-chain owner permission threshold and connected signer weight, validates the node-issued CreateSmartContract payload and transaction ID, checks the compiled artifact, simulates exact creation Energy, calculates the 125% resource budget and transaction Bandwidth, and blocks any TRX fallback. It re-reads resources before prompting and again after the user signs, immediately before broadcast.
+
+Added verifySolidifiedDeploymentTransaction. After broadcast (and during recovery), it independently reads the transaction from the SolidityNode and checks the exact txID, exactly one CreateSmartContract operation, the intended owner, exact compiled creation bytecode, and exact compiled ABI. Only then does the flow accept a solidified successful execution receipt and verify the deployed runtime bytecode, owner(), and TRӾ / TRӾ / 6-decimal metadata.
+
+Expanded Frontend-Tron-Transfer/tests/trax-deployment-recovery.test.mjs with rejection tests for a different transaction owner, altered creation bytecode, altered ABI, and an unexpected contract operation. No Solidity source or token parameters were changed.
+
+Stage 5 code and CI are not considered complete until all workflows for the latest commit pass. This is authorization and verification hardening, not a live deployment: no wallet signature was requested and no Mainnet transaction was broadcast by this implementation.
