@@ -82,3 +82,33 @@ test('deployment gate requires full Energy, full Bandwidth and exactly zero TRX 
     trxBurnFallbackSun: '1',
   }).ready, false)
 })
+
+test('paid, wrong-network, or ineligible provider responses never submit a grant', async (t) => {
+  const cases = [
+    { name: 'paid grant', eligibility: { eligible: true, network: 'mainnet', userCostSun: '1' } },
+    { name: 'wrong network', eligibility: { eligible: true, network: 'nile', userCostSun: '0' } },
+    { name: 'not eligible', eligibility: { eligible: false, network: 'mainnet', userCostSun: '0' } },
+    { name: 'missing exact cost', eligibility: { eligible: true, network: 'mainnet' } },
+    { name: 'malformed cost', eligibility: { eligible: true, network: 'mainnet', userCostSun: 0 } },
+  ]
+  for (const scenario of cases) {
+    await t.test(scenario.name, async () => {
+      let submitted = false
+      const manager = createResourceClaimOrchestrator({
+        delegationVerifier: { async verifyDelegation() { throw new Error('must not verify an unsubmitted grant') } },
+        adapters: [{
+          id: 'policy-test-provider',
+          network: 'mainnet',
+          authorizationMode: 'provider-managed-signer',
+          async health() { return { reachable: true } },
+          async checkEligibility() { return scenario.eligibility },
+          async requestGrant() { submitted = true; return { accepted: true, transactionId: txid } },
+        }],
+      })
+      const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
+      assert.equal(submitted, false)
+      assert.equal(result.success, false)
+      assert.equal(result.status, 'no-eligible-zero-cost-provider-grant')
+    })
+  }
+})
