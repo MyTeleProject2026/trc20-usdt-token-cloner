@@ -48,8 +48,8 @@ export function createResourceClaimsRouter(options = {}) {
       automaticClaim: {
         enabled: false,
         requestEndpointEnabled: false,
-        reason: providerReadiness?.canRequestGrant === true
-          ? 'provider-adapter-must-be-explicitly-enabled-after-security-review'
+        reason: providerReadiness?.providerReachable === true
+          ? 'provider-eligibility-must-be-checked-for-exact-resource-amounts'
           : 'no-authorized-provider-adapter',
       },
       deployment: {
