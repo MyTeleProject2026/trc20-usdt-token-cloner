@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, normalizeMainnetAccountResources, normalizeDeploymentEnergyEstimate } from '../src/trax-mainnet.mjs'
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
@@ -161,4 +161,55 @@ test('zero-TRX policy blocks resource shortfalls independently of native TRX bal
             maxFeeLimitSun: '15000000000',
     },
   }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*total 12\.639000 TRX.*No wallet prompt/)
+})
+
+
+test('Mainnet resource snapshot derives only currently unused Energy and both Bandwidth quotas', () => {
+  const snapshot = normalizeMainnetAccountResources({
+    EnergyLimit: 900000,
+    EnergyUsed: 125000,
+    freeNetLimit: 600,
+    freeNetUsed: 125,
+    NetLimit: 1200,
+    NetUsed: 300,
+  }, { chainParameter: [
+    { key: 'getEnergyFee', value: 100 },
+    { key: 'getTransactionFee', value: 1000 },
+    { key: 'getMaxFeeLimit', value: 15000000000 },
+  ] })
+  assert.equal(snapshot.energyAvailable, '775000')
+  assert.equal(snapshot.freeBandwidthAvailable, '475')
+  assert.equal(snapshot.stakedBandwidthAvailable, '900')
+  assert.equal(snapshot.energyFeeSun, '100')
+  assert.equal(snapshot.bandwidthFeeSun, '1000')
+  assert.equal(snapshot.maxFeeLimitSun, '15000000000')
+})
+
+test('Mainnet resource snapshot fails closed when critical fee parameters are absent', () => {
+  assert.throws(() => normalizeMainnetAccountResources({
+    EnergyLimit: 1000, EnergyUsed: 0, freeNetLimit: 100, freeNetUsed: 0,
+    NetLimit: 100, NetUsed: 0,
+  }, { chainParameter: [{ key: 'getTransactionFee', value: 1000 }] }), /valid current Energy fee/)
+})
+
+test('deployment Energy simulation rejects unsuccessful VM execution even with an estimate', () => {
+  assert.throws(() => normalizeDeploymentEnergyEstimate({
+    result: { result: true },
+    energy_required: 900000,
+    transaction: { ret: [{ ret: 'FAILED', contractRet: 'REVERT' }] },
+  }), /simulation did not execute successfully/)
+})
+
+test('deployment Energy simulation rejects missing and zero estimates', () => {
+  assert.throws(() => normalizeDeploymentEnergyEstimate({ result: { result: true } }), /valid energy_required/)
+  assert.throws(() => normalizeDeploymentEnergyEstimate({ result: { result: true }, energy_required: 0 }), /returned zero Energy/)
+})
+
+test('deployment Energy simulation accepts successful estimate and preserves penalty', () => {
+  assert.deepEqual(normalizeDeploymentEnergyEstimate({
+    result: { result: true },
+    energy_required: '800000',
+    energy_penalty: '25000',
+    transaction: { ret: [{ ret: 'SUCESS', contractRet: 'SUCCESS' }] },
+  }), { energyUsed: '800000', energyPenalty: '25000' })
 })
