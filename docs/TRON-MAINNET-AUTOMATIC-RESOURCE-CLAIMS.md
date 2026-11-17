@@ -30,7 +30,9 @@ The provider's signer must already be authorized by the resource-owning account 
 
 No provider adapter is registered by this change. Therefore the orchestrator reports `no-authorized-provider-adapter` and does not claim resources. Even if a future adapter passes a health check, readiness remains `canRequestGrant: false` until an exact amount-specific request independently passes eligibility and zero-cost checks. The existing TEnergy promotional integration remains a separate, one-time Energy promotion and is not a general Energy-plus-Bandwidth deployment grant.
 
-The read-only readiness module is mounted into the Express API. Public TRONGrid Mainnet RPC is used as a credential-free read-only fallback for resource snapshots when no TRONGrid API key is present; this does not provide grant authority. No Render environment variables, provider credentials, provider agreement, resource grant, deployment transaction, or contract verification are created by this commit.
+The read-only readiness module is mounted into the Express API. The endpoint intentionally does not expose a grant-request action while no verified provider adapter is installed. Public TRONGrid Mainnet RPC is used as a credential-free read-only fallback for resource snapshots when no TRONGrid API key is present; this does not provide grant authority. No Render environment variables, provider credentials, provider agreement, or resource grant are created by this commit.
+
+The TRӾ deployment screen now supports a single-click preflight-and-deploy flow: clicking the deploy action runs a fresh Energy/Bandwidth simulation and owner-permission check, then the existing deployment routine repeats the checks before opening TronLink. The one-time TEnergy promo is not inserted into this flow because it requires a separate message signature, covers Energy only, and this configured owner was previously rejected as ineligible. The deployment proceeds only if existing on-chain resources cover the complete transaction with zero estimated TRX fallback.
 
 ## Deployment gate
 
@@ -44,4 +46,4 @@ A passing gate is a preflight result, not authorization to deploy. Keep the exis
 
 ## Required next integration
 
-Add a provider-specific adapter only after obtaining its official API documentation, server credentials, eligibility rules, and explicit provider-side signer authorization. Do not configure a guessed endpoint or private key. Until then, the system remains safely blocked rather than spending TRX or presenting unverified resources as available.
+Add a provider-specific adapter only after obtaining its official API documentation, provider-side eligibility rules, and explicit provider-side signer authorization. This user requested no environment-variable setup, so an adapter may use only a genuinely public, documented provider interface or a provider-managed public integration; do not embed private credentials, invent an endpoint, or rely on an unauthenticated undocumented API. Until a provider actually authorizes and funds a grant, automatic free Energy/Bandwidth claiming is unavailable and the deployment gate must continue to block any shortfall.
