@@ -64,3 +64,49 @@ test('resource claim readiness route denies addresses other than the configured 
   assert.equal(result.body.error, 'wallet-not-allowed')
   assert.equal(readCalled, false)
 })
+
+test('readiness route degrades individual upstream failures without hiding other live checks', async () => {
+  const router = createResourceClaimsRouter({
+    allowedAddress: owner,
+    readStatus: async () => { throw new Error('resource node timeout') },
+    orchestrator: {
+      async getReadiness(address) {
+        return { success: true, ownerAddress: address, canRequestGrant: false, status: 'no-authorized-provider-adapter' }
+      },
+    },
+    publicProvider: {
+      async readResources() { return { success: true, provider: 'tenergy', status: 'public-resource-observation' } },
+      async health() { throw new Error('provider status unavailable') },
+    },
+  })
+  const result = await invoke(router, owner, true)
+  assert.equal(result.statusCode, 200)
+  assert.equal(result.body.resourceSnapshot.success, false)
+  assert.equal(result.body.resourceSnapshot.source, 'owner-resource-snapshot')
+  assert.equal(result.body.providerReadiness.canRequestGrant, false)
+  assert.equal(result.body.publicProviderDiscovery.resourceObservation.success, true)
+  assert.equal(result.body.publicProviderDiscovery.health.success, false)
+  assert.equal(result.body.automaticClaim.enabled, false)
+  assert.equal(result.body.deployment.mayBroadcast, false)
+})
+
+test('readiness route remains fail-closed if every upstream is unavailable', async () => {
+  const router = createResourceClaimsRouter({
+    allowedAddress: owner,
+    readStatus: async () => { throw new Error('node unavailable') },
+    orchestrator: { async getReadiness() { throw new Error('provider adapter unavailable') } },
+    publicProvider: {
+      async readResources() { throw new Error('resource endpoint unavailable') },
+      async health() { throw new Error('health endpoint unavailable') },
+    },
+  })
+  const result = await invoke(router, owner, false)
+  assert.equal(result.statusCode, 200)
+  assert.equal(result.body.resourceSnapshot.success, false)
+  assert.equal(result.body.providerReadiness.success, false)
+  assert.equal(result.body.publicProviderDiscovery.resourceObservation.success, false)
+  assert.equal(result.body.publicProviderDiscovery.health.success, false)
+  assert.equal(result.body.automaticClaim.enabled, false)
+  assert.equal(result.body.deployment.ready, false)
+  assert.equal(result.body.deployment.mayBroadcast, false)
+})
