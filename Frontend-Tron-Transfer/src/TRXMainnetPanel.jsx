@@ -4,6 +4,7 @@ import {
   TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, deployContractFromTronLink, preflightContractDeployments,
   callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts, parseBatchCreditRows, parseTokenUnits, saveContractAddresses,
   sendAndVerifyContractCall, verifyTRAXTokenContract, getMainnetUSDTBalance,
+  claimTenergyPromoForDeployment,
 } from './trax-mainnet.mjs'
 import { calculatePortfolioValue, fetchTRXReferencePrice } from './trax-pricing.mjs'
 import TRAXOwnershipControls from './TRAXOwnershipControls.jsx'
@@ -166,11 +167,39 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     // TronLink prompt, after signing, and immediately before broadcast.
     setDeploymentReadiness(null)
     setStep('Checking Mainnet Energy, Bandwidth, owner permission and zero-TRX fallback')
-    const preflight = await preflightContractDeployments(wallet, [{
+    const runDeploymentPreflight = () => preflightContractDeployments(wallet, [{
       artifact: TRAX_TOKEN_ARTIFACT,
       contractName: 'Restricted1TRAX',
       feeLimitSun: feeCapSun,
     }])
+    let preflight
+    try {
+      preflight = await runDeploymentPreflight()
+    } catch (preflightError) {
+      // TEnergy's one-time promotion supplies Energy only. Attempt it only
+      // when the exact preflight failure proves an Energy shortfall; never
+      // consume eligibility for a Bandwidth-only or unknown failure.
+      const message = String(preflightError?.message || preflightError)
+      const energyShortfall = /Energy required[^]*?shortfall: ([1-9][0-9]*)\./i.test(message)
+      if (!energyShortfall) throw preflightError
+
+      setStep('Energy shortfall detected · checking one-time zero-fee TEnergy eligibility')
+      const claim = await claimTenergyPromoForDeployment(wallet, connectedAddress, {
+        onStage: setStep,
+      })
+      if (claim?.energyVerified !== true) {
+        throw new Error('Zero-TRX deployment remains blocked. TEnergy Energy claim status: '
+          + String(claim?.status || 'unverified') + '. '
+          + String(claim?.message || 'No independently verified Energy grant was received.')
+          + ' The claim cannot cover Bandwidth; no deployment signature or broadcast was attempted.')
+      }
+
+      setStep('TEnergy Energy delegation verified · rerunning exact Mainnet deployment preflight')
+      // A provider success response is not enough: claimTenergyPromoForDeployment
+      // returns energyVerified only after fresh Mainnet resource and inbound
+      // delegation checks. Re-simulate against the new live resource snapshot.
+      preflight = await runDeploymentPreflight()
+    }
     const deployment = preflight.deployments?.[0]
     if (!preflight.conservative || !deployment?.energyEstimateAvailable || preflight.requiredTrxSun !== '0') {
       throw new Error('Deployment is blocked: exact Energy estimation, complete Bandwidth coverage, owner permission, or zero-TRX fallback could not be verified. No TronLink prompt, signature, or broadcast was attempted.')
@@ -188,7 +217,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     const result = await deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, { expectedOwnerAddress: EXPECTED_OWNER_ADDRESS })
     setTokenAddress(result.address)
     setLastTx(result.txID)
-    setNotice('TRӾ deployment is confirmed on solidified TRON Mainnet. The deployed bytecode, owner and token metadata were verified. No public zero-cost Energy-and-Bandwidth grant provider is currently authorized for this owner; deployment proceeded only because the live owner resources covered the full cost with zero TRX fallback.')
+    setNotice('TRӾ deployment is confirmed on solidified TRON Mainnet. The deployed bytecode, owner and token metadata were verified. Any TEnergy promotional Energy grant was independently checked against fresh Mainnet resources; Bandwidth was separately verified by the deployment preflight. Zero-TRX fallback remained mandatory.')
   })
 
   const clearSavedTokenAddress = () => {
