@@ -849,6 +849,64 @@ export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 1800
   throw new Error('Transaction has not been verified in the solidified Mainnet chain. Keep its ID and check again: ' + txID + (lastError ? ' (' + lastError.message + ')' : ''))
 }
 
+/**
+ * Independently verifies an already-broadcast CreateSmartContract transaction.
+ * This is also the recovery path when a wallet broadcast response times out:
+ * callers can re-check the known txID without creating or signing another deployment.
+ */
+export async function verifyExistingMainnetDeployment(tronWeb, {
+  txID, ownerAddress, artifact, contractAddress,
+}, {
+  waitForReceipt = waitForSolidifiedReceipt,
+  verifyDeployedContract = async (client, address) => client.trx.getContractInfo(address),
+  verifyDeployedOwner = async (client, compiledArtifact, address) => {
+    const instance = await client.contract(compiledArtifact.abi).at(address)
+    return instance.owner().call()
+  },
+} = {}) {
+  if (!/^[0-9a-f]{64}$/i.test(String(txID || ''))
+    || !tronWeb?.isAddress?.(ownerAddress)
+    || !tronWeb?.isAddress?.(contractAddress)
+    || !/^(?:[0-9a-f]{2})+$/i.test(String(artifact?.deployedBytecode || '').replace(/^0x/, ''))) {
+    throw new Error('Deployment recovery requires a valid Mainnet transaction ID, owner, contract address, and compiled runtime artifact.')
+  }
+  const receipt = await waitForReceipt(tronWeb, txID)
+  if (receipt?.id?.toLowerCase() !== txID.toLowerCase() || receipt?.receipt?.result !== 'SUCCESS') {
+    throw new Error('The supplied deployment transaction is not confirmed successful in solidified Mainnet state.')
+  }
+  const deployed = await verifyDeployedContract(tronWeb, contractAddress)
+  const expectedRuntimeCode = String(artifact.deployedBytecode).replace(/^0x/, '').toLowerCase()
+  const deployedRuntimeCode = String(deployed?.runtimecode || '').replace(/^0x/, '').toLowerCase()
+  if (!deployedRuntimeCode || deployedRuntimeCode !== expectedRuntimeCode) {
+    throw new Error('The recovered deployment address does not contain the exact compiled TRӾ runtime bytecode.')
+  }
+  const deployedOwner = await verifyDeployedOwner(tronWeb, artifact, contractAddress)
+  if (!addressesEqual(tronWeb, deployedOwner, ownerAddress)) {
+    throw new Error('Recovered contract owner does not match the configured TRӾ owner wallet.')
+  }
+  const token = await tronWeb.contract(artifact.abi).at(contractAddress)
+  const [name, symbol, decimals] = await Promise.all([
+    callMainnetView(token.name()), callMainnetView(token.symbol()), callMainnetView(token.decimals()),
+  ])
+  if (String(name) !== 'TRӾ' || String(symbol) !== 'TRӾ' || Number(decimals) !== 6) {
+    throw new Error('Recovered deployment metadata mismatch. Expected TRӾ / TRӾ / 6 decimals.')
+  }
+  return { address: contractAddress, txID, receipt, owner: deployedOwner, verified: true, network: 'mainnet' }
+}
+
+/**
+ * Recovery helper for a broadcast whose HTTP response was lost or timed out.
+ * It derives the contract address from the original txID and never rebroadcasts.
+ */
+export async function recoverMainnetDeployment(tronWeb, {
+  txID, ownerAddress, artifact,
+}, dependencies = {}) {
+  const contractAddress = predictMainnetContractAddress(tronWeb, ownerAddress, txID)
+  return verifyExistingMainnetDeployment(tronWeb, {
+    txID, ownerAddress, artifact, contractAddress,
+  }, dependencies)
+}
+
 export function buildDeploymentOptions(artifact, contractName, feeLimitSun) {
   const feeLimit = Number(feeLimitSun)
   if (!Number.isSafeInteger(feeLimit) || feeLimit <= 0) throw new Error('Invalid deployment fee cap. Enter a positive whole-number TRX fee cap.')
@@ -1482,23 +1540,18 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     throw new Error(explainTronLinkError(error, 'Deployment broadcast request failed') + ' Check TRONSCAN for transaction ' + unsigned.txID + ' before retrying.')
   }
   if (broadcast?.result !== true) throw new Error(decodeTronBroadcastFailure(tronWeb, broadcast, unsigned.txID))
-  const receipt = await waitForReceipt(tronWeb, unsigned.txID)
-  if (receipt?.receipt?.result !== 'SUCCESS') throw new Error('Deployment transaction is not confirmed successful. Transaction: ' + unsigned.txID)
-  const deployed = await verifyDeployedContract(tronWeb, predictedAddress)
-  if (!deployed?.runtimecode) throw new Error('Deployment receipt succeeded, but deployed runtime bytecode could not be verified. Transaction: ' + unsigned.txID)
-  const expectedRuntimeCode = String(artifact.deployedBytecode || '').replace(/^0x/, '').toLowerCase()
-  const deployedRuntimeCode = String(deployed.runtimecode || '').replace(/^0x/, '').toLowerCase()
-  if (!expectedRuntimeCode || deployedRuntimeCode !== expectedRuntimeCode) {
-    throw new Error('Deployment receipt succeeded, but deployed runtime bytecode does not match the compiled contract artifact. Transaction: ' + unsigned.txID)
+  let verifiedDeployment
+  try {
+    verifiedDeployment = await verifyExistingMainnetDeployment(tronWeb, {
+      txID: unsigned.txID,
+      ownerAddress: wallet.address,
+      artifact,
+      contractAddress: predictedAddress,
+    }, { waitForReceipt, verifyDeployedContract, verifyDeployedOwner })
+  } catch (error) {
+    throw new Error('Deployment broadcast was accepted, but final Mainnet verification did not complete. Preserve transaction ' + unsigned.txID + ' and recover it with verifyExistingMainnetDeployment; do not submit a duplicate deployment. ' + (error?.message || String(error)))
   }
-  let deployedOwner
-  try { deployedOwner = await verifyDeployedOwner(tronWeb, artifact, predictedAddress) } catch (error) {
-    throw new Error('Deployment receipt and bytecode were verified, but the deployed contract owner could not be read. Transaction: ' + unsigned.txID + '. ' + (error?.message || String(error)))
-  }
-  if (!addressesEqual(tronWeb, deployedOwner, wallet.address)) {
-    throw new Error('Deployment receipt succeeded, but on-chain owner() does not match the TronLink deployer. Expected ' + wallet.address + '; received ' + deployedOwner + '. Transaction: ' + unsigned.txID)
-  }
-  return { address: predictedAddress, txID: unsigned.txID, receipt, resourceBudget, owner: deployedOwner, payerAddress: wallet.address, signerAddress: injectedSignerAddress || wallet.address }
+  return { ...verifiedDeployment, resourceBudget, payerAddress: wallet.address, signerAddress: injectedSignerAddress || wallet.address }
 }
 
 export async function estimateMainnetContractCallEnergy(
