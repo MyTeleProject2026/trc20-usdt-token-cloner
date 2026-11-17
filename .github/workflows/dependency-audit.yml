@@ -2,7 +2,7 @@ name: Dependency security audit
 
 on:
   push:
-    branches: [main]
+    branches: [main, "ui/modern-crypto-dashboard-theme", "codex/**"]
   pull_request:
     branches: [main]
   schedule:
