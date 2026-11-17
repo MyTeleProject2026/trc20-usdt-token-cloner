@@ -47,6 +47,7 @@ test('resource claim readiness route combines live snapshot and provider readine
   assert.equal(result.body.publicProviderDiscovery.health.reachable, true)
   assert.equal(result.body.automaticClaim.enabled, false)
   assert.equal(result.body.automaticClaim.requestEndpointEnabled, false)
+  assert.equal(result.body.automaticClaim.reason, 'no-authorized-provider-grant-adapter')
   assert.equal(result.body.deployment.mayBroadcast, false)
   assert.deepEqual(readOptions, { address: owner, options: { refresh: true } })
 })
