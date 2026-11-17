@@ -13,7 +13,7 @@ const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const OWNER_SESSION_KEY = 'tron-transfer:owner-session:v1'
 
 function TraxNavIcon({ size = 17 }) {
-  return <img src="/trax-token-mark.svg" alt="" aria-hidden="true" width={size} height={size} className="trax-nav-token-icon" style={{background:"#000",borderRadius:"50%"}}/>
+  return <img src="https://thesvg.org/icons/tron/default.svg" alt="" aria-hidden="true" width={size} height={size} className="trax-nav-token-icon" style={{background:"#000",borderRadius:"50%"}}/>
 }
 
 function shorten(value) { return value && value.length > 18 ? value.slice(0, 9) + '…' + value.slice(-7) : value || '—' }

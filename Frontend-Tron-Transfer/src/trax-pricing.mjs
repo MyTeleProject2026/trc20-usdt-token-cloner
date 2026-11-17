@@ -14,7 +14,9 @@ export async function fetchTRXReferencePrice({ fetchImpl = fetch, now = Date.now
   if (!Number.isFinite(updatedAt) || updatedAt <= 0 || now() - updatedAt > maxAgeMs || updatedAt > now() + 30000) {
     throw new Error('TRX reference-price quote is missing or stale; no live valuation will be shown.')
   }
-  return { trxUsd: tronUsd, traxReferenceUsd: tronUsd, usdtUsd, updatedAt, source: 'CoinGecko simple-price API' }
+  const trxReference = Math.round(tronUsd * 1e6) / 1e6
+  const traxReferenceUsd = Number((trxReference + 0.000001).toFixed(6))
+  return { trxUsd: tronUsd, traxReferenceUsd, usdtUsd, updatedAt, source: 'CoinGecko TRX quote; TRӾ owner-defined reference adjustment (+$0.000001)' }
 }
 
 export function calculatePortfolioValue({ trx = '0', trax = '0', usdt = '0', prices }) {
