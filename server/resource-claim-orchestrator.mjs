@@ -1,6 +1,7 @@
 const RESOURCE_TYPES = Object.freeze(['ENERGY', 'BANDWIDTH'])
 const UINT = /^(0|[1-9][0-9]{0,77})$/
 const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+import { createTronMainnetDelegationVerifier } from './providers/tron-mainnet-delegation-verifier.mjs'
 
 /**
  * Coordinates resource grants through explicitly installed, trusted provider
@@ -8,7 +9,7 @@ const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
  * transactions itself. A provider adapter must use its own pre-authorized
  * server-side signer and independently verify the resulting Mainnet delegation.
  */
-export function createResourceClaimOrchestrator({ adapters = [], network = 'mainnet' } = {}) {
+export function createResourceClaimOrchestrator({ adapters = [], network = 'mainnet', delegationVerifier = createTronMainnetDelegationVerifier() } = {}) {
   if (network !== 'mainnet') throw new Error('resource-claims-mainnet-only')
   const providers = adapters.filter((adapter) => adapter && typeof adapter.id === 'string'
     && /^[a-z0-9][a-z0-9-]{1,47}$/.test(adapter.id))
@@ -19,7 +20,6 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
       && typeof adapter.health === 'function'
       && typeof adapter.checkEligibility === 'function'
       && typeof adapter.requestGrant === 'function'
-      && typeof adapter.verifyDelegation === 'function'
   }
 
   async function getReadiness(ownerAddress) {
@@ -87,7 +87,9 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
         const grant = await adapter.requestGrant({ ownerAddress, requestId, required, network })
         if (grant?.accepted !== true || typeof grant.transactionId !== 'string'
           || !/^[0-9a-f]{64}$/i.test(grant.transactionId)) continue
-        const verification = await adapter.verifyDelegation({
+        // Always verify through this application's TRON SolidityNode reader,
+        // never through a provider's self-reported "verified" flag.
+        const verification = await delegationVerifier.verifyDelegation({
           ownerAddress, transactionId: grant.transactionId, required, network,
         })
         if (verification?.verified !== true || verification.solidified !== true
