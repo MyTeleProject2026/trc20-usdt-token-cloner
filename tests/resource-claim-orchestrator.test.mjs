@@ -21,7 +21,7 @@ test('no provider adapter means no automatic grant is claimed or fabricated', as
 
 test('provider-managed adapter can request and independently verify a zero-cost grant', async () => {
   const calls = []
-  const manager = createResourceClaimOrchestrator({ adapters: [{
+  const manager = createResourceClaimOrchestrator({ delegationVerifier: { async verifyDelegation(input) { calls.push(['independent-verify', input.transactionId]); return { verified: true, solidified: true, network: 'mainnet', ownerAddress, transactionId: txid, ENERGY: '900000', BANDWIDTH: '1200' } } }, adapters: [{
     id: 'example-authorized-provider',
     network: 'mainnet',
     authorizationMode: 'provider-managed-signer',
@@ -34,10 +34,6 @@ test('provider-managed adapter can request and independently verify a zero-cost 
       calls.push(['request', input.requestId])
       return { accepted: true, transactionId: txid }
     },
-    async verifyDelegation(input) {
-      calls.push(['verify', input.transactionId])
-      return { verified: true, solidified: true, network: 'mainnet', ownerAddress, transactionId: txid, ENERGY: '900000', BANDWIDTH: '1200' }
-    },
   }] })
   const readiness = await manager.getReadiness(ownerAddress)
   assert.equal(readiness.canRequestGrant, false)
@@ -47,18 +43,17 @@ test('provider-managed adapter can request and independently verify a zero-cost 
   assert.equal(result.success, true)
   assert.equal(result.status, 'mainnet-resource-grant-verified')
   assert.equal(result.userCostSun, '0')
-  assert.deepEqual(calls.map((call) => call[0]), ['eligibility', 'request', 'verify'])
+  assert.deepEqual(calls.map((call) => call[0]), ['eligibility', 'request', 'independent-verify'])
 })
 
 test('provider adapter cannot pass grant through without on-chain verification', async () => {
-  const manager = createResourceClaimOrchestrator({ adapters: [{
+  const manager = createResourceClaimOrchestrator({ delegationVerifier: { async verifyDelegation(input) { return { verified: false, solidified: false, network: 'mainnet', transactionId: input.transactionId } } }, adapters: [{
     id: 'unverified-provider',
     network: 'mainnet',
     authorizationMode: 'provider-managed-signer',
     async health() { return { reachable: true } },
     async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
     async requestGrant() { return { accepted: true, transactionId: txid } },
-    async verifyDelegation() { return { verified: false, solidified: false, network: 'mainnet', transactionId: txid } },
   }] })
   const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
   assert.equal(result.success, false)
