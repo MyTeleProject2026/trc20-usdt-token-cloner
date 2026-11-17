@@ -23,11 +23,26 @@ for (const name of ['vite', '@vitejs/plugin-react', 'solc']) {
   assert(Boolean(frontendPackage.devDependencies?.[name]), 'Frontend ' + name + ' must remain installed as a build-time devDependency.')
 }
 
-for (const key of ['node_modules/vite', 'node_modules/vite/node_modules/picomatch', 'node_modules/tinyglobby/node_modules/picomatch']) {
-  const entry = lock.packages?.[key]
-  assert(Boolean(entry), 'Expected locked build-tool package is missing: ' + key)
-  assert(entry?.dev === true, 'Expected build-tool package to be dev-only in lockfile: ' + key)
+// These packages form the currently affected Vite glob-matching/build-tool chain.
+// Check every installed copy, not just the currently expected nested paths, so a
+// future npm dedupe or dependency-tree reshuffle cannot move a copy into prod.
+const buildOnlyPackages = new Set(['vite', '@vitejs/plugin-react', 'tinyglobby', 'fdir', 'picomatch'])
+const seenBuildOnlyPackages = new Set()
+
+for (const [packagePath, entry] of Object.entries(lock.packages || {})) {
+  const packageName = packagePath.split('node_modules/').pop()
+  if (!buildOnlyPackages.has(packageName)) continue
+
+  seenBuildOnlyPackages.add(packageName)
+  assert(
+    entry.dev === true,
+    'Build-only package must remain dev-only in lockfile: ' + packagePath,
+  )
+}
+
+for (const name of ['vite', '@vitejs/plugin-react', 'tinyglobby', 'fdir', 'picomatch']) {
+  assert(seenBuildOnlyPackages.has(name), 'Expected locked build-only package is missing: ' + name)
 }
 
 if (process.exitCode) throw new Error('Build-tool dependency scope check failed.')
-console.log('Build-tool dependency scope verified: Vite, React plugin, and their Picomatch chain are dev-only.')
+console.log('Build-tool dependency scope verified: every locked Vite, React plugin, tinyglobby, fdir, and Picomatch copy is dev-only.')
