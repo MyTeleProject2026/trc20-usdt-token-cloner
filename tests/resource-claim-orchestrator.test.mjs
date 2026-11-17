@@ -171,3 +171,46 @@ test('provider grant response must independently confirm exactly zero user cost'
     })
   }
 })
+
+test('ambiguous provider submission is not retried against a second provider', async () => {
+  let secondProviderCalled = false
+  const eligible = {
+    network: 'mainnet',
+    authorizationMode: 'provider-managed-signer',
+    async health() { return { reachable: true } },
+    async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
+  }
+  const manager = createResourceClaimOrchestrator({
+    adapters: [
+      { ...eligible, id: 'provider-one', async requestGrant() { throw new Error('socket timeout after possible broadcast') } },
+      { ...eligible, id: 'provider-two', async requestGrant() { secondProviderCalled = true; return { accepted: true, userCostSun: '0', transactionId: txid } } },
+    ],
+  })
+  const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'grant-submission-outcome-unknown')
+  assert.equal(result.retrySafe, false)
+  assert.equal(secondProviderCalled, false)
+})
+
+test('accepted grant with unavailable verification is not retried against another provider', async () => {
+  let secondProviderCalled = false
+  const eligible = {
+    network: 'mainnet',
+    authorizationMode: 'provider-managed-signer',
+    async health() { return { reachable: true } },
+    async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
+  }
+  const manager = createResourceClaimOrchestrator({
+    delegationVerifier: { async verifyDelegation() { throw new Error('solidified node timeout') } },
+    adapters: [
+      { ...eligible, id: 'provider-one', async requestGrant() { return { accepted: true, userCostSun: '0', transactionId: txid } } },
+      { ...eligible, id: 'provider-two', async requestGrant() { secondProviderCalled = true; return { accepted: true, userCostSun: '0', transactionId: txid } } },
+    ],
+  })
+  const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'grant-submitted-verification-unavailable')
+  assert.equal(result.retrySafe, false)
+  assert.equal(secondProviderCalled, false)
+})
