@@ -23,7 +23,7 @@ function makeClient({ runtimeCode = runtime, deployedOwner = owner, metadata = [
   }
 }
 
-const artifact = { abi: [], deployedBytecode: runtime }
+const artifact = { abi: [], bytecode: runtime, deployedBytecode: runtime }
 
 test('recovers an already-broadcast deployment from solidified receipt, exact runtime, owner and metadata', async () => {
   const client = makeClient()
