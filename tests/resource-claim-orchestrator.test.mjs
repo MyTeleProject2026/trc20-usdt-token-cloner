@@ -32,7 +32,7 @@ test('provider-managed adapter can request and independently verify a zero-cost 
     },
     async requestGrant(input) {
       calls.push(['request', input.requestId])
-      return { accepted: true, transactionId: txid }
+      return { accepted: true, userCostSun: '0', transactionId: txid }
     },
   }] })
   const readiness = await manager.getReadiness(ownerAddress)
@@ -135,7 +135,7 @@ test('provider can delegate Energy and Bandwidth in separate independently verif
       async health() { return { reachable: true } },
       async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
       async requestGrant() {
-        return { accepted: true, transactionIds: { ENERGY: energyTx, BANDWIDTH: bandwidthTx } }
+        return { accepted: true, userCostSun: '0', transactionIds: { ENERGY: energyTx, BANDWIDTH: bandwidthTx } }
       },
     }],
   })
@@ -147,4 +147,27 @@ test('provider can delegate Energy and Bandwidth in separate independently verif
     { ENERGY: '900000', BANDWIDTH: '0' },
     { ENERGY: '0', BANDWIDTH: '1200' },
   ])
+})
+
+test('provider grant response must independently confirm exactly zero user cost', async (t) => {
+  for (const cost of [undefined, '1', 0]) {
+    await t.test('reject final grant cost ' + String(cost), async () => {
+      let verified = false
+      const manager = createResourceClaimOrchestrator({
+        delegationVerifier: { async verifyDelegation() { verified = true; throw new Error('must not verify a paid or unpriced grant') } },
+        adapters: [{
+          id: 'final-cost-test',
+          network: 'mainnet',
+          authorizationMode: 'provider-managed-signer',
+          async health() { return { reachable: true } },
+          async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
+          async requestGrant() { return { accepted: true, ...(cost === undefined ? {} : { userCostSun: cost }), transactionId: txid } },
+        }],
+      })
+      const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
+      assert.equal(verified, false)
+      assert.equal(result.success, false)
+      assert.equal(result.status, 'no-eligible-zero-cost-provider-grant')
+    })
+  }
 })
