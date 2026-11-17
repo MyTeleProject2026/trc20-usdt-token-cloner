@@ -54,6 +54,18 @@ PR #153 contains the implementation and CI workflows. Review the status shown on
 
 No production release or Mainnet payout should be inferred from the presence of code, a sponsor application, a connected wallet, a provider API, or a green CI result.
 
+## TRӾ token Mainnet deployment
+
+The owner-controlled TRӾ token deployment flow is documented in **[TronLink owner signing setup](docs/TRONLINK_OWNER_SIGNING_SETUP.md)**. It uses the connected owner's TronLink wallet for explicit transaction approval; no private key or seed phrase is stored by the application.
+
+- Contract source: `Frontend-Tron-Transfer/contracts/Restricted1TRAX.sol`
+- Deployment UI: TRӾ Mainnet control center → Deploy
+- Deployment readiness: live owner, permission, Energy, Bandwidth and zero-TRX-fallback preflight
+- Deployment confirmation: signed transaction, broadcast response, solidified receipt, deployed bytecode and owner checks
+- Source verification handoff: [TRONSCAN-VERIFICATION.md](Frontend-Tron-Transfer/TRONSCAN-VERIFICATION.md)
+
+**Release gate:** no TRӾ Mainnet contract address is currently recorded as deployed, and TRONSCAN source verification is not complete. Run the owner wallet flow only after reviewing the exact contract artifact and transaction. The verification bundle prepares the Standard JSON input; it does not deploy or submit verification automatically. Do not merge or deploy this draft PR to production until the dependency security findings and release review are resolved.
+
 ## Repository
 
 - Owner: [MyTeleProject2026](https://github.com/MyTeleProject2026)

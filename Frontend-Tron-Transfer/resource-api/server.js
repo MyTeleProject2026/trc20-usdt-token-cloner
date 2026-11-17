@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
+import { createResourceClaimOrchestrator } from '../../server/resource-claim-orchestrator.mjs'
+import { createTenergyPublicChainReader } from '../../server/providers/tenergy-public-chain.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const ALLOWED_ORIGINS = new Set([
@@ -172,8 +174,10 @@ function send(res, status, payload, origin) {
   res.end(JSON.stringify(payload))
 }
 
-export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env } = {}) {
+export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, orchestrator, publicProvider } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
+  const claimOrchestrator = orchestrator ?? createResourceClaimOrchestrator({ adapters: [], network: 'mainnet' })
+  const tenergyPublicProvider = publicProvider ?? createTenergyPublicChainReader({ fetchImpl })
   return http.createServer(async (req, res) => {
     const origin = req.headers.origin
     if (origin && !ALLOWED_ORIGINS.has(origin)) return send(res, 403, { error: 'ORIGIN_NOT_ALLOWED' })
@@ -190,6 +194,74 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     const url = new URL(req.url || '/', 'http://localhost')
     if (req.method === 'GET' && url.pathname === '/health') {
       return send(res, 200, { ok: true, network: 'TRON Mainnet', rpc: env.TRONGRID_API_KEY?.trim() ? 'TronGrid API key configured' : 'TronGrid public node (no API key configured)', service: 'tron-transfer-resource-api' }, origin)
+    }
+    if (req.method === 'GET' && url.pathname === '/api/tron/resources/claims/readiness') {
+      res.setHeader('cache-control', 'no-store, private')
+      res.setHeader('pragma', 'no-cache')
+      const address = typeof url.searchParams.get('address') === 'string' ? url.searchParams.get('address') : ''
+      if (address !== allowedAddress || !isMainnetAddress(address)) {
+        return send(res, 403, {
+          success: false,
+          error: 'wallet-not-allowed',
+          message: 'Automatic resource-claim diagnostics are restricted to the configured TRON Mainnet owner wallet.',
+        }, origin)
+      }
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      if (!allowRequest(ip, 'resource-claims')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+
+      // Keep each upstream independent: a TEnergy outage must not hide a valid
+      // owner resource snapshot or the explicit absence of an authorized grant adapter.
+      const settled = await Promise.allSettled([
+        readDelegationStatus(address, { refresh: url.searchParams.get('refresh') === '1' }),
+        claimOrchestrator.getReadiness(address),
+        tenergyPublicProvider.readResources(address),
+        tenergyPublicProvider.health(),
+      ])
+      const unavailable = source => ({ success: false, status: 'upstream-check-unavailable', source })
+      const [resourceSnapshot, providerReadiness, publicProviderResources, publicProviderHealth] =
+        settled.map((item, index) => item.status === 'fulfilled'
+          ? item.value
+          : unavailable(['owner-resource-snapshot', 'authorized-provider-readiness', 'tenergy-resource-observation', 'tenergy-service-health'][index]))
+      const resources = resourceSnapshot?.success === true ? resourceSnapshot.resources : null
+      return send(res, 200, {
+        success: true,
+        network: 'mainnet',
+        ownerAddress: address,
+        checkedAt: new Date().toISOString(),
+        status: resources ? 'resource-snapshot-and-provider-readiness-checked' : 'provider-readiness-checked-resource-snapshot-unavailable',
+        providerReadiness,
+        resourceSnapshot,
+        publicProviderDiscovery: {
+          provider: 'tenergy',
+          health: publicProviderHealth,
+          resourceObservation: publicProviderResources,
+          grantCapability: {
+            available: false,
+            reason: 'documented-public-api-is-read-only',
+            supportsFreeEnergyGrant: false,
+            supportsFreeBandwidthGrant: false,
+            supportsProviderManagedDelegationSigner: false,
+          },
+        },
+        automaticClaim: {
+          enabled: false,
+          requestEndpointEnabled: false,
+          reason: providerReadiness?.canRequestGrant === true
+            ? 'authorized-provider-adapter-ready-for-explicit-zero-cost-eligibility-check'
+            : 'no-authorized-provider-grant-adapter',
+        },
+        deployment: {
+          ready: false,
+          mayBroadcast: false,
+          reason: 'exact-deployment-simulation-and-zero-trx-burn-preflight-not-run',
+        },
+        limitations: [
+          'This endpoint performs read-only provider and Mainnet resource checks; it does not request, sign, or broadcast a resource delegation.',
+          'TEnergy public API discovery is read-only: resource and service-health endpoints do not provide a free Energy/Bandwidth grant operation.',
+          'A grant can be automated only through an official provider adapter using that provider account’s pre-authorized server-side signer.',
+          'A resource snapshot is not a deployment simulation and does not prove full deployment Energy or Bandwidth coverage.',
+        ],
+      }, origin)
     }
     if (req.method === 'GET' && url.pathname === '/api/tron/resources/free-delegation/status') {
       const address = typeof url.searchParams.get('address') === 'string' ? url.searchParams.get('address') : ''

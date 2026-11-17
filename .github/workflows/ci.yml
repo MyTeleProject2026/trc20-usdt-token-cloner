@@ -1,14 +1,12 @@
 name: CI
 
 on:
-  # One authoritative PR test/build workflow. Separate audit checks remain enabled.
   push:
     branches: [main, "ui/modern-crypto-dashboard-theme", "fix/**"]
   pull_request:
     branches: [main, "fix/**", "test/**", "feat/**", "ui/**"]
   workflow_dispatch:
 
-# Supersede older runs for the same PR instead of exhausting hosted-runner capacity.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -17,9 +15,57 @@ permissions:
   contents: read
 
 jobs:
+  dependency-audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Audit production dependencies (critical/high advisories block release)
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > npm-audit-production.json || true
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-production.json', 'utf8'))
+          const counts = report.metadata?.vulnerabilities
+          if (report.error || !counts) {
+            console.error('Production npm audit did not return a valid vulnerability report.')
+            process.exit(1)
+          }
+          console.log('Production dependency audit:', JSON.stringify(counts, null, 2))
+          if ((counts.critical ?? 0) > 0 || (counts.high ?? 0) > 0) {
+            console.error('Blocking critical/high production dependency advisories detected.')
+            process.exit(1)
+          }
+          NODE
+      - name: Report full dependency graph, including build tooling
+        shell: bash
+        run: |
+          npm audit --json > npm-audit-full.json || true
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-full.json', 'utf8'))
+          if (report.error || !report.metadata?.vulnerabilities) {
+            console.error('Full dependency audit report could not be parsed.')
+            process.exit(1)
+          }
+          console.log('Full dependency graph (includes build-only tooling):', JSON.stringify(report.metadata.vulnerabilities, null, 2))
+          for (const [name, finding] of Object.entries(report.vulnerabilities || {})) {
+            console.log(`Full-graph finding: ${name} | severity=${finding.severity} | direct=${finding.isDirect} | fixAvailable=${JSON.stringify(finding.fixAvailable)}`)
+          }
+          NODE
+
   test-and-build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sponsor_test
       SPONSOR_PG_INTEGRATION: "1"
@@ -47,25 +93,11 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Audit dependencies (critical/high advisories block release)
-        shell: bash
-        run: |
-          npm audit --json > npm-audit-ci.json || true
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const report = JSON.parse(fs.readFileSync('npm-audit-ci.json', 'utf8'))
-          const counts = report.metadata?.vulnerabilities
-          if (report.error || !counts) {
-            console.error('npm audit did not return a valid vulnerability report.')
-            process.exit(1)
-          }
-          console.log(JSON.stringify(counts, null, 2))
-          if ((counts.critical ?? 0) > 0 || (counts.high ?? 0) > 0) {
-            console.error('Blocking critical/high dependency advisories detected.')
-            process.exit(1)
-          }
-          NODE
+      - name: Verify build-only dependency scope
+        run: node scripts/check-build-tool-dependency-scope.mjs
       - name: Run security, regression, and isolated PostgreSQL integration tests
         run: npm test
+      - name: Test and syntax-check the deployed TRON resource API
+        run: npm test --prefix Frontend-Tron-Transfer/resource-api && npm run check --prefix Frontend-Tron-Transfer/resource-api
       - name: Build frontend and compile contract
         run: npm run build

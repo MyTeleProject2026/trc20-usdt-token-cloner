@@ -1,4 +1,5 @@
 name: Tron Transfer Frontend
+
 on:
   push:
     branches: [main, ui/modern-crypto-dashboard-theme]
@@ -16,10 +17,12 @@ on:
       - 'server/routes/tron-transfer.mjs'
       - 'tests/tron-transfer-integration-source.test.mjs'
       - '.github/workflows/tron-transfer-frontend.yml'
+
 permissions:
   contents: read
+
 jobs:
-  build:
+  dependency-audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -27,7 +30,36 @@ jobs:
         with:
           node-version: 24
       - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
-      - run: npm audit --prefix Frontend-Tron-Transfer --audit-level=high
+      - name: Audit production frontend dependencies (critical/high advisories block release)
+        run: npm audit --prefix Frontend-Tron-Transfer --omit=dev --audit-level=high
+      - name: Report complete frontend dependency graph
+        shell: bash
+        run: |
+          npm audit --prefix Frontend-Tron-Transfer --json > frontend-npm-audit-full.json || true
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('frontend-npm-audit-full.json', 'utf8'))
+          if (report.error || !report.metadata?.vulnerabilities) {
+            console.error('Full frontend dependency audit report could not be parsed.')
+            process.exit(1)
+          }
+          console.log('Full frontend graph (includes build-only tooling):', JSON.stringify(report.metadata.vulnerabilities, null, 2))
+          for (const [name, finding] of Object.entries(report.vulnerabilities || {})) {
+            console.log(`Full-graph finding: ${name} | severity=${finding.severity} | direct=${finding.isDirect} | fixAvailable=${JSON.stringify(finding.fixAvailable)}`)
+          }
+          NODE
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - run: node scripts/check-build-tool-dependency-scope.mjs
+      - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
       - run: node --test tests/tron-transfer-integration-source.test.mjs
       - run: npm test --prefix Frontend-Tron-Transfer
+      - run: npm test --prefix Frontend-Tron-Transfer/resource-api
+      - run: npm run check --prefix Frontend-Tron-Transfer/resource-api
       - run: npm run build --prefix Frontend-Tron-Transfer

@@ -279,3 +279,84 @@ test('Mainnet resource reads use an optional server-side TronGrid API key withou
   assert.ok(calls.every(call => call.options.headers['TRON-PRO-API-KEY'] === secret))
   assert.equal(JSON.stringify(body).includes(secret), false)
 })
+
+
+test('resource-claim readiness is owner-wallet restricted and never equates discovery with grant authorization', async (t) => {
+  const { createServer } = await import('../server.js')
+  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const calls = []
+  const server = createServer({
+    allowedAddress: address,
+    readFreeDelegationStatus: async (owner, options) => {
+      calls.push('snapshot')
+      assert.equal(owner, address)
+      assert.equal(options.refresh, true)
+      return { success: true, network: 'mainnet', resources: { energyAvailable: '80000' } }
+    },
+    orchestrator: {
+      getReadiness: async owner => {
+        calls.push('orchestrator')
+        assert.equal(owner, address)
+        return { success: true, network: 'mainnet', canRequestGrant: false, status: 'no-authorized-provider-adapter' }
+      },
+    },
+    publicProvider: {
+      readResources: async owner => {
+        calls.push('observation')
+        assert.equal(owner, address)
+        return { success: true, provider: 'tenergy', status: 'public-resource-observation' }
+      },
+      health: async () => {
+        calls.push('health')
+        return { success: true, provider: 'tenergy', reachable: true, network: 'mainnet' }
+      },
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  const allowed = await fetch(base + '/api/tron/resources/claims/readiness?address=' + address + '&refresh=1')
+  assert.equal(allowed.status, 200)
+  const body = await allowed.json()
+  assert.equal(body.success, true)
+  assert.equal(body.providerReadiness.canRequestGrant, false)
+  assert.equal(body.automaticClaim.enabled, false)
+  assert.equal(body.automaticClaim.requestEndpointEnabled, false)
+  assert.equal(body.automaticClaim.reason, 'no-authorized-provider-grant-adapter')
+  assert.equal(body.publicProviderDiscovery.health.reachable, true)
+  assert.equal(body.publicProviderDiscovery.grantCapability.available, false)
+  assert.equal(body.deployment.ready, false)
+  assert.equal(body.deployment.mayBroadcast, false)
+  const denied = await fetch(base + '/api/tron/resources/claims/readiness?address=TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL')
+  assert.equal(denied.status, 403)
+  assert.deepEqual(calls, ['snapshot', 'orchestrator', 'observation', 'health'])
+})
+
+test('resource-claim readiness isolates upstream failures and preserves successful checks', async (t) => {
+  const { createServer } = await import('../server.js')
+  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const server = createServer({
+    allowedAddress: address,
+    readFreeDelegationStatus: async () => { throw new Error('TRON RPC unavailable') },
+    orchestrator: { getReadiness: async () => { throw new Error('provider registry unavailable') } },
+    publicProvider: {
+      readResources: async () => { throw new Error('TEnergy resources unavailable') },
+      health: async () => ({ success: true, provider: 'tenergy', reachable: true, network: 'mainnet' }),
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  const response = await fetch(base + '/api/tron/resources/claims/readiness?address=' + address)
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.success, true)
+  assert.equal(body.resourceSnapshot.status, 'upstream-check-unavailable')
+  assert.equal(body.resourceSnapshot.source, 'owner-resource-snapshot')
+  assert.equal(body.providerReadiness.status, 'upstream-check-unavailable')
+  assert.equal(body.providerReadiness.source, 'authorized-provider-readiness')
+  assert.equal(body.publicProviderDiscovery.resourceObservation.status, 'upstream-check-unavailable')
+  assert.equal(body.publicProviderDiscovery.health.reachable, true)
+  assert.equal(body.automaticClaim.enabled, false)
+  assert.equal(body.deployment.mayBroadcast, false)
+})
