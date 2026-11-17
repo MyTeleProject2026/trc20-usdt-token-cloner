@@ -92,6 +92,7 @@ test('refuses recovery when TRӾ name, symbol or decimals do not match', async (
       txID, ownerAddress: owner, artifact, contractAddress,
     }, {
       waitForReceipt: async () => ({ id: txID, receipt: { result: 'SUCCESS' } }),
+      verifySolidifiedTransaction: async () => ({ txID, owner, bytecodeVerified: true, abiVerified: true }),
       verifyDeployedContract: async () => ({ runtimecode: runtime }),
       verifyDeployedOwner: async () => owner,
     }),
