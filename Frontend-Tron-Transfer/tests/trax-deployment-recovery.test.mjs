@@ -33,6 +33,7 @@ test('recovers an already-broadcast deployment from solidified receipt, exact ru
     waitForReceipt: async (_client, requestedTxID) => ({
       id: requestedTxID, receipt: { result: 'SUCCESS' }, blockNumber: 100,
     }),
+    verifySolidifiedTransaction: async () => ({ txID, owner, bytecodeVerified: true, abiVerified: true }),
     verifyDeployedContract: async () => ({ runtimecode: runtime }),
     verifyDeployedOwner: async () => owner,
   })
@@ -64,6 +65,7 @@ test('refuses recovery when deployed runtime bytecode differs from the compiled 
       txID, ownerAddress: owner, artifact, contractAddress,
     }, {
       waitForReceipt: async () => ({ id: txID, receipt: { result: 'SUCCESS' } }),
+      verifySolidifiedTransaction: async () => ({ txID, owner, bytecodeVerified: true, abiVerified: true }),
       verifyDeployedContract: async () => ({ runtimecode: '6002600055' }),
       verifyDeployedOwner: async () => owner,
     }),
@@ -78,6 +80,7 @@ test('refuses recovery when the deployed contract owner is not the configured ow
       txID, ownerAddress: owner, artifact, contractAddress,
     }, {
       waitForReceipt: async () => ({ id: txID, receipt: { result: 'SUCCESS' } }),
+      verifySolidifiedTransaction: async () => ({ txID, owner, bytecodeVerified: true, abiVerified: true }),
       verifyDeployedContract: async () => ({ runtimecode: runtime }),
       verifyDeployedOwner: async () => 'TOtherOwnerAddress1111111111111111',
     }),
@@ -92,6 +95,7 @@ test('refuses recovery when TRӾ name, symbol or decimals do not match', async (
       txID, ownerAddress: owner, artifact, contractAddress,
     }, {
       waitForReceipt: async () => ({ id: txID, receipt: { result: 'SUCCESS' } }),
+      verifySolidifiedTransaction: async () => ({ txID, owner, bytecodeVerified: true, abiVerified: true }),
       verifySolidifiedTransaction: async () => ({ txID, owner, bytecodeVerified: true, abiVerified: true }),
       verifyDeployedContract: async () => ({ runtimecode: runtime }),
       verifyDeployedOwner: async () => owner,
