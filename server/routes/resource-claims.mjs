@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { createFreeDelegationResourceReader } from '../free-delegation-resources.mjs'
 import { createResourceClaimOrchestrator } from '../resource-claim-orchestrator.mjs'
+import { createTenergyPublicChainReader } from '../providers/tenergy-public-chain.mjs'
 
 const OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 
@@ -17,6 +18,7 @@ export function createResourceClaimsRouter(options = {}) {
     adapters: options.adapters ?? [],
     network: 'mainnet',
   })
+  const publicProvider = options.publicProvider ?? createTenergyPublicChainReader(options)
 
   router.get('/resources/claims/readiness', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
@@ -30,9 +32,11 @@ export function createResourceClaimsRouter(options = {}) {
       })
     }
 
-    const [resourceSnapshot, providerReadiness] = await Promise.all([
+    const [resourceSnapshot, providerReadiness, publicProviderResources, publicProviderHealth] = await Promise.all([
       readStatus(address, { refresh: req.query?.refresh === '1' }),
       orchestrator.getReadiness(address),
+      publicProvider.readResources(address),
+      publicProvider.health(),
     ])
     const resources = resourceSnapshot?.success === true
       ? resourceSnapshot.resources
@@ -45,6 +49,18 @@ export function createResourceClaimsRouter(options = {}) {
       status: resources ? 'resource-snapshot-and-provider-readiness-checked' : 'provider-readiness-checked-resource-snapshot-unavailable',
       providerReadiness,
       resourceSnapshot,
+      publicProviderDiscovery: {
+        provider: 'tenergy',
+        health: publicProviderHealth,
+        resourceObservation: publicProviderResources,
+        grantCapability: {
+          available: false,
+          reason: 'documented-public-api-is-read-only',
+          supportsFreeEnergyGrant: false,
+          supportsFreeBandwidthGrant: false,
+          supportsProviderManagedDelegationSigner: false,
+        },
+      },
       automaticClaim: {
         enabled: false,
         requestEndpointEnabled: false,
@@ -59,6 +75,7 @@ export function createResourceClaimsRouter(options = {}) {
       },
       limitations: [
         'This endpoint performs read-only provider and Mainnet resource checks; it does not request, sign, or broadcast a resource delegation.',
+        'TEnergy public API discovery is read-only: resource and service-health endpoints do not provide a free Energy/Bandwidth grant operation.',
         'A grant can be automated only through an official provider adapter using that provider account’s pre-authorized server-side signer.',
         'A resource snapshot is not a deployment simulation and does not prove full deployment Energy or Bandwidth coverage.',
       ],
