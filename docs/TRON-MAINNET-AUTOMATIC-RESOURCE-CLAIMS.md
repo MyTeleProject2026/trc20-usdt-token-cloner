@@ -22,7 +22,7 @@ A production adapter must be installed in server code and implement:
 - `health()` -> `{ reachable: true }`;
 - `checkEligibility({ ownerAddress, required, network })` -> explicit eligibility, Mainnet network, and exact user cost in SUN;
 - `requestGrant({ ownerAddress, requestId, required, network })` -> accepted request and transaction ID;
-- `verifyDelegation({ ownerAddress, transactionId, required, network })` -> independently verified solidified delegation with actual ENERGY and BANDWIDTH amounts.
+- `verifyDelegation({ ownerAddress, transactionId, required, network })` -> `{ verified: true, solidified: true, network: "mainnet", ownerAddress, transactionId, ENERGY, BANDWIDTH }`. The returned transaction ID must exactly match the grant request, and the actual solidified resource amounts must meet or exceed both requested amounts.
 
 The provider's signer must already be authorized by the resource-owning account under the provider's own policy. The adapter must verify the actual solidified delegation on TRON Mainnet; a provider API success response alone is not sufficient.
 
