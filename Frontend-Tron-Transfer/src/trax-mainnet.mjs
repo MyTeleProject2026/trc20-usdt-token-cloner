@@ -876,7 +876,7 @@ export async function verifyExistingMainnetDeployment(tronWeb, {
   }
   const deployed = await verifyDeployedContract(tronWeb, contractAddress)
   const expectedRuntimeCode = String(artifact.deployedBytecode).replace(/^0x/, '').toLowerCase()
-  const deployedRuntimeCode = String(deployed?.runtimecode || '').replace(/^0x/, '').toLowerCase()
+  const deployedRuntimeCode = String(deployed && deployed.runtimecode || '').replace(/^0x/, '').toLowerCase()
   if (!deployedRuntimeCode || deployedRuntimeCode !== expectedRuntimeCode) {
     throw new Error('The recovered deployment address does not contain the exact compiled TRӾ runtime bytecode.')
   }
