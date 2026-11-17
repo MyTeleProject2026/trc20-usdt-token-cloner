@@ -85,7 +85,11 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
         if (eligibility?.eligible !== true || eligibility?.network !== 'mainnet'
           || eligibility?.userCostSun !== '0') continue
         const grant = await adapter.requestGrant({ ownerAddress, requestId, required, network })
-        if (grant?.accepted !== true || typeof grant.transactionId !== 'string'
+        // Re-check the provider's final grant response, not just its earlier
+        // eligibility quote. A zero-cost quote must never silently become a
+        // paid delegation when the provider actually submits the request.
+        if (grant?.accepted !== true || grant?.userCostSun !== '0'
+          || typeof grant.transactionId !== 'string'
           || !/^[0-9a-f]{64}$/i.test(grant.transactionId)) continue
         // Always verify through this application's TRON SolidityNode reader,
         // never through a provider's self-reported "verified" flag.
