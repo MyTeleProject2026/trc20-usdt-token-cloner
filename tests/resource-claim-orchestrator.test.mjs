@@ -43,7 +43,7 @@ test('provider-managed adapter can request and independently verify a zero-cost 
   assert.equal(result.success, true)
   assert.equal(result.status, 'mainnet-resource-grant-verified')
   assert.equal(result.userCostSun, '0')
-  assert.deepEqual(calls.map((call) => call[0]), ['eligibility', 'request', 'independent-verify'])
+  assert.deepEqual(calls.map((call) => call[0]), ['eligibility', 'request', 'independent-verify', 'independent-verify'])
 })
 
 test('provider adapter cannot pass grant through without on-chain verification', async () => {
@@ -111,4 +111,40 @@ test('paid, wrong-network, or ineligible provider responses never submit a grant
       assert.equal(result.status, 'no-eligible-zero-cost-provider-grant')
     })
   }
+})
+
+test('provider can delegate Energy and Bandwidth in separate independently verified transactions', async () => {
+  const energyTx = 'c'.repeat(64)
+  const bandwidthTx = 'd'.repeat(64)
+  const verified = []
+  const manager = createResourceClaimOrchestrator({
+    delegationVerifier: {
+      async verifyDelegation(input) {
+        verified.push(input)
+        return {
+          verified: true, solidified: true, network: 'mainnet',
+          ownerAddress, transactionId: input.transactionId,
+          ENERGY: '900000', BANDWIDTH: '1200',
+        }
+      },
+    },
+    adapters: [{
+      id: 'split-resource-provider',
+      network: 'mainnet',
+      authorizationMode: 'provider-managed-signer',
+      async health() { return { reachable: true } },
+      async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
+      async requestGrant() {
+        return { accepted: true, transactionIds: { ENERGY: energyTx, BANDWIDTH: bandwidthTx } }
+      },
+    }],
+  })
+  const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_87654321', required })
+  assert.equal(result.success, true)
+  assert.deepEqual(result.transactionIds, { ENERGY: energyTx, BANDWIDTH: bandwidthTx })
+  assert.deepEqual(verified.map((entry) => entry.transactionId), [energyTx, bandwidthTx])
+  assert.deepEqual(verified.map((entry) => entry.required), [
+    { ENERGY: '900000', BANDWIDTH: '0' },
+    { ENERGY: '0', BANDWIDTH: '1200' },
+  ])
 })
