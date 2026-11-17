@@ -5,10 +5,19 @@ import { createTenergyPublicChainReader } from '../providers/tenergy-public-chai
 
 const OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 
+async function observe(check, fallback) {
+  try {
+    const value = await check()
+    return value && typeof value === 'object' ? value : fallback
+  } catch {
+    return fallback
+  }
+}
+
 /**
  * Read-only owner diagnostics for automatic Mainnet resource claims.
- * Grant submission is intentionally not exposed until a real, authorized
- * provider adapter has been reviewed and installed.
+ * Each upstream is isolated: one provider outage must not erase successful
+ * resource snapshots or the other provider observations.
  */
 export function createResourceClaimsRouter(options = {}) {
   const router = Router()
@@ -33,22 +42,39 @@ export function createResourceClaimsRouter(options = {}) {
     }
 
     const [resourceSnapshot, providerReadiness, publicProviderResources, publicProviderHealth] = await Promise.all([
-      readStatus(address, { refresh: req.query?.refresh === '1' }),
-      orchestrator.getReadiness(address),
-      publicProvider.readResources(address),
-      publicProvider.health(),
+      observe(() => readStatus(address, { refresh: req.query?.refresh === '1' }), {
+        success: false, status: 'resource-snapshot-unavailable', error: 'upstream-unavailable',
+      }),
+      observe(() => orchestrator.getReadiness(address), {
+        success: false, status: 'provider-readiness-unavailable', canRequestGrant: false,
+      }),
+      observe(() => publicProvider.readResources(address), {
+        success: false, status: 'public-provider-resource-observation-unavailable',
+      }),
+      observe(() => publicProvider.health(), {
+        success: false, reachable: false, status: 'public-provider-health-unavailable',
+      }),
     ])
-    const resources = resourceSnapshot?.success === true
-      ? resourceSnapshot.resources
-      : null
+    const resources = resourceSnapshot?.success === true ? resourceSnapshot.resources : null
+    const checks = {
+      ownerResourceSnapshot: resourceSnapshot?.success === true ? 'available' : 'unavailable',
+      authorizedProviderReadiness: providerReadiness?.success === true ? 'available' : 'unavailable',
+      publicProviderResourceObservation: publicProviderResources?.success === true ? 'available' : 'unavailable',
+      publicProviderHealth: publicProviderHealth?.success === true ? 'available' : 'unavailable',
+    }
+    const allAvailable = Object.values(checks).every((status) => status === 'available')
+
     return res.status(200).json({
       success: true,
       network: 'mainnet',
       ownerAddress: address,
       checkedAt: new Date().toISOString(),
-      status: resources ? 'resource-snapshot-and-provider-readiness-checked' : 'provider-readiness-checked-resource-snapshot-unavailable',
-      providerReadiness,
+      status: allAvailable ? 'all-resource-provider-observations-available'
+        : resources ? 'partial-resource-provider-observations-available'
+          : 'resource-snapshot-and-some-provider-observations-unavailable',
+      checks,
       resourceSnapshot,
+      providerReadiness,
       publicProviderDiscovery: {
         provider: 'tenergy',
         health: publicProviderHealth,
