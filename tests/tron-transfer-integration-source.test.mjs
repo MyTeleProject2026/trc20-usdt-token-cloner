@@ -189,7 +189,7 @@ test('TRӾ Mainnet manager remains scoped to the requested smart-contract panel'
   const panel = await readFile(new URL('../Frontend-Tron-Transfer/src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
   assert.match(app, /<TRXMainnetPanel wallet=\{wallet\} onConnect=\{connectWallet\} activePage=\{activePage\}/)
   assert.match(app, /TRӾ smart-contract manager/)
-  assert.match(panel, /Deploy TRӾ automatically/)
+  assert.match(panel, /Preflight & deploy TRӾ/)
   assert.match(panel, /verifyTRAXTokenContract/)
   assert.doesNotMatch(panel, /TRAX_VAULT_ARTIFACT|vaultAddress/)
   assert.match(panel, /preflightContractDeployments/)

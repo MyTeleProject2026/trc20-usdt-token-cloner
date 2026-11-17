@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowUpRight, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import {
-  TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, claimTenergyPromoForDeployment, deployContractFromTronLink, preflightContractDeployments,
+  TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, deployContractFromTronLink, preflightContractDeployments,
   callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts, parseBatchCreditRows, parseTokenUnits, saveContractAddresses,
   sendAndVerifyContractCall, verifyTRAXTokenContract, getMainnetUSDTBalance,
 } from './trax-mainnet.mjs'
@@ -154,25 +154,41 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
       energyWithSafetyMargin: deployment.energyWithSafetyMargin,
       bandwidthBytes: deployment.estimatedBandwidthBytes,
     })
-    setNotice('Read-only Mainnet preflight passed. Energy, Bandwidth, owner permission and zero-TRX fallback were checked. The deployment will repeat all checks immediately before signing and broadcast.')
+    setNotice('Read-only Mainnet preflight passed. Energy, Bandwidth, owner permission and zero-TRX fallback were checked. Click Deploy automatically repeats these checks. No provider grant is assumed; the deployment proceeds only when existing resources cover the complete transaction with zero TRX fallback.')
   })
 
   const deployToken = () => run('Preparing TRӾ Mainnet deployment · TronLink approval required', async () => {
     if (!walletReady) throw new Error('Connect the configured owner TronLink wallet first.')
     if (!feeCapSun) throw new Error('Enter a valid deployment fee cap between 0.000001 and 500 TRX.')
     if (tokenAddress) throw new Error('A token contract address is already saved. Clear it only if you intend to deploy a new token.')
-    if (!deploymentReady) throw new Error('Run a fresh deployment readiness check first. The readiness result expires after 60 seconds and is invalidated when the owner, fee cap, or contract address changes.')
-    const promo = await claimTenergyPromoForDeployment(wallet, EXPECTED_OWNER_ADDRESS, {
-      onStage: (message) => setStep(message),
+    // One-click flow: run a fresh read-only estimate immediately, then let
+    // deployContractFromTronLink repeat resource/permission checks before the
+    // TronLink prompt, after signing, and immediately before broadcast.
+    setDeploymentReadiness(null)
+    setStep('Checking Mainnet Energy, Bandwidth, owner permission and zero-TRX fallback')
+    const preflight = await preflightContractDeployments(wallet, [{
+      artifact: TRAX_TOKEN_ARTIFACT,
+      contractName: 'Restricted1TRAX',
+      feeLimitSun: feeCapSun,
+    }])
+    const deployment = preflight.deployments?.[0]
+    if (!preflight.conservative || !deployment?.energyEstimateAvailable || preflight.requiredTrxSun !== '0') {
+      throw new Error('Deployment is blocked: exact Energy estimation, complete Bandwidth coverage, owner permission, or zero-TRX fallback could not be verified. No TronLink prompt, signature, or broadcast was attempted.')
+    }
+    setDeploymentReadiness({
+      owner: connectedAddress,
+      feeCapSun,
+      tokenAddress,
+      expiresAt: Date.now() + 60000,
+      energyRequired: deployment.energyRequired,
+      energyWithSafetyMargin: deployment.energyWithSafetyMargin,
+      bandwidthBytes: deployment.estimatedBandwidthBytes,
     })
-    if (!promo.energyVerified) setNotice(promo.message)
+    setStep('Preflight passed · preparing the owner-approved TronLink deployment')
     const result = await deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, { expectedOwnerAddress: EXPECTED_OWNER_ADDRESS })
     setTokenAddress(result.address)
     setLastTx(result.txID)
-    const promoNote = promo.energyVerified
-      ? ' The eligible one-time TEnergy Energy grant was independently observed in Mainnet resources.'
-      : ' Promotional Energy claim status: ' + promo.status + '. ' + promo.message
-    setNotice('TRӾ contract deployment is confirmed and the deployed bytecode and owner were verified.' + promoNote)
+    setNotice('TRӾ deployment is confirmed on solidified TRON Mainnet. The deployed bytecode, owner and token metadata were verified. No public zero-cost Energy-and-Bandwidth grant provider is currently authorized for this owner; deployment proceeded only because the live owner resources covered the full cost with zero TRX fallback.')
   })
 
   const clearSavedTokenAddress = () => {
@@ -335,9 +351,9 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
       <label>Maximum transaction fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
       <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Energy and Bandwidth are used first; any shortfall can still burn TRX. Zero-TRX-burn protection remains active, and the application will block signing when its resource preflight detects a shortfall.</p>
       {show('deploy') && <div className="trax-deploy-actions">
-        <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. Only after readiness passes, approve the deployment in TronLink.</span><span>4. Wait for a solidified receipt and verify bytecode, owner and metadata.</span></div>
+        <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. Click Deploy once; the platform repeats live resource checks and opens TronLink only if the complete transaction is covered with zero TRX fallback.</span><span>4. Wait for a solidified receipt and verify bytecode, owner and metadata.</span></div>
         {deploymentReady && <div className="trax-state-banner success"><b>Readiness passed · expires in 60 seconds</b><span>Energy required with safety margin: {deploymentReadiness.energyWithSafetyMargin} · estimated transaction Bandwidth: {deploymentReadiness.bandwidthBytes} bytes · estimated TRX fallback: 0.</span></div>}
-        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun || !deploymentReady} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ automatically</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Preflight & deploy TRӾ</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
       </div>}
       {show('overview') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
       {!show('overview', 'deploy') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
@@ -429,6 +445,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     </div>}
 
     {lastTx && <div className="notice notice-success trax-last-tx"><CheckCircle2 size={16}/><div><b>Solidified Mainnet transaction verified</b><p>{lastTx}</p><a href={'https://tronscan.org/#/transaction/' + lastTx} target="_blank" rel="noreferrer">Open transaction on TRONSCAN <ExternalLink size={12}/></a></div></div>}
+    {tokenAddress && <div className="notice trax-contract-explorer"><div><b>Saved TRӾ Mainnet contract</b><p>{tokenAddress}</p><a href={'https://tronscan.org/#/contract/' + tokenAddress} target="_blank" rel="noreferrer">Open contract on TRONSCAN <ExternalLink size={12}/></a><small>Explorer visibility is not the same as source-code verification. Confirm the deployed address and submit source verification using the exact compiler settings and constructor data.</small></div></div>}
     <div className="trax-footer-links"><a href="https://developers.tron.network/docs/trc20-protocol-interface" target="_blank" rel="noreferrer">TRON TRC-20 standard <ExternalLink size={12}/></a><a href="https://tronscan.org/#/token20" target="_blank" rel="noreferrer">TRONSCAN token directory <ExternalLink size={12}/></a></div>
   </section>
 }

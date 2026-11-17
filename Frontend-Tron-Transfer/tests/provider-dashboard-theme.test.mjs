@@ -12,7 +12,7 @@ test('TRӾ Mainnet manager remains integrated into the production frontend', asy
   assert.ok(app.includes('TRAXSidebar'))
   assert.ok(app.includes('MobileNavBar'))
   assert.ok(app.includes('trax-admin-shell'))
-  assert.ok(panel.includes('Deploy TRӾ automatically'))
+  assert.ok(panel.includes('Preflight & deploy TRӾ'))
   assert.ok(panel.includes('verifyTRAXTokenContract'))
 })
 

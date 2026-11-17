@@ -112,7 +112,7 @@ test('zero-TRX preflight does not pool free and staked Bandwidth for one transac
       stakedBandwidthAvailable: '100',
       maxFeeLimitSun: '15000000000',
     },
-  }), /estimated TRX fallback cost of 0[.]139000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
+  }), /total 0[.]139000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
 })
 
 test('zero-TRX preflight blocks the exact Bandwidth quota shortfall before signing', () => {
@@ -128,7 +128,7 @@ test('zero-TRX preflight blocks the exact Bandwidth quota shortfall before signi
       stakedBandwidthAvailable: '40',
       maxFeeLimitSun: '15000000000',
     },
-  }), /estimated TRX fallback cost of 0[.]139000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
+  }), /total 0[.]139000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
 })
 
 test('zero-TRX policy blocks resource shortfalls without reading native TRX balance', () => {
@@ -144,7 +144,7 @@ test('zero-TRX policy blocks resource shortfalls without reading native TRX bala
       stakedBandwidthAvailable: '0',
             maxFeeLimitSun: '15000000000',
     },
-  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*12\.639000 TRX.*No wallet prompt/)
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*total 12\.639000 TRX.*No wallet prompt/)
 })
 
 test('zero-TRX policy blocks resource shortfalls independently of native TRX balance', () => {
@@ -160,5 +160,5 @@ test('zero-TRX policy blocks resource shortfalls independently of native TRX bal
       stakedBandwidthAvailable: '0',
             maxFeeLimitSun: '15000000000',
     },
-  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*12\.639000 TRX.*No wallet prompt/)
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*total 12\.639000 TRX.*No wallet prompt/)
 })
