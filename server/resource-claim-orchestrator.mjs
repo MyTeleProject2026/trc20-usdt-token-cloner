@@ -90,8 +90,10 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
         const verification = await adapter.verifyDelegation({
           ownerAddress, transactionId: grant.transactionId, required, network,
         })
-        if (verification?.verified !== true || verification.network !== 'mainnet'
+        if (verification?.verified !== true || verification.solidified !== true
+          || verification.network !== 'mainnet'
           || verification.ownerAddress !== ownerAddress
+          || verification.transactionId !== grant.transactionId
           || RESOURCE_TYPES.some((type) => typeof verification[type] !== 'string'
             || !UINT.test(verification[type]) || BigInt(verification[type]) < BigInt(required[type]))) {
           return {
