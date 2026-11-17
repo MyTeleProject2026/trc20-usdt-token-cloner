@@ -7,6 +7,11 @@ Read-only Mainnet resource monitor for the TRON Transfer frontend.
 - `GET /health` — service health and upstream identity.
 - `GET /v1/resources/:base58Address` — account Energy, free and staked/delegated Bandwidth by source, the maximum Bandwidth available to cover one transaction, native TRX balance, and current chain fee parameters.
 
+
+- `GET /api/tron/resources/claims/readiness?address=<configured-owner>&refresh=1` — owner-wallet-restricted, read-only readiness diagnostics. It checks the owner resource snapshot, configured provider-adapter readiness, TEnergy public resource observation, and TEnergy service health independently. It explicitly reports whether an authorized zero-cost grant adapter exists; provider discovery alone never enables claiming.
+
+The resource-claim readiness endpoint does not submit grants, sign or broadcast transactions, or authorize deployment. Until an official provider adapter with a provider-managed signer is configured and its amount-specific zero-cost eligibility and solidified delegation are verified, `automaticClaim.enabled` and `deployment.mayBroadcast` remain false.
+
 ## Bandwidth accounting
 
 TRON does not add free Bandwidth and staked/delegated Bandwidth together to cover a single transaction. The API therefore returns:
