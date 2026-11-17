@@ -1,4 +1,5 @@
 name: Tron Transfer Frontend
+
 on:
   push:
     branches: [main, ui/modern-crypto-dashboard-theme]
@@ -16,10 +17,12 @@ on:
       - 'server/routes/tron-transfer.mjs'
       - 'tests/tron-transfer-integration-source.test.mjs'
       - '.github/workflows/tron-transfer-frontend.yml'
+
 permissions:
   contents: read
+
 jobs:
-  build:
+  dependency-audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -28,6 +31,15 @@ jobs:
           node-version: 24
       - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
       - run: npm audit --prefix Frontend-Tron-Transfer --audit-level=high
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
       - run: node --test tests/tron-transfer-integration-source.test.mjs
       - run: npm test --prefix Frontend-Tron-Transfer
       - run: npm run build --prefix Frontend-Tron-Transfer
