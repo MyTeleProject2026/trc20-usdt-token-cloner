@@ -113,3 +113,17 @@ Validation on commit 27d30754fdef3d29ba285b1b2ccf461808431c48: Tron Transfer Fro
 The TRX Mainnet panel now displays a direct TRONSCAN contract-page link whenever a contract address is saved, alongside the existing transaction link. The UI explicitly warns that explorer visibility does not mean source code is verified. Source verification must use the exact compiler version, optimizer settings, source and constructor arguments for the deployed bytecode.
 
 No deployment has been broadcast in this implementation session. Actual provider grants, wallet resource sufficiency, owner signature, contract address, and TRONSCAN source verification remain live-chain acceptance gates.
+
+
+## Provider adapter transaction contract
+
+A trusted provider adapter may delegate the two resources in one transaction or in separate transactions. Its `requestGrant` result must therefore return either:
+
+- `{ accepted: true, transactionId }` when one solidified transaction contains both required resource operations; or
+- `{ accepted: true, transactionIds: { ENERGY, BANDWIDTH } }` when the provider uses separate transactions.
+
+The orchestrator verifies each resource transaction independently through the application's solidified TRON reader. For split transactions it checks the exact recipient, delegator, resource type, delegated stake record, successful solidified receipt and fresh owner resource coverage for the corresponding requested amount. A provider's own success or verification response is never trusted.
+
+A provider adapter must also return exact-amount eligibility for the owner and Mainnet, including `userCostSun: "0"`, before submitting either transaction. Paid rentals, unknown costs, provider-side signer uncertainty, missing transaction IDs, and incomplete verification all fail closed.
+
+No concrete free provider adapter is enabled by this interface-only change. An adapter may be installed only after the provider's documented API, zero-cost terms, server-side signer authorization, rate limits and delegation behavior have been reviewed.
