@@ -64,9 +64,11 @@ export function createResourceClaimsRouter(options = {}) {
       automaticClaim: {
         enabled: false,
         requestEndpointEnabled: false,
-        reason: providerReadiness?.providerReachable === true
-          ? 'provider-eligibility-must-be-checked-for-exact-resource-amounts'
-          : 'no-authorized-provider-adapter',
+        // Public API reachability is observation only. It must never be
+        // presented as grant capability or as an authorization to delegate.
+        reason: providerReadiness?.canRequestGrant === true
+          ? 'authorized-provider-adapter-ready-for-explicit-zero-cost-eligibility-check'
+          : 'no-authorized-provider-grant-adapter',
       },
       deployment: {
         ready: false,
