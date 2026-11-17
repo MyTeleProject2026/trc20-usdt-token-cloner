@@ -93,6 +93,8 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
+      - name: Verify build-only dependency scope
+        run: node scripts/check-build-tool-dependency-scope.mjs
       - name: Run security, regression, and isolated PostgreSQL integration tests
         run: npm test
       - name: Test and syntax-check the deployed TRON resource API
