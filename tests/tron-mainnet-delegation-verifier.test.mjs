@@ -27,25 +27,28 @@ function response(body) {
   return { ok: true, async json() { return body } }
 }
 
-function createFetch({ receiptResult = 'SUCCESS', receiver = addressHex(owner), resource = 'ENERGY' } = {}) {
+function createFetch({ receiptResult = 'SUCCESS', receiver = addressHex(owner), includeBandwidth = true } = {}) {
   const calls = []
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body)
     calls.push({ path: url.split('/').pop(), body })
-    if (url.endsWith('/walletsolidity/gettransactionbyid')) return response({
-      txID: txid,
-      raw_data: { contract: [{ type: 'DelegateResourceContract', parameter: { value: {
-        owner_address: addressHex(delegator),
-        receiver_address: receiver,
-        resource,
-        balance: 1000000,
-      } } }] },
-    })
+    if (url.endsWith('/walletsolidity/gettransactionbyid')) {
+      const operations = ['ENERGY', ...(includeBandwidth ? ['BANDWIDTH'] : [])].map((resource) => ({
+        type: 'DelegateResourceContract',
+        parameter: { value: {
+          owner_address: addressHex(delegator),
+          receiver_address: receiver,
+          resource,
+          balance: 1000000,
+        } },
+      }))
+      return response({ txID: txid, raw_data: { contract: operations } })
+    }
     if (url.endsWith('/walletsolidity/gettransactioninfobyid')) return response({
       id: txid, blockNumber: 123456, receipt: { result: receiptResult },
     })
     if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) return response({
-      delegatedResource: [{ from: delegator, to: owner, frozen_balance_for_energy: '1000000', frozen_balance_for_bandwidth: '0' }],
+      delegatedResource: [{ from: delegator, to: owner, frozen_balance_for_energy: '1000000', frozen_balance_for_bandwidth: '1000000' }],
     })
     if (url.endsWith('/walletsolidity/getaccountresource')) return response({
       EnergyLimit: '1000000', EnergyUsed: '100000',
@@ -93,7 +96,7 @@ test('rejects a solidified delegation transaction sent to a different recipient'
     ownerAddress: owner, transactionId: txid, required: { ENERGY: '1', BANDWIDTH: '1' },
   })
   assert.equal(result.verified, false)
-  assert.equal(result.status, 'delegation-recipient-or-owner-mismatch')
+  assert.equal(result.status, 'delegation-recipient-owner-or-resource-mismatch')
 })
 
 test('does not report sufficient resources when aggregate Mainnet coverage is short', async () => {
@@ -127,4 +130,15 @@ test('rejects malformed transaction IDs without making Mainnet requests', async 
   assert.equal(result.verified, false)
   assert.equal(result.status, 'invalid-verification-request')
   assert.equal(calls, 0)
+})
+
+test('rejects a transaction that delegates Energy but omits required Bandwidth', async () => {
+  const { fetchImpl } = createFetch({ includeBandwidth: false })
+  const verifier = createTronMainnetDelegationVerifier({ fetchImpl })
+  const result = await verifier.verifyDelegation({
+    ownerAddress: owner, transactionId: txid,
+    required: { ENERGY: '900000', BANDWIDTH: '1' }, network: 'mainnet',
+  })
+  assert.equal(result.verified, false)
+  assert.equal(result.status, 'transaction-does-not-delegate-each-required-resource')
 })
