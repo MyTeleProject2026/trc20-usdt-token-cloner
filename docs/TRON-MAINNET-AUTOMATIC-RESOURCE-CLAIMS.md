@@ -127,3 +127,16 @@ The orchestrator verifies each resource transaction independently through the ap
 A provider adapter must also return exact-amount eligibility for the owner and Mainnet, including `userCostSun: "0"`, before submitting either transaction. Paid rentals, unknown costs, provider-side signer uncertainty, missing transaction IDs, and incomplete verification all fail closed.
 
 No concrete free provider adapter is enabled by this interface-only change. An adapter may be installed only after the provider's documented API, zero-cost terms, server-side signer authorization, rate limits and delegation behavior have been reviewed.
+
+
+## Ambiguous submission and retry safety
+
+Provider grant submission is a side effect. A network timeout or lost response after the request is sent does not prove that the provider failed to broadcast its delegation. The orchestrator therefore distinguishes pre-submission eligibility failures from post-submission uncertainty:
+
+- Health and exact-amount eligibility failures may move to another configured adapter because no grant was submitted.
+- A submission exception returns `grant-submission-outcome-unknown` with `retrySafe: false`.
+- An accepted response with missing transaction IDs or an unconfirmed zero-cost amount returns `grant-accepted-response-incomplete-or-not-zero-cost` with `retrySafe: false`.
+- A submitted grant whose solidified verification is unavailable returns `grant-submitted-verification-unavailable` with `retrySafe: false`.
+- A grant that fails independent verification is reported as unverified and is never followed by a second provider submission in the same request.
+
+Operators must reconcile the original provider request using the stable request ID and provider-side transaction lookup before initiating a new request. This avoids accidental duplicate Energy/Bandwidth delegation when the provider broadcast succeeded but its response was lost. The adapter contract should make `requestId` idempotent at the provider boundary; local request IDs alone do not guarantee provider-side idempotency.
