@@ -32,12 +32,19 @@ test('resource claim readiness route combines live snapshot and provider readine
         return { success: true, network: 'mainnet', ownerAddress: address, canRequestGrant: false, status: 'no-authorized-provider-adapter' }
       },
     },
+    publicProvider: {
+      async readResources(address) { return { success: true, address, provider: 'tenergy', capabilities: { freeGrantRequest: false } } },
+      async health() { return { success: true, reachable: true, network: 'mainnet', status: 'operational' } },
+    },
   })
   const result = await invoke(router, owner, true)
   assert.equal(result.statusCode, 200)
   assert.equal(result.body.status, 'resource-snapshot-and-provider-readiness-checked')
   assert.equal(result.body.resourceSnapshot.resources.energyAvailable, '0')
   assert.equal(result.body.providerReadiness.canRequestGrant, false)
+  assert.equal(result.body.publicProviderDiscovery.provider, 'tenergy')
+  assert.equal(result.body.publicProviderDiscovery.grantCapability.available, false)
+  assert.equal(result.body.publicProviderDiscovery.health.reachable, true)
   assert.equal(result.body.automaticClaim.enabled, false)
   assert.equal(result.body.automaticClaim.requestEndpointEnabled, false)
   assert.equal(result.body.deployment.mayBroadcast, false)
