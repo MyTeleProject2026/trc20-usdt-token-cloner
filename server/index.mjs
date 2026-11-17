@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
 import nativeTronRoutes from './routes/native-tron.mjs'
 import freeDelegationResourcesRoutes from './routes/free-delegation-resources.mjs'
+import resourceClaimsRoutes from './routes/resource-claims.mjs'
 import tenergyPromoRoutes from './routes/tenergy-promo.mjs'
 import trc20VerificationRoutes from './routes/trc20-verification.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
@@ -140,6 +141,7 @@ app.use('/api', tatumRoutes)
 app.use('/api/tron', trc20VerificationRoutes)
 app.use('/api/tron', nativeTronRoutes)
 app.use('/api/tron', freeDelegationResourcesRoutes)
+app.use('/api/tron', resourceClaimsRoutes)
 app.use('/api/tron', tenergyPromoRoutes)
 app.use('/api/gasfree', gasFreeRoutes)
 // WDK TRON adapters are read-only diagnostics/fee quotes; signing and submission remain disabled.
