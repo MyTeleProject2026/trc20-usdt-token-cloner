@@ -144,7 +144,7 @@ test('zero-TRX policy blocks resource shortfalls without reading native TRX bala
       stakedBandwidthAvailable: '0',
             maxFeeLimitSun: '15000000000',
     },
-  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*total 12\\.639000 TRX.*No wallet prompt/)
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*total 12\.639000 TRX.*No wallet prompt/)
 })
 
 test('zero-TRX policy blocks resource shortfalls independently of native TRX balance', () => {
@@ -160,5 +160,5 @@ test('zero-TRX policy blocks resource shortfalls independently of native TRX bal
       stakedBandwidthAvailable: '0',
             maxFeeLimitSun: '15000000000',
     },
-  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*total 12\\.639000 TRX.*No wallet prompt/)
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*total 12\.639000 TRX.*No wallet prompt/)
 })
