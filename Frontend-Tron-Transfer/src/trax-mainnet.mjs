@@ -850,6 +850,49 @@ export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 1800
 }
 
 /**
+ * Validates the transaction itself from a solidified node, not only its receipt.
+ * The deployment tx must be the expected CreateSmartContract, initiated by the
+ * intended owner, with exactly the compiled creation bytecode and ABI.
+ */
+export async function verifySolidifiedDeploymentTransaction(tronWeb, {
+  txID, ownerAddress, artifact,
+}, {
+  fetchSolidifiedTransaction = async (client, id) => postNode(client, '/walletsolidity/gettransactionbyid', { value: id }),
+} = {}) {
+  if (!/^[0-9a-f]{64}$/i.test(String(txID || '')) || !tronWeb?.isAddress?.(ownerAddress)
+    || !/^(?:[0-9a-f]{2})+$/i.test(String(artifact?.bytecode || '').replace(/^0x/, ''))) {
+    throw new Error('Solidified deployment transaction verification requires a valid txID, owner, and compiled creation bytecode.')
+  }
+  const transaction = await fetchSolidifiedTransaction(tronWeb, txID)
+  if (String(transaction?.txID || transaction?.txid || '').toLowerCase() !== txID.toLowerCase()) {
+    throw new Error('The requested deployment transaction was not found by ID in solidified Mainnet.')
+  }
+  const contracts = transaction?.raw_data?.contract
+  if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== 'CreateSmartContract'
+    || contracts[0]?.parameter?.type_url !== 'type.googleapis.com/protocol.CreateSmartContract') {
+    throw new Error('Solidified transaction is not exactly one TRON CreateSmartContract operation.')
+  }
+  const value = contracts[0]?.parameter?.value || {}
+  let transactionOwner = ''
+  try { transactionOwner = tronWeb.address.fromHex(String(value.owner_address || '')) } catch {}
+  if (!transactionOwner || !addressesEqual(tronWeb, transactionOwner, ownerAddress)) {
+    throw new Error('Solidified deployment transaction owner does not match the authorized TronLink wallet.')
+  }
+  const newContract = value.new_contract || {}
+  const expectedBytecode = String(artifact.bytecode).replace(/^0x/, '').toLowerCase()
+  const actualBytecode = String(newContract.bytecode || '').replace(/^0x/, '').toLowerCase()
+  if (!actualBytecode || actualBytecode !== expectedBytecode) {
+    throw new Error('Solidified deployment transaction creation bytecode does not match the approved TRӾ artifact.')
+  }
+  const expectedAbi = JSON.stringify(artifact.abi)
+  const actualEntries = newContract.abi?.entrys
+  if (!Array.isArray(actualEntries) || JSON.stringify(actualEntries) !== expectedAbi) {
+    throw new Error('Solidified deployment transaction ABI does not match the approved TRӾ artifact.')
+  }
+  return { txID, owner: transactionOwner, contractType: contracts[0].type, bytecodeVerified: true, abiVerified: true }
+}
+
+/**
  * Independently verifies an already-broadcast CreateSmartContract transaction.
  * This is also the recovery path when a wallet broadcast response times out:
  * callers can re-check the known txID without creating or signing another deployment.
@@ -858,6 +901,7 @@ export async function verifyExistingMainnetDeployment(tronWeb, {
   txID, ownerAddress, artifact, contractAddress,
 }, {
   waitForReceipt = waitForSolidifiedReceipt,
+  verifySolidifiedTransaction = verifySolidifiedDeploymentTransaction,
   verifyDeployedContract = async (client, address) => client.trx.getContractInfo(address),
   verifyDeployedOwner = async (client, compiledArtifact, address) => {
     const instance = await client.contract(compiledArtifact.abi).at(address)
@@ -870,6 +914,7 @@ export async function verifyExistingMainnetDeployment(tronWeb, {
     || !/^(?:[0-9a-f]{2})+$/i.test(String(artifact?.deployedBytecode || '').replace(/^0x/, ''))) {
     throw new Error('Deployment recovery requires a valid Mainnet transaction ID, owner, contract address, and compiled runtime artifact.')
   }
+  const solidifiedTransaction = await verifySolidifiedTransaction(tronWeb, { txID, ownerAddress, artifact })
   const receipt = await waitForReceipt(tronWeb, txID)
   if (receipt?.id?.toLowerCase() !== txID.toLowerCase() || receipt?.receipt?.result !== 'SUCCESS') {
     throw new Error('The supplied deployment transaction is not confirmed successful in solidified Mainnet state.')
@@ -891,7 +936,7 @@ export async function verifyExistingMainnetDeployment(tronWeb, {
   if (String(name) !== 'TRӾ' || String(symbol) !== 'TRӾ' || Number(decimals) !== 6) {
     throw new Error('Recovered deployment metadata mismatch. Expected TRӾ / TRӾ / 6 decimals.')
   }
-  return { address: contractAddress, txID, receipt, owner: deployedOwner, verified: true, network: 'mainnet' }
+  return { address: contractAddress, txID, receipt, solidifiedTransaction, owner: deployedOwner, verified: true, network: 'mainnet' }
 }
 
 /**
