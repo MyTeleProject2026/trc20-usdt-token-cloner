@@ -48,21 +48,25 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
         }
       }
     }))
-    const ready = rows.some((row) => row.configured && row.reachable && row.automaticProviderSigning)
+    const reachable = rows.some((row) => row.configured && row.reachable && row.automaticProviderSigning)
     return {
       success: true,
       network,
       ownerAddress,
       checkedAt: new Date().toISOString(),
       providers: rows,
-      canRequestGrant: ready,
-      status: ready ? 'provider-adapter-available' : 'no-authorized-provider-adapter',
-      blockers: ready ? [] : [
-        'no-verified-mainnet-provider-adapter',
+      // Health is not grant eligibility. Required resource amounts and the
+      // provider's zero-cost policy must be checked for each concrete request.
+      canRequestGrant: false,
+      providerReachable: reachable,
+      status: reachable ? 'provider-reachable-eligibility-not-checked' : 'no-authorized-provider-adapter',
+      blockers: [
+        ...(reachable ? [] : ['no-verified-mainnet-provider-adapter']),
+        'resource-amount-specific-eligibility-not-checked',
+        'zero-cost-provider-policy-not-confirmed',
         'provider-side-signer-authorization-required',
-        'no-resource-grant-or-zero-cost-eligibility-confirmed',
       ],
-      note: 'A provider adapter may request grants automatically only under that provider account’s pre-authorized signing policy. This service cannot authorize or spend another account’s stake.',
+      note: 'Provider health alone never authorizes a grant. Eligibility and zero user cost must be checked for the exact requested amounts, then the solidified Mainnet delegation must be independently verified. This service cannot authorize or spend another account’s stake.',
     }
   }
 
