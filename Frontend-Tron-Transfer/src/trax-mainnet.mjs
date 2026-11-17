@@ -887,6 +887,20 @@ export async function preflightContractDeployments(wallet, deployments, {
   }
 }
 
+export function assertZeroTrxDeploymentFallback(resourceBudget) {
+  const fallback = resourceBudget?.requiredTrxSun
+  if (typeof fallback !== 'string' || !/^(0|[1-9][0-9]*)$/.test(fallback)) {
+    throw new Error('ZERO-TRX-BURN PROTECTION: Mainnet resource preflight did not return a valid TRX fallback amount. Deployment is blocked.')
+  }
+  if (fallback !== '0') {
+    throw new Error('ZERO-TRX-BURN PROTECTION: deployment blocked before TronLink approval. '
+      + 'Estimated TRX fallback is ' + fallback + ' SUN ('
+      + (Number(fallback) / 1e6).toFixed(6)
+      + ' TRX). Obtain sufficient delegated/staked Energy and Bandwidth on the owner account, then run a fresh preflight. Nothing was signed or broadcast.')
+  }
+  return true
+}
+
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
   createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
@@ -952,6 +966,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     rawDataHex: unsigned.raw_data_hex,
     feeLimitSun,
   })
+  // This deployment policy is stricter than the generic budget calculator.
+  // Enforce zero TRX fallback before any TronLink signing prompt.
+  assertZeroTrxDeploymentFallback(resourceBudget)
   assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned deployment transaction')
   const computedUnsignedTxID = await sha256HexFromBytes(unsigned.raw_data_hex)
   if (computedUnsignedTxID.toLowerCase() !== String(unsigned.txID).toLowerCase()) {
