@@ -103,7 +103,11 @@ export function createTronMainnetDelegationVerifier({
       const value = contracts[0]?.parameter?.value
       const receiverHex = typeof value?.receiver_address === 'string' ? value.receiver_address.toLowerCase() : ''
       const ownerHex = typeof value?.owner_address === 'string' ? value.owner_address.toLowerCase() : ''
-      if (receiverHex !== base58Decode(ownerAddress).toLowerCase() || !/^41[0-9a-f]{40}$/.test(ownerHex)) {
+      const delegatedResourceType = value?.resource
+      const delegatedStakeSun = uint(value?.balance)
+      if (receiverHex !== base58Decode(ownerAddress).toLowerCase() || !/^41[0-9a-f]{40}$/.test(ownerHex)
+        || !['ENERGY', 'BANDWIDTH'].includes(delegatedResourceType)
+        || delegatedStakeSun === null || delegatedStakeSun === '0') {
         return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'delegation-recipient-or-owner-mismatch' }
       }
       const delegatorAddress = base58Encode(ownerHex)
@@ -112,7 +116,12 @@ export function createTronMainnetDelegationVerifier({
       })
       const records = Array.isArray(delegation.delegatedResource) ? delegation.delegatedResource : []
       const matching = records.filter((entry) => entry.from === delegatorAddress && entry.to === ownerAddress)
-      if (matching.length === 0) {
+      const delegationStakeSun = matching.reduce((total, entry) => {
+        const field = delegatedResourceType === 'ENERGY' ? entry.frozen_balance_for_energy : entry.frozen_balance_for_bandwidth
+        const amount = uint(field ?? 0)
+        return amount === null ? total : total + BigInt(amount)
+      }, 0n)
+      if (matching.length === 0 || delegationStakeSun < BigInt(delegatedStakeSun)) {
         return { verified: false, solidified: true, network: 'mainnet', ownerAddress, transactionId, status: 'solidified-delegation-record-not-found' }
       }
       const [resourceState] = await Promise.all([
