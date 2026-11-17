@@ -103,3 +103,13 @@ Stage 6 implementation status: the final acceptance checklist and safe verificat
 - Contract address, solidified receipt, and TRONSCAN source verification: unavailable until a real successful deployment exists.
 
 TRONSCAN Mainnet explorer: https://tronscan.org/
+
+### Stage 6 follow-up — CI regression repair and explorer navigation
+
+CI on commit 6bd51e108b2e09aee883f92203bfd079f42666f2 exposed a recovery-test ordering issue: the test path attempted to validate a solidified transaction before checking whether the receipt was successful, and several recovery fixtures did not inject the solidified-transaction verifier. The implementation now checks the solidified successful receipt first, then verifies the matching CreateSmartContract transaction. Recovery fixtures explicitly mock that independent verification boundary.
+
+Validation on commit 27d30754fdef3d29ba285b1b2ccf461808431c48: Tron Transfer Frontend passed and TRӾ Owner Admin Frontend CI passed; Main CI was still running at the time of the check. The explorer-link UI change is a subsequent commit and requires its own CI run.
+
+The TRX Mainnet panel now displays a direct TRONSCAN contract-page link whenever a contract address is saved, alongside the existing transaction link. The UI explicitly warns that explorer visibility does not mean source code is verified. Source verification must use the exact compiler version, optimizer settings, source and constructor arguments for the deployed bytecode.
+
+No deployment has been broadcast in this implementation session. Actual provider grants, wallet resource sufficiency, owner signature, contract address, and TRONSCAN source verification remain live-chain acceptance gates.
