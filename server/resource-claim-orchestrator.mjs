@@ -85,30 +85,54 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
         if (eligibility?.eligible !== true || eligibility?.network !== 'mainnet'
           || eligibility?.userCostSun !== '0') continue
         const grant = await adapter.requestGrant({ ownerAddress, requestId, required, network })
-        if (grant?.accepted !== true || typeof grant.transactionId !== 'string'
-          || !/^[0-9a-f]{64}$/i.test(grant.transactionId)) continue
-        // Always verify through this application's TRON SolidityNode reader,
-        // never through a provider's self-reported "verified" flag.
-        const verification = await delegationVerifier.verifyDelegation({
-          ownerAddress, transactionId: grant.transactionId, required, network,
+        const transactionIds = grant?.transactionIds && typeof grant.transactionIds === 'object'
+          ? grant.transactionIds
+          : { ENERGY: grant?.transactionId, BANDWIDTH: grant?.transactionId }
+        if (grant?.accepted !== true || RESOURCE_TYPES.some((type) =>
+          typeof transactionIds[type] !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionIds[type]))) continue
+
+        // Energy and Bandwidth providers commonly delegate in separate Stake
+        // 2.0 transactions. Verify each exact resource transaction separately
+        // against solidified state; a shared txid remains supported when one
+        // transaction contains both operations.
+        const verifications = await Promise.all(RESOURCE_TYPES.map((type) =>
+          delegationVerifier.verifyDelegation({
+            ownerAddress,
+            transactionId: transactionIds[type],
+            required: {
+              ENERGY: type === 'ENERGY' ? required.ENERGY : '0',
+              BANDWIDTH: type === 'BANDWIDTH' ? required.BANDWIDTH : '0',
+            },
+            network,
+          })))
+        const valid = verifications.every((verification, index) => {
+          const type = RESOURCE_TYPES[index]
+          return verification?.verified === true
+            && verification.solidified === true
+            && verification.network === 'mainnet'
+            && verification.ownerAddress === ownerAddress
+            && verification.transactionId === transactionIds[type]
+            && typeof verification[type] === 'string'
+            && UINT.test(verification[type])
+            && BigInt(verification[type]) >= BigInt(required[type])
         })
-        if (verification?.verified !== true || verification.solidified !== true
-          || verification.network !== 'mainnet'
-          || verification.ownerAddress !== ownerAddress
-          || verification.transactionId !== grant.transactionId
-          || RESOURCE_TYPES.some((type) => typeof verification[type] !== 'string'
-            || !UINT.test(verification[type]) || BigInt(verification[type]) < BigInt(required[type]))) {
+        if (!valid) {
           return {
             success: false, network, provider: adapter.id,
             status: 'grant-not-independently-verified',
-            transactionId: grant.transactionId,
+            transactionIds,
           }
+        }
+        const verifiedResources = {
+          ENERGY: verifications[0].ENERGY,
+          BANDWIDTH: verifications[1].BANDWIDTH,
         }
         return {
           success: true, network, provider: adapter.id,
           status: 'mainnet-resource-grant-verified',
-          ownerAddress, transactionId: grant.transactionId,
-          verifiedResources: { ENERGY: verification.ENERGY, BANDWIDTH: verification.BANDWIDTH },
+          ownerAddress,
+          transactionIds,
+          verifiedResources,
           userCostSun: '0',
           verifiedAt: new Date().toISOString(),
         }
