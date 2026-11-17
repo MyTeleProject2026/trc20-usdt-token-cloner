@@ -96,33 +96,74 @@ export function createTronMainnetDelegationVerifier({
         return { verified: false, solidified: false, network: 'mainnet', transactionId, status: 'solidified-transaction-or-receipt-not-successful' }
       }
       const contracts = transaction.raw_data?.contract
-      if (!Array.isArray(contracts) || contracts.length !== 1
-        || contracts[0]?.type !== 'DelegateResourceContract') {
-        return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'not-a-single-resource-delegation' }
+      if (!Array.isArray(contracts) || contracts.length === 0
+        || contracts.some((contract) => contract?.type !== 'DelegateResourceContract')) {
+        return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'not-resource-delegation-transaction' }
       }
-      const value = contracts[0]?.parameter?.value
-      const receiverHex = typeof value?.receiver_address === 'string' ? value.receiver_address.toLowerCase() : ''
-      const ownerHex = typeof value?.owner_address === 'string' ? value.owner_address.toLowerCase() : ''
-      const delegatedResourceType = value?.resource
-      const delegatedStakeSun = uint(value?.balance)
-      if (receiverHex !== base58Decode(ownerAddress).toLowerCase() || !/^41[0-9a-f]{40}$/.test(ownerHex)
-        || !['ENERGY', 'BANDWIDTH'].includes(delegatedResourceType)
-        || delegatedStakeSun === null || delegatedStakeSun === '0') {
-        return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'delegation-recipient-or-owner-mismatch' }
+
+      // A provider may delegate Energy and Bandwidth in separate operations
+      // within one transaction. Verify every operation's recipient, owner and
+      // resource type; never infer the requested grant from aggregate balances.
+      const expected = {
+        ENERGY: BigInt(required.ENERGY),
+        BANDWIDTH: BigInt(required.BANDWIDTH),
       }
-      const delegatorAddress = base58Encode(ownerHex)
-      const delegation = await post('/walletsolidity/getdelegatedresourcev2', {
-        fromAddress: delegatorAddress, toAddress: ownerAddress, visible: true,
-      })
-      const records = Array.isArray(delegation.delegatedResource) ? delegation.delegatedResource : []
-      const matching = records.filter((entry) => entry.from === delegatorAddress && entry.to === ownerAddress)
-      const delegationStakeSun = matching.reduce((total, entry) => {
-        const field = delegatedResourceType === 'ENERGY' ? entry.frozen_balance_for_energy : entry.frozen_balance_for_bandwidth
-        const amount = uint(field ?? 0)
-        return amount === null ? total : total + BigInt(amount)
-      }, 0n)
-      if (matching.length === 0 || delegationStakeSun < BigInt(delegatedStakeSun)) {
-        return { verified: false, solidified: true, network: 'mainnet', ownerAddress, transactionId, status: 'solidified-delegation-record-not-found' }
+      const transactionAmounts = { ENERGY: 0n, BANDWIDTH: 0n }
+      const delegators = new Set()
+      for (const contract of contracts) {
+        const value = contract?.parameter?.value
+        const receiverHex = typeof value?.receiver_address === 'string' ? value.receiver_address.toLowerCase() : ''
+        const ownerHex = typeof value?.owner_address === 'string' ? value.owner_address.toLowerCase() : ''
+        const resourceType = value?.resource
+        const amountSun = uint(value?.balance)
+        if (receiverHex !== base58Decode(ownerAddress).toLowerCase()
+          || !/^41[0-9a-f]{40}$/.test(ownerHex)
+          || !['ENERGY', 'BANDWIDTH'].includes(resourceType)
+          || amountSun === null || amountSun === '0') {
+          return { verified: false, solidified: true, network: 'mainnet', ownerAddress, transactionId, status: 'delegation-recipient-owner-or-resource-mismatch' }
+        }
+        transactionAmounts[resourceType] += BigInt(amountSun)
+        delegators.add(base58Encode(ownerHex))
+      }
+      if (transactionAmounts.ENERGY < expected.ENERGY
+        || transactionAmounts.BANDWIDTH < expected.BANDWIDTH) {
+        return {
+          verified: false, solidified: true, network: 'mainnet', ownerAddress, transactionId,
+          status: 'transaction-does-not-delegate-each-required-resource',
+          transactionDelegated: {
+            ENERGY: transactionAmounts.ENERGY.toString(),
+            BANDWIDTH: transactionAmounts.BANDWIDTH.toString(),
+          },
+        }
+      }
+
+      // Confirm each delegator/recipient pair in solidified state and require
+      // its currently recorded stake to cover the exact amounts in this tx.
+      const delegationSnapshots = await Promise.all([...delegators].map(async (delegatorAddress) => {
+        const snapshot = await post('/walletsolidity/getdelegatedresourcev2', {
+          fromAddress: delegatorAddress, toAddress: ownerAddress, visible: true,
+        })
+        const records = Array.isArray(snapshot.delegatedResource) ? snapshot.delegatedResource : []
+        const matching = records.filter((entry) => entry.from === delegatorAddress && entry.to === ownerAddress)
+        const totals = { ENERGY: 0n, BANDWIDTH: 0n }
+        for (const entry of matching) {
+          for (const resourceType of ['ENERGY', 'BANDWIDTH']) {
+            const field = resourceType === 'ENERGY' ? entry.frozen_balance_for_energy : entry.frozen_balance_for_bandwidth
+            const amount = uint(field ?? 0)
+            if (amount === null) throw new Error('invalid-solidified-delegation-record')
+            totals[resourceType] += BigInt(amount)
+          }
+        }
+        return { delegatorAddress, totals }
+      }))
+      const recordedTotals = { ENERGY: 0n, BANDWIDTH: 0n }
+      for (const snapshot of delegationSnapshots) {
+        recordedTotals.ENERGY += snapshot.totals.ENERGY
+        recordedTotals.BANDWIDTH += snapshot.totals.BANDWIDTH
+      }
+      if (recordedTotals.ENERGY < transactionAmounts.ENERGY
+        || recordedTotals.BANDWIDTH < transactionAmounts.BANDWIDTH) {
+        return { verified: false, solidified: true, network: 'mainnet', ownerAddress, transactionId, status: 'solidified-delegation-record-does-not-cover-transaction' }
       }
       const [resourceState] = await Promise.all([
         post('/walletsolidity/getaccountresource', { address: ownerAddress, visible: true }),
