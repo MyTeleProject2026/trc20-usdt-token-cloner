@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, assertZeroTrxDeploymentFallback } from '../src/trax-mainnet.mjs'
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
@@ -57,4 +57,12 @@ test('paced contract-view helper retries one HTTP 429 and returns the successful
   })
   assert.equal(value, 'ok')
   assert.equal(calls, 2)
+})
+
+test('zero-TRX deployment guard accepts only fully covered resource budgets', () => {
+  assert.equal(assertZeroTrxDeploymentFallback({ requiredTrxSun: '0' }), true)
+  for (const fallback of ['1', '122917400', '']) {
+    assert.throws(() => assertZeroTrxDeploymentFallback({ requiredTrxSun: fallback }), /ZERO-TRX-BURN PROTECTION/)
+  }
+  assert.throws(() => assertZeroTrxDeploymentFallback({}), /valid TRX fallback amount/)
 })
