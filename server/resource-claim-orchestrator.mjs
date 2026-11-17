@@ -88,7 +88,7 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
         const transactionIds = grant?.transactionIds && typeof grant.transactionIds === 'object'
           ? grant.transactionIds
           : { ENERGY: grant?.transactionId, BANDWIDTH: grant?.transactionId }
-        if (grant?.accepted !== true || RESOURCE_TYPES.some((type) =>
+        if (grant?.accepted !== true || grant?.userCostSun !== '0' || RESOURCE_TYPES.some((type) =>
           typeof transactionIds[type] !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionIds[type]))) continue
 
         // Energy and Bandwidth providers commonly delegate in separate Stake
