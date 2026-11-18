@@ -51,6 +51,9 @@ test('Tatum Mainnet RPC is preferred and its API key stays server-side', async t
 })
 
 test('Tatum RPC failures fall back to TronGrid without changing resource semantics', async t => {
+  // Use a distinct address so the service's process-level resource cache cannot
+  // let the preceding preferred-provider test satisfy this request.
+  const fallbackAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
   const calls = []
   const server = createServer({
     env: { TATUM_API_KEY: 'test-tatum-key', TRONGRID_API_KEY: 'test-trongrid-key' },
@@ -68,7 +71,7 @@ test('Tatum RPC failures fall back to TronGrid without changing resource semanti
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
-  const response = await fetch('http://127.0.0.1:' + server.address().port + '/v1/resources/' + address)
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/v1/resources/' + fallbackAddress)
   assert.equal(response.status, 200)
   const body = await response.json()
   assert.equal(body.energy.available, 100000)
