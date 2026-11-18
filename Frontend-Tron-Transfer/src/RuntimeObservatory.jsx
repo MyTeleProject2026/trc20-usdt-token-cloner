@@ -1,0 +1,160 @@
+import { useCallback, useEffect, useState } from 'react'
+import { Activity, ArrowUpRight, Cpu, Database, Radio, RefreshCw, Server, Waves, Zap } from 'lucide-react'
+import './runtime-observatory.css'
+
+const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+
+function formatUptime(seconds = 0) {
+  const value = Math.max(0, Number(seconds) || 0)
+  const days = Math.floor(value / 86400)
+  const hours = Math.floor((value % 86400) / 3600)
+  const minutes = Math.floor((value % 3600) / 60)
+  const secs = Math.floor(value % 60)
+  return [days ? days + 'd' : null, hours ? hours + 'h' : null, minutes ? minutes + 'm' : null, secs + 's'].filter(Boolean).join(' ')
+}
+function formatBytes(value = 0) {
+  const bytes = Number(value) || 0
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+}
+function shortHash(value) {
+  return value ? value.slice(0, 10) + '…' + value.slice(-8) : 'Transaction hash unavailable'
+}
+function time(value) {
+  return value ? new Date(value).toLocaleTimeString() : '—'
+}
+function Status({ value = 'unknown' }) {
+  const label = value === 'online' ? 'LIVE' : value === 'offline' ? 'OFFLINE' : value === 'warning' ? 'DEGRADED' : value === 'checking' ? 'CHECKING' : 'NOT CONNECTED'
+  return <span className={'ro-status ' + value}><i/>{label}</span>
+}
+function Sparkline({ samples = [] }) {
+  const values = samples.map(item => Number(item.eventLoopP95Ms) || 0)
+  const max = Math.max(5, ...values)
+  const points = values.map((value, index) => `${values.length < 2 ? 0 : index / (values.length - 1) * 100},${30 - value / max * 26}`).join(' ')
+  return <svg className="ro-sparkline" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Event loop latency trend"><polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.8" vectorEffect="non-scaling-stroke"/></svg>
+}
+
+export default function RuntimeObservatory({ apiBase, resourceState, promoState }) {
+  const [runtime, setRuntime] = useState(null)
+  const [runtimeError, setRuntimeError] = useState('')
+  const [transactions, setTransactions] = useState([])
+  const [transactionState, setTransactionState] = useState('checking')
+  const [transactionError, setTransactionError] = useState('')
+  const [lastTransactionCheck, setLastTransactionCheck] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const refreshRuntime = useCallback(async (manual = false) => {
+    if (manual) setRefreshing(true)
+    try {
+      const response = await fetch(apiBase + '/api/observatory/snapshot', { cache: 'no-store', headers: { accept: 'application/json' } })
+      const body = await response.json()
+      if (!response.ok || !body.ok) throw new Error(body.message || 'Runtime snapshot unavailable')
+      setRuntime(body)
+      setRuntimeError('')
+    } catch (error) {
+      setRuntimeError(error?.message || 'Runtime heartbeat unavailable')
+    } finally {
+      if (manual) setRefreshing(false)
+    }
+  }, [apiBase])
+
+  const refreshTransactions = useCallback(async () => {
+    try {
+      const response = await fetch(apiBase + '/api/observatory/transactions?address=' + encodeURIComponent(OWNER), { cache: 'no-store', headers: { accept: 'application/json' } })
+      const body = await response.json()
+      if (!response.ok || !body.success) throw new Error(body.message || body.error || 'Mainnet transaction feed unavailable')
+      setTransactions(Array.isArray(body.transactions) ? body.transactions : [])
+      setTransactionState('online')
+      setTransactionError('')
+      setLastTransactionCheck(body.checkedAt)
+    } catch (error) {
+      setTransactionState('warning')
+      setTransactionError(error?.message || 'Confirmed transaction feed unavailable')
+    }
+  }, [apiBase])
+
+  useEffect(() => {
+    refreshRuntime()
+    refreshTransactions()
+    const heartbeat = window.setInterval(refreshRuntime, 1000)
+    const chainFeed = window.setInterval(refreshTransactions, 10_000)
+    return () => {
+      window.clearInterval(heartbeat)
+      window.clearInterval(chainFeed)
+    }
+  }, [refreshRuntime, refreshTransactions])
+
+  const heartbeat = runtime?.heartbeat
+  const process = runtime?.process
+  const requests = runtime?.requests
+  const nodes = [
+    { id: 'browser', label: 'Owner console', state: 'online', detail: 'Static frontend session' },
+    { id: 'api', label: 'Resource API', state: runtimeError ? 'offline' : heartbeat?.state || 'checking', detail: heartbeat ? '1-second process heartbeat' : 'Waiting for API heartbeat' },
+    { id: 'tron', label: 'TRON Mainnet', state: resourceState || 'checking', detail: 'Confirmed transaction and resource reads' },
+    { id: 'tenergy', label: 'TEnergy', state: promoState || 'checking', detail: 'Provider promotion status' },
+  ]
+  const events = runtime?.events || []
+
+  return <section className="runtime-observatory" aria-label="Live runtime observatory">
+    <div className="ro-header">
+      <div><span className="ro-eyebrow"><Activity size={13}/> LIVE RUNTIME OBSERVATORY</span><h3>Runtime signal & network activity</h3><p>One-second backend process heartbeat, real API request traces and confirmed TRON Mainnet transactions.</p></div>
+      <div className="ro-header-actions"><span className="ro-live-indicator"><i/> {runtimeError ? 'SIGNAL LOST' : 'LIVE · 1 SEC'}</span><button type="button" onClick={() => refreshRuntime(true)} disabled={refreshing}><RefreshCw size={14} className={refreshing ? 'ro-spin' : ''}/>Refresh</button></div>
+    </div>
+
+    <div className="ro-metrics-grid">
+      <article className="ro-metric"><span>API process uptime</span><b>{runtime ? formatUptime(runtime.uptimeSeconds) : '—'}</b><small>Since current process start</small></article>
+      <article className="ro-metric"><span>Heartbeat ticks</span><b>{heartbeat?.count?.toLocaleString() || '—'}</b><small>{heartbeat ? heartbeat.intervalMs + ' ms interval · ' + heartbeat.missedIntervals + ' missed' : 'Awaiting server heartbeat'}</small></article>
+      <article className="ro-metric"><span>Memory resident</span><b>{process ? formatBytes(process.rssBytes) : '—'}</b><small>Heap {process ? formatBytes(process.heapUsedBytes) : '—'}</small></article>
+      <article className="ro-metric"><span>HTTP requests · 60 sec</span><b>{requests?.count ?? '—'}</b><small>{requests ? requests.errors5xx + ' server errors · p95 ' + requests.p95LatencyMs + ' ms' : 'Waiting for request samples'}</small></article>
+    </div>
+
+    <div className="ro-main-grid">
+      <article className="ro-panel ro-topology-panel">
+        <div className="ro-panel-title"><div><span className="ro-eyebrow">CONNECTION TOPOLOGY</span><h4>Live service pathways</h4></div><Waves size={18}/></div>
+        <div className="ro-topology">
+          {nodes.map((node, index) => <div className={'ro-node ' + node.state} key={node.id}>
+            <span className="ro-node-orbit"><i/></span><b>{node.label}</b><small>{node.detail}</small><Status value={node.state}/>
+            {index < nodes.length - 1 && <span className="ro-link-line"><i/></span>}
+          </div>)}
+        </div>
+        <div className="ro-render-note"><Server size={14}/><span>Render control-plane events are not yet connected to this runtime API. Service deploy history remains independently available in Render.</span></div>
+      </article>
+      <article className="ro-panel ro-runtime-panel">
+        <div className="ro-panel-title"><div><span className="ro-eyebrow">PROCESS TELEMETRY</span><h4>Runtime performance</h4></div><Cpu size={18}/></div>
+        <div className="ro-chart-wrap"><div><span>Event-loop p95 delay</span><b>{process ? process.eventLoopP95Ms.toFixed(2) + ' ms' : '—'}</b></div><Sparkline samples={runtime?.samples}/></div>
+        <div className="ro-runtime-row"><span><Database size={14}/> Heap allocated</span><b>{process ? formatBytes(process.heapTotalBytes) : '—'}</b></div>
+        <div className="ro-runtime-row"><span><Zap size={14}/> HTTP error rate</span><b>{requests ? requests.errorRatePercent + '%' : '—'}</b></div>
+        <div className="ro-runtime-row"><span><Radio size={14}/> Last heartbeat</span><b>{time(heartbeat?.lastAt)}</b></div>
+        <p className="ro-retention-note">{runtime?.retention || 'Runtime samples are collected by the API process.'}</p>
+      </article>
+    </div>
+
+    <div className="ro-section-heading"><div><span className="ro-eyebrow">CHAIN ACTIVITY · READ ONLY</span><h4>Confirmed owner-wallet transactions</h4><p>Fetched from TRON Mainnet RPC; only confirmed records are requested.</p></div><Status value={transactionState}/></div>
+    {transactionError && <p className="ro-inline-warning">{transactionError}</p>}
+    <div className="ro-transactions">
+      {transactions.length ? transactions.map((tx, index) => {
+        const hash = tx.txID || tx.txid || tx.transaction_id
+        const contract = tx.raw_data?.contract?.[0]
+        const type = contract?.type || tx.contractType || 'TRON transaction'
+        const result = tx.ret?.[0]?.contractRet || tx.ret?.[0]?.contract_ret || 'CONFIRMED'
+        const successful = result === 'SUCCESS'
+        const timestamp = tx.block_timestamp || tx.raw_data?.timestamp
+        return <div className="ro-transaction" key={hash || index}>
+          <span className={'ro-tx-icon ' + (successful ? 'success' : 'warning')}><ArrowUpRight size={15}/></span>
+          <div className="ro-tx-info"><b>{type.replace(/Contract$/, '')}</b><small>{shortHash(hash)} · Block {tx.blockNumber || tx.block_number || '—'}</small></div>
+          <span className={'ro-tx-result ' + (successful ? 'success' : 'warning')}>{result}</span>
+          <time>{timestamp ? time(new Date(Number(timestamp)).toISOString()) : '—'}</time>
+          {hash && <a href={'https://tronscan.org/#/transaction/' + encodeURIComponent(hash)} target="_blank" rel="noreferrer" aria-label="Open transaction in TRONSCAN">Open <ArrowUpRight size={12}/></a>}
+        </div>
+      }) : <div className="ro-empty">{transactionState === 'checking' ? 'Loading confirmed Mainnet transactions…' : transactionError ? 'Transaction data is currently unavailable. No activity is being fabricated.' : 'No confirmed owner-wallet transactions were returned by Mainnet RPC.'}</div>}
+    </div>
+    <p className="ro-feed-time">Last chain feed check: {time(lastTransactionCheck)} · Owner: {OWNER.slice(0, 8)}…{OWNER.slice(-6)}</p>
+
+    <div className="ro-section-heading"><div><span className="ro-eyebrow">RUNTIME EVENT TRACE</span><h4>Actual API activity</h4><p>Requests observed by the backend, with address and query parameters removed.</p></div><span className="ro-event-count">{events.length} events</span></div>
+    <div className="ro-events" aria-live="polite">
+      {events.length ? events.slice(0, 12).map(event => <div className="ro-event" key={event.id}><i className={event.state}/><time>{time(event.at)}</time><b>{event.title}</b><span>{event.detail}</span></div>) : <div className="ro-empty">Waiting for real API actions…</div>}
+    </div>
+    <p className="ro-scope-note">Uptime and samples shown here cover the current API process only. The existing free Render service can suspend or restart; durable 24/7 history requires persistent storage and an always-on monitoring process. Render platform metrics are sampled at coarser intervals and are not represented as one-second data.</p>
+  </section>
+}
