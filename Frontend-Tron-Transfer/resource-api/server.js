@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
+import { createRuntimeObservatory } from './runtime-observatory.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
@@ -212,7 +213,19 @@ function send(res, status, payload, origin) {
 
 export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
-  return http.createServer(async (req, res) => {
+  const runtimeObservatory = createRuntimeObservatory()
+  const server = http.createServer(async (req, res) => {
+    const requestStartedAt = performance.now()
+    const originalEnd = res.end.bind(res)
+    let requestRecorded = false
+    res.end = (...args) => {
+      if (!requestRecorded) {
+        requestRecorded = true
+        const requestPath = new URL(req.url || '/', 'http://localhost').pathname
+        runtimeObservatory.recordHttpRequest({ method: req.method, path: requestPath, statusCode: res.statusCode, durationMs: performance.now() - requestStartedAt })
+      }
+      return originalEnd(...args)
+    }
     const origin = req.headers.origin
     if (origin && !ALLOWED_ORIGINS.has(origin)) return send(res, 403, { error: 'ORIGIN_NOT_ALLOWED' })
     if (req.method === 'OPTIONS') {
@@ -226,6 +239,24 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       return res.end()
     }
     const url = new URL(req.url || '/', 'http://localhost')
+    if (req.method === 'GET' && url.pathname === '/api/observatory/snapshot') {
+      return send(res, 200, runtimeObservatory.snapshot(), origin)
+    }
+    if (req.method === 'GET' && url.pathname === '/api/observatory/transactions') {
+      const address = url.searchParams.get('address') || 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+      if (address !== 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp' || !isMainnetAddress(address)) {
+        return send(res, 403, { success: false, error: 'wallet-not-allowed' }, origin)
+      }
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      if (!allowRequest(ip, 'observatory-transactions')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      try {
+        const result = await rpcPost('/wallet/gettransactionfromaddress', { account: address, limit: 20, offset: 0, only_confirmed: true, only_unconfirmed: false, visible: true }, { fetchImpl, env })
+        const transactions = Array.isArray(result.data?.transaction) ? result.data.transaction : Array.isArray(result.data?.data) ? result.data.data : []
+        return send(res, 200, { success: true, network: 'TRON Mainnet', address, provider: result.provider, confirmedOnly: true, transactions, checkedAt: new Date().toISOString() }, origin)
+      } catch (error) {
+        return send(res, 503, { success: false, error: 'MAINNET_TRANSACTION_FEED_UNAVAILABLE', message: String(error?.message || 'Could not read confirmed Mainnet transactions').slice(0, 180) }, origin)
+      }
+    }
     if (req.method === 'GET' && url.pathname === '/health') {
       const tatumConfigured = typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim().length > 0
       const tronGridConfigured = typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim().length > 0
@@ -378,6 +409,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       }, origin)
     }
   })
+  server.on('close', () => runtimeObservatory.stop())
+  return server
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
