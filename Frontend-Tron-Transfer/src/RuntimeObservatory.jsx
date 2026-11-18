@@ -105,18 +105,36 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
   }, [apiBase])
 
   useEffect(() => {
-    const clock = window.setInterval(() => setClockNow(Date.now()), 250)
-    refreshRuntime()
-    refreshTransactions()
-    refreshRenderEvents()
-    const heartbeat = window.setInterval(refreshRuntime, 1000)
-    const chainFeed = window.setInterval(refreshTransactions, 10_000)
-    const renderFeed = window.setInterval(refreshRenderEvents, 30_000)
+    let timers = []
+
+    const stopPolling = () => {
+      timers.forEach(timer => window.clearInterval(timer))
+      timers = []
+    }
+
+    const startPolling = () => {
+      if (document.visibilityState === 'hidden') return
+      refreshRuntime()
+      refreshTransactions()
+      refreshRenderEvents()
+      timers = [
+        window.setInterval(refreshRuntime, 1000),
+        window.setInterval(refreshTransactions, 10_000),
+        window.setInterval(refreshRenderEvents, 30_000),
+        window.setInterval(() => setClockNow(Date.now()), 250),
+      ]
+    }
+
+    const handleVisibilityChange = () => {
+      stopPolling()
+      if (document.visibilityState === 'visible') startPolling()
+    }
+
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
-      window.clearInterval(heartbeat)
-      window.clearInterval(chainFeed)
-      window.clearInterval(renderFeed)
-      window.clearInterval(clock)
+      stopPolling()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [refreshRuntime, refreshTransactions, refreshRenderEvents])
 
