@@ -29,25 +29,27 @@ const exception = {
 const now = Date.now()
 const vulnerabilities = report.vulnerabilities
 const cache = new Map()
+const exceptedDependencyChain = new Set(['picomatch', 'fdir', 'tinyglobby', 'vite'])
 
 function isOnlyTemporarilyExceptedAdvisory(name, trail = new Set()) {
   if (cache.has(name)) return cache.get(name)
   const item = vulnerabilities[name]
-  if (!item || trail.has(name)) return false
+  if (!item || trail.has(name) || !exceptedDependencyChain.has(name)) return false
   const nextTrail = new Set(trail)
   nextTrail.add(name)
   const via = Array.isArray(item.via) ? item.via : []
-  if (via.length === 0) return false
+  if (via.length === 0
+    || item.severity !== 'high'
+    || !(item.fixAvailable === false || item.fixAvailable == null || item.fixAvailable?.isSemVerMajor === true)
+    || Date.parse(exception.expiresAt) <= now) return false
 
   const allowed = via.every((entry) => {
     if (typeof entry === 'string') {
-      return isOnlyTemporarilyExceptedAdvisory(entry, nextTrail)
+      return exceptedDependencyChain.has(entry)
+        && isOnlyTemporarilyExceptedAdvisory(entry, nextTrail)
     }
-    return name === exception.packageName
-      && item.severity === 'high'
-      && Date.parse(exception.expiresAt) > now
-      && (item.fixAvailable === false || item.fixAvailable == null || item.fixAvailable?.isSemVerMajor === true)
-      && String(entry?.url || '').includes(exception.advisory)
+    if (entry?.severity !== 'high') return true
+    return String(entry?.url || '').includes(exception.advisory)
   })
   cache.set(name, allowed)
   return allowed
