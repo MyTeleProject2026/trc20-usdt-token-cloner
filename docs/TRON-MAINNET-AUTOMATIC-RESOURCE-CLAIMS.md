@@ -140,3 +140,23 @@ Provider grant submission is a side effect. A network timeout or lost response a
 - A grant that fails independent verification is reported as unverified and is never followed by a second provider submission in the same request.
 
 Operators must reconcile the original provider request using the stable request ID and provider-side transaction lookup before initiating a new request. This avoids accidental duplicate Energy/Bandwidth delegation when the provider broadcast succeeded but its response was lost. The adapter contract should make `requestId` idempotent at the provider boundary; local request IDs alone do not guarantee provider-side idempotency.
+
+
+## Separate transaction identity for Energy and Bandwidth
+
+The grant adapter must return two distinct 64-character transaction IDs:
+
+```js
+{
+  accepted: true,
+  userCostSun: '0',
+  transactionIds: {
+    ENERGY: '<energy-delegation-transaction-id>',
+    BANDWIDTH: '<bandwidth-delegation-transaction-id>'
+  }
+}
+```
+
+The orchestrator rejects a response that reuses one transaction ID for both resource types. Each transaction is checked independently against a solidified Mainnet receipt, the exact owner recipient, the expected resource type, and the requested amount. A provider's aggregate success response is not evidence that both delegations occurred.
+
+A provider that only delegates Energy must not be represented as an Energy-and-Bandwidth provider. Until both independently verified transactions exist, the zero-TRX deployment gate remains closed.
