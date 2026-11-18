@@ -57,6 +57,11 @@ export function buildFincraUsdtTronPayoutPayload(input = {}) {
   const customerReference = clean(input.customerReference, 80)
   const amount = toFincraNumericAmount(input.amount)
   const beneficiaryEmail = clean(input.beneficiaryEmail, 254).toLowerCase()
+  const destinationTag = clean(input.destinationTag, 128)
+
+  if (destinationTag && !/^[A-Za-z0-9._:-]{1,128}$/.test(destinationTag)) {
+    throw new Error('invalid-beneficiary-destination-tag')
+  }
 
   if (!BUSINESS_ID_RE.test(businessId)) throw new Error('invalid-fincra-business-id')
   if (!isValidTronAddress(recipientAddress)) throw new Error('invalid-tron-mainnet-recipient-address')
@@ -79,6 +84,7 @@ export function buildFincraUsdtTronPayoutPayload(input = {}) {
       walletAddress: recipientAddress,
       accountHolderName: beneficiaryName,
       ...(beneficiaryEmail ? { email: beneficiaryEmail } : {}),
+      ...(destinationTag ? { destinationTag } : {}),
     },
   }
 }
@@ -223,6 +229,8 @@ export function normalizeFincraPayoutRecord(payout, expected = {}) {
       || payout.walletAddress,
     64,
   )
+  const destinationTag = clean(payout.beneficiary?.destinationTag || payout.recipient?.destinationTag || payout.destinationTag, 128)
+  const expectedDestinationTag = clean(expected.destinationTag, 128)
   const expectedAmountBaseUnits = parseFincraUsdtBaseUnits(expected.amount)
   const amountReceivedBaseUnits = payout.amountReceived == null ? null : parseFincraUsdtBaseUnits(payout.amountReceived)
   const amountChargedBaseUnits = payout.amountCharged == null ? null : parseFincraUsdtBaseUnits(payout.amountCharged)
@@ -240,6 +248,7 @@ export function normalizeFincraPayoutRecord(payout, expected = {}) {
   for (const [reason, actual, required] of checks) {
     if (!required || !actual || actual !== required) reasons.push(reason)
   }
+  if (destinationTag !== expectedDestinationTag) reasons.push('destination-tag-mismatch')
 
   if (payout.amountReceived != null && amountReceivedBaseUnits === null) reasons.push('fincra-amount-received-invalid')
   if (payout.amountCharged != null && amountChargedBaseUnits === null) reasons.push('fincra-amount-charged-invalid')
@@ -255,6 +264,7 @@ export function normalizeFincraPayoutRecord(payout, expected = {}) {
     providerStatus: status,
     customerReference: customerReference || null,
     recipientAddress: recipientAddress || null,
+    destinationTag: destinationTag || null,
     amountReceivedBaseUnits,
     amountChargedBaseUnits,
     reasons,
@@ -317,10 +327,25 @@ export async function initiateFincraSandboxUsdtTronPayout(env = process.env, inp
   }
 }
 
-export async function getFincraPayoutByCustomerReference(env = process.env, customerReference, { fetchImpl = globalThis.fetch } = {}) {
+/**
+ * Read-only reference lookup for an already-created Fincra payout.
+ *
+ * Unlike payout initiation, this operation is allowed in both sandbox and
+ * live modes. A 404 is reported distinctly so callers can reconcile the
+ * reference without confusing "not found" with provider/network failure.
+ * A 404 after an ambiguous submission is not, by itself, permission to replay
+ * the payout; callers must preserve the original request reference and avoid
+ * blind resubmission.
+ */
+export async function lookupFincraPayoutByCustomerReference(
+  env = process.env,
+  customerReference,
+  { fetchImpl = globalThis.fetch } = {},
+) {
   const config = getFincraConfig(env)
-  if (config.mode !== 'sandbox') throw new Error('live-fincra-status-lookup-not-enabled-in-this-release')
-  if (!config.apiKey || !BUSINESS_ID_RE.test(config.businessId)) throw new Error('fincra-sandbox-credentials-not-configured')
+  if (!config.apiKey || !BUSINESS_ID_RE.test(config.businessId)) {
+    throw new Error('fincra-payout-lookup-credentials-not-configured')
+  }
   const reference = clean(customerReference, 80)
   if (!CUSTOMER_REFERENCE_RE.test(reference)) throw new Error('invalid-customer-reference')
   const response = await fincraRequest(
@@ -328,10 +353,29 @@ export async function getFincraPayoutByCustomerReference(env = process.env, cust
     '/disbursements/payouts/customer-reference/' + encodeURIComponent(reference),
     { fetchImpl },
   )
+  if (response.status === 404) return { found: false, status: 'not-found', payout: null }
   if (!response.ok || response.payload?.success === false) {
-    const error = new Error('fincra-sandbox-payout-lookup-failed')
+    const error = new Error('fincra-payout-lookup-failed')
     error.status = response.status
     throw error
   }
-  return unwrapData(response.payload)
+  const payout = unwrapData(response.payload)
+  if (!payout || typeof payout !== 'object' || Array.isArray(payout)) {
+    throw new Error('fincra-payout-lookup-response-invalid')
+  }
+  return { found: true, status: 'found', payout }
+}
+
+export async function getFincraPayoutByCustomerReference(
+  env = process.env,
+  customerReference,
+  { fetchImpl = globalThis.fetch } = {},
+) {
+  const result = await lookupFincraPayoutByCustomerReference(env, customerReference, { fetchImpl })
+  if (!result.found) {
+    const error = new Error('fincra-payout-not-found')
+    error.status = 404
+    throw error
+  }
+  return result.payout
 }

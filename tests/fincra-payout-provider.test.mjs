@@ -5,6 +5,7 @@ import {
   buildFincraUsdtTronPayoutPayload,
   getFincraConfig,
   getFincraPayoutByCustomerReference,
+  lookupFincraPayoutByCustomerReference,
   initiateFincraSandboxUsdtTronPayout,
   normalizeFincraPayoutRecord,
   parseFincraUsdtBaseUnits,
@@ -53,6 +54,7 @@ test('Fincra payload is pinned to same-currency official USDT TRON payout scheme
     ...payoutInput,
     businessId: sponsorBusiness,
     beneficiaryEmail: 'owner@example.test',
+    destinationTag: 'deposit-2048',
   })
   assert.deepEqual(body, {
     business: sponsorBusiness,
@@ -67,6 +69,7 @@ test('Fincra payload is pinned to same-currency official USDT TRON payout scheme
       walletAddress: recipient,
       accountHolderName: 'Test Beneficiary',
       email: 'owner@example.test',
+      destinationTag: 'deposit-2048',
     },
   })
 })
@@ -81,6 +84,12 @@ test('Fincra payload builder rejects invalid recipients, precision and reference
   assert.throws(() => buildFincraUsdtTronPayoutPayload({
     ...payoutInput, businessId: sponsorBusiness, customerReference: 'short',
   }), /invalid-unique-customer-reference/)
+})
+
+test('Fincra payout builder rejects malformed destination tags', () => {
+  assert.throws(() => buildFincraUsdtTronPayoutPayload({
+    ...payoutInput, businessId: sponsorBusiness, destinationTag: 'invalid tag with spaces',
+  }), /invalid-beneficiary-destination-tag/)
 })
 
 test('Fincra successful status requires exact recipient identity and exact net amount', () => {
@@ -101,6 +110,25 @@ test('Fincra successful status requires exact recipient identity and exact net a
   assert.equal(normalized.status, 'successful')
   assert.equal(normalized.amountReceivedBaseUnits, '12345678')
   assert.equal(normalized.providerReference, 'fincra-reference-1')
+})
+
+test('Fincra payout status requires the exact optional destination tag', () => {
+  const expected = { ...payoutInput, destinationTag: 'deposit-2048' }
+  const payout = {
+    status: 'processing',
+    customerReference: payoutInput.customerReference,
+    sourceCurrency: 'USDT',
+    destinationCurrency: 'USDT',
+    paymentScheme: 'usdt_trc20',
+    paymentDestination: 'crypto_wallet',
+    beneficiary: { walletAddress: recipient, destinationTag: 'deposit-2048' },
+  }
+  assert.equal(normalizeFincraPayoutRecord(payout, expected).valid, true)
+  const mismatch = normalizeFincraPayoutRecord({
+    ...payout, beneficiary: { ...payout.beneficiary, destinationTag: 'wrong-tag' },
+  }, expected)
+  assert.equal(mismatch.valid, false)
+  assert.ok(mismatch.reasons.includes('destination-tag-mismatch'))
 })
 
 test('Fincra successful status with fee-shortened receiver amount is sent to manual review', () => {
@@ -253,4 +281,66 @@ test('Fincra sandbox submit and customer-reference lookup use documented endpoin
   const submittedBody = JSON.parse(calls[0].options.body)
   assert.equal(submittedBody.paymentScheme, 'usdt_trc20')
   assert.equal(submittedBody.beneficiary.walletAddress, recipient)
+})
+
+
+test('Fincra customer-reference lookup is read-only and supports live mode', async () => {
+  const calls = []
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url: String(url), options })
+    return jsonResponse({
+      success: true,
+      data: {
+        customerReference: payoutInput.customerReference,
+        status: 'processing',
+        sourceCurrency: 'USDT',
+        destinationCurrency: 'USDT',
+        paymentScheme: 'usdt_trc20',
+      },
+    })
+  }
+  const env = {
+    FINCRA_ENVIRONMENT: 'live',
+    FINCRA_SECRET_KEY: 'live-read-only-key',
+    FINCRA_BUSINESS_ID: sponsorBusiness,
+  }
+
+  const result = await lookupFincraPayoutByCustomerReference(env, payoutInput.customerReference, { fetchImpl })
+
+  assert.equal(result.found, true)
+  assert.equal(result.status, 'found')
+  assert.equal(result.payout.status, 'processing')
+  assert.equal(calls.length, 1)
+  assert.equal(
+    calls[0].url,
+    'https://api.fincra.com/disbursements/payouts/customer-reference/' + payoutInput.customerReference,
+  )
+  assert.equal(calls[0].options.method || 'GET', 'GET')
+  assert.equal(calls[0].options.body, undefined)
+  assert.equal(calls[0].options.headers['api-key'], 'live-read-only-key')
+})
+
+test('Fincra reference lookup distinguishes 404 from provider failure', async () => {
+  const env = {
+    FINCRA_SECRET_KEY: 'sandbox-key',
+    FINCRA_BUSINESS_ID: sponsorBusiness,
+  }
+  const missing = await lookupFincraPayoutByCustomerReference(env, payoutInput.customerReference, {
+    fetchImpl: async () => jsonResponse({ success: false, message: 'Payout not found' }, 404),
+  })
+  assert.deepEqual(missing, { found: false, status: 'not-found', payout: null })
+
+  await assert.rejects(
+    lookupFincraPayoutByCustomerReference(env, payoutInput.customerReference, {
+      fetchImpl: async () => jsonResponse({ success: false, message: 'Provider unavailable' }, 503),
+    }),
+    (error) => error.message === 'fincra-payout-lookup-failed' && error.status === 503,
+  )
+
+  await assert.rejects(
+    getFincraPayoutByCustomerReference(env, payoutInput.customerReference, {
+      fetchImpl: async () => jsonResponse({ success: false, message: 'Payout not found' }, 404),
+    }),
+    (error) => error.message === 'fincra-payout-not-found' && error.status === 404,
+  )
 })

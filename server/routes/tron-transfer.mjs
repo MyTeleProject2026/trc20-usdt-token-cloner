@@ -7,7 +7,7 @@ import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { readTronGridIncomingHistory } from '../trongrid-history.mjs'
 import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
 import { getUnconfiguredProviderPayoutReadiness } from '../provider-payout-readiness.mjs'
-import { readFincraAccountDiagnostics } from '../fincra-payout-provider.mjs'
+import { readFincraAccountDiagnostics, lookupFincraPayoutByCustomerReference, normalizeFincraPayoutRecord } from '../fincra-payout-provider.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -370,6 +370,8 @@ export function createTronTransferRouter({ env = process.env } = {}) {
             recipient_address TEXT NOT NULL,
             beneficiary_name TEXT NOT NULL,
             beneficiary_email TEXT,
+            destination_tag TEXT,
+            idempotency_key TEXT,
             asset TEXT NOT NULL DEFAULT 'USDT' CHECK (asset = 'USDT'),
             network TEXT NOT NULL DEFAULT 'mainnet' CHECK (network = 'mainnet'),
             token_contract TEXT NOT NULL DEFAULT '${MAINNET_USDT}',
@@ -390,6 +392,12 @@ transaction_hash CHAR(64),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
           )
         `)
+        await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
+          ADD COLUMN IF NOT EXISTS destination_tag TEXT`)
+        await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
+          ADD COLUMN IF NOT EXISTS idempotency_key TEXT`)
+        await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tron_transfer_sponsor_requests_idempotency_idx
+          ON ${SCHEMA}.tron_transfer_sponsor_requests (idempotency_key) WHERE idempotency_key IS NOT NULL`)
         await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
           ADD COLUMN IF NOT EXISTS fincra_submitted_at TIMESTAMPTZ`)
         await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
@@ -417,6 +425,7 @@ transaction_hash CHAR(64),
       recipientAddress: row.recipient_address,
       beneficiaryName: row.beneficiary_name,
       beneficiaryEmail: row.beneficiary_email || null,
+      destinationTag: row.destination_tag || null,
       asset: row.asset,
       network: row.network,
       tokenContract: row.token_contract,
@@ -673,15 +682,128 @@ transaction_hash CHAR(64),
     }
   })
 
-  router.post('/sponsor-requests', (_req, res) => res.status(410).json({
-    success: false, error: 'legacy-sponsor-request-intake-disabled', payoutSubmitted: false,
-  }))
-  router.get('/sponsor-requests/mine', (_req, res) => res.status(410).json({
-    success: false, error: 'legacy-sponsor-request-history-disabled',
-  }))
-  router.get('/sponsor-requests', (_req, res) => res.status(410).json({
-    success: false, error: 'legacy-sponsor-request-review-disabled',
-  }))
+  // Durable owner-only request intake. Creating a request never calls Fincra,
+  // reserves provider funds, or submits a payout; it records a uniquely keyed
+  // intent for later independently authorized processing.
+  router.post('/sponsor-requests', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error, payoutSubmitted: false })
+
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    const idempotencyKey = cleanString(req.headers?.['idempotency-key'] || body.idempotencyKey, 128)
+    if (!/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) {
+      return res.status(400).json({ success: false, error: 'valid-idempotency-key-required', payoutSubmitted: false })
+    }
+    const recipientAddress = cleanString(body.recipientAddress, 64)
+    if (!isValidTronAddress(recipientAddress)) {
+      return res.status(400).json({ success: false, error: 'invalid-tron-mainnet-recipient-address', payoutSubmitted: false })
+    }
+    const beneficiaryName = cleanString(body.beneficiaryName, 120)
+    if (beneficiaryName.length < 2) {
+      return res.status(400).json({ success: false, error: 'beneficiary-name-required', payoutSubmitted: false })
+    }
+    const beneficiaryEmail = cleanString(body.beneficiaryEmail, 254).toLowerCase()
+    if (beneficiaryEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(beneficiaryEmail)) {
+      return res.status(400).json({ success: false, error: 'invalid-beneficiary-email', payoutSubmitted: false })
+    }
+    const destinationTag = cleanString(body.destinationTag, 128)
+    if (destinationTag && !/^[A-Za-z0-9._:-]{1,128}$/.test(destinationTag)) {
+      return res.status(400).json({ success: false, error: 'invalid-beneficiary-destination-tag', payoutSubmitted: false })
+    }
+    let amount
+    try {
+      amount = parseUsdtAmount(body.amount)
+    } catch {
+      return res.status(400).json({ success: false, error: 'invalid-usdt-amount', payoutSubmitted: false })
+    }
+
+    const db = getPool(env)
+    if (!db || typeof db.query !== 'function') {
+      return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable', payoutSubmitted: false })
+    }
+    try {
+      await ensureSchema(db)
+      const id = randomUUID()
+      const customerReference = 'TRONUSDT-' + randomUUID().replace(/-/g, '')
+      const inserted = await db.query(
+        `INSERT INTO ${SCHEMA}.tron_transfer_sponsor_requests
+          (id, customer_reference, requester_address, recipient_address, beneficiary_name,
+           beneficiary_email, destination_tag, idempotency_key, asset, network, token_contract,
+           amount_base_units, amount_decimal, status, chain_verification_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'USDT','mainnet',$9,$10,$11,'awaiting-provider-authorization','not-verified')
+         ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+         RETURNING *`,
+        [id, customerReference, auth.address, recipientAddress, beneficiaryName,
+          beneficiaryEmail || null, destinationTag || null, idempotencyKey, MAINNET_USDT, amount.baseUnits, amount.decimal],
+      )
+      let row = inserted.rows[0]
+      const duplicate = !row
+      if (duplicate) {
+        const existing = await db.query(
+          `SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests WHERE idempotency_key=$1 LIMIT 1`,
+          [idempotencyKey],
+        )
+        row = existing.rows[0]
+        if (!row) return res.status(503).json({ success: false, error: 'idempotency-record-unavailable', payoutSubmitted: false })
+        if (row.requester_address !== auth.address || row.recipient_address !== recipientAddress
+          || String(row.amount_base_units) !== amount.baseUnits
+          || row.beneficiary_name !== beneficiaryName
+          || (row.beneficiary_email || '') !== beneficiaryEmail
+          || (row.destination_tag || '') !== destinationTag) {
+          return res.status(409).json({ success: false, error: 'idempotency-key-reused-for-different-request', payoutSubmitted: false })
+        }
+      }
+      return res.status(duplicate ? 200 : 202).json({
+        success: true,
+        duplicate,
+        request: publicRequest(row),
+        payoutSubmitted: false,
+        transactionSubmitted: false,
+        chainSettlementVerified: false,
+        nextStep: 'awaiting-provider-authorization-and-funding-verification',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable', payoutSubmitted: false })
+    }
+  })
+
+  router.get('/sponsor-requests/mine', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getPool(env)
+    if (!db || typeof db.query !== 'function') return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(
+        `SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests
+         WHERE requester_address=$1 ORDER BY created_at DESC LIMIT 100`,
+        [auth.address],
+      )
+      return res.json({ success: true, requests: result.rows.map(publicRequest) })
+    } catch {
+      return res.status(503).json({ success: false, error: 'payout-request-history-unavailable' })
+    }
+  })
+
+  router.get('/sponsor-requests', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getPool(env)
+    if (!db || typeof db.query !== 'function') return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(
+        `SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests
+         ORDER BY created_at DESC LIMIT 100`,
+      )
+      return res.json({ success: true, requests: result.rows.map(publicRequest) })
+    } catch {
+      return res.status(503).json({ success: false, error: 'payout-request-list-unavailable' })
+    }
+  })
 
   router.post('/sponsor-requests/:id/fincra-payout', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
@@ -696,15 +818,84 @@ transaction_hash CHAR(64),
     })
   })
 
+  // Read-only reconciliation lookup for an existing payout reference. This
+  // route never creates, retries, or submits a payout and never marks chain
+  // settlement as complete.
   router.post('/sponsor-requests/:id/fincra-status', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
     const auth = await requireOwnerSession(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    return res.status(410).json({
-      success: false,
-      error: 'legacy-fincra-status-polling-disabled',
-      providerRequestMade: false,
-    })
+    const id = cleanString(req.params?.id, 64)
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-request-id' })
+    }
+    const db = getPool(env)
+    if (!db || typeof db.connect !== 'function') {
+      return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable' })
+    }
+    let client
+    try {
+      client = await db.connect()
+      await ensureSchema(client)
+      const row = await findRequest(client, id)
+      if (!row) return res.status(404).json({ success: false, error: 'sponsor-request-not-found' })
+      // Fincra's customer-reference lookup must use our stable local customer_reference.
+      // fincra_reference stores the provider's separate payout/reference identifier.
+      const customerReference = cleanString(row.customer_reference, 80)
+      if (!customerReference) {
+        return res.status(409).json({
+          success: false, error: 'fincra-customer-reference-missing',
+          providerRequestMade: false, payoutSubmitted: false,
+        })
+      }
+      const result = await lookupFincraPayoutByCustomerReference(env, customerReference)
+      if (!result.found) {
+        return res.status(200).json({
+          success: true, found: false, providerStatus: 'not-found',
+          customerReference, providerRequestMade: true, payoutSubmitted: false,
+          retryAllowed: false,
+          message: 'The original reference is not currently visible at Fincra. Preserve this reference and reconcile again; do not create a replacement payout.',
+        })
+      }
+      const identity = normalizeFincraPayoutRecord(result.payout, {
+        customerReference,
+        recipientAddress: row.recipient_address,
+        destinationTag: row.destination_tag || '',
+        amount: row.amount_decimal,
+      })
+      return res.status(200).json({
+        success: true,
+        found: true,
+        provider: 'fincra',
+        customerReference,
+        providerStatus: identity.status,
+        providerRecordValid: identity.valid,
+        reviewReasons: identity.reasons,
+        recipientAddress: identity.recipientAddress,
+        amountReceivedBaseUnits: identity.amountReceivedBaseUnits,
+        amountChargedBaseUnits: identity.amountChargedBaseUnits,
+        providerReference: identity.providerReference,
+        providerTransactionHash: identity.transactionHash,
+        payoutSubmitted: false,
+        transactionSubmitted: false,
+        chainSettlementVerified: false,
+        message: identity.valid
+          ? 'Provider status was read and identity checks passed. This is not proof of a solidified TRON transfer.'
+          : 'Provider record requires manual review. No local payout or chain-settlement status was changed.',
+      })
+    } catch (error) {
+      const status = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599
+        ? error.status : 502
+      return res.status(status).json({
+        success: false,
+        error: status === 404 ? 'fincra-payout-reference-not-found' : 'fincra-status-lookup-unavailable',
+        providerStatus: status,
+        providerRequestMade: true,
+        payoutSubmitted: false,
+      })
+    } finally {
+      client?.release()
+    }
   })
 
   router.post('/fincra/webhook', (_req, res) => {

@@ -5,6 +5,7 @@ import { normalizeDatabaseConnectionString, databaseSslConfig } from '../databas
 import { isValidTronAddress } from '../tron-address.mjs'
 import { parseFincraUsdtBaseUnits, verifyFincraWebhookSignature } from '../fincra-payout-provider.mjs'
 import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
+import { getFincraWebhookTransition } from '../fincra-payout-state.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -81,6 +82,7 @@ export function normalizeFincraPayoutWebhook(payload) {
       || data.walletAddress,
     64,
   )
+  const destinationTag = clean(data.beneficiary?.destinationTag || data.recipient?.destinationTag || data.destinationTag, 128)
   const amountCharged = optionalAmount(data.amountCharged)
   const amountReceived = optionalAmount(data.amountReceived)
   const fee = optionalAmount(data.fee)
@@ -118,6 +120,7 @@ export function normalizeFincraPayoutWebhook(payload) {
     paymentScheme,
     paymentDestination,
     recipientAddress: isValidTronAddress(recipientAddress) ? recipientAddress : null,
+    destinationTag: destinationTag || null,
     amountChargedBaseUnits: amountCharged.value,
     amountReceivedBaseUnits: amountReceived.value,
     feeBaseUnits: fee.value,
@@ -126,7 +129,7 @@ export function normalizeFincraPayoutWebhook(payload) {
       eventType, customerReference, providerReference: clean(data.reference || data.transactionReference, 128) || null,
       payoutId: data.id == null ? null : clean(String(data.id), 128) || null,
       providerStatus, sourceCurrency, destinationCurrency, paymentScheme, paymentDestination,
-      recipientAddress, amountChargedBaseUnits: amountCharged.value,
+      recipientAddress, destinationTag: destinationTag || null, amountChargedBaseUnits: amountCharged.value,
       amountReceivedBaseUnits: amountReceived.value, feeBaseUnits: fee.value, reasons,
     }), 'utf8').digest('hex'),
   }
@@ -139,7 +142,14 @@ function getWebhookRequestMatchReasons(row, event) {
     return reasons
   }
   if (event.customerReference !== row.customer_reference) reasons.push('customer-reference-mismatch')
+  const transition = getFincraWebhookTransition({
+    requestStatus: row.status,
+    previousProviderStatus: row.fincra_status,
+    providerStatus: event.providerStatus,
+  })
+  if (!transition.allowed) reasons.push(transition.reason)
   if (event.recipientAddress !== row.recipient_address) reasons.push('recipient-mismatch')
+  if ((event.destinationTag || '') !== (row.destination_tag || '')) reasons.push('destination-tag-mismatch')
   if (event.sourceCurrency !== 'USDT' || event.destinationCurrency !== 'USDT') reasons.push('currency-route-mismatch')
   if (event.paymentScheme !== 'usdt_trc20' || event.paymentDestination !== 'crypto_wallet') {
     reasons.push('payment-scheme-or-destination-mismatch')
@@ -153,10 +163,6 @@ function getWebhookRequestMatchReasons(row, event) {
     reasons.push('successful-net-amount-does-not-match-request')
   }
 
-  const previousStatus = clean(row.fincra_status, 32).toLowerCase()
-  if (['successful', 'failed'].includes(previousStatus) && previousStatus !== event.providerStatus) {
-    reasons.push('terminal-provider-status-conflict')
-  }
   return [...new Set(reasons)]
 }
 
@@ -168,10 +174,13 @@ async function ensureSchema(client) {
     'event_type TEXT NOT NULL CHECK (event_type IN (\'payout.successful\',\'payout.failed\')), ' +
     'customer_reference TEXT, provider_reference TEXT, provider_payout_id TEXT, provider_status TEXT NOT NULL, ' +
     'source_currency TEXT, destination_currency TEXT, payment_scheme TEXT, payment_destination TEXT, ' +
-    'recipient_address TEXT, amount_charged_base_units NUMERIC(78,0), amount_received_base_units NUMERIC(78,0), ' +
+    'recipient_address TEXT, destination_tag TEXT, amount_charged_base_units NUMERIC(78,0), amount_received_base_units NUMERIC(78,0), ' +
     'fee_base_units NUMERIC(78,0), identity_status TEXT NOT NULL DEFAULT \'unmatched\' ' +
     'CHECK (identity_status IN (\'unmatched\',\'matched\',\'review-required\')), ' +
     'received_at TIMESTAMPTZ NOT NULL DEFAULT now())'
+  )
+  await client.query(
+    'ALTER TABLE ' + SCHEMA + '.fincra_payout_webhook_events ADD COLUMN IF NOT EXISTS destination_tag TEXT'
   )
   await client.query(
     'ALTER TABLE ' + SCHEMA + '.fincra_payout_webhook_events ADD COLUMN IF NOT EXISTS review_reasons JSONB NOT NULL DEFAULT \'[]\'::jsonb'
@@ -183,9 +192,10 @@ async function ensureSchema(client) {
 }
 
 /**
- * Receives signed Fincra payout events. It stores minimal metadata and updates
- * only the provider-status columns of an exactly matching legacy request.
- * It never marks an on-chain transfer confirmed or broadcasts a transaction.
+ * Receives signed Fincra payout events. It stores minimal metadata and applies
+ * provider-status transitions only to an exactly matching request already in a
+ * submitted/reconciliation state. It never initiates a payout or marks an
+ * on-chain transfer confirmed.
  */
 export function createFincraWebhookRouter({
   env = process.env,
@@ -270,21 +280,47 @@ export function createFincraWebhookRouter({
       const inserted = await client.query(
         'INSERT INTO ' + SCHEMA + '.fincra_payout_webhook_events ' +
         '(event_digest, environment, event_type, customer_reference, provider_reference, provider_payout_id, ' +
-        'provider_status, source_currency, destination_currency, payment_scheme, payment_destination, recipient_address, ' +
+        'provider_status, source_currency, destination_currency, payment_scheme, payment_destination, recipient_address, destination_tag, ' +
         'amount_charged_base_units, amount_received_base_units, fee_base_units, review_reasons, identity_status) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,\'unmatched\') ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,\'unmatched\') ' +
         'ON CONFLICT (event_digest) DO NOTHING RETURNING event_digest',
         [
           event.eventDigest, environment, event.eventType, event.customerReference,
           event.providerReference, event.payoutId, event.providerStatus, event.sourceCurrency,
           event.destinationCurrency, event.paymentScheme, event.paymentDestination, event.recipientAddress,
-          event.amountChargedBaseUnits, event.amountReceivedBaseUnits, event.feeBaseUnits, JSON.stringify(event.reasons),
+          event.destinationTag, event.amountChargedBaseUnits, event.amountReceivedBaseUnits, event.feeBaseUnits, JSON.stringify(event.reasons),
         ],
       )
 
-      if (!inserted.rows.length) {
-        await client.query('COMMIT')
-        return res.status(200).json({ success: true, received: true, duplicate: true, processed: false })
+      const duplicate = inserted.rows.length === 0
+      if (duplicate) {
+        // A previously unmatched delivery may be retried after the local intent
+        // is created. Reconcile that same event only when absence of the local
+        // request was its sole prior blocker; matched/reviewed events are terminal
+        // for webhook replay and can never trigger another payout.
+        const existingEvent = await client.query(
+          'SELECT identity_status, review_reasons FROM ' + SCHEMA + '.fincra_payout_webhook_events ' +
+          'WHERE event_digest=$1 FOR UPDATE',
+          [event.eventDigest],
+        )
+        const prior = existingEvent.rows[0]
+        if (!prior) throw new Error('duplicate-fincra-event-record-missing')
+        const priorReasons = Array.isArray(prior.review_reasons) ? prior.review_reasons : []
+        const safeToRetryMatch = prior.identity_status === 'unmatched'
+          && event.reasons.length === 0
+          && priorReasons.length === 1
+          && priorReasons[0] === 'local-payout-request-not-found'
+        if (!safeToRetryMatch) {
+          await client.query('COMMIT')
+          return res.status(200).json({
+            success: true, received: true, duplicate: true, processed: false,
+            localRequestMatched: prior.identity_status === 'matched',
+            identityStatus: prior.identity_status,
+            reason: prior.identity_status === 'unmatched'
+              ? 'local-payout-request-still-not-found'
+              : 'duplicate-event-already-reconciled-or-requires-review',
+          })
+        }
       }
 
       const requestTable = await client.query(
@@ -293,9 +329,10 @@ export function createFincraWebhookRouter({
       )
       let found = { rows: [] }
       if (requestTable.rows[0]?.table_name) {
+        await client.query('ALTER TABLE ' + SCHEMA + '.tron_transfer_sponsor_requests ADD COLUMN IF NOT EXISTS destination_tag TEXT')
         found = await client.query(
-          'SELECT id, customer_reference, recipient_address, amount_base_units, fincra_status ' +
-          'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1',
+          'SELECT id, customer_reference, recipient_address, destination_tag, amount_base_units, fincra_status, status ' +
+          'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1 FOR UPDATE',
           [event.customerReference],
         )
       }
@@ -310,8 +347,15 @@ export function createFincraWebhookRouter({
       )
 
       if (matched) {
+        const transition = getFincraWebhookTransition({
+          requestStatus: row.status,
+          previousProviderStatus: row.fincra_status,
+          providerStatus: event.providerStatus,
+        })
+        if (!transition.allowed) throw new Error('fincra-webhook-transition-not-allowed')
         await client.query(
           'UPDATE ' + SCHEMA + '.tron_transfer_sponsor_requests SET ' +
+          'status=$8, ' +
           'fincra_reference=COALESCE($2,fincra_reference), fincra_status=$3, fincra_webhook_event=$4, ' +
           'fincra_webhook_received_at=now(), fincra_amount_charged_base_units=$5, ' +
           'fincra_amount_received_base_units=$6, fincra_fee_base_units=$7, ' +
@@ -321,6 +365,7 @@ export function createFincraWebhookRouter({
           [
             row.id, event.providerReference, event.providerStatus, event.eventType,
             event.amountChargedBaseUnits, event.amountReceivedBaseUnits, event.feeBaseUnits,
+            transition.nextStatus,
           ],
         )
       }
@@ -329,8 +374,9 @@ export function createFincraWebhookRouter({
       return res.status(200).json({
         success: true,
         received: true,
-        recorded: true,
-        duplicate: false,
+        recorded: !duplicate,
+        duplicate,
+        reprocessed: duplicate && matched,
         localRequestMatched: matched,
         identityStatus,
         providerPayoutStatus: event.providerStatus,

@@ -11,6 +11,10 @@ import {
   parseSponsorDirectFeeParameters,
   calculateSponsorDirectFeeCoverage,
   matchesSponsorDirectUnsignedTransaction,
+  sponsorApprovalContainsAddress,
+  classifySponsorBroadcastResponse,
+  classifySponsorDirectSettlement,
+  runSponsorDirectPayoutReconciliationSweep,
   isSponsorDirectAutoRouteEligible,
   createSponsorDirectPayoutsRouter,
 } from '../server/routes/sponsor-direct-payouts.mjs'
@@ -192,6 +196,83 @@ function unsignedTransfer(overrides = {}) {
   }
 }
 
+test('ambiguous or negative Tatum broadcast responses remain reconcilable by the fixed transaction ID', () => {
+  assert.equal(classifySponsorBroadcastResponse({ result: true }), 'submitted')
+  assert.equal(classifySponsorBroadcastResponse({ result: false, code: 'DUP_TRANSACTION_ERROR' }), 'outcome-unknown')
+  assert.equal(classifySponsorBroadcastResponse({ code: 'SERVER_BUSY' }), 'outcome-unknown')
+  assert.equal(classifySponsorBroadcastResponse(null), 'outcome-unknown')
+})
+
+test('settlement reconciliation confirms only exact solidified evidence and keeps missing evidence pending', () => {
+  const transactionHash = 'a'.repeat(64)
+  const transfer = {
+    transaction_hash: transactionHash,
+    sponsor_address: sponsorAddress,
+    recipient_address: recipientAddress,
+    token_contract: MAINNET_USDT_CONTRACT,
+    amount_base_units: '25000000',
+  }
+  assert.deepEqual(classifySponsorDirectSettlement({
+    transfer,
+    verification: { verified: false, status: 'awaiting-solidified-receipt' },
+  }), { status: 'pending', reason: 'awaiting-solidified-receipt' })
+
+  assert.deepEqual(classifySponsorDirectSettlement({
+    transfer,
+    verification: {
+      verified: true,
+      transactionHash,
+      contract: MAINNET_USDT_CONTRACT,
+      from: sponsorAddress,
+      to: recipientAddress,
+      amountBaseUnits: '25000000',
+      blockNumber: 123456,
+      logIndex: 0,
+    },
+  }), { status: 'confirmed', blockNumber: 123456, logIndex: 0, reason: null })
+
+  assert.deepEqual(classifySponsorDirectSettlement({
+    transfer,
+    verification: {
+      verified: true,
+      transactionHash: 'b'.repeat(64),
+      contract: MAINNET_USDT_CONTRACT,
+      from: sponsorAddress,
+      to: recipientAddress,
+      amountBaseUnits: '25000000',
+      blockNumber: 123456,
+      logIndex: 0,
+    },
+  }), { status: 'manual-review', reason: 'solidified-evidence-identity-mismatch' })
+
+  assert.deepEqual(classifySponsorDirectSettlement({
+    transfer,
+    verification: { verified: false, status: 'solidified-transaction-failed' },
+  }), { status: 'failed', reason: 'confirmed-solidified-transaction-failed' })
+})
+
+test('TRON approved-list accepts documented successful response and fails closed on errors or wrong signer', () => {
+  assert.equal(sponsorApprovalContainsAddress({
+    result: {},
+    approved_list: [sponsorAddress],
+  }, sponsorAddress), true)
+  assert.equal(sponsorApprovalContainsAddress({
+    result: { result: false },
+    approved_list: [sponsorAddress],
+  }, sponsorAddress), false)
+  assert.equal(sponsorApprovalContainsAddress({
+    result: { code: 'SIGERROR' },
+    approved_list: [sponsorAddress],
+  }, sponsorAddress), false)
+  assert.equal(sponsorApprovalContainsAddress({
+    result: {},
+    approved_list: [requesterAddress],
+  }, sponsorAddress), false)
+  assert.equal(sponsorApprovalContainsAddress({
+    approved_list: [sponsorAddress],
+  }, sponsorAddress), false)
+})
+
 test('unsigned sponsor transaction must bind the sponsor, official token, recipient and amount', () => {
   const tx = unsignedTransfer()
   const intent = { sponsorAddress, recipientAddress, amountBaseUnits: '25000000', tronWeb }
@@ -236,7 +317,8 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
   let sponsorApplicationId = null
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
-  const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey]
+  const concurrentIdempotencyKey = randomUUID()
+  const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey, concurrentIdempotencyKey]
   let server
 
   try {
@@ -352,6 +434,23 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(first.payload.transactionBroadcast, false)
     assert.equal(first.payload.request.sponsorAddress, sponsorAddress)
 
+    const replay = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '25',
+      idempotencyKey: firstIdempotencyKey,
+    })
+    assert.equal(replay.response.status, 200)
+    assert.equal(replay.payload.duplicate, true)
+    assert.equal(replay.payload.request.id, first.payload.request.id)
+
+    const conflictingReplay = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '26',
+      idempotencyKey: firstIdempotencyKey,
+    })
+    assert.equal(conflictingReplay.response.status, 409)
+    assert.equal(conflictingReplay.payload.error, 'idempotency-key-reused-for-different-request')
+
     const second = await call('/requests', requesterToken, {
       recipientAddress,
       amount: '25',
@@ -360,6 +459,19 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(second.response.status, 201)
     assert.equal(second.payload.sponsorRouting, 'awaiting-eligible-sponsor')
     assert.equal(second.payload.request.sponsorAddress, null)
+
+    const concurrentPayload = {
+      recipientAddress,
+      amount: '5',
+      idempotencyKey: concurrentIdempotencyKey,
+    }
+    const concurrent = await Promise.all([
+      call('/requests', requesterToken, concurrentPayload),
+      call('/requests', requesterToken, concurrentPayload),
+    ])
+    assert.deepEqual(concurrent.map((item) => item.response.status).sort(), [200, 201])
+    assert.equal(concurrent.filter((item) => item.payload.duplicate === true).length, 1)
+    assert.equal(concurrent[0].payload.request.id, concurrent[1].payload.request.id)
 
     const readiness = await call('/readiness', sponsorToken)
     assert.equal(readiness.response.status, 200)
@@ -483,3 +595,70 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(JSON.stringify(payload).includes(sponsorAddress), false)
 })
 
+test('reconciliation sweep persists only exact confirmed evidence and leaves inconclusive transfers pending', async () => {
+  const confirmedId = randomUUID()
+  const pendingId = randomUUID()
+  const txConfirmed = 'a'.repeat(64)
+  const txPending = 'b'.repeat(64)
+  const rows = new Map([
+    [confirmedId, {
+      id: confirmedId, sponsor_address: sponsorAddress, recipient_address: recipientAddress,
+      token_contract: MAINNET_USDT_CONTRACT, amount_base_units: '25000000',
+      transaction_hash: txConfirmed, status: 'submitted',
+    }],
+    [pendingId, {
+      id: pendingId, sponsor_address: sponsorAddress, recipient_address: recipientAddress,
+      token_contract: MAINNET_USDT_CONTRACT, amount_base_units: '1000000',
+      transaction_hash: txPending, status: 'outcome-unknown',
+    }],
+  ])
+  const updates = []
+  const db = {
+    async query(sql, values = []) {
+      if (sql.startsWith('SELECT id FROM trc20_token_clone.sponsor_direct_payouts')) {
+        return { rows: [...rows.values()].map(({ id }) => ({ id })) }
+      }
+      return { rows: [] }
+    },
+    async connect() {
+      let selected
+      return {
+        async query(sql, values = []) {
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK'
+            || sql.startsWith('CREATE ') || sql.startsWith('ALTER ') ) return { rows: [] }
+          if (sql.startsWith('SELECT id, sponsor_address, recipient_address')) {
+            selected = rows.get(values[0])
+            return { rows: selected ? [{ ...selected }] : [] }
+          }
+          if (sql.startsWith('UPDATE trc20_token_clone.sponsor_direct_payouts SET status=$2')) {
+            updates.push({ id: values[0], status: values[1], evidence: values[5], error: values[6] })
+            if (selected) selected.status = values[1]
+            return { rows: [{ id: values[0], status: values[1] }] }
+          }
+          throw new Error('Unexpected reconciliation SQL: ' + sql.slice(0, 120))
+        },
+        release() {},
+      }
+    },
+  }
+  const summary = await runSponsorDirectPayoutReconciliationSweep({
+    env: { TATUM_MAINNET_API_KEY: 'test-only-placeholder' },
+    db,
+    verifyTransfer: async (_env, intent) => intent.transactionHash === txConfirmed
+      ? {
+          verified: true, transactionHash: txConfirmed, contract: MAINNET_USDT_CONTRACT,
+          from: sponsorAddress, to: recipientAddress, amountBaseUnits: '25000000',
+          blockNumber: 987654, logIndex: 2,
+        }
+      : { verified: false, status: 'awaiting-solidified-receipt' },
+  })
+  assert.equal(summary.checked, 2)
+  assert.equal(summary.confirmed, 1)
+  assert.equal(summary.pending, 1)
+  assert.deepEqual(updates.map(({ status }) => status), ['confirmed', 'outcome-unknown'])
+  assert.equal(JSON.parse(updates[0].evidence).transactionHash, txConfirmed)
+  assert.equal(updates[0].error, null)
+  assert.equal(updates[1].error, 'awaiting-solidified-receipt')
+  assert.equal(rows.get(confirmedId).status, 'confirmed')
+  assert.equal(rows.get(pendingId).status, 'outcome-unknown')
+})

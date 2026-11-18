@@ -109,6 +109,34 @@ test('payout wallet sessions are restricted to the configured private platform o
   assert.match(recipientRoute, /private-platform-owner-not-configured/)
 })
 
+test('owner-only Fincra request intake persists exact USDT intent idempotently without submitting a payout', () => {
+  const handler = recipientRoute.slice(
+    recipientRoute.indexOf("router.post('/sponsor-requests'"),
+    recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-payout'"),
+  )
+  assert.match(handler, /requireOwnerSession\(req, env\)/)
+  assert.match(handler, /valid-idempotency-key-required/)
+  assert.match(handler, /isValidTronAddress\(recipientAddress\)/)
+  assert.match(handler, /parseUsdtAmount\(body\.amount\)/)
+  assert.match(handler, /destinationTag/)
+  assert.match(handler, /destination_tag/)
+  assert.match(handler, /ON CONFLICT \(idempotency_key\)/)
+  assert.match(handler, /idempotency-key-reused-for-different-request/)
+  assert.match(handler, /awaiting-provider-authorization/)
+  assert.match(handler, /payoutSubmitted: false/)
+  assert.doesNotMatch(handler, /fincraRequest\(|initiateFincraSandboxUsdtTronPayout/)
+})
+
+test('owner-only payout request history never exposes other requester records', () => {
+  const handler = recipientRoute.slice(
+    recipientRoute.indexOf("router.get('/sponsor-requests/mine'"),
+    recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-payout'"),
+  )
+  assert.match(handler, /requireOwnerSession\(req, env\)/)
+  assert.match(handler, /WHERE requester_address=\$1/)
+  assert.match(handler, /LIMIT 100/)
+})
+
 test('legacy Fincra payout submission is disabled even if old credentials remain configured', () => {
   const handler = recipientRoute.slice(
     recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-payout'"),
@@ -179,6 +207,17 @@ test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow a
   assert.ok(sponsorFrontend.includes('/broadcast'))
 })
 
+test('sponsor payout status refresh cannot overwrite a concurrently finalized state', () => {
+  const statusHandler = sponsorRoute.slice(
+    sponsorRoute.indexOf("router.get('/requests/:id'"),
+    sponsorRoute.indexOf('\n  return router', sponsorRoute.indexOf("router.get('/requests/:id'")),
+  )
+  assert.match(statusHandler, /WHERE id=\$1 AND status = ANY\(\$4::text\[\]\) RETURNING \*/);
+  assert.match(statusHandler, /\['submitted', 'outcome-unknown', 'broadcasting'\]/);
+  assert.match(statusHandler, /Another process won the race/);
+  assert.match(statusHandler, /SELECT \* FROM .*sponsor_direct_payouts WHERE id=\$1 LIMIT 1/);
+});
+
 test('private owner console exposes sponsor withdrawals and keeps provider readiness separate', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   const portal = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorPortal.jsx', import.meta.url), 'utf8')
@@ -218,4 +257,17 @@ test('Fincra signed payout webhook is mounted before the disabled legacy handler
   assert.match(fincraWebhookRoute, /fincra_status=\$3/)
   assert.match(fincraWebhookRoute, /chainSettlement: 'not-verified'/)
   assert.doesNotMatch(fincraWebhookRoute, /wallet\/broadcasttransaction|sendRawTransaction/i)
+})
+
+
+test('Fincra status reconciliation always looks up the stable local customer reference, not the provider reference field', () => {
+  const handler = recipientRoute.slice(
+    recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-status'"),
+    recipientRoute.indexOf("router.post('/fincra/webhook'"),
+  )
+  assert.match(handler, /cleanString\(row\.customer_reference, 80\)/)
+  assert.doesNotMatch(handler, /row\.fincra_reference\s*\|\|\s*row\.customer_reference/)
+  assert.match(handler, /amount: row\.amount_decimal/)
+  assert.match(handler, /payoutSubmitted: false/)
+  assert.match(handler, /chainSettlementVerified: false/)
 })
