@@ -7,6 +7,8 @@ import {
 
 const ownerAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const txid = 'a'.repeat(64)
+const energyTxid = 'b'.repeat(64)
+const bandwidthTxid = 'c'.repeat(64)
 const required = { ENERGY: '900000', BANDWIDTH: '1200' }
 
 test('no provider adapter means no automatic grant is claimed or fabricated', async () => {
@@ -21,7 +23,7 @@ test('no provider adapter means no automatic grant is claimed or fabricated', as
 
 test('provider-managed adapter can request and independently verify a zero-cost grant', async () => {
   const calls = []
-  const manager = createResourceClaimOrchestrator({ delegationVerifier: { async verifyDelegation(input) { calls.push(['independent-verify', input.transactionId]); return { verified: true, solidified: true, network: 'mainnet', ownerAddress, transactionId: txid, ENERGY: '900000', BANDWIDTH: '1200' } } }, adapters: [{
+  const manager = createResourceClaimOrchestrator({ delegationVerifier: { async verifyDelegation(input) { calls.push(['independent-verify', input.transactionId]); return { verified: true, solidified: true, network: 'mainnet', ownerAddress, transactionId: input.transactionId, ENERGY: '900000', BANDWIDTH: '1200' } } }, adapters: [{
     id: 'example-authorized-provider',
     network: 'mainnet',
     authorizationMode: 'provider-managed-signer',
@@ -32,7 +34,7 @@ test('provider-managed adapter can request and independently verify a zero-cost 
     },
     async requestGrant(input) {
       calls.push(['request', input.requestId])
-      return { accepted: true, userCostSun: '0', transactionId: txid }
+      return { accepted: true, userCostSun: '0', transactionIds: { ENERGY: energyTxid, BANDWIDTH: bandwidthTxid } }
     },
   }] })
   const readiness = await manager.getReadiness(ownerAddress)
@@ -53,7 +55,7 @@ test('provider adapter cannot pass grant through without on-chain verification',
     authorizationMode: 'provider-managed-signer',
     async health() { return { reachable: true } },
     async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
-    async requestGrant() { return { accepted: true, transactionId: txid } },
+    async requestGrant() { return { accepted: true, transactionIds: { ENERGY: energyTxid, BANDWIDTH: bandwidthTxid } } },
   }] })
   const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
   assert.equal(result.success, false)
@@ -161,7 +163,7 @@ test('provider grant response must independently confirm exactly zero user cost'
           authorizationMode: 'provider-managed-signer',
           async health() { return { reachable: true } },
           async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
-          async requestGrant() { return { accepted: true, ...(cost === undefined ? {} : { userCostSun: cost }), transactionId: txid } },
+          async requestGrant() { return { accepted: true, ...(cost === undefined ? {} : { userCostSun: cost }), transactionIds: { ENERGY: energyTxid, BANDWIDTH: bandwidthTxid } } },
         }],
       })
       const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
@@ -213,4 +215,24 @@ test('accepted grant with unavailable verification is not retried against anothe
   assert.equal(result.status, 'grant-submitted-verification-unavailable')
   assert.equal(result.retrySafe, false)
   assert.equal(secondProviderCalled, false)
+})
+
+test('same transaction ID cannot be accepted for both Energy and Bandwidth', async () => {
+  let verificationCalled = false
+  const manager = createResourceClaimOrchestrator({
+    delegationVerifier: { async verifyDelegation() { verificationCalled = true; throw new Error('must reject before verification') } },
+    adapters: [{
+      id: 'single-transaction-provider',
+      network: 'mainnet',
+      authorizationMode: 'provider-managed-signer',
+      async health() { return { reachable: true } },
+      async checkEligibility() { return { eligible: true, network: 'mainnet', userCostSun: '0' } },
+      async requestGrant() { return { accepted: true, userCostSun: '0', transactionId: txid } },
+    }],
+  })
+  const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'grant-accepted-response-incomplete-or-not-zero-cost')
+  assert.equal(result.retrySafe, false)
+  assert.equal(verificationCalled, false)
 })
