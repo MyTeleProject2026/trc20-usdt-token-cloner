@@ -45,3 +45,43 @@ test('confirmed Mainnet transaction feed is owner restricted and requests confir
   assert.equal(requestBody.limit, '20')
   assert.equal(requestBody.order_by, 'block_timestamp,desc')
 })
+
+
+test('Render control-plane feed is read only, server-authenticated, and returns sanitized event metadata', async (t) => {
+  const requests = []
+  const server = createServer({
+    env: { RENDER_API_KEY: 'render-secret-never-return-this', RENDER_RESOURCE_API_SERVICE_ID: 'srv-api-test', RENDER_FRONTEND_SERVICE_ID: 'srv-web-test' },
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url, options })
+      return new Response(JSON.stringify([{ event: { id: 'evt-1', timestamp: '2026-11-18T12:00:00.000Z', serviceId: 'srv-api-test', type: 'deploy_ended', details: { message: 'private-build-output' } }, cursor: 'cursor-1' }]), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/observatory/render-events')
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.configured, true)
+  assert.equal(body.events.length, 2)
+  assert.equal(body.events[0].type, 'deploy_ended')
+  assert.equal(JSON.stringify(body).includes('render-secret-never-return-this'), false)
+  assert.equal(JSON.stringify(body).includes('private-build-output'), false)
+  assert.equal(requests.length, 2)
+  for (const request of requests) {
+    assert.equal(request.options.headers.authorization, 'Bearer render-secret-never-return-this')
+    assert.match(request.url, /^https:\/\/api\.render\.com\/v1\/services\//)
+    assert.equal(request.options.method, 'GET')
+  }
+})
+
+test('Render control-plane feed degrades honestly when no API key is configured', async (t) => {
+  const server = createServer({ env: {} })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/observatory/render-events')
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.configured, false)
+  assert.deepEqual(body.events, [])
+  assert.match(body.note, /RENDER_API_KEY/)
+})
