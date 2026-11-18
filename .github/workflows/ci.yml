@@ -54,5 +54,7 @@ jobs:
           node scripts/check-npm-audit.mjs npm-audit-ci.json
       - name: Run security, regression, and isolated PostgreSQL integration tests
         run: npm test
+      - name: Test TRON Mainnet resource API and Tatum fallback
+        run: npm test --prefix Frontend-Tron-Transfer/resource-api
       - name: Build frontend and compile contract
         run: npm run build
