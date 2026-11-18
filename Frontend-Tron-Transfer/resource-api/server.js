@@ -250,9 +250,18 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
       if (!allowRequest(ip, 'observatory-transactions')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       try {
-        const result = await rpcPost('/wallet/gettransactionfromaddress', { account: address, limit: 20, offset: 0, only_confirmed: true, only_unconfirmed: false, visible: true }, { fetchImpl, env })
-        const transactions = Array.isArray(result.data?.transaction) ? result.data.transaction : Array.isArray(result.data?.data) ? result.data.data : []
-        return send(res, 200, { success: true, network: 'TRON Mainnet', address, provider: result.provider, confirmedOnly: true, transactions, checkedAt: new Date().toISOString() }, origin)
+        const query = new URLSearchParams({ only_confirmed: 'true', limit: '20', order_by: 'block_timestamp,desc' })
+        const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
+        const response = await fetchImpl(`https://api.trongrid.io/v1/accounts/${encodeURIComponent(address)}/transactions?${query}`, {
+          method: 'GET',
+          headers: { accept: 'application/json', ...(tronGridKey ? { 'TRON-PRO-API-KEY': tronGridKey } : {}) },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+          redirect: 'error',
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || data?.success === false) throw new Error(`TronGrid transaction history returned HTTP ${response.status}`)
+        const transactions = Array.isArray(data.data) ? data.data : []
+        return send(res, 200, { success: true, network: 'TRON Mainnet', address, provider: 'trongrid-v1', confirmedOnly: true, transactions, checkedAt: new Date().toISOString() }, origin)
       } catch (error) {
         return send(res, 503, { success: false, error: 'MAINNET_TRANSACTION_FEED_UNAVAILABLE', message: String(error?.message || 'Could not read confirmed Mainnet transactions').slice(0, 180) }, origin)
       }
