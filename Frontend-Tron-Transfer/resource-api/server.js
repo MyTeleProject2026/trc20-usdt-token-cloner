@@ -268,6 +268,37 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
         return send(res, 503, { success: false, error: 'MAINNET_TRANSACTION_FEED_UNAVAILABLE', message: String(error?.message || 'Could not read confirmed Mainnet transactions').slice(0, 180) }, origin)
       }
     }
+    if (req.method === 'GET' && url.pathname === '/api/observatory/render-events') {
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      if (!allowRequest(ip, 'observatory-render-events', 10)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      const apiKey = typeof env.RENDER_API_KEY === 'string' ? env.RENDER_API_KEY.trim() : ''
+      const services = [
+        { id: env.RENDER_RESOURCE_API_SERVICE_ID || 'srv-dbrjpq56e07s73bueevg', label: 'Resource API' },
+        { id: env.RENDER_FRONTEND_SERVICE_ID || 'srv-dblmrad6e07s739cs2lg', label: 'Owner frontend' },
+      ]
+      if (!apiKey) return send(res, 200, { success: true, configured: false, provider: 'Render API', services: [], events: [], checkedAt: new Date().toISOString(), note: 'Set RENDER_API_KEY on the resource API service to enable authenticated Render control-plane events.' }, origin)
+      try {
+        const results = await Promise.all(services.map(async service => {
+          const query = new URLSearchParams({ limit: '10' })
+          const response = await fetchImpl('https://api.render.com/v1/services/' + encodeURIComponent(service.id) + '/events?' + query, {
+            method: 'GET',
+            headers: { accept: 'application/json', authorization: 'Bearer ' + apiKey },
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+            redirect: 'error',
+          })
+          if (!response.ok) throw new Error('Render events API returned HTTP ' + response.status)
+          const rows = await response.json()
+          return (Array.isArray(rows) ? rows : []).map(row => {
+            const event = row?.event || row || {}
+            return { id: String(event.id || ''), serviceId: service.id, serviceLabel: service.label, type: String(event.type || 'unknown').slice(0, 64), timestamp: event.timestamp || null }
+          }).filter(event => event.id && event.timestamp)
+        }))
+        const events = results.flat().sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)).slice(0, 20)
+        return send(res, 200, { success: true, configured: true, provider: 'Render API', services: services.map(({ id, label }) => ({ id, label })), events, checkedAt: new Date().toISOString() }, origin)
+      } catch (error) {
+        return send(res, 503, { success: false, configured: true, error: 'RENDER_EVENTS_UNAVAILABLE', message: String(error?.message || 'Render control-plane events unavailable').slice(0, 160), checkedAt: new Date().toISOString() }, origin)
+      }
+    }
     if (req.method === 'GET' && url.pathname === '/health') {
       const tatumConfigured = typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim().length > 0
       const tronGridConfigured = typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim().length > 0
