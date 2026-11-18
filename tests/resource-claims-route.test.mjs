@@ -85,3 +85,31 @@ test('one unavailable upstream does not suppress successful owner and provider o
   assert.equal(result.body.automaticClaim.enabled, false)
   assert.equal(result.body.deployment.mayBroadcast, false)
 })
+
+test('successful provider health/readiness response is not labeled authorized without grant capability', async () => {
+  const router = createResourceClaimsRouter({
+    allowedAddress: owner,
+    readStatus: async () => ({ success: true, resources: { energyAvailable: '10', freeBandwidthAvailable: '10' } }),
+    orchestrator: {
+      async getReadiness() {
+        return {
+          success: true,
+          providerReachable: true,
+          canRequestGrant: false,
+          status: 'provider-reachable-eligibility-not-checked',
+        }
+      },
+    },
+    publicProvider: {
+      async readResources() { return { success: true, provider: 'tenergy' } },
+      async health() { return { success: true, reachable: true, network: 'mainnet' } },
+    },
+  })
+  const result = await invoke(router, owner, false)
+  assert.equal(result.statusCode, 200)
+  assert.equal(result.body.providerReadiness.providerReachable, true)
+  assert.equal(result.body.providerReadiness.canRequestGrant, false)
+  assert.equal(result.body.checks.authorizedProviderReadiness, 'unavailable')
+  assert.equal(result.body.automaticClaim.enabled, false)
+  assert.equal(result.body.deployment.mayBroadcast, false)
+})
