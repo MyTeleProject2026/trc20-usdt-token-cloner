@@ -67,7 +67,7 @@ jobs:
           } catch {
             console.error('npm audit report could not be parsed.')
           }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'blocking=' + String(blocking) + '\\n')
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'blocking=' + String(blocking) + '\n')
           if (blocking) console.error('Critical/high dependency findings remain a release blocker; continuing tests for diagnostic coverage.')
           NODE
       - name: Run security, regression, and isolated PostgreSQL integration tests
