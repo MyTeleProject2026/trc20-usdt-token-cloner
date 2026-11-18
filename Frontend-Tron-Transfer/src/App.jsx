@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { TronWeb } from 'tronweb'
-import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, ArrowUpFromLine, Ban, Blocks, ChartNoAxesCombined, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, ArrowUpFromLine, Ban, Blocks, ChartNoAxesCombined, Coins, Handshake, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
+import ResourceSponsorCenter from './ResourceSponsorCenter.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', shortLabel: 'Home', description: 'Contract health and owner portfolio', icon: ChartNoAxesCombined },
   { id: 'deploy', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
+  { id: 'sponsors', label: 'Resource sponsors', shortLabel: 'Sponsors', description: 'Request verified Energy and Bandwidth delegation', icon: Handshake },
   { id: 'issuance', label: 'Owner issuance', shortLabel: 'Issue', description: 'Mint new TRӾ to a recipient address', icon: Coins },
   { id: 'credits', label: 'External credits', shortLabel: 'Credits', description: 'Single-address TRӾ credit issuance', icon: ArrowDownToLine },
   { id: 'batch', label: 'Batch credits', description: 'Issue credits to up to 50 addresses', icon: Layers3 },
@@ -91,7 +93,7 @@ export default function App() {
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>
+        {activePage === 'sponsors' ? <ResourceSponsorCenter wallet={wallet}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>} 
       </main>
       <footer className="trax-admin-footer">TRON TRANSFER · WALLET-CONTROLLED OWNER WORKSPACE · TRON MAINNET</footer>
     </div>
