@@ -45,6 +45,7 @@ function isOnlyTemporarilyExceptedAdvisory(name, trail = new Set()) {
     }
     return name === exception.packageName
       && item.severity === 'high'
+      && Date.parse(exception.expiresAt) > now
       && (item.fixAvailable === false || item.fixAvailable == null)
       && String(entry?.url || '').includes(exception.advisory)
   })
