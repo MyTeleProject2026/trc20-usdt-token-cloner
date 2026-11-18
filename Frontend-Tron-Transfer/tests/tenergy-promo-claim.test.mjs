@@ -67,9 +67,16 @@ test('provider code 3038 is treated as permanent ineligibility without a wallet 
 test('cached permanent ineligibility prevents repeated provider requests and signatures', async () => {
   const connected = wallet()
   let fetchCalls = 0
-  const fetchImpl = async () => {
+  const fetchImpl = async (url, options = {}) => {
     fetchCalls += 1
-    return jsonResponse({ success: true, promo: { state: 'active', grant: { resource: 'energy' } }, redemption: null })
+    if (String(url).includes('/status?')) {
+      return jsonResponse({ success: true, promo: { state: 'active', grant: { resource: 'energy' } }, redemption: null })
+    }
+    if (String(url).endsWith('/challenge')) {
+      assert.equal(options.method, 'POST')
+      return jsonResponse({ success: false, code: 3038, retryable: false }, false)
+    }
+    throw new Error('Unexpected provider request')
   }
   const options = {
     fetchImpl,
@@ -79,6 +86,8 @@ test('cached permanent ineligibility prevents repeated provider requests and sig
   const second = await claimTenergyPromoForDeployment(connected, owner, options)
   assert.equal(first.status, 'promo-not-eligible')
   assert.equal(second.status, 'promo-not-eligible')
+  assert.equal(first.providerCode, '3038')
+  assert.equal(second.providerCode, '3038')
   assert.equal(fetchCalls, 2)
   assert.equal(connected.signCalls, 0)
 })
