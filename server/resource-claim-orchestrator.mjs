@@ -112,7 +112,8 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
         ? grant.transactionIds
         : { ENERGY: grant?.transactionId, BANDWIDTH: grant?.transactionId }
       if (grant?.userCostSun !== '0' || RESOURCE_TYPES.some((type) =>
-        typeof transactionIds[type] !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionIds[type]))) {
+        typeof transactionIds[type] !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionIds[type]))
+        || transactionIds.ENERGY === transactionIds.BANDWIDTH) {
         return {
           success: false, network, provider: adapter.id,
           status: 'grant-accepted-response-incomplete-or-not-zero-cost',
