@@ -260,7 +260,17 @@ function send(res, status, payload, origin) {
 export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
-  const allowRequest = createBoundedRateLimiter()
+  const rateLimiters = new Map()
+  const allowRequest = (ip, scope = 'default', limit = RATE_LIMIT) => {
+    let limiter = rateLimiters.get(scope)
+    if (!limiter) {
+      // Keep the number of independently budgeted scopes bounded as well.
+      if (rateLimiters.size >= 32) return false
+      limiter = createBoundedRateLimiter()
+      rateLimiters.set(scope, limiter)
+    }
+    return limiter(ip, limit)
+  }
   const server = http.createServer(async (req, res) => {
     const requestStartedAt = performance.now()
     const originalEnd = res.end.bind(res)
