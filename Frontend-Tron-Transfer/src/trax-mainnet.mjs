@@ -1571,6 +1571,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     rawDataHex: walletTransaction.raw_data_hex,
     feeLimitSun,
     safetyMarginBps: 12500,
+    allowTrxFallback: fundingMode === 'owner-funded',
   })
   const preSignNativeBalance = fundingMode === 'owner-funded'
     ? await readNativeBalance(tronWeb, wallet.address)
@@ -1648,6 +1649,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       rawDataHex: signedTransaction.raw_data_hex,
       feeLimitSun,
       safetyMarginBps: 12500,
+      allowTrxFallback: fundingMode === 'owner-funded',
     })
     const preBroadcastNativeBalance = fundingMode === 'owner-funded'
       ? await readNativeBalance(tronWeb, wallet.address)
