@@ -5,9 +5,11 @@ import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
+import PlatformMonitor from './PlatformMonitor.jsx'
 
 const NAV_ITEMS = [
-  { id: 'overview', label: 'Overview', shortLabel: 'Home', description: 'Contract health and owner portfolio', icon: ChartNoAxesCombined },
+  { id: 'overview', label: 'Platform monitor', shortLabel: 'Home', description: 'Live infrastructure, API connections and Mainnet resource monitoring', icon: ChartNoAxesCombined },
+  { id: 'portfolio', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
   { id: 'deploy', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
   { id: 'issuance', label: 'Owner issuance', shortLabel: 'Issue', description: 'Mint new TRӾ to a recipient address', icon: Coins },
   { id: 'credits', label: 'External credits', shortLabel: 'Credits', description: 'Single-address TRӾ credit issuance', icon: ArrowDownToLine },
@@ -91,7 +93,7 @@ export default function App() {
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>
+        {activePage === 'overview' ? <PlatformMonitor wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
       </main>
       <footer className="trax-admin-footer">TRON TRANSFER · WALLET-CONTROLLED OWNER WORKSPACE · TRON MAINNET</footer>
     </div>
