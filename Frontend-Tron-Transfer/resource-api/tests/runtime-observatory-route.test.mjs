@@ -94,7 +94,7 @@ test('observatory snapshot rate limit cannot be bypassed by spoofing X-Forwarded
   const url = 'http://127.0.0.1:' + server.address().port + '/api/observatory/snapshot'
   let last
   for (let index = 0; index < 91; index += 1) {
-    last = await fetch(url, { headers: { 'x-forwarded-for': '198.51.100.' + (index % 250 + 1) } })
+    last = await fetch(url, { headers: { 'x-forwarded-for': '198.51.100.' + (index % 250 + 1), 'cf-connecting-ip': '203.0.113.77' } })
   }
   assert.equal(last.status, 429)
 })
