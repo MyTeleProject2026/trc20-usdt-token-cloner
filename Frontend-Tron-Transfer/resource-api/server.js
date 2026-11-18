@@ -156,7 +156,7 @@ async function rpcPost(path, body, { fetchImpl = fetch, env = process.env } = {}
         error.status = status
         throw error
       }
-      return data
+      return { data, provider: provider.id }
     } catch (error) {
       lastError = error
     }
@@ -165,12 +165,22 @@ async function rpcPost(path, body, { fetchImpl = fetch, env = process.env } = {}
 }
 
 async function readResources(address, options = {}) {
-  const [resource, account, parameters] = await Promise.all([
+  const [resourceResult, accountResult, parameterResult] = await Promise.all([
     rpcPost('/wallet/getaccountresource', { address, visible: true }, options),
     rpcPost('/wallet/getaccount', { address, visible: true }, options),
     rpcPost('/wallet/getchainparameters', {}, options),
   ])
-  return summarizeResources(resource, account, parameters?.chainParameter || [])
+  return {
+    ...summarizeResources(resourceResult.data, accountResult.data, parameterResult.data?.chainParameter || []),
+    rpc: {
+      preferredProviderOrder: rpcProviders(options.env).map(provider => provider.id),
+      providersUsed: {
+        accountResources: resourceResult.provider,
+        account: accountResult.provider,
+        chainParameters: parameterResult.provider,
+      },
+    },
+  }
 }
 
 function allowRequest(ip, scope = 'default') {

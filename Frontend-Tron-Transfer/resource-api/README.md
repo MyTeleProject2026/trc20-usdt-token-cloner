@@ -7,6 +7,13 @@ Read-only Mainnet resource monitor for the TRON Transfer frontend.
 - `GET /health` — service health and upstream identity.
 - `GET /v1/resources/:base58Address` — account Energy, free and staked/delegated Bandwidth by source, the maximum Bandwidth available to cover one transaction, native TRX balance, and current chain fee parameters.
 
+## RPC provider diagnostics
+
+Every successful `GET /v1/resources/:base58Address` response includes an `rpc` object:
+- `preferredProviderOrder`: configured upstream priority (Tatum first when its key is present, then TronGrid).
+- `providersUsed`: the actual upstream used independently for `accountResources`, `account`, and `chainParameters`. A value of `trongrid` for any read means that read fell back from Tatum.
+- This metadata contains provider identifiers only; API keys and authorization headers are never returned.
+
 ## Mainnet RPC providers
 
 - Tatum is preferred when `TATUM_API_KEY` is configured. Requests use the official TRON Mainnet HTTP API gateway at `https://tron-mainnet.gateway.tatum.io/wallet` and authenticate with the `x-api-key` header.
