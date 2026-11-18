@@ -224,10 +224,11 @@ export function createBoundedRateLimiter({
     return true
   }
 
-  return Object.assign(allow, {
-    get size() { return entries.size },
-    clear() { entries.clear(); requestsSinceSweep = 0 },
+  Object.defineProperties(allow, {
+    size: { get: () => entries.size },
+    clear: { value: () => { entries.clear(); requestsSinceSweep = 0 } },
   })
+  return allow
 }
 
 // Render routes public traffic through Cloudflare. Prefer its single-address
