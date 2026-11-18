@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { isIP } from 'node:net'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -196,9 +197,15 @@ function allowRequest(ip, scope = 'default', limit = RATE_LIMIT) {
   return entry.count <= limit
 }
 
-// Forwarded headers can be supplied or spoofed by callers. Use the TCP peer for
-// observatory limits so rotating X-Forwarded-For cannot bypass provider-call caps.
+// Render routes public traffic through Cloudflare. Prefer its single-address
+// CF-Connecting-IP header; unlike caller-controlled X-Forwarded-For prefixes,
+// Cloudflare overwrites this header at its edge. Fall back to the TCP peer
+// outside that deployment path.
 function observatoryRateLimitIp(req) {
+  const cloudflareIp = typeof req.headers['cf-connecting-ip'] === 'string'
+    ? req.headers['cf-connecting-ip'].trim()
+    : ''
+  if (isIP(cloudflareIp)) return cloudflareIp
   return req.socket?.remoteAddress || 'unknown'
 }
 
