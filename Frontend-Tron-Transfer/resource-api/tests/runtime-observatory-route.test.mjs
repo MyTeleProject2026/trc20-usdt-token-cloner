@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createServer } from '../server.js'
+import { createBoundedRateLimiter, createServer } from '../server.js'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 
@@ -97,4 +97,28 @@ test('observatory snapshot rate limit cannot be bypassed by spoofing X-Forwarded
     last = await fetch(url, { headers: { 'x-forwarded-for': '198.51.100.' + (index % 250 + 1), 'cf-connecting-ip': '203.0.113.77' } })
   }
   assert.equal(last.status, 429)
+})
+
+
+test('rate limiter bounds identity memory, fails closed at capacity, and reclaims expired entries', () => {
+  let clock = 1_000
+  const limiter = createBoundedRateLimiter({ windowMs: 60_000, maxEntries: 2, now: () => clock })
+
+  assert.equal(limiter('ip-a', 2), true)
+  assert.equal(limiter('ip-a', 2), true)
+  assert.equal(limiter('ip-a', 2), false)
+  assert.equal(limiter('ip-b', 2), true)
+  assert.equal(limiter.size, 2)
+
+  // An attacker cannot rotate identities to evict active counters.
+  assert.equal(limiter('ip-c', 2), false)
+  assert.equal(limiter.size, 2)
+  assert.equal(limiter('ip-a', 2), false)
+
+  // Once the window expires, capacity is reclaimed and the new identity works.
+  clock += 60_000
+  assert.equal(limiter('ip-c', 2), true)
+  assert.equal(limiter.size, 1)
+  assert.equal(limiter('ip-c', 2), true)
+  assert.equal(limiter('ip-c', 2), false)
 })
