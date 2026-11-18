@@ -279,3 +279,28 @@ test('Mainnet resource reads use an optional server-side TronGrid API key withou
   assert.ok(calls.every(call => call.options.headers['TRON-PRO-API-KEY'] === secret))
   assert.equal(JSON.stringify(body).includes(secret), false)
 })
+
+
+test('TEnergy promo rate limit ignores caller-controlled X-Forwarded-For rotation', async (t) => {
+  const { createServer } = await import('../server.js')
+  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const server = createServer({
+    allowedAddress: address,
+    fetchImpl: async (url) => {
+      if (url.endsWith('/promo')) return new Response(JSON.stringify({ network: 'mainnet', state: 'active' }), { status: 200 })
+      if (url.endsWith('/promo/redemptions/' + address)) return new Response('{}', { status: 404 })
+      throw new Error('unexpected provider request: ' + url)
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const url = 'http://127.0.0.1:' + server.address().port + '/api/tron/tenergy/promo/status?address=' + address
+
+  let lastStatus = 0
+  for (let i = 0; i < 31; i += 1) {
+    const response = await fetch(url, { headers: { 'x-forwarded-for': '198.51.100.' + (i + 1) } })
+    lastStatus = response.status
+    if (i < 30) assert.equal(response.status, 200)
+  }
+  assert.equal(lastStatus, 429)
+})
