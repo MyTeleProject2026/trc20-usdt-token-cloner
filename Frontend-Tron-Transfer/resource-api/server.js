@@ -184,7 +184,7 @@ async function readResources(address, options = {}) {
   }
 }
 
-function allowRequest(ip, scope = 'default') {
+function allowRequest(ip, scope = 'default', limit = RATE_LIMIT) {
   const key = scope + ':' + ip
   const now = Date.now()
   const entry = rate.get(key)
@@ -193,7 +193,7 @@ function allowRequest(ip, scope = 'default') {
     return true
   }
   entry.count += 1
-  return entry.count <= RATE_LIMIT
+  return entry.count <= limit
 }
 
 function send(res, status, payload, origin) {
@@ -240,6 +240,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     }
     const url = new URL(req.url || '/', 'http://localhost')
     if (req.method === 'GET' && url.pathname === '/api/observatory/snapshot') {
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      if (!allowRequest(ip, 'observatory-snapshot', 90)) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       return send(res, 200, runtimeObservatory.snapshot(), origin)
     }
     if (req.method === 'GET' && url.pathname === '/api/observatory/transactions') {
