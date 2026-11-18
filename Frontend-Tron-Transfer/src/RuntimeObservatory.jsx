@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Activity, ArrowUpRight, Cpu, Database, Radio, RefreshCw, Server, Waves, Zap } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Activity, ArrowUpRight, Clock3, Cpu, Database, Globe2, Layers3, Radio, RefreshCw, Server, Waves, Zap } from 'lucide-react'
 import './runtime-observatory.css'
 
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -46,18 +46,31 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
   const [renderEvents, setRenderEvents] = useState([])
   const [renderState, setRenderState] = useState('checking')
   const [renderNote, setRenderNote] = useState('')
+  const [clockNow, setClockNow] = useState(Date.now())
+  const [lastRuntimeAt, setLastRuntimeAt] = useState(null)
+  const [runtimeLatency, setRuntimeLatency] = useState(null)
+  const runtimeInFlight = useRef(false)
 
   const refreshRuntime = useCallback(async (manual = false) => {
+    if (runtimeInFlight.current) return
+    runtimeInFlight.current = true
     if (manual) setRefreshing(true)
+    const started = performance.now()
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 7000)
     try {
-      const response = await fetch(apiBase + '/api/observatory/snapshot', { cache: 'no-store', headers: { accept: 'application/json' } })
+      const response = await fetch(apiBase + '/api/observatory/snapshot', { cache: 'no-store', signal: controller.signal, headers: { accept: 'application/json' } })
       const body = await response.json()
       if (!response.ok || !body.ok) throw new Error(body.message || 'Runtime snapshot unavailable')
       setRuntime(body)
       setRuntimeError('')
+      setLastRuntimeAt(Date.now())
+      setRuntimeLatency(Math.round(performance.now() - started))
     } catch (error) {
       setRuntimeError(error?.message || 'Runtime heartbeat unavailable')
     } finally {
+      window.clearTimeout(timeout)
+      runtimeInFlight.current = false
       if (manual) setRefreshing(false)
     }
   }, [apiBase])
@@ -92,6 +105,7 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
   }, [apiBase])
 
   useEffect(() => {
+    const clock = window.setInterval(() => setClockNow(Date.now()), 250)
     refreshRuntime()
     refreshTransactions()
     refreshRenderEvents()
@@ -102,43 +116,53 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
       window.clearInterval(heartbeat)
       window.clearInterval(chainFeed)
       window.clearInterval(renderFeed)
+      window.clearInterval(clock)
     }
   }, [refreshRuntime, refreshTransactions, refreshRenderEvents])
 
   const heartbeat = runtime?.heartbeat
   const process = runtime?.process
   const requests = runtime?.requests
+  const heartbeatAgeMs = heartbeat?.lastAt ? Math.max(0, clockNow - Date.parse(heartbeat.lastAt)) : null
+  const runtimeFresh = heartbeatAgeMs != null && heartbeatAgeMs <= 3500 && !runtimeError
+  const runtimeState = runtimeError && !runtime ? 'offline' : runtimeFresh ? 'online' : runtime ? 'warning' : 'checking'
+  const renderNodeState = renderState === 'online' ? 'online' : renderState === 'warning' ? 'warning' : 'checking'
   const nodes = [
-    { id: 'browser', label: 'Owner console', state: 'online', detail: 'Static frontend session' },
-    { id: 'api', label: 'Resource API', state: runtimeError ? 'offline' : heartbeat?.state || 'checking', detail: heartbeat ? '1-second process heartbeat' : 'Waiting for API heartbeat' },
-    { id: 'tron', label: 'TRON Mainnet', state: resourceState || 'checking', detail: 'Confirmed transaction and resource reads' },
-    { id: 'tenergy', label: 'TEnergy', state: promoState || 'checking', detail: 'Provider promotion status' },
+    { id: 'browser', label: 'Owner console', state: 'online', detail: 'This dashboard session', icon: Activity },
+    { id: 'api', label: 'Resource API', state: runtimeState, detail: runtimeFresh ? 'Heartbeat age ' + heartbeatAgeMs + ' ms' : runtimeError || 'Heartbeat stale or awaiting sample', icon: Server },
+    { id: 'tron', label: 'TRON Mainnet', state: resourceState || 'checking', detail: 'Live resource + confirmed history reads', icon: Globe2 },
+    { id: 'tenergy', label: 'TEnergy', state: promoState || 'checking', detail: 'Promotion endpoint response', icon: Zap },
+    { id: 'render', label: 'Render control plane', state: renderNodeState, detail: renderState === 'online' ? 'Authenticated service events' : renderNote || 'API key / event feed status', icon: Layers3 },
   ]
   const events = runtime?.events || []
 
   return <section className="runtime-observatory" aria-label="Live runtime observatory">
     <div className="ro-header">
       <div><span className="ro-eyebrow"><Activity size={13}/> LIVE RUNTIME OBSERVATORY</span><h3>Runtime signal & network activity</h3><p>One-second backend process heartbeat, real API request traces and confirmed TRON Mainnet transactions.</p></div>
-      <div className="ro-header-actions"><span className="ro-live-indicator"><i/> {runtimeError ? 'SIGNAL LOST' : 'LIVE · 1 SEC'}</span><button type="button" onClick={() => refreshRuntime(true)} disabled={refreshing}><RefreshCw size={14} className={refreshing ? 'ro-spin' : ''}/>Refresh</button></div>
+      <div className="ro-header-actions"><span className={"ro-live-indicator " + (runtimeState === "online" ? "is-live" : "is-stale")}><i/> {runtimeState === "online" ? "LIVE · 1 SEC" : runtimeState === "offline" ? "SIGNAL LOST" : "SIGNAL STALE"}</span><button type="button" onClick={() => refreshRuntime(true)} disabled={refreshing}><RefreshCw size={14} className={refreshing ? 'ro-spin' : ''}/>Refresh</button></div>
     </div>
+
+    <div className="ro-live-strip"><span><Clock3 size={13}/> LOCAL CLOCK <b>{new Date(clockNow).toLocaleTimeString()}</b></span><span><Radio size={13}/> LAST SNAPSHOT <b>{lastRuntimeAt ? formatUptime(Math.floor((clockNow - lastRuntimeAt) / 1000)) + " ago" : "Waiting"}</b></span><span><Activity size={13}/> SNAPSHOT RTT <b>{runtimeLatency == null ? "—" : runtimeLatency + " ms"}</b></span><span><Server size={13}/> HEARTBEAT AGE <b>{heartbeatAgeMs == null ? "—" : heartbeatAgeMs + " ms"}</b></span></div>
 
     <div className="ro-metrics-grid">
       <article className="ro-metric"><span>API process uptime</span><b>{runtime ? formatUptime(runtime.uptimeSeconds) : '—'}</b><small>Since current process start</small></article>
       <article className="ro-metric"><span>Heartbeat ticks</span><b>{heartbeat?.count?.toLocaleString() || '—'}</b><small>{heartbeat ? heartbeat.intervalMs + ' ms interval · ' + heartbeat.missedIntervals + ' missed' : 'Awaiting server heartbeat'}</small></article>
       <article className="ro-metric"><span>Memory resident</span><b>{process ? formatBytes(process.rssBytes) : '—'}</b><small>Heap {process ? formatBytes(process.heapUsedBytes) : '—'}</small></article>
       <article className="ro-metric"><span>HTTP requests · 60 sec</span><b>{requests?.count ?? '—'}</b><small>{requests ? requests.errors5xx + ' server errors · p95 ' + requests.p95LatencyMs + ' ms' : 'Waiting for request samples'}</small></article>
+      <article className="ro-metric"><span>Event-loop p95</span><b>{process ? process.eventLoopP95Ms.toFixed(2) + ' ms' : '—'}</b><small>Node.js event-loop delay sample</small></article>
+      <article className="ro-metric"><span>Heartbeat delivery</span><b>{heartbeat?.successPercent == null ? '—' : heartbeat.successPercent + '%'}</b><small>Process-local tick ratio · not external uptime SLA</small></article>
     </div>
 
     <div className="ro-main-grid">
       <article className="ro-panel ro-topology-panel">
         <div className="ro-panel-title"><div><span className="ro-eyebrow">CONNECTION TOPOLOGY</span><h4>Live service pathways</h4></div><Waves size={18}/></div>
         <div className="ro-topology">
-          {nodes.map((node, index) => <div className={'ro-node ' + node.state} key={node.id}>
-            <span className="ro-node-orbit"><i/></span><b>{node.label}</b><small>{node.detail}</small><Status value={node.state}/>
+          {nodes.map((node, index) => { const Icon = node.icon; return <div className={'ro-node ' + node.state} key={node.id}>
+            <span className="ro-node-orbit"><i/><Icon size={15}/></span><b>{node.label}</b><small>{node.detail}</small><Status value={node.state}/>
             {index < nodes.length - 1 && <span className="ro-link-line"><i/></span>}
-          </div>)}
+          </div> })}
         </div>
-        <div className="ro-render-note"><Server size={14}/><span>Render control-plane events are not yet connected to this runtime API. Service deploy history remains independently available in Render.</span></div>
+        <div className="ro-render-note"><Server size={14}/><span>{renderNote || "Render service lifecycle integration status is shown in the event feed below."}</span></div>
       </article>
       <article className="ro-panel ro-runtime-panel">
         <div className="ro-panel-title"><div><span className="ro-eyebrow">PROCESS TELEMETRY</span><h4>Runtime performance</h4></div><Cpu size={18}/></div>
@@ -181,6 +205,7 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
     <div className="ro-events" aria-live="polite">
       {events.length ? events.slice(0, 12).map(event => <div className="ro-event" key={event.id}><i className={event.state}/><time>{time(event.at)}</time><b>{event.title}</b><span>{event.detail}</span></div>) : <div className="ro-empty">Waiting for real API actions…</div>}
     </div>
+    <div className="ro-monitor-legend"><span><i className="ok"/> Confirmed live response</span><span><i className="warn"/> Degraded / not configured</span><span><i className="bad"/> Request failed</span><span><i className="pulse"/> Animated indicator = recent backend heartbeat</span></div>
     <p className="ro-scope-note">Uptime and samples shown here cover the current API process only. The existing free Render service can suspend or restart; durable 24/7 history requires persistent storage and an always-on monitoring process. Render platform metrics are sampled at coarser intervals and are not represented as one-second data.</p>
   </section>
 }
