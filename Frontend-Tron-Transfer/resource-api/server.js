@@ -380,7 +380,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       const refresh = url.searchParams.get('refresh')
       if (refresh !== null && refresh !== '0' && refresh !== '1') return send(res, 400, { success: false, error: 'invalid-refresh' }, origin)
       const ip = observatoryRateLimitIp(req)
-      if (!allowRequest(ip)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      if (!allowRequest(ip, 'free-delegation-resource')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       const result = await readDelegationStatus(address, { refresh: refresh === '1' })
       return send(res, result.success ? 200 : 503, result, origin)
     }
@@ -424,7 +424,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
       const walletAddress = req.method === 'GET' ? (url.searchParams.get('address') || '') : body.address
       if (walletAddress !== allowedAddress || !isMainnetAddress(walletAddress)) return send(res, 403, { success: false, error: 'wallet-not-allowed' }, origin)
-      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      const ip = observatoryRateLimitIp(req)
       if (!allowRequest(ip, 'tenergy-promo')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       try {
         if (promoAction === 'promo' && req.method === 'GET') {
