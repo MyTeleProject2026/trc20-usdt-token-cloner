@@ -714,6 +714,9 @@ export function normalizeDeploymentEnergyEstimate(response) {
   try { energyPenalty = BigInt(response.energy_penalty ?? 0) } catch {
     throw new Error('TRON Mainnet deployment simulation returned an invalid Energy penalty.')
   }
+  if (energyPenalty < 0n) {
+    throw new Error('TRON Mainnet deployment simulation returned an invalid Energy penalty.')
+  }
   return { energyUsed: energyUsed.toString(), energyPenalty: energyPenalty.toString() }
 }
 

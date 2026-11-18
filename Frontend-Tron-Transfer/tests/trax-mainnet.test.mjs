@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, normalizeDeploymentEnergyEstimate, isMainnetEnergyEstimateUnavailable } from '../src/trax-mainnet.mjs'
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
@@ -161,4 +161,68 @@ test('zero-TRX policy blocks resource shortfalls independently of native TRX bal
             maxFeeLimitSun: '15000000000',
     },
   }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT.*total 12\.639000 TRX.*No wallet prompt/)
+})
+
+test('Mainnet deployment estimator accepts a successful estimateenergy response and preserves its penalty', () => {
+  assert.deepEqual(normalizeDeploymentEnergyEstimate({
+    result: { result: true },
+    energy_required: 2400000,
+    energy_penalty: 125000,
+  }), {
+    energyUsed: '2400000',
+    energyPenalty: '125000',
+  })
+})
+
+test('Mainnet deployment simulation accepts triggerconstantcontract energy_used response', () => {
+  assert.deepEqual(normalizeDeploymentEnergyEstimate({
+    result: { result: true },
+    energy_used: '1850000',
+    energy_penalty: '50000',
+    transaction: { ret: [{ ret: 'SUCESS', contractRet: 'SUCCESS' }] },
+  }), {
+    energyUsed: '1850000',
+    energyPenalty: '50000',
+  })
+})
+
+test('Mainnet deployment estimator rejects failed execution, missing, malformed, and zero Energy', () => {
+  assert.throws(() => normalizeDeploymentEnergyEstimate({ result: { result: false }, energy_required: 100 }), /estimation failed/)
+  assert.throws(() => normalizeDeploymentEnergyEstimate({
+    result: { result: true }, energy_required: 100,
+    transaction: { ret: [{ contractRet: 'REVERT' }] },
+  }), /did not execute successfully/)
+  assert.throws(() => normalizeDeploymentEnergyEstimate({ result: { result: true } }), /valid energy_required/)
+  assert.throws(() => normalizeDeploymentEnergyEstimate({ result: { result: true }, energy_required: 'not-a-number' }), /valid energy_required/)
+  assert.throws(() => normalizeDeploymentEnergyEstimate({ result: { result: true }, energy_required: '0' }), /returned zero Energy/)
+  assert.throws(() => normalizeDeploymentEnergyEstimate({ result: { result: true }, energy_required: '100', energy_penalty: '-1' }), /invalid Energy penalty/)
+})
+
+test('only explicit unsupported estimateenergy responses are eligible for simulation fallback', () => {
+  assert.equal(isMainnetEnergyEstimateUnavailable(new Error('HTTP 404 for /wallet/estimateenergy')), true)
+  assert.equal(isMainnetEnergyEstimateUnavailable(new Error('does not support estimate energy')), true)
+  assert.equal(isMainnetEnergyEstimateUnavailable(new Error('TRON Mainnet deployment Energy estimation failed: OUT_OF_ENERGY')), false)
+  assert.equal(isMainnetEnergyEstimateUnavailable(new Error('HTTP 401 for /wallet/estimateenergy')), false)
+})
+
+test('deployment budget applies a 25 percent Energy margin and keeps Bandwidth source separate', () => {
+  const budget = calculateDeploymentResourceBudget({
+    energyRequired: '2000000',
+    rawDataHex: '60'.repeat(200),
+    feeLimitSun: '300000000',
+    resourceSnapshot: {
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      energyAvailable: '2500000',
+      freeBandwidthAvailable: '1000',
+      stakedBandwidthAvailable: '2000',
+      maxFeeLimitSun: '15000000000',
+    },
+  })
+  assert.equal(budget.energyWithSafetyMargin, '2500000')
+  assert.equal(budget.energyShortfall, '0')
+  assert.equal(budget.estimatedBandwidthBytes, '334')
+  assert.equal(budget.availableBandwidth, '2000')
+  assert.equal(budget.bandwidthShortfall, '0')
+  assert.equal(budget.requiredTrxSun, '0')
 })
