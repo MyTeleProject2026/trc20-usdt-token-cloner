@@ -58,7 +58,10 @@ export function createResourceClaimsRouter(options = {}) {
     const resources = resourceSnapshot?.success === true ? resourceSnapshot.resources : null
     const checks = {
       ownerResourceSnapshot: resourceSnapshot?.success === true ? 'available' : 'unavailable',
-      authorizedProviderReadiness: providerReadiness?.success === true ? 'available' : 'unavailable',
+      // A successful readiness response can still mean no grant-capable provider exists.
+      // Mark authorization available only when this exact owner can request a grant.
+      authorizedProviderReadiness: providerReadiness?.success === true
+        && providerReadiness?.canRequestGrant === true ? 'available' : 'unavailable',
       publicProviderResourceObservation: publicProviderResources?.success === true ? 'available' : 'unavailable',
       publicProviderHealth: publicProviderHealth?.success === true ? 'available' : 'unavailable',
     }
