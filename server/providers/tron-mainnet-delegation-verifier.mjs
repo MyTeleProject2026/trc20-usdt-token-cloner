@@ -96,32 +96,51 @@ export function createTronMainnetDelegationVerifier({
         return { verified: false, solidified: false, network: 'mainnet', transactionId, status: 'solidified-transaction-or-receipt-not-successful' }
       }
       const contracts = transaction.raw_data?.contract
-      if (!Array.isArray(contracts) || contracts.length !== 1
-        || contracts[0]?.type !== 'DelegateResourceContract') {
-        return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'not-a-single-resource-delegation' }
+      if (!Array.isArray(contracts) || contracts.length === 0
+        || contracts.some((contract) => contract?.type !== 'DelegateResourceContract')) {
+        return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'not-a-resource-delegation-transaction' }
       }
-      const value = contracts[0]?.parameter?.value
-      const receiverHex = typeof value?.receiver_address === 'string' ? value.receiver_address.toLowerCase() : ''
-      const ownerHex = typeof value?.owner_address === 'string' ? value.owner_address.toLowerCase() : ''
-      const delegatedResourceType = value?.resource
-      const delegatedStakeSun = uint(value?.balance)
-      if (receiverHex !== base58Decode(ownerAddress).toLowerCase() || !/^41[0-9a-f]{40}$/.test(ownerHex)
-        || !['ENERGY', 'BANDWIDTH'].includes(delegatedResourceType)
-        || delegatedStakeSun === null || delegatedStakeSun === '0') {
-        return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'delegation-recipient-or-owner-mismatch' }
+      const ownerHexExpected = base58Decode(ownerAddress).toLowerCase()
+      const delegatedByResource = { ENERGY: 0n, BANDWIDTH: 0n }
+      let delegatorAddress = null
+      for (const contract of contracts) {
+        const value = contract?.parameter?.value
+        const receiverHex = typeof value?.receiver_address === 'string' ? value.receiver_address.toLowerCase() : ''
+        const ownerHex = typeof value?.owner_address === 'string' ? value.owner_address.toLowerCase() : ''
+        const resourceType = value?.resource
+        const delegatedStakeSun = uint(value?.balance)
+        if (receiverHex !== ownerHexExpected || !/^41[0-9a-f]{40}$/.test(ownerHex)
+          || !['ENERGY', 'BANDWIDTH'].includes(resourceType)
+          || delegatedStakeSun === null || delegatedStakeSun === '0') {
+          return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'delegation-recipient-or-owner-mismatch' }
+        }
+        const currentDelegator = base58Encode(ownerHex)
+        if (delegatorAddress !== null && delegatorAddress !== currentDelegator) {
+          return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'multiple-delegators-in-one-transaction-not-supported' }
+        }
+        delegatorAddress = currentDelegator
+        delegatedByResource[resourceType] += BigInt(delegatedStakeSun)
       }
-      const delegatorAddress = base58Encode(ownerHex)
+      if (['ENERGY', 'BANDWIDTH'].some((resource) => BigInt(required[resource]) > 0n && delegatedByResource[resource] === 0n)) {
+        return { verified: false, solidified: true, network: 'mainnet', transactionId, status: 'transaction-does-not-delegate-each-required-resource' }
+      }
       const delegation = await post('/walletsolidity/getdelegatedresourcev2', {
         fromAddress: delegatorAddress, toAddress: ownerAddress, visible: true,
       })
       const records = Array.isArray(delegation.delegatedResource) ? delegation.delegatedResource : []
       const matching = records.filter((entry) => entry.from === delegatorAddress && entry.to === ownerAddress)
-      const delegationStakeSun = matching.reduce((total, entry) => {
-        const field = delegatedResourceType === 'ENERGY' ? entry.frozen_balance_for_energy : entry.frozen_balance_for_bandwidth
-        const amount = uint(field ?? 0)
-        return amount === null ? total : total + BigInt(amount)
-      }, 0n)
-      if (matching.length === 0 || delegationStakeSun < BigInt(delegatedStakeSun)) {
+      const delegatedRecordByResource = {
+        ENERGY: matching.reduce((total, entry) => {
+          const amount = uint(entry.frozen_balance_for_energy ?? 0)
+          return amount === null ? total : total + BigInt(amount)
+        }, 0n),
+        BANDWIDTH: matching.reduce((total, entry) => {
+          const amount = uint(entry.frozen_balance_for_bandwidth ?? 0)
+          return amount === null ? total : total + BigInt(amount)
+        }, 0n),
+      }
+      if (matching.length === 0 || ['ENERGY', 'BANDWIDTH'].some((resource) =>
+        delegatedByResource[resource] > 0n && delegatedRecordByResource[resource] < delegatedByResource[resource])) {
         return { verified: false, solidified: true, network: 'mainnet', ownerAddress, transactionId, status: 'solidified-delegation-record-not-found' }
       }
       const [resourceState] = await Promise.all([
@@ -140,8 +159,12 @@ export function createTronMainnetDelegationVerifier({
         return { verified: false, solidified: true, network: 'mainnet', ownerAddress, transactionId, status: 'invalid-solidified-resource-state' }
       }
       const ENERGY = (BigInt(energyLimit) - BigInt(energyUsed)).toString()
-      const BANDWIDTH = (BigInt(bandwidthLimit) - BigInt(bandwidthUsed)
-        + BigInt(freeBandwidthLimit) - BigInt(freeBandwidthUsed)).toString()
+      // Free and staked/delegated Bandwidth are independent coverage pools.
+      // One transaction must fit entirely within one pool; never add them.
+      const stakedBandwidthAvailable = BigInt(bandwidthLimit) - BigInt(bandwidthUsed)
+      const freeBandwidthAvailable = BigInt(freeBandwidthLimit) - BigInt(freeBandwidthUsed)
+      const BANDWIDTH = (stakedBandwidthAvailable > freeBandwidthAvailable
+        ? stakedBandwidthAvailable : freeBandwidthAvailable).toString()
       const sufficient = BigInt(ENERGY) >= BigInt(required.ENERGY)
         && BigInt(BANDWIDTH) >= BigInt(required.BANDWIDTH)
       return {
