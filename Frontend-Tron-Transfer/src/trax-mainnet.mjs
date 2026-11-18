@@ -724,6 +724,7 @@ export function calculateDeploymentResourceBudget({
   feeLimitSun,
   safetyMarginBps = 12500,
   transactionLabel = 'deployment',
+  allowTrxFallback = false,
 }) {
   let energy, feeLimit
   try {
@@ -774,7 +775,7 @@ export function calculateDeploymentResourceBudget({
   }
   const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
-  if (requiredTrxSun > 0n) {
+  if (requiredTrxSun > 0n && !allowTrxFallback) {
     const energyStatus = 'Energy required (with safety margin): ' + bufferedEnergy.toString()
       + '; available: ' + availableEnergy.toString()
       + '; shortfall: ' + energyShortfall.toString() + '.'
@@ -1527,6 +1528,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     resourceSnapshot,
     rawDataHex: unsigned.raw_data_hex,
     feeLimitSun,
+    allowTrxFallback: fundingMode === 'owner-funded',
   })
   const initialNativeBalance = fundingMode === 'owner-funded'
     ? await readNativeBalance(tronWeb, wallet.address)
