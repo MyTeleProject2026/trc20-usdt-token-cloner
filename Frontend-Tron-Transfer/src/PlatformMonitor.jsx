@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Activity, AlertTriangle, ArrowDownUp, CheckCircle2, Clock3, Database, ExternalLink, Gauge, Radio, RefreshCw, Server, ShieldCheck, Zap } from 'lucide-react'
 import './platform-monitor.css'
+import RuntimeObservatory from './RuntimeObservatory.jsx'
 
 const RESOURCE_API = (import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/$/, '')
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -122,6 +123,8 @@ export default function PlatformMonitor({ wallet, onNavigate }) {
       </div>
       <div className="pm-hero-actions"><span className="pm-live"><i/> LIVE POLLING · 15 SEC</span><button className="pm-refresh" onClick={() => refresh(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? 'pm-spin' : ''}/>{refreshing ? 'Refreshing' : 'Refresh now'}</button></div>
     </div>
+
+    <RuntimeObservatory apiBase={RESOURCE_API} resourceState={resources.state} promoState={promo.state}/>
 
     <div className="pm-summary-grid">
       <article className="pm-summary-card"><span>Resource API</span><b><StatePill state={health.state}/></b><small>{health.latencyMs != null ? `${health.latencyMs} ms response` : health.message || 'Waiting for check'}</small></article>
