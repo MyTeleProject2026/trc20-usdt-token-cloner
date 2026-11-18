@@ -43,6 +43,9 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
   const [transactionError, setTransactionError] = useState('')
   const [lastTransactionCheck, setLastTransactionCheck] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [renderEvents, setRenderEvents] = useState([])
+  const [renderState, setRenderState] = useState('checking')
+  const [renderNote, setRenderNote] = useState('')
 
   const refreshRuntime = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true)
@@ -74,16 +77,33 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
     }
   }, [apiBase])
 
+  const refreshRenderEvents = useCallback(async () => {
+    try {
+      const response = await fetch(apiBase + '/api/observatory/render-events', { cache: 'no-store', headers: { accept: 'application/json' } })
+      const body = await response.json()
+      if (!response.ok || !body.success) throw new Error(body.message || body.error || 'Render event feed unavailable')
+      setRenderEvents(Array.isArray(body.events) ? body.events : [])
+      setRenderState(body.configured ? 'online' : 'warning')
+      setRenderNote(body.note || (body.configured ? 'Authenticated Render control-plane events' : 'Render API key is not configured on the backend.'))
+    } catch (error) {
+      setRenderState('warning')
+      setRenderNote(error?.message || 'Render control-plane events unavailable')
+    }
+  }, [apiBase])
+
   useEffect(() => {
     refreshRuntime()
     refreshTransactions()
+    refreshRenderEvents()
     const heartbeat = window.setInterval(refreshRuntime, 1000)
     const chainFeed = window.setInterval(refreshTransactions, 10_000)
+    const renderFeed = window.setInterval(refreshRenderEvents, 30_000)
     return () => {
       window.clearInterval(heartbeat)
       window.clearInterval(chainFeed)
+      window.clearInterval(renderFeed)
     }
-  }, [refreshRuntime, refreshTransactions])
+  }, [refreshRuntime, refreshTransactions, refreshRenderEvents])
 
   const heartbeat = runtime?.heartbeat
   const process = runtime?.process
@@ -128,6 +148,12 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
         <div className="ro-runtime-row"><span><Radio size={14}/> Last heartbeat</span><b>{time(heartbeat?.lastAt)}</b></div>
         <p className="ro-retention-note">{runtime?.retention || 'Runtime samples are collected by the API process.'}</p>
       </article>
+    </div>
+
+    <div className="ro-section-heading"><div><span className="ro-eyebrow">RENDER CONTROL PLANE</span><h4>Deploy & service events</h4><p>Actual Render service lifecycle events, read through the backend using a server-side API key.</p></div><Status value={renderState}/></div>
+    <p className="ro-render-state-note">{renderNote}</p>
+    <div className="ro-render-events">
+      {renderEvents.length ? renderEvents.map(event => <div className="ro-render-event" key={event.id}><span>{event.serviceLabel}</span><b>{event.type.replaceAll('_', ' ')}</b><time>{time(event.timestamp)}</time></div>) : <div className="ro-empty">{renderState === 'warning' ? 'Render event integration is not configured or is temporarily unavailable.' : 'No recent Render service events were returned.'}</div>}
     </div>
 
     <div className="ro-section-heading"><div><span className="ro-eyebrow">CHAIN ACTIVITY · READ ONLY</span><h4>Confirmed owner-wallet transactions</h4><p>Fetched from TRON Mainnet RPC; only confirmed records are requested.</p></div><Status value={transactionState}/></div>
