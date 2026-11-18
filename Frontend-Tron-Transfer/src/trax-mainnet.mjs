@@ -1297,6 +1297,8 @@ export async function preflightContractDeployments(wallet, deployments, {
   let remainingStakedBandwidth = BigInt(resourceSnapshot.stakedBandwidthAvailable)
   const results = []
   let combinedRequiredTrxSun = 0n
+  let combinedFeeLimitSun = 0n
+  let combinedBandwidthBurnSun = 0n
   for (const deployment of deployments) {
     const { artifact, contractName, feeLimitSun } = deployment || {}
     let energyEstimate = null
@@ -1330,7 +1332,10 @@ export async function preflightContractDeployments(wallet, deployments, {
         resourceSnapshot: snapshotForThisDeployment,
         rawDataHex: unsigned.raw_data_hex,
         feeLimitSun,
+        allowTrxFallback: fundingMode === 'owner-funded',
       })
+      combinedFeeLimitSun += BigInt(budget.feeLimitSun)
+      combinedBandwidthBurnSun += BigInt(budget.bandwidthBurnSun)
       remainingEnergy = BigInt(budget.energyShortfall) > 0n
         ? 0n
         : remainingEnergy - BigInt(budget.energyWithSafetyMargin)
@@ -1358,11 +1363,30 @@ export async function preflightContractDeployments(wallet, deployments, {
       })
     }
   }
+  const conservative = results.every(item => item.energyEstimateAvailable)
+  let fundingAssessment = null
+  if (conservative) {
+    const availableTrxSun = fundingMode === 'owner-funded'
+      ? await readNativeBalance(tronWeb, wallet.address)
+      : '0'
+    fundingAssessment = evaluateDeploymentFunding({
+      resourceBudget: {
+        requiredTrxSun: combinedRequiredTrxSun.toString(),
+        feeLimitSun: combinedFeeLimitSun.toString(),
+        bandwidthBurnSun: combinedBandwidthBurnSun.toString(),
+      },
+      fundingMode,
+      maxTrxSpendSun,
+      availableTrxSun,
+      reserveTrxSun,
+    })
+  }
   return {
     deployments: results,
     requiredTrxSun: combinedRequiredTrxSun.toString(),
-    conservative: results.every(item => item.energyEstimateAvailable),
-    energyEstimateAvailable: results.every(item => item.energyEstimateAvailable),
+    conservative,
+    energyEstimateAvailable: conservative,
+    fundingAssessment,
   }
 }
 
