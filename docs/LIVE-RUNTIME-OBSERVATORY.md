@@ -35,3 +35,8 @@ Render platform metrics have a coarser sampling interval than the process heartb
 - Owner addresses and query strings are removed from request-event paths.
 - The transaction history endpoint only reads confirmed records.
 - Resource claims and deployment authorization continue to use their existing wallet approval safeguards.
+
+
+## Live dashboard presentation
+
+The Owner Admin Home renders a five-node topology for the browser console, resource API, TRON Mainnet, TEnergy, and Render control plane. The browser polls the process snapshot every second with a single-flight guard and a seven-second request timeout. The UI shows a local clock, last snapshot age, measured browser-to-API request time, heartbeat age, process uptime, RSS/heap, event-loop p95, request counts, errors and latency. A heartbeat older than 3.5 seconds is shown as stale/degraded; the UI does not keep a green LIVE state when fresh samples stop arriving. Confirmed owner-wallet history is refreshed every ten seconds, and Render lifecycle events every 30 seconds. The display is responsive and includes animated connection pulses and a state legend. The one-second signal is the application process heartbeat, not a Render platform metric or an external 24/7 uptime guarantee.
