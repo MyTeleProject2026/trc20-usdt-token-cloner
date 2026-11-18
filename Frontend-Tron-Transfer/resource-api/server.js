@@ -489,8 +489,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
     const match = url.pathname.match(/^\/v1\/resources\/(T[1-9A-HJ-NP-Za-km-z]{33})$/)
     if (!match || !isMainnetAddress(match[1])) return send(res, 400, { error: 'INVALID_TRON_ADDRESS' }, origin)
-    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
-    if (!allowRequest(ip)) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+    const ip = observatoryRateLimitIp(req)
+    if (!allowRequest(ip, 'mainnet-resource-read')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
     const address = match[1]
     const cached = cache.get(address)
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, cached.value, origin)
