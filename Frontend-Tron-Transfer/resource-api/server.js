@@ -17,8 +17,8 @@ const CACHE_TTL_MS = 15_000
 const UPSTREAM_TIMEOUT_MS = 8_000
 const RATE_WINDOW_MS = 60_000
 const RATE_LIMIT = 30
+const MAX_RATE_LIMIT_ENTRIES = 10_000
 const cache = new Map()
-const rate = new Map()
 
 const number = value => {
   const parsed = Number(value ?? 0)
@@ -185,16 +185,49 @@ async function readResources(address, options = {}) {
   }
 }
 
-function allowRequest(ip, scope = 'default', limit = RATE_LIMIT) {
-  const key = scope + ':' + ip
-  const now = Date.now()
-  const entry = rate.get(key)
-  if (!entry || now - entry.startedAt >= RATE_WINDOW_MS) {
-    rate.set(key, { startedAt: now, count: 1 })
+export function createBoundedRateLimiter({
+  windowMs = RATE_WINDOW_MS,
+  maxEntries = MAX_RATE_LIMIT_ENTRIES,
+  now = Date.now,
+} = {}) {
+  if (!Number.isInteger(windowMs) || windowMs < 1) throw new TypeError('windowMs must be a positive integer')
+  if (!Number.isInteger(maxEntries) || maxEntries < 1) throw new TypeError('maxEntries must be a positive integer')
+  const entries = new Map()
+  let requestsSinceSweep = 0
+
+  function removeExpired(timestamp) {
+    for (const [key, entry] of entries) {
+      if (timestamp - entry.startedAt >= windowMs) entries.delete(key)
+    }
+  }
+
+  function allow(key, limit = RATE_LIMIT) {
+    const timestamp = now()
+    requestsSinceSweep += 1
+    if (requestsSinceSweep >= 256) {
+      removeExpired(timestamp)
+      requestsSinceSweep = 0
+    }
+
+    const entry = entries.get(key)
+    if (entry && timestamp - entry.startedAt < windowMs) {
+      entry.count += 1
+      return entry.count <= limit
+    }
+    if (entry) entries.delete(key)
+
+    if (entries.size >= maxEntries) removeExpired(timestamp)
+    // Fail closed at capacity. Never evict an active caller's counter to make
+    // room for a new identity, which would let address rotation reset limits.
+    if (entries.size >= maxEntries) return false
+    entries.set(key, { startedAt: timestamp, count: 1 })
     return true
   }
-  entry.count += 1
-  return entry.count <= limit
+
+  return Object.assign(allow, {
+    get size() { return entries.size },
+    clear() { entries.clear(); requestsSinceSweep = 0 },
+  })
 }
 
 // Render routes public traffic through Cloudflare. Prefer its single-address
@@ -227,6 +260,7 @@ function send(res, status, payload, origin) {
 export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
+  const allowRequest = createBoundedRateLimiter()
   const server = http.createServer(async (req, res) => {
     const requestStartedAt = performance.now()
     const originalEnd = res.end.bind(res)
@@ -334,7 +368,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       }
       const refresh = url.searchParams.get('refresh')
       if (refresh !== null && refresh !== '0' && refresh !== '1') return send(res, 400, { success: false, error: 'invalid-refresh' }, origin)
-      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      const ip = observatoryRateLimitIp(req)
       if (!allowRequest(ip)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       const result = await readDelegationStatus(address, { refresh: refresh === '1' })
       return send(res, result.success ? 200 : 503, result, origin)
