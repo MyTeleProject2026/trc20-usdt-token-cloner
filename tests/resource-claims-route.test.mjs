@@ -39,7 +39,7 @@ test('resource claim readiness route combines live snapshot and provider readine
   })
   const result = await invoke(router, owner, true)
   assert.equal(result.statusCode, 200)
-  assert.equal(result.body.status, 'resource-snapshot-and-provider-readiness-checked')
+  assert.equal(result.body.status, 'partial-resource-provider-observations-available')
   assert.equal(result.body.resourceSnapshot.resources.energyAvailable, '0')
   assert.equal(result.body.providerReadiness.canRequestGrant, false)
   assert.equal(result.body.publicProviderDiscovery.provider, 'tenergy')
