@@ -50,6 +50,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
   const [lookupPortfolioValue, setLookupPortfolioValue] = useState(null)
   const [referencePrice, setReferencePrice] = useState(null)
   const [feeCap, setFeeCap] = useState(DEFAULT_FEE_CAP)
+  const [fundingMode, setFundingMode] = useState('zero-trx')
+  const [maxTrxSpend, setMaxTrxSpend] = useState('0')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -71,9 +73,19 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     } catch { return 0 }
   }, [feeCap])
 
+  const maxTrxSpendSun = useMemo(() => {
+    try {
+      const units = BigInt(parseTokenUnits(maxTrxSpend))
+      if (units > 1000000000000n) return 0
+      return units.toString()
+    } catch { return '0' }
+  }, [maxTrxSpend])
+
   const deploymentReady = Boolean(deploymentReadiness
     && deploymentReadiness.owner === connectedAddress
     && deploymentReadiness.feeCapSun === feeCapSun
+    && deploymentReadiness.fundingMode === fundingMode
+    && deploymentReadiness.maxTrxSpendSun === maxTrxSpendSun
     && deploymentReadiness.tokenAddress === tokenAddress
     && deploymentReadiness.expiresAt > Date.now())
 
@@ -83,7 +95,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
     return () => window.clearTimeout(timeout)
   }, [deploymentReadiness])
 
-  useEffect(() => { setDeploymentReadiness(null) }, [connectedAddress, feeCapSun, tokenAddress])
+  useEffect(() => { setDeploymentReadiness(null) }, [connectedAddress, feeCapSun, tokenAddress, fundingMode, maxTrxSpendSun])
 
   const run = useCallback(async (label, action) => {
     setBusy(true); setError(''); setNotice(''); setStep(label)
@@ -141,21 +153,25 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
       artifact: TRAX_TOKEN_ARTIFACT,
       contractName: 'Restricted1TRAX',
       feeLimitSun: feeCapSun,
-    }])
+    }], { fundingMode, maxTrxSpendSun })
     const deployment = result.deployments?.[0]
-    if (!result.conservative || !deployment?.energyEstimateAvailable || result.requiredTrxSun !== '0') {
-      throw new Error('Deployment readiness is not established. Energy estimation, complete resource coverage, or zero-TRX fallback could not be verified. No wallet prompt, signature, or broadcast was attempted.')
+    if (!result.conservative || !deployment?.energyEstimateAvailable || !result.fundingAssessment) {
+      throw new Error('Deployment readiness is not established. Energy estimation, resource coverage or the selected funding policy could not be verified. No wallet prompt, signature, or broadcast was attempted.')
     }
     setDeploymentReadiness({
       owner: connectedAddress,
       feeCapSun,
+      fundingMode,
+      maxTrxSpendSun,
       tokenAddress,
       expiresAt: Date.now() + 60000,
       energyRequired: deployment.energyRequired,
       energyWithSafetyMargin: deployment.energyWithSafetyMargin,
       bandwidthBytes: deployment.estimatedBandwidthBytes,
     })
-    setNotice('Read-only Mainnet preflight passed. Energy, Bandwidth, owner permission and zero-TRX fallback were checked. Click Deploy automatically repeats these checks. No provider grant is assumed; the deployment proceeds only when existing resources cover the complete transaction with zero TRX fallback.')
+    setNotice(fundingMode === 'zero-trx'
+      ? 'Read-only Mainnet preflight passed. Energy, Bandwidth, owner permission and zero-TRX fallback were checked. Deploy repeats all checks before signing.'
+      : 'Read-only owner-funded preflight passed. The estimated fallback is ' + (Number(result.requiredTrxSun) / 1e6).toFixed(6) + ' TRX; conservative maximum spend is ' + (Number(result.fundingAssessment.maximumPotentialTrxSpendSun) / 1e6).toFixed(6) + ' TRX. Deploy repeats balance, resource and cap checks before signing.')
   })
 
   const deployToken = () => run('Preparing TRӾ Mainnet deployment · TronLink approval required', async () => {
@@ -171,7 +187,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
       artifact: TRAX_TOKEN_ARTIFACT,
       contractName: 'Restricted1TRAX',
       feeLimitSun: feeCapSun,
-    }])
+    }], { fundingMode, maxTrxSpendSun })
     let preflight
     try {
       preflight = await runDeploymentPreflight()
@@ -201,12 +217,14 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
       preflight = await runDeploymentPreflight()
     }
     const deployment = preflight.deployments?.[0]
-    if (!preflight.conservative || !deployment?.energyEstimateAvailable || preflight.requiredTrxSun !== '0') {
-      throw new Error('Deployment is blocked: exact Energy estimation, complete Bandwidth coverage, owner permission, or zero-TRX fallback could not be verified. No TronLink prompt, signature, or broadcast was attempted.')
+    if (!preflight.conservative || !deployment?.energyEstimateAvailable || !preflight.fundingAssessment) {
+      throw new Error('Deployment is blocked: exact Energy estimation, resource coverage, or selected funding policy could not be verified. No TronLink prompt, signature, or broadcast was attempted.')
     }
     setDeploymentReadiness({
       owner: connectedAddress,
       feeCapSun,
+      fundingMode,
+      maxTrxSpendSun,
       tokenAddress,
       expiresAt: Date.now() + 60000,
       energyRequired: deployment.energyRequired,
@@ -214,10 +232,14 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
       bandwidthBytes: deployment.estimatedBandwidthBytes,
     })
     setStep('Preflight passed · preparing the owner-approved TronLink deployment')
-    const result = await deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, { expectedOwnerAddress: EXPECTED_OWNER_ADDRESS })
+    const result = await deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, {
+      expectedOwnerAddress: EXPECTED_OWNER_ADDRESS,
+      fundingMode,
+      maxTrxSpendSun,
+    })
     setTokenAddress(result.address)
     setLastTx(result.txID)
-    setNotice('TRӾ deployment is confirmed on solidified TRON Mainnet. The deployed bytecode, owner and token metadata were verified. Any TEnergy promotional Energy grant was independently checked against fresh Mainnet resources; Bandwidth was separately verified by the deployment preflight. Zero-TRX fallback remained mandatory.')
+    setNotice('TRӾ deployment is confirmed on solidified TRON Mainnet. The deployed bytecode, owner and token metadata were verified. Funding mode: ' + fundingMode + '. Verified fallback estimate: ' + (Number(result.resourceBudget.requiredTrxSun) / 1e6).toFixed(6) + ' TRX.')
   })
 
   const clearSavedTokenAddress = () => {
@@ -378,10 +400,14 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overv
       <label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
       <p id="trax-contract-address-note" className="fine-print">The contract address identifies the custom token on TRON Mainnet. Verify its on-chain bytecode and metadata before accepting deposits.</p>
       <label>Maximum transaction fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
-      <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Energy and Bandwidth are used first; any shortfall can still burn TRX. Zero-TRX-burn protection remains active, and the application will block signing when its resource preflight detects a shortfall.</p>
+      <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Actual Energy/Bandwidth usage may be lower. Choose zero-TRX to block any resource shortfall, or owner-funded to allow a fallback only within the spending cap and live wallet balance.</p>
+      {show('deploy') && <div className="trax-funding-options">
+        <label>Deployment funding policy<select value={fundingMode} onChange={e => setFundingMode(e.target.value)}><option value="zero-trx">Zero TRX fallback (strict)</option><option value="owner-funded">Owner-funded fallback (explicit cap)</option></select></label>
+        {fundingMode === 'owner-funded' && <label>Maximum conservative TRX spend<input type="number" min="0.000001" max="1000000" step="0.1" value={maxTrxSpend} onChange={e => setMaxTrxSpend(e.target.value)}/></label>}
+      </div>}
       {show('deploy') && <div className="trax-deploy-actions">
-        <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. Click Deploy once; the platform repeats live resource checks and opens TronLink only if the complete transaction is covered with zero TRX fallback.</span><span>4. Wait for a solidified receipt and verify bytecode, owner and metadata.</span></div>
-        {deploymentReady && <div className="trax-state-banner success"><b>Readiness passed · expires in 60 seconds</b><span>Energy required with safety margin: {deploymentReadiness.energyWithSafetyMargin} · estimated transaction Bandwidth: {deploymentReadiness.bandwidthBytes} bytes · estimated TRX fallback: 0.</span></div>}
+        <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. Choose zero-TRX or explicitly capped owner-funded mode; Deploy repeats live resource and balance checks before opening TronLink.</span><span>4. Wait for a solidified receipt and verify bytecode, owner and metadata.</span></div>
+        {deploymentReady && <div className="trax-state-banner success"><b>Readiness passed · expires in 60 seconds</b><span>Energy required with safety margin: {deploymentReadiness.energyWithSafetyMargin} · estimated transaction Bandwidth: {deploymentReadiness.bandwidthBytes} bytes · funding policy: {deploymentReadiness.fundingMode}.</span></div>}
         <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Preflight & deploy TRӾ</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
       </div>}
       {show('overview') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
