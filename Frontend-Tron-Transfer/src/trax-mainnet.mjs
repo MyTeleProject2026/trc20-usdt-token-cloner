@@ -1274,7 +1274,11 @@ export async function preflightContractDeployments(wallet, deployments, {
   readResources = getMainnetAccountResourceSnapshot,
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
- } = {}) {
+  fundingMode = 'zero-trx',
+  maxTrxSpendSun = '0',
+  reserveTrxSun = '0',
+  readNativeBalance = getMainnetNativeBalance,
+} = {}) {
   const walletTronWeb = assertMainnetWallet(wallet)
   if (!Array.isArray(deployments) || deployments.length === 0) {
     return { deployments: [], requiredTrxSun: '0', availableTrxSun: '0' }
