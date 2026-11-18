@@ -7,7 +7,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "node scripts/compile-trax-contracts.mjs && vite --host 0.0.0.0",
+    "dev": "node scripts/compile-trax-contracts.mjs && vite",
     "build": "node scripts/compile-trax-contracts.mjs && node --test tests/*.test.mjs && vite build && node scripts/export-trax-verification-bundle.mjs",
     "test": "node scripts/compile-trax-contracts.mjs && node --test tests/*.test.mjs",
     "verification:bundle": "node scripts/export-trax-verification-bundle.mjs"
