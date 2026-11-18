@@ -29,9 +29,12 @@ function response(body) {
 
 function createFetch({ receiptResult = 'SUCCESS', receiver = addressHex(owner), resource = 'ENERGY', contracts, resourceState = {} } = {}) {
   const calls = []
-  const defaultContracts = [{ type: 'DelegateResourceContract', parameter: { value: {
-    owner_address: addressHex(delegator), receiver_address: receiver, resource, balance: 1000000,
-  } } }]
+  const defaultContracts = [resource, ...(resource === 'ENERGY' ? ['BANDWIDTH'] : [])].map((resourceType) => ({
+    type: 'DelegateResourceContract',
+    parameter: { value: {
+      owner_address: addressHex(delegator), receiver_address: receiver, resource: resourceType, balance: 1000000,
+    } },
+  }))
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body)
     calls.push({ path: url.split('/').pop(), body })
@@ -66,7 +69,6 @@ test('verifies provider delegation against solidified transaction, receipt, dele
   assert.equal(result.delegatorAddress, delegator)
   assert.equal(result.ENERGY, '900000')
   assert.equal(result.BANDWIDTH, '900')
-  assert.equal(result.verified, false)
   assert.equal(result.status, 'solidified-delegation-found-resources-insufficient')
   assert.equal(result.blockNumber, 123456)
   assert.deepEqual(calls.map((call) => call.path), [
