@@ -27,7 +27,7 @@ test('confirmed Mainnet transaction feed is owner restricted and requests confir
       assert.match(url, /^https:\/\/api\.trongrid\.io\/v1\/accounts\/TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp\/transactions\?/)
       assert.equal(options.method, 'GET')
       requestBody = Object.fromEntries(new URL(url).searchParams.entries())
-      return new Response(JSON.stringify({ transaction: [tx] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({ success: true, data: [tx] }), { status: 200, headers: { 'content-type': 'application/json' } })
     },
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
