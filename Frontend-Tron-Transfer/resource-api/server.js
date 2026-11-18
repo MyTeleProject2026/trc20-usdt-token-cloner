@@ -1,8 +1,10 @@
 import http from 'node:http'
+import { isIP } from 'node:net'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
+import { createRuntimeObservatory } from './runtime-observatory.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
@@ -15,8 +17,8 @@ const CACHE_TTL_MS = 15_000
 const UPSTREAM_TIMEOUT_MS = 8_000
 const RATE_WINDOW_MS = 60_000
 const RATE_LIMIT = 30
+const MAX_RATE_LIMIT_ENTRIES = 10_000
 const cache = new Map()
-const rate = new Map()
 
 const number = value => {
   const parsed = Number(value ?? 0)
@@ -183,16 +185,62 @@ async function readResources(address, options = {}) {
   }
 }
 
-function allowRequest(ip, scope = 'default') {
-  const key = scope + ':' + ip
-  const now = Date.now()
-  const entry = rate.get(key)
-  if (!entry || now - entry.startedAt >= RATE_WINDOW_MS) {
-    rate.set(key, { startedAt: now, count: 1 })
+export function createBoundedRateLimiter({
+  windowMs = RATE_WINDOW_MS,
+  maxEntries = MAX_RATE_LIMIT_ENTRIES,
+  now = Date.now,
+} = {}) {
+  if (!Number.isInteger(windowMs) || windowMs < 1) throw new TypeError('windowMs must be a positive integer')
+  if (!Number.isInteger(maxEntries) || maxEntries < 1) throw new TypeError('maxEntries must be a positive integer')
+  const entries = new Map()
+  let requestsSinceSweep = 0
+
+  function removeExpired(timestamp) {
+    for (const [key, entry] of entries) {
+      if (timestamp - entry.startedAt >= windowMs) entries.delete(key)
+    }
+  }
+
+  function allow(key, limit = RATE_LIMIT) {
+    const timestamp = now()
+    requestsSinceSweep += 1
+    if (requestsSinceSweep >= 256) {
+      removeExpired(timestamp)
+      requestsSinceSweep = 0
+    }
+
+    const entry = entries.get(key)
+    if (entry && timestamp - entry.startedAt < windowMs) {
+      entry.count += 1
+      return entry.count <= limit
+    }
+    if (entry) entries.delete(key)
+
+    if (entries.size >= maxEntries) removeExpired(timestamp)
+    // Fail closed at capacity. Never evict an active caller's counter to make
+    // room for a new identity, which would let address rotation reset limits.
+    if (entries.size >= maxEntries) return false
+    entries.set(key, { startedAt: timestamp, count: 1 })
     return true
   }
-  entry.count += 1
-  return entry.count <= RATE_LIMIT
+
+  Object.defineProperties(allow, {
+    size: { get: () => entries.size },
+    clear: { value: () => { entries.clear(); requestsSinceSweep = 0 } },
+  })
+  return allow
+}
+
+// Render routes public traffic through Cloudflare. Prefer its single-address
+// CF-Connecting-IP header; unlike caller-controlled X-Forwarded-For prefixes,
+// Cloudflare overwrites this header at its edge. Fall back to the TCP peer
+// outside that deployment path.
+function observatoryRateLimitIp(req) {
+  const cloudflareIp = typeof req.headers['cf-connecting-ip'] === 'string'
+    ? req.headers['cf-connecting-ip'].trim()
+    : ''
+  if (isIP(cloudflareIp)) return cloudflareIp
+  return req.socket?.remoteAddress || 'unknown'
 }
 
 function send(res, status, payload, origin) {
@@ -212,7 +260,30 @@ function send(res, status, payload, origin) {
 
 export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
-  return http.createServer(async (req, res) => {
+  const runtimeObservatory = createRuntimeObservatory()
+  const rateLimiters = new Map()
+  const allowRequest = (ip, scope = 'default', limit = RATE_LIMIT) => {
+    let limiter = rateLimiters.get(scope)
+    if (!limiter) {
+      // Keep the number of independently budgeted scopes bounded as well.
+      if (rateLimiters.size >= 32) return false
+      limiter = createBoundedRateLimiter()
+      rateLimiters.set(scope, limiter)
+    }
+    return limiter(ip, limit)
+  }
+  const server = http.createServer(async (req, res) => {
+    const requestStartedAt = performance.now()
+    const originalEnd = res.end.bind(res)
+    let requestRecorded = false
+    res.end = (...args) => {
+      if (!requestRecorded) {
+        requestRecorded = true
+        const requestPath = new URL(req.url || '/', 'http://localhost').pathname
+        runtimeObservatory.recordHttpRequest({ method: req.method, path: requestPath, statusCode: res.statusCode, durationMs: performance.now() - requestStartedAt })
+      }
+      return originalEnd(...args)
+    }
     const origin = req.headers.origin
     if (origin && !ALLOWED_ORIGINS.has(origin)) return send(res, 403, { error: 'ORIGIN_NOT_ALLOWED' })
     if (req.method === 'OPTIONS') {
@@ -226,6 +297,66 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       return res.end()
     }
     const url = new URL(req.url || '/', 'http://localhost')
+    if (req.method === 'GET' && url.pathname === '/api/observatory/snapshot') {
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'observatory-snapshot', 90)) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      return send(res, 200, runtimeObservatory.snapshot(), origin)
+    }
+    if (req.method === 'GET' && url.pathname === '/api/observatory/transactions') {
+      const address = url.searchParams.get('address') || 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+      if (address !== 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp' || !isMainnetAddress(address)) {
+        return send(res, 403, { success: false, error: 'wallet-not-allowed' }, origin)
+      }
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'observatory-transactions')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      try {
+        const query = new URLSearchParams({ only_confirmed: 'true', limit: '20', order_by: 'block_timestamp,desc' })
+        const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
+        const response = await fetchImpl(`https://api.trongrid.io/v1/accounts/${encodeURIComponent(address)}/transactions?${query}`, {
+          method: 'GET',
+          headers: { accept: 'application/json', ...(tronGridKey ? { 'TRON-PRO-API-KEY': tronGridKey } : {}) },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+          redirect: 'error',
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || data?.success === false) throw new Error(`TronGrid transaction history returned HTTP ${response.status}`)
+        const transactions = Array.isArray(data.data) ? data.data : []
+        return send(res, 200, { success: true, network: 'TRON Mainnet', address, provider: 'trongrid-v1', confirmedOnly: true, transactions, checkedAt: new Date().toISOString() }, origin)
+      } catch (error) {
+        return send(res, 503, { success: false, error: 'MAINNET_TRANSACTION_FEED_UNAVAILABLE', message: String(error?.message || 'Could not read confirmed Mainnet transactions').slice(0, 180) }, origin)
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/observatory/render-events') {
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'observatory-render-events', 10)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      const apiKey = typeof env.RENDER_API_KEY === 'string' ? env.RENDER_API_KEY.trim() : ''
+      const services = [
+        { id: env.RENDER_RESOURCE_API_SERVICE_ID || 'srv-dbrjpq56e07s73bueevg', label: 'Resource API' },
+        { id: env.RENDER_FRONTEND_SERVICE_ID || 'srv-dblmrad6e07s739cs2lg', label: 'Owner frontend' },
+      ]
+      if (!apiKey) return send(res, 200, { success: true, configured: false, provider: 'Render API', services: [], events: [], checkedAt: new Date().toISOString(), note: 'Set RENDER_API_KEY on the resource API service to enable authenticated Render control-plane events.' }, origin)
+      try {
+        const results = await Promise.all(services.map(async service => {
+          const query = new URLSearchParams({ limit: '10' })
+          const response = await fetchImpl('https://api.render.com/v1/services/' + encodeURIComponent(service.id) + '/events?' + query, {
+            method: 'GET',
+            headers: { accept: 'application/json', authorization: 'Bearer ' + apiKey },
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+            redirect: 'error',
+          })
+          if (!response.ok) throw new Error('Render events API returned HTTP ' + response.status)
+          const rows = await response.json()
+          return (Array.isArray(rows) ? rows : []).map(row => {
+            const event = row?.event || row || {}
+            return { id: String(event.id || ''), serviceId: service.id, serviceLabel: service.label, type: String(event.type || 'unknown').slice(0, 64), timestamp: event.timestamp || null }
+          }).filter(event => event.id && event.timestamp)
+        }))
+        const events = results.flat().sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)).slice(0, 20)
+        return send(res, 200, { success: true, configured: true, provider: 'Render API', services: services.map(({ id, label }) => ({ id, label })), events, checkedAt: new Date().toISOString() }, origin)
+      } catch (error) {
+        return send(res, 503, { success: false, configured: true, error: 'RENDER_EVENTS_UNAVAILABLE', message: String(error?.message || 'Render control-plane events unavailable').slice(0, 160), checkedAt: new Date().toISOString() }, origin)
+      }
+    }
     if (req.method === 'GET' && url.pathname === '/health') {
       const tatumConfigured = typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim().length > 0
       const tronGridConfigured = typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim().length > 0
@@ -248,8 +379,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       }
       const refresh = url.searchParams.get('refresh')
       if (refresh !== null && refresh !== '0' && refresh !== '1') return send(res, 400, { success: false, error: 'invalid-refresh' }, origin)
-      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
-      if (!allowRequest(ip)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'free-delegation-resource')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       const result = await readDelegationStatus(address, { refresh: refresh === '1' })
       return send(res, result.success ? 200 : 503, result, origin)
     }
@@ -293,7 +424,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
       const walletAddress = req.method === 'GET' ? (url.searchParams.get('address') || '') : body.address
       if (walletAddress !== allowedAddress || !isMainnetAddress(walletAddress)) return send(res, 403, { success: false, error: 'wallet-not-allowed' }, origin)
-      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      const ip = observatoryRateLimitIp(req)
       if (!allowRequest(ip, 'tenergy-promo')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       try {
         if (promoAction === 'promo' && req.method === 'GET') {
@@ -358,8 +489,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
     const match = url.pathname.match(/^\/v1\/resources\/(T[1-9A-HJ-NP-Za-km-z]{33})$/)
     if (!match || !isMainnetAddress(match[1])) return send(res, 400, { error: 'INVALID_TRON_ADDRESS' }, origin)
-    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
-    if (!allowRequest(ip)) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+    const ip = observatoryRateLimitIp(req)
+    if (!allowRequest(ip, 'mainnet-resource-read')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
     const address = match[1]
     const cached = cache.get(address)
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, cached.value, origin)
@@ -378,6 +509,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       }, origin)
     }
   })
+  server.on('close', () => runtimeObservatory.stop())
+  return server
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
