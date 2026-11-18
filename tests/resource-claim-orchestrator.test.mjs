@@ -217,10 +217,18 @@ test('accepted grant with unavailable verification is not retried against anothe
   assert.equal(secondProviderCalled, false)
 })
 
-test('same transaction ID cannot be accepted for both Energy and Bandwidth', async () => {
-  let verificationCalled = false
+test('one transaction can delegate both Energy and Bandwidth and is verified for each resource', async () => {
+  const verified = []
   const manager = createResourceClaimOrchestrator({
-    delegationVerifier: { async verifyDelegation() { verificationCalled = true; throw new Error('must reject before verification') } },
+    delegationVerifier: {
+      async verifyDelegation(input) {
+        verified.push(input)
+        return {
+          verified: true, solidified: true, network: 'mainnet',
+          ownerAddress, transactionId: txid, ENERGY: '900000', BANDWIDTH: '1200',
+        }
+      },
+    },
     adapters: [{
       id: 'single-transaction-provider',
       network: 'mainnet',
@@ -231,8 +239,8 @@ test('same transaction ID cannot be accepted for both Energy and Bandwidth', asy
     }],
   })
   const result = await manager.requestGrant({ ownerAddress, requestId: 'deploy_12345678', required })
-  assert.equal(result.success, false)
-  assert.equal(result.status, 'grant-accepted-response-incomplete-or-not-zero-cost')
-  assert.equal(result.retrySafe, false)
-  assert.equal(verificationCalled, false)
+  assert.equal(result.success, true)
+  assert.equal(result.status, 'mainnet-resource-grant-verified')
+  assert.deepEqual(result.transactionIds, { ENERGY: txid, BANDWIDTH: txid })
+  assert.deepEqual(verified.map((entry) => entry.transactionId), [txid, txid])
 })
