@@ -8,6 +8,7 @@ import OkxDepositStatus from './OkxDepositStatus.tsx'
 import WalletVault from './WalletVault.tsx'
 import WatchOnlyWallets from './WatchOnlyWallets.tsx'
 import TestnetSandbox from './TestnetSandbox.tsx'
+import TenergyPromoClaim from './TenergyPromoClaim.tsx'
 import './index.css'
 
 const root = createRoot(document.getElementById('root')!)
@@ -15,6 +16,7 @@ const root = createRoot(document.getElementById('root')!)
 function renderRoute() {
   const route = window.location.hash
   const isMainnetExchangeDeposit = route === '#/exchange-deposit'
+  const isTenergyPromoClaim = route === '#/resource-promo'
   const isSponsorOperator = route === '#/sponsor-operator'
   const isOkxDepositStatus = route === '#/okx-deposit-status'
   const isWalletVault = route === '#/wallet'
@@ -22,8 +24,10 @@ function renderRoute() {
   const isWatchOnlyWallets = route === '#/watch-wallets'
   const isLegacyWorkspace = route === '#/workspace'
 
-  const page = isTestnetSandbox
-    ? <TestnetSandbox />
+  const page = isTenergyPromoClaim
+    ? <TenergyPromoClaim />
+    : isTestnetSandbox
+      ? <TestnetSandbox />
     : isWalletVault
       ? <WalletVault />
       : isWatchOnlyWallets

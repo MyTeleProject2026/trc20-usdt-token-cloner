@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
 import nativeTronRoutes from './routes/native-tron.mjs'
+import tenergyPromoRoutes from './routes/tenergy-promo.mjs'
 import trc20VerificationRoutes from './routes/trc20-verification.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
 import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-wallet-auth.mjs'
@@ -135,6 +136,7 @@ app.get('/api/readiness', async (_req, res) => {
 app.use('/api', tatumRoutes)
 app.use('/api/tron', trc20VerificationRoutes)
 app.use('/api/tron', nativeTronRoutes)
+app.use('/api/tron', tenergyPromoRoutes)
 app.use('/api/gasfree', gasFreeRoutes)
 app.use('/api/auth/tron', tronWalletAuthRoutes)
 app.use('/api/auth/owner', createOwnerAuthRouter())
