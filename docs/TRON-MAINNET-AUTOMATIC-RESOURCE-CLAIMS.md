@@ -170,3 +170,17 @@ The provider adapter contract accepts both valid Stake 2.0 patterns:
 - Two transaction IDs, one for each resource.
 
 For a combined transaction, the orchestrator independently evaluates that same solidified transaction against the Energy requirement and the Bandwidth requirement. For split transactions, it verifies each transaction against only its corresponding resource. In both cases the verifier must confirm the exact owner recipient, successful solidified receipt, correct resource type, and actual delegated resource state. A single transaction ID is not by itself proof that both resource operations were included.
+
+
+## Deployment funding modes when external staking is unavailable
+
+The Mainnet deployment UI supports two distinct policies:
+
+- `zero-trx` (default): any calculated Energy or Bandwidth TRX fallback blocks the wallet prompt.
+- `owner-funded` (explicit opt-in): the owner can set a maximum conservative TRX spend. The preflight checks the fee-limit ceiling plus any estimated Bandwidth fallback against that cap and checks the live owner TRX balance plus an optional reserve. The same checks are repeated before signing and immediately before broadcast.
+
+The owner-funded mode does not borrow, stake, or spend another account's funds. The connected owner wallet remains both transaction owner and fee payer. TronLink must approve the actual deployment transaction. A provider grant is not required to use this mode.
+
+The configured maximum spend is a conservative upper bound, not a prediction that the full amount will be charged. Actual fees depend on the resources available and consumed at execution. The fee limit is a protocol cap for Energy; Bandwidth fallback is separately accounted for. The UI does not submit a deployment if the estimate, live balance, spending cap, owner permission, or final resource recheck cannot be established.
+
+This is a fallback deployment route, not a zero-cost claim. If the owner has insufficient TRX for the conservative maximum and reserve, the deployment remains blocked. Never enter a spending cap you are not willing to authorize in TronLink.
