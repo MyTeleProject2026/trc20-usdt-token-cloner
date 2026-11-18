@@ -26,6 +26,8 @@ test('each TRӾ admin page is wired to the existing on-chain operation', async (
   assert.ok(app.includes("activePage === 'overview' ? <PlatformMonitor"), 'Home must render the live platform monitor')
   assert.ok(monitor.includes("/health") && monitor.includes("/v1/resources/"), 'monitor must poll real API routes')
   assert.ok(monitor.includes("/api/tron/tenergy/promo"), 'monitor must poll TEnergy status')
+  assert.ok(panel.includes('onClick={claimTenergyPromo}'), 'deployment page must expose explicit TEnergy claim action')
+  assert.ok(panel.includes('Check &amp; claim TEnergy Energy'), 'TEnergy claim action must be visible')
   for (const page of ['portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
     assert.ok(panel.includes("show('" + page + "')"), 'missing page rendering: ' + page)
   }
