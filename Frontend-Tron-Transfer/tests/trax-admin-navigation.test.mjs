@@ -8,7 +8,7 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
   const app = await read('../src/App.jsx')
   const sidebar = await read('../src/TRAXSidebar.jsx')
   const mobile = await read('../src/MobileNavBar.jsx')
-  const ids = ['overview','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']
+  const ids = ['overview','portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']
   for (const id of ids) assert.ok(app.includes("id: '" + id + "'"), 'missing page route: ' + id)
   assert.ok(sidebar.includes('Desktop workspace navigation'))
   assert.ok(sidebar.includes('collapsed'))
@@ -21,7 +21,12 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
 
 test('each TRӾ admin page is wired to the existing on-chain operation', async () => {
   const panel = await read('../src/TRXMainnetPanel.jsx')
-  for (const page of ['overview','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
+  const app = await read('../src/App.jsx')
+  const monitor = await read('../src/PlatformMonitor.jsx')
+  assert.ok(app.includes("activePage === 'overview' ? <PlatformMonitor"), 'Home must render the live platform monitor')
+  assert.ok(monitor.includes("/health") && monitor.includes("/v1/resources/"), 'monitor must poll real API routes')
+  assert.ok(monitor.includes("/api/tron/tenergy/promo"), 'monitor must poll TEnergy status')
+  for (const page of ['portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
     assert.ok(panel.includes("show('" + page + "')"), 'missing page rendering: ' + page)
   }
   for (const action of ['issueOwnerSupply','issueCredit','batchCredit','pause','unpauseTransfers','enableMinting','disableMinting','transfer']) {
