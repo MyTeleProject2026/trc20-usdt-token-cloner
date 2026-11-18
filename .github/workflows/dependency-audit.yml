@@ -77,8 +77,8 @@ jobs:
             ...rows,
             '',
             'Detailed npm audit JSON is attached as a workflow artifact. Review major upgrades for runtime compatibility before applying.'
-          ].join('\\n')
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\\n')
+          ].join('\n')
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n')
           console.log(summary)
           NODE
           node scripts/check-npm-audit.mjs npm-audit-report.json
