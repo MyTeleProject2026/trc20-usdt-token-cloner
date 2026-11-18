@@ -85,3 +85,16 @@ test('Render control-plane feed degrades honestly when no API key is configured'
   assert.deepEqual(body.events, [])
   assert.match(body.note, /RENDER_API_KEY/)
 })
+
+
+test('observatory snapshot rate limit cannot be bypassed by spoofing X-Forwarded-For', async (t) => {
+  const server = createServer({ env: {} })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const url = 'http://127.0.0.1:' + server.address().port + '/api/observatory/snapshot'
+  let last
+  for (let index = 0; index < 91; index += 1) {
+    last = await fetch(url, { headers: { 'x-forwarded-for': '198.51.100.' + (index % 250 + 1) } })
+  }
+  assert.equal(last.status, 429)
+})
