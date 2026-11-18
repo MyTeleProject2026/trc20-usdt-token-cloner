@@ -246,7 +246,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     }
     const url = new URL(req.url || '/', 'http://localhost')
     if (req.method === 'GET' && url.pathname === '/api/observatory/snapshot') {
-      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      const ip = observatoryRateLimitIp(req)
       if (!allowRequest(ip, 'observatory-snapshot', 90)) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       return send(res, 200, runtimeObservatory.snapshot(), origin)
     }
@@ -255,7 +255,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       if (address !== 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp' || !isMainnetAddress(address)) {
         return send(res, 403, { success: false, error: 'wallet-not-allowed' }, origin)
       }
-      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      const ip = observatoryRateLimitIp(req)
       if (!allowRequest(ip, 'observatory-transactions')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       try {
         const query = new URLSearchParams({ only_confirmed: 'true', limit: '20', order_by: 'block_timestamp,desc' })
@@ -275,7 +275,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       }
     }
     if (req.method === 'GET' && url.pathname === '/api/observatory/render-events') {
-      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+      const ip = observatoryRateLimitIp(req)
       if (!allowRequest(ip, 'observatory-render-events', 10)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       const apiKey = typeof env.RENDER_API_KEY === 'string' ? env.RENDER_API_KEY.trim() : ''
       const services = [
