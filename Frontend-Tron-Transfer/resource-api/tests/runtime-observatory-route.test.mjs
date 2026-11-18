@@ -24,8 +24,9 @@ test('confirmed Mainnet transaction feed is owner restricted and requests confir
   const server = createServer({
     env: {},
     fetchImpl: async (url, options = {}) => {
-      assert.equal(url, 'https://api.trongrid.io/wallet/gettransactionfromaddress')
-      requestBody = JSON.parse(options.body)
+      assert.match(url, /^https:\/\/api\.trongrid\.io\/v1\/accounts\/TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp\/transactions\?/)
+      assert.equal(options.method, 'GET')
+      requestBody = Object.fromEntries(new URL(url).searchParams.entries())
       return new Response(JSON.stringify({ transaction: [tx] }), { status: 200, headers: { 'content-type': 'application/json' } })
     },
   })
@@ -40,7 +41,7 @@ test('confirmed Mainnet transaction feed is owner restricted and requests confir
   assert.equal(body.success, true)
   assert.equal(body.confirmedOnly, true)
   assert.deepEqual(body.transactions, [tx])
-  assert.equal(requestBody.account, owner)
-  assert.equal(requestBody.only_confirmed, true)
-  assert.equal(requestBody.only_unconfirmed, false)
+  assert.equal(requestBody.only_confirmed, 'true')
+  assert.equal(requestBody.limit, '20')
+  assert.equal(requestBody.order_by, 'block_timestamp,desc')
 })
