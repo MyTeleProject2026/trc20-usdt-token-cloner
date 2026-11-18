@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, normalizeMainnetAccountResources, normalizeDeploymentEnergyEstimate } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, evaluateDeploymentFunding, normalizeMainnetAccountResources, normalizeDeploymentEnergyEstimate } from '../src/trax-mainnet.mjs'
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
@@ -212,4 +212,62 @@ test('deployment Energy simulation accepts successful estimate and preserves pen
     energy_penalty: '25000',
     transaction: { ret: [{ ret: 'SUCESS', contractRet: 'SUCCESS' }] },
   }), { energyUsed: '800000', energyPenalty: '25000' })
+})
+
+
+const ownerFundedTestBudget = {
+  requiredTrxSun: '139000',
+  energyBurnSun: '0',
+  bandwidthBurnSun: '139000',
+  feeLimitSun: '150000000',
+}
+
+test('owner-funded deployment permits resource shortfall only within explicit spend cap and balance', () => {
+  const result = evaluateDeploymentFunding({
+    resourceBudget: ownerFundedTestBudget,
+    fundingMode: 'owner-funded',
+    maxTrxSpendSun: '160000000',
+    availableTrxSun: '200000000',
+    reserveTrxSun: '1000000',
+  })
+  assert.equal(result.fundingMode, 'owner-funded')
+  assert.equal(result.estimatedTrxFallbackSun, '139000')
+  assert.equal(result.maximumPotentialTrxSpendSun, '150139000')
+})
+
+test('owner-funded deployment blocks when conservative maximum exceeds user spending cap', () => {
+  assert.throws(() => evaluateDeploymentFunding({
+    resourceBudget: ownerFundedTestBudget,
+    fundingMode: 'owner-funded',
+    maxTrxSpendSun: '150000000',
+    availableTrxSun: '500000000',
+  }), /exceeds your explicit spending cap/)
+})
+
+test('owner-funded deployment blocks when live TRX balance cannot cover maximum and reserve', () => {
+  assert.throws(() => evaluateDeploymentFunding({
+    resourceBudget: ownerFundedTestBudget,
+    fundingMode: 'owner-funded',
+    maxTrxSpendSun: '160000000',
+    availableTrxSun: '150000000',
+    reserveTrxSun: '1000000',
+  }), /below the conservative maximum spend plus reserve/)
+})
+
+test('zero-TRX deployment mode continues to reject any resource fallback', () => {
+  assert.throws(() => evaluateDeploymentFunding({
+    resourceBudget: ownerFundedTestBudget,
+    fundingMode: 'zero-trx',
+    maxTrxSpendSun: '999999999',
+    availableTrxSun: '500000000',
+  }), /Zero-TRX deployment preflight blocked/)
+})
+
+test('owner-funded deployment rejects an unknown funding mode', () => {
+  assert.throws(() => evaluateDeploymentFunding({
+    resourceBudget: ownerFundedTestBudget,
+    fundingMode: 'automatic',
+    maxTrxSpendSun: '160000000',
+    availableTrxSun: '500000000',
+  }), /Unknown deployment funding mode/)
 })
