@@ -196,7 +196,13 @@ function allowRequest(ip, scope = 'default', limit = RATE_LIMIT) {
   return entry.count <= limit
 }
 
-// Forwarded headers can be supplied or spoofed by callers. Use the TCP peer for\n// observatory limits so rotating X-Forwarded-For cannot bypass provider-call caps.\nfunction observatoryRateLimitIp(req) {\n  return req.socket?.remoteAddress || 'unknown'\n}\n\nfunction send(res, status, payload, origin) {
+// Forwarded headers can be supplied or spoofed by callers. Use the TCP peer for
+// observatory limits so rotating X-Forwarded-For cannot bypass provider-call caps.
+function observatoryRateLimitIp(req) {
+  return req.socket?.remoteAddress || 'unknown'
+}
+
+function send(res, status, payload, origin) {
   const headers = {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
