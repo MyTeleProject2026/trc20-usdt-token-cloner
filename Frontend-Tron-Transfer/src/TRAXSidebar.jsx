@@ -10,7 +10,7 @@ export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onC
     </div>
     <div className="trax-sidebar-network"><span className="trax-live-dot"/>{!collapsed && <><b>TRON Mainnet</b><small>Target network</small></>}</div>
     <div className="trax-sidebar-label">{!collapsed && 'WORKSPACE'}</div>
-    <nav id="trax-desktop-workspace-nav" aria-label="Owner workspace navigation">
+    <nav id="trax-desktop-workspace-nav" aria-label="Desktop workspace navigation">
       {items.map(item => {
         const Icon = item.icon
         return <button key={item.id} title={collapsed ? item.label : undefined} className={activePage === item.id ? 'active' : ''} aria-current={activePage === item.id ? 'page' : undefined} onClick={() => onNavigate(item.id)}>
