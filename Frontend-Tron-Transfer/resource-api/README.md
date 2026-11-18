@@ -7,6 +7,14 @@ Read-only Mainnet resource monitor for the TRON Transfer frontend.
 - `GET /health` — service health and upstream identity.
 - `GET /v1/resources/:base58Address` — account Energy, free and staked/delegated Bandwidth by source, the maximum Bandwidth available to cover one transaction, native TRX balance, and current chain fee parameters.
 
+## Mainnet RPC providers
+
+- Tatum is preferred when `TATUM_API_KEY` is configured. Requests use the official TRON Mainnet HTTP API gateway at `https://tron-mainnet.gateway.tatum.io/wallet` and authenticate with the `x-api-key` header.
+- TronGrid remains the fallback provider. Configure `TRONGRID_API_KEY` to send its `TRON-PRO-API-KEY` header; otherwise the service attempts the public endpoint.
+- The service never returns either API key from `/health` or resource responses. Keep both keys in Render server-side environment variables; never put them in frontend build variables or browser code.
+- If Tatum is unavailable or rejects a request, the resource reader retries that RPC call through TronGrid. If both providers fail, it returns an upstream error and does not invent resource values.
+- Tatum RPC access provides blockchain connectivity and read/broadcast infrastructure. It does not create Energy, provide free Bandwidth, grant resources, or authorize a wallet signature.
+
 ## Bandwidth accounting
 
 TRON does not add free Bandwidth and staked/delegated Bandwidth together to cover a single transaction. The API therefore returns:
@@ -18,11 +26,11 @@ The TRӾ deployment preflight uses the same one-source coverage rule and blocks 
 
 ## Deployment
 
-This service is designed for a Render Web Service with root directory `Frontend-Tron-Transfer/resource-api`, Node runtime, `npm run check` build command, and `npm start` start command. It binds to `0.0.0.0:$PORT`. It needs no wallet key or private key. `TRONGRID_API_KEY` is optional infrastructure configuration for reliable production RPC reads, not a wallet credential or transaction-signing permission.
+This service is designed for a Render Web Service with root directory `Frontend-Tron-Transfer/resource-api`, Node runtime, `npm run check` build command, and `npm start` start command. It binds to `0.0.0.0:$PORT`. It needs no wallet key or private key. RPC API keys are infrastructure credentials only; they do not grant transaction-signing permission.
 
 ## Important limits
 
-- Mainnet reads use the public TronGrid FullNode HTTP API. Configure an optional server-side `TRONGRID_API_KEY` in Render to send the `TRON-PRO-API-KEY` header; the key is never returned by the health or resource endpoints. Without a key, the service falls back to anonymous public access, which may be heavily rate limited or rejected. The API reports this honestly rather than fabricating resource data.
+- TRON resource reads use Tatum Mainnet when configured, with TronGrid fallback. Both providers expose chain state; neither grants resources merely because an API key is configured.
 - The service is read-only. It cannot create Energy, delegate resources, sign, or broadcast transactions.
 - TRON has no protocol free Energy quota. Free Bandwidth is reported from the live account-resource response.
 - Exact smart-contract deployment Energy is not inferred from an arbitrary fee cap. A deployment-specific simulation or the exact node estimate is required.
