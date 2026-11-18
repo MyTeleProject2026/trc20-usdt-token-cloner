@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
+export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
 export const ALLOWED_ORIGINS = new Set([
   'https://tron-transfer.onrender.com',
   'http://localhost:5173',
@@ -113,27 +114,54 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
   }
 }
 
-async function rpcPost(path, body, { fetchImpl = fetch, env = process.env } = {}) {
-  const apiKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
-  const response = await fetchImpl(MAINNET_RPC + path, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'application/json',
-      ...(apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {}),
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-  })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok || data?.Error || data?.error) {
-    const status = response.status || 502
-    const detail = String(data?.Error || data?.error || 'TRON node rejected the read request').slice(0, 240)
-    const error = new Error(detail)
-    error.status = status
-    throw error
+function rpcProviders(env = process.env) {
+  const providers = []
+  const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
+  const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
+  if (tatumKey) {
+    providers.push({
+      id: 'tatum',
+      baseUrl: TATUM_MAINNET_RPC,
+      headers: { 'x-api-key': tatumKey },
+    })
   }
-  return data
+  providers.push({
+    id: 'trongrid',
+    baseUrl: MAINNET_RPC,
+    headers: tronGridKey ? { 'TRON-PRO-API-KEY': tronGridKey } : {},
+  })
+  return providers
+}
+
+async function rpcPost(path, body, { fetchImpl = fetch, env = process.env } = {}) {
+  let lastError
+  for (const provider of rpcProviders(env)) {
+    try {
+      const response = await fetchImpl(provider.baseUrl + path, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json',
+          ...provider.headers,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        redirect: 'error',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.Error || data?.error) {
+        const status = response.status || 502
+        const detail = String(data?.Error || data?.error || provider.id + ' rejected the read request').slice(0, 240)
+        const error = new Error(detail)
+        error.status = status
+        throw error
+      }
+      return data
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError || new Error('No TRON Mainnet RPC provider is configured')
 }
 
 async function readResources(address, options = {}) {
@@ -189,7 +217,19 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     }
     const url = new URL(req.url || '/', 'http://localhost')
     if (req.method === 'GET' && url.pathname === '/health') {
-      return send(res, 200, { ok: true, network: 'TRON Mainnet', rpc: env.TRONGRID_API_KEY?.trim() ? 'TronGrid API key configured' : 'TronGrid public node (no API key configured)', service: 'tron-transfer-resource-api' }, origin)
+      const tatumConfigured = typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim().length > 0
+      const tronGridConfigured = typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim().length > 0
+      return send(res, 200, {
+        ok: true,
+        network: 'TRON Mainnet',
+        rpc: tatumConfigured
+          ? 'Tatum Mainnet API key configured; TronGrid fallback enabled'
+          : tronGridConfigured
+            ? 'TronGrid API key configured'
+            : 'TronGrid public node (no API key configured)',
+        rpcProviderPriority: tatumConfigured ? ['tatum', 'trongrid'] : ['trongrid'],
+        service: 'tron-transfer-resource-api',
+      }, origin)
     }
     if (req.method === 'GET' && url.pathname === '/api/tron/resources/free-delegation/status') {
       const address = typeof url.searchParams.get('address') === 'string' ? url.searchParams.get('address') : ''
@@ -323,10 +363,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       return send(res, status === 429 ? 503 : status, {
         error: isAuthOrRate ? 'PUBLIC_RPC_LIMITED' : 'TRON_RPC_UNAVAILABLE',
         message: isAuthOrRate
-          ? env.TRONGRID_API_KEY?.trim()
-            ? 'TronGrid rejected or rate-limited the configured API key. Check its status and quota; no resource amount has been assumed.'
-            : 'The public TRON RPC rejected anonymous requests or rate-limited this service. Configure a server-side TRONGRID_API_KEY or retry later; no resource amount has been assumed.'
-          : 'Could not read current Mainnet resources from the public TRON RPC. No resource amount has been assumed.',
+          ? 'Configured TRON Mainnet RPC provider rejected or rate-limited the request. Check its API key and quota; no resource amount has been assumed.'
+          : 'Could not read current Mainnet resources from Tatum or TronGrid. No resource amount has been assumed.',
       }, origin)
     }
   })
