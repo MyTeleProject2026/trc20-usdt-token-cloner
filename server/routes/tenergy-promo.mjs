@@ -1,10 +1,58 @@
 import { Router } from 'express'
 import { createTenergyPromoClient } from '../providers/tenergy-promo.mjs'
+import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 
 const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
-export function createTenergyPromoRouter({ env = process.env, promo = createTenergyPromoClient() } = {}) {
+export function createTenergyPromoRouter({
+  env = process.env,
+  promo = createTenergyPromoClient(),
+  fetchImpl = tatumProviderFetch,
+} = {}) {
   const router = Router()
+
+  async function readSolidifiedOwnerResources(address) {
+    if (typeof env.TATUM_API_KEY !== 'string' || !env.TATUM_API_KEY.trim()) {
+      return { verified: false, status: 'tatum-mainnet-resource-reader-not-configured' }
+    }
+    try {
+      const response = await fetchImpl('https://tron-mainnet.gateway.tatum.io/walletsolidity/getaccountresource', {
+        method: 'POST',
+        redirect: 'error',
+        headers: { 'content-type': 'application/json', 'x-api-key': env.TATUM_API_KEY.trim() },
+        body: JSON.stringify({ address, visible: true }),
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!response.ok) return { verified: false, status: 'solidified-resource-read-unavailable' }
+      const body = await response.json()
+      const integer = (value) => value === undefined || value === null ? '0'
+        : typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value) ? value
+          : typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? String(value) : null
+      const limit = integer(body?.EnergyLimit)
+      const used = integer(body?.EnergyUsed)
+      const bandwidthLimit = integer(body?.NetLimit)
+      const bandwidthUsed = integer(body?.NetUsed)
+      if (limit === null || used === null || bandwidthLimit === null || bandwidthUsed === null
+        || BigInt(used) > BigInt(limit) || BigInt(bandwidthUsed) > BigInt(bandwidthLimit)) {
+        return { verified: false, status: 'solidified-resource-response-invalid' }
+      }
+      return {
+        verified: true,
+        status: 'solidified-owner-resource-snapshot-read',
+        source: 'Tatum TRON SolidityNode',
+        energyLimit: limit,
+        energyUsed: used,
+        currentlyAvailableEnergy: (BigInt(limit) - BigInt(used)).toString(),
+        bandwidthLimit,
+        bandwidthUsed,
+        currentlyAvailableBandwidth: (BigInt(bandwidthLimit) - BigInt(bandwidthUsed)).toString(),
+        checkedAt: new Date().toISOString(),
+        note: 'This is an independent current resource snapshot, not proof that a particular grant caused the full balance.',
+      }
+    } catch {
+      return { verified: false, status: 'solidified-resource-read-unavailable' }
+    }
+  }
 
   function ownerAddress(req, res) {
     res.setHeader('Cache-Control', 'no-store, private')
@@ -32,6 +80,9 @@ export function createTenergyPromoRouter({ env = process.env, promo = createTene
     const address = ownerAddress(req, res)
     if (!address) return
     const result = await promo.getRedemption(address)
+    if (result.success && result.status === 'delegated') {
+      result.solidifiedOwnerResources = await readSolidifiedOwnerResources(address)
+    }
     return res.status(result.success ? 200 : 503).json(result)
   })
 
