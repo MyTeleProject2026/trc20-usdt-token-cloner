@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeft, CheckCircle2, CircleAlert, RefreshCw, Wallet, Zap } from 'lucide-react'
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 type Payload = { success?: boolean; status?: string; message?: string; address?: string; nonce?: string; purpose?: string; energy?: number; expiresAt?: string | null; grant?: { resource: string; amount: number; durationSeconds: number } | null; state?: string; solidifiedOwnerResources?: { verified?: boolean; currentlyAvailableEnergy?: string; currentlyAvailableBandwidth?: string; status?: string }; [key: string]: any }
 
 declare global {
