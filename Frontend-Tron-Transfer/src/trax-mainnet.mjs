@@ -1365,6 +1365,57 @@ export async function preflightContractDeployments(wallet, deployments, {
   }
 }
 
+export function evaluateDeploymentFunding({
+  resourceBudget,
+  fundingMode = 'zero-trx',
+  maxTrxSpendSun = '0',
+  availableTrxSun = '0',
+  reserveTrxSun = '0',
+}) {
+  const requiredFallback = BigInt(resourceBudget?.requiredTrxSun ?? -1)
+  const feeLimit = BigInt(resourceBudget?.feeLimitSun ?? 0)
+  const bandwidthBurn = BigInt(resourceBudget?.bandwidthBurnSun ?? 0)
+  const available = BigInt(availableTrxSun)
+  const reserve = BigInt(reserveTrxSun)
+  const cap = BigInt(maxTrxSpendSun)
+  if (requiredFallback < 0n || feeLimit <= 0n || available < 0n || reserve < 0n || cap < 0n) {
+    throw new Error('Deployment funding inputs are invalid or unavailable.')
+  }
+  if (fundingMode === 'zero-trx') {
+    assertZeroTrxBurnBudget(resourceBudget)
+    return {
+      fundingMode,
+      estimatedTrxFallbackSun: requiredFallback.toString(),
+      maximumPotentialTrxSpendSun: '0',
+      availableTrxSun: available.toString(),
+    }
+  }
+  if (fundingMode !== 'owner-funded') {
+    throw new Error('Unknown deployment funding mode. Choose zero-trx or owner-funded.')
+  }
+  // FeeLimit is the protocol cap for Energy consumption. Bandwidth fallback
+  // is additional because Energy and Bandwidth are charged independently.
+  const maximumPotentialSpend = feeLimit + bandwidthBurn
+  if (maximumPotentialSpend > cap) {
+    throw new Error('Owner-funded deployment blocked: conservative maximum network spend '
+      + maximumPotentialSpend.toString() + ' SUN exceeds your explicit spending cap '
+      + cap.toString() + ' SUN. Increase the cap only after reviewing the fee estimate.')
+  }
+  if (available < maximumPotentialSpend + reserve) {
+    throw new Error('Owner-funded deployment blocked: current TRX balance '
+      + available.toString() + ' SUN is below the conservative maximum spend plus reserve '
+      + (maximumPotentialSpend + reserve).toString() + ' SUN. No wallet prompt or broadcast was attempted.')
+  }
+  return {
+    fundingMode,
+    estimatedTrxFallbackSun: requiredFallback.toString(),
+    maximumPotentialTrxSpendSun: maximumPotentialSpend.toString(),
+    availableTrxSun: available.toString(),
+    reserveTrxSun: reserve.toString(),
+    spendingCapSun: cap.toString(),
+  }
+}
+
 export function assertZeroTrxBurnBudget(resourceBudget) {
   const required = BigInt(resourceBudget?.requiredTrxSun ?? -1)
   if (required < 0n) throw new Error('Deployment resource budget is unavailable; refusing a zero-cost deployment claim.')
@@ -1391,6 +1442,10 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
   expectedOwnerAddress = '',
+  fundingMode = 'zero-trx',
+  maxTrxSpendSun = '0',
+  reserveTrxSun = '0',
+  readNativeBalance = getMainnetNativeBalance,
 } = {}) {
   // Build the unsigned deployment transaction with the SAME injected
   // TronWeb instance that will sign it. TronLink's provider can use a different
@@ -1473,7 +1528,13 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     rawDataHex: unsigned.raw_data_hex,
     feeLimitSun,
   })
-  assertZeroTrxBurnBudget(resourceBudget)
+  const initialNativeBalance = fundingMode === 'owner-funded'
+    ? await readNativeBalance(tronWeb, wallet.address)
+    : '0'
+  evaluateDeploymentFunding({
+    resourceBudget, fundingMode, maxTrxSpendSun,
+    availableTrxSun: initialNativeBalance, reserveTrxSun,
+  })
   assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned deployment transaction')
   const computedUnsignedTxID = await sha256HexFromBytes(unsigned.raw_data_hex)
   if (computedUnsignedTxID.toLowerCase() !== String(unsigned.txID).toLowerCase()) {
@@ -1509,7 +1570,13 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     feeLimitSun,
     safetyMarginBps: 12500,
   })
-  assertZeroTrxBurnBudget(resourceBudget)
+  const preSignNativeBalance = fundingMode === 'owner-funded'
+    ? await readNativeBalance(tronWeb, wallet.address)
+    : '0'
+  evaluateDeploymentFunding({
+    resourceBudget, fundingMode, maxTrxSpendSun,
+    availableTrxSun: preSignNativeBalance, reserveTrxSun,
+  })
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
@@ -1580,9 +1647,15 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       feeLimitSun,
       safetyMarginBps: 12500,
     })
-    assertZeroTrxBurnBudget(preBroadcastBudget)
+    const preBroadcastNativeBalance = fundingMode === 'owner-funded'
+      ? await readNativeBalance(tronWeb, wallet.address)
+      : '0'
+    evaluateDeploymentFunding({
+      resourceBudget: preBroadcastBudget, fundingMode, maxTrxSpendSun,
+      availableTrxSun: preBroadcastNativeBalance, reserveTrxSun,
+    })
   } catch (error) {
-    throw new Error('TronLink signed the deployment, but the transaction was NOT broadcast because the final zero-TRX-burn resource recheck failed: '
+    throw new Error('TronLink signed the deployment, but the transaction was NOT broadcast because the final deployment funding recheck failed: '
       + String(error?.message || error)
       + '. The signed transaction was discarded. No network fee was paid.')
   }
