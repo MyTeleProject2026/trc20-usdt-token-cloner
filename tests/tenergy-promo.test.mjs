@@ -13,9 +13,10 @@ function mockFetch(routes) {
     const path = new URL(url).pathname
     const value = routes[path]
     if (!value) return { ok: false, status: 404, json: async () => ({ code: 3037 }) }
+    const status = value.status ?? 200
     return {
-      ok: value.status >= 200 && value.status < 300,
-      status: value.status ?? 200,
+      ok: status >= 200 && status < 300,
+      status,
       json: async () => value.body,
     }
   }
