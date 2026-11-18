@@ -160,3 +160,13 @@ The grant adapter must return two distinct 64-character transaction IDs:
 The orchestrator rejects a response that reuses one transaction ID for both resource types. Each transaction is checked independently against a solidified Mainnet receipt, the exact owner recipient, the expected resource type, and the requested amount. A provider's aggregate success response is not evidence that both delegations occurred.
 
 A provider that only delegates Energy must not be represented as an Energy-and-Bandwidth provider. Until both independently verified transactions exist, the zero-TRX deployment gate remains closed.
+
+
+## Combined versus split delegation transactions
+
+The provider adapter contract accepts both valid Stake 2.0 patterns:
+
+- One transaction ID containing both an Energy and a Bandwidth delegation operation.
+- Two transaction IDs, one for each resource.
+
+For a combined transaction, the orchestrator independently evaluates that same solidified transaction against the Energy requirement and the Bandwidth requirement. For split transactions, it verifies each transaction against only its corresponding resource. In both cases the verifier must confirm the exact owner recipient, successful solidified receipt, correct resource type, and actual delegated resource state. A single transaction ID is not by itself proof that both resource operations were included.
