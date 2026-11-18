@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, "ui/**", "fix/**", "feat/**", "test/**"]
   schedule:
     - cron: "23 6 * * 1"
   workflow_dispatch:
