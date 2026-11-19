@@ -292,7 +292,7 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
           <span className="am-hub-orbit"><i/><Icon size={17}/></span><b>{node.label}</b><small>{node.sub}</small><Status state={node.state}/>
         </article> })}
       </div>
-      <div className="am-stage-foot"><span>FABRIC STATUS <b>{flowOnline}/{flowCount} RESPONSE CHANNELS ONLINE</b></span><span>OWNER <b>{short(OWNER)}</b></span><span>CHAIN <b>TRON MAINNET</b></span></div>
+      <div className="am-stage-foot"><span>FABRIC STATUS <b>{allFlowCount}/{flowCount} RESPONSE CHANNELS ONLINE</b></span><span>OWNER <b>{short(OWNER)}</b></span><span>CHAIN <b>TRON MAINNET</b></span></div>
     </div>
 
     <div className="am-kpi-grid">
