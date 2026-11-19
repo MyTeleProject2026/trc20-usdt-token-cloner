@@ -204,7 +204,7 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
 
   return <section className="runtime-observatory" aria-label="Live runtime observatory">
     <div className="ro-header">
-      <div><span className="ro-eyebrow"><Activity size={13}/> LIVE RUNTIME OBSERVATORY</span><h3>Runtime signal & network activity</h3><p>One-second backend process heartbeat, real API request traces and confirmed TRON Mainnet transactions.</p></div>
+      <div><span className="ro-eyebrow"><Activity size={13}/> SPATIAL RUNTIME OBSERVATORY</span><h3>3D runtime network topology</h3><p>Live infrastructure graph with one-second backend heartbeat, measured API traces and confirmed TRON Mainnet reads. Node state is driven by actual endpoint responses.</p></div>
       <div className="ro-header-actions"><span className={"ro-live-indicator " + (runtimeState === "online" ? "is-live" : "is-stale")}><i/> {runtimeState === "online" ? "LIVE · 1 SEC" : runtimeState === "offline" ? "SIGNAL LOST" : "SIGNAL STALE"}</span><button type="button" onClick={() => { refreshRuntime(true); refreshTransactions(); refreshRenderEvents() }} disabled={refreshing}><RefreshCw size={14} className={refreshing ? 'ro-spin' : ''}/>Refresh feeds</button></div>
     </div>
 

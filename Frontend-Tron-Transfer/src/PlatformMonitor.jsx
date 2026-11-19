@@ -117,9 +117,9 @@ export default function PlatformMonitor({ wallet, onNavigate }) {
   return <section className="platform-monitor" aria-label="Tron Transfer platform monitoring">
     <div className="pm-hero">
       <div>
-        <span className="pm-eyebrow"><Radio size={13}/> TRON TRANSFER · OPERATIONS CENTER</span>
-        <h2>Platform command center</h2>
-        <p>Live checks against deployed services and TRON Mainnet. The runtime panel samples the API process every second. Resource and provider checks refresh every 15 seconds. Every status is based on a real response, not a simulated value.</p>
+        <span className="pm-eyebrow"><Radio size={13}/> TRON TRANSFER · SPATIAL GLASS OPERATIONS</span>
+        <h2>Live infrastructure command deck</h2>
+        <p>Spatial view of the deployed API, Render control plane, TRON Mainnet resource reads and owner session. Runtime heartbeat samples every second; service and resource checks refresh every 15 seconds. All telemetry is response-backed; 3D motion visualizes topology, not fabricated traffic.</p>
       </div>
       <div className="pm-hero-actions"><span className="pm-live"><i/> RUNTIME · 1 SEC  /  SERVICE CHECKS · 15 SEC</span><button className="pm-refresh" onClick={() => refresh(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? 'pm-spin' : ''}/>{refreshing ? 'Refreshing' : 'Refresh now'}</button></div>
     </div>
