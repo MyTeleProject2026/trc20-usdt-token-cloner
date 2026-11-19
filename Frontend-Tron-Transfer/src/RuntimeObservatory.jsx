@@ -46,6 +46,9 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
   const [renderEvents, setRenderEvents] = useState([])
   const [renderState, setRenderState] = useState('checking')
   const [renderNote, setRenderNote] = useState('')
+  const [uptimeRuns, setUptimeRuns] = useState([])
+  const [uptimeState, setUptimeState] = useState('checking')
+  const [uptimeNote, setUptimeNote] = useState('')
   const [clockNow, setClockNow] = useState(Date.now())
   const [lastRuntimeAt, setLastRuntimeAt] = useState(null)
   const [runtimeLatency, setRuntimeLatency] = useState(null)
@@ -104,6 +107,20 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
     }
   }, [apiBase])
 
+  const refreshUptimeHistory = useCallback(async () => {
+    try {
+      const response = await fetch(apiBase + '/api/observatory/uptime-history', { cache: 'no-store', headers: { accept: 'application/json' } })
+      const body = await response.json()
+      if (!response.ok || !body.success) throw new Error(body.message || 'External uptime history unavailable')
+      setUptimeRuns(Array.isArray(body.runs) ? body.runs : [])
+      setUptimeState('online')
+      setUptimeNote(body.note || 'Recent scheduled production checks')
+    } catch (error) {
+      setUptimeState('warning')
+      setUptimeNote(error?.message || 'GitHub Actions uptime history unavailable')
+    }
+  }, [apiBase])
+
   useEffect(() => {
     let timers = []
 
@@ -117,10 +134,12 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
       refreshRuntime()
       refreshTransactions()
       refreshRenderEvents()
+      refreshUptimeHistory()
       timers = [
         window.setInterval(refreshRuntime, 1000),
         window.setInterval(refreshTransactions, 10_000),
         window.setInterval(refreshRenderEvents, 30_000),
+        window.setInterval(refreshUptimeHistory, 60_000),
         window.setInterval(() => setClockNow(Date.now()), 250),
       ]
     }
@@ -136,7 +155,7 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
       stopPolling()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [refreshRuntime, refreshTransactions, refreshRenderEvents])
+  }, [refreshRuntime, refreshTransactions, refreshRenderEvents, refreshUptimeHistory])
 
   const heartbeat = runtime?.heartbeat
   const process = runtime?.process
@@ -196,6 +215,12 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
     <p className="ro-render-state-note">{renderNote}</p>
     <div className="ro-render-events">
       {renderEvents.length ? renderEvents.map(event => <div className="ro-render-event" key={event.id}><span>{event.serviceLabel}</span><b>{event.type.replaceAll('_', ' ')}</b><time>{time(event.timestamp)}</time></div>) : <div className="ro-empty">{renderState === 'warning' ? 'Render event integration is not configured or is temporarily unavailable.' : 'No recent Render service events were returned.'}</div>}
+    </div>
+
+    <div className="ro-section-heading"><div><span className="ro-eyebrow">EXTERNAL UPTIME HISTORY</span><h4>Scheduled production checks</h4><p>GitHub Actions probe results for the frontend, API health endpoint, and process heartbeat.</p></div><Status value={uptimeState}/></div>
+    <p className="ro-render-state-note">{uptimeNote} · Detailed probe artifacts retained for 90 days.</p>
+    <div className="ro-render-events">
+      {uptimeRuns.length ? uptimeRuns.map(run => <div className="ro-render-event" key={run.id}><span>Run #{run.runNumber}</span><b>{run.status === 'completed' ? (run.conclusion || 'completed').replaceAll('_', ' ') : run.status}</b><time>{time(run.updatedAt || run.createdAt)}{run.url ? <> · <a href={run.url} target="_blank" rel="noreferrer">Details</a></> : null}</time></div>) : <div className="ro-empty">{uptimeState === 'warning' ? 'External uptime history is currently unavailable.' : 'Loading recent production checks…'}</div>}
     </div>
 
     <div className="ro-section-heading"><div><span className="ro-eyebrow">CHAIN ACTIVITY · READ ONLY</span><h4>Confirmed owner-wallet transactions</h4><p>Fetched from TRON Mainnet RPC; only confirmed records are requested.</p></div><Status value={transactionState}/></div>
