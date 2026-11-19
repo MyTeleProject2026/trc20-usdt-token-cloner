@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { TronWeb } from 'tronweb'
-import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, Blocks, Network, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, Blocks, Network, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet, Settings } from 'lucide-react'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
 import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
+import OwnerSettings, { loadOwnerFeatures } from './OwnerSettings.jsx'
+import './owner-settings.css'
 
 const NAV_ITEMS = [
   { id: 'home', label: 'AETHERIA MCP Mesh', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
@@ -20,6 +22,7 @@ const NAV_ITEMS = [
   { id: 'ownership', label: 'Ownership transfer', description: 'Two-step owner handoff', icon: Wallet },
   { id: 'history', label: 'Credit history', description: 'Confirmed on-chain OwnerCredit events', icon: History },
   { id: 'balance', label: 'External balance lookup', description: 'Read any address token balance', icon: Blocks },
+  { id: 'settings', label: 'Owner settings', shortLabel: 'Settings', description: 'Enable or disable workspace features and review locked safety controls', icon: Settings },
 ]
 
 function isValidTronAddress(address) {
@@ -33,6 +36,14 @@ export default function App() {
   const [walletBusy, setWalletBusy] = useState(false)
   const [walletError, setWalletError] = useState('')
   const [walletNotice, setWalletNotice] = useState('')
+  const [ownerFeatures, setOwnerFeatures] = useState(() => loadOwnerFeatures())
+
+  useEffect(() => { try { window.localStorage.setItem('tron-transfer-owner-features-v1', JSON.stringify(ownerFeatures)) } catch {} }, [ownerFeatures])
+
+  function navigatePage(id) {
+    if (id !== 'settings' && ownerFeatures[id] === false) { setWalletNotice('This workspace feature is disabled in Owner Settings. Enable it there before opening the page.'); return }
+    setActivePage(id)
+  }
 
   async function connectWallet() {
     setWalletBusy(true)
@@ -78,7 +89,7 @@ export default function App() {
 
   const page = NAV_ITEMS.find(item => item.id === activePage) || NAV_ITEMS[0]
   return <div className="trax-admin-shell">
-    <TRAXSidebar items={NAV_ITEMS} activePage={activePage} onNavigate={setActivePage} wallet={wallet} onConnect={connectWallet} onLock={lockWallet}/>
+    <TRAXSidebar items={NAV_ITEMS} activePage={activePage} onNavigate={navigatePage} enabledFeatures={ownerFeatures} wallet={wallet} onConnect={connectWallet} onLock={lockWallet}/>
     <div className="trax-admin-main">
       <header className="trax-admin-topbar">
         <div className="trax-topbar-title">
@@ -93,10 +104,10 @@ export default function App() {
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+        {activePage === 'settings' ? <OwnerSettings features={ownerFeatures} onChange={setOwnerFeatures}/> : activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={navigatePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={navigatePage} enabledFeatures={ownerFeatures}/>}
       </main>
       <footer className="trax-admin-footer">TRON TRANSFER · WALLET-CONTROLLED OWNER WORKSPACE · TRON MAINNET</footer>
     </div>
-    <MobileNavBar items={NAV_ITEMS} activePage={activePage} onNavigate={setActivePage}/>
+    <MobileNavBar items={NAV_ITEMS} activePage={activePage} onNavigate={navigatePage} enabledFeatures={ownerFeatures}/>
   </div>
 }
