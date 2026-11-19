@@ -279,7 +279,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
 
   function removeVault() {
     if (!window.confirm('Remove the encrypted Sponsor Wallet backup from this browser? This does not affect the on-chain wallet. Make sure you have your own recovery backup.')) return
-    removeSavedSponsorWallet()
+    try { removeSavedSponsorWallet() } catch (error) { notify('error', 'Could not remove local backup', error instanceof Error ? error.message : 'Browser storage is unavailable.'); return }
     setSaved(false)
     setWallet(null)
     setSnapshot(null)
