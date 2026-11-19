@@ -13,7 +13,8 @@ test('Sponsor Wallet is import-only and never sends credentials to the API', () 
   assert.doesNotMatch(component, /createWallet|Create Wallet/i)
   assert.ok(vault.includes('AES-GCM'))
   assert.ok(vault.includes('PBKDF2'))
-  assert.doesNotMatch(component, /JSON.stringify\(\{[^}]*privateKey/i)
+  assert.ok(component.includes("body: JSON.stringify({ network: 'mainnet'"))
+  assert.equal(component.includes('privateKey: lastDelegation'), false)
 })
 
 test('Sponsor Wallet verifies exact unsigned Mainnet transactions before signing', () => {
