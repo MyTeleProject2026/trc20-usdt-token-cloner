@@ -68,6 +68,7 @@ export default function SponsorWalletManager() {
         tronWeb.trx.getAccountResources(wallet.address),
         tronWeb.trx.getAccount(wallet.address),
         tronWeb.contract().at(USDT_CONTRACT),
+        tronWeb.trx.getAccountResources(OWNER_ADDRESS),
       ])
       const usdtRaw = await usdtContract.balanceOf(wallet.address).call()
       const delegated = await tronWeb.trx.getDelegatedResourceV2(wallet.address, OWNER_ADDRESS).catch(() => ({ delegatedResource: [] }))
@@ -85,6 +86,8 @@ export default function SponsorWalletManager() {
         freeNetUsed: Number(resources.freeNetUsed || 0),
         delegatedEnergySun: delegatedEnergySun.toString(),
         delegatedBandwidthSun: delegatedBandwidthSun.toString(),
+        ownerEnergyAvailable: Math.max(0, Number(ownerResources.EnergyLimit || 0) - Number(ownerResources.EnergyUsed || 0)),
+        ownerBandwidthAvailable: Math.max(0, Number(ownerResources.NetLimit || 0) - Number(ownerResources.NetUsed || 0)) + Math.max(0, Number(ownerResources.freeNetLimit || 0) - Number(ownerResources.freeNetUsed || 0)),
         activated: Boolean(account?.address),
         checkedAt: new Date().toISOString(),
       })
