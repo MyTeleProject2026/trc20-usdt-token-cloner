@@ -5,9 +5,11 @@ import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
-import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'\nimport SponsorWalletManager from './SponsorWalletManager.jsx'
+import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
+import SponsorWalletManager from './SponsorWalletManager.jsx'
 
 const NAV_ITEMS = [
+  { id: 'sponsor', label: 'TRON TRANSFER SPONSOR', shortLabel: 'Sponsor', description: 'Imported sponsor wallet · live resources and verified delegation', icon: ShieldCheck },
   { id: 'home', label: 'AETHERIA MCP Mesh', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
   { id: 'portfolio', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
   { id: 'deploy', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
