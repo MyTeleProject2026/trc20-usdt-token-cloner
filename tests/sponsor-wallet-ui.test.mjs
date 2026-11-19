@@ -35,6 +35,8 @@ test('Sponsor Wallet verifies exact unsigned Mainnet transactions before signing
   assert.ok(component.includes('Recent wallet transactions'))
   assert.ok(component.includes('walletTokenTransfers'))
   assert.ok(component.includes('Official USDT transfers'))
+  assert.ok(component.includes('function formatTokenUnits'))
+  assert.ok(component.includes('formatTokenUnits(item.value, 6)'))
   assert.ok(component.includes('function estimateStakeSun'))
 })
 
