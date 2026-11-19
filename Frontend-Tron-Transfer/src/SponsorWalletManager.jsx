@@ -51,8 +51,8 @@ async function readRecentTransactions(address) {
     if (!response.ok) throw new Error('Transaction history API returned HTTP ' + response.status)
     const payload = await response.json()
     if (payload?.address !== address || payload?.network !== 'TRON Mainnet' || !Array.isArray(payload.data)) throw new Error('Transaction history API returned invalid data')
-    return { available: true, data: payload.data }
-  } catch { return { available: false, data: [] } }
+    return { available: true, data: payload.data, tokenTransfers: Array.isArray(payload.trc20Transfers) ? payload.trc20Transfers : [], tokenTransfersAvailable: payload.trc20Available === true }
+  } catch { return { available: false, data: [], tokenTransfers: [], tokenTransfersAvailable: false } }
 }
 
 async function readResourceSnapshot(address, tronWeb) {
@@ -140,6 +140,8 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   const [snapshot, setSnapshot] = useState(null)
   const [walletTransactions, setWalletTransactions] = useState([])
   const [walletTransactionsAvailable, setWalletTransactionsAvailable] = useState(false)
+  const [walletTokenTransfers, setWalletTokenTransfers] = useState([])
+  const [walletTokenTransfersAvailable, setWalletTokenTransfersAvailable] = useState(false)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState(null)
   const [lastTx, setLastTx] = useState('')
@@ -229,6 +231,8 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       ])
       setWalletTransactions(Array.isArray(txHistory?.data) ? txHistory.data : [])
       setWalletTransactionsAvailable(txHistory?.available === true)
+      setWalletTokenTransfers(Array.isArray(txHistory?.tokenTransfers) ? txHistory.tokenTransfers : [])
+      setWalletTokenTransfersAvailable(txHistory?.tokenTransfersAvailable === true)
       const usdtRaw = await usdtContract.balanceOf(wallet.address).call()
       const delegated = typeof tronWeb.trx.getDelegatedResourceV2 === 'function' ? await Promise.resolve().then(() => tronWeb.trx.getDelegatedResourceV2(wallet.address, OWNER_ADDRESS, { confirmed: true })).catch(() => null) : null
       const delegationReadAvailable = Array.isArray(delegated) || Array.isArray(delegated?.delegatedResource)
@@ -293,6 +297,8 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       setSnapshot(null)
       setWalletTransactions([])
       setWalletTransactionsAvailable(false)
+      setWalletTokenTransfers([])
+      setWalletTokenTransfersAvailable(false)
       notify('success', 'Sponsor Wallet imported', `TRON Mainnet address verified: ${account.address}`)
     } catch (error) {
       notify('error', 'Wallet import failed', error instanceof Error ? error.message : 'Unable to import the Sponsor Wallet.')
@@ -520,7 +526,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
         <div className="sponsor-card-heading"><FileKey2/><div><h3>Sponsor Activity</h3><p>Current browser session and latest observed transaction.</p></div></div>
         <div className="sponsor-activity-row"><span>Wallet connection</span><b>Unlocked locally</b></div>
         <div className="sponsor-activity-row"><span>Network</span><b>TRON Mainnet</b></div><div className="sponsor-activity-row"><span>Security events</span><b>{securityEvents.length} local events</b></div>{securityEvents.slice(0, 5).map((item, index) => <div className="sponsor-activity-row" key={item.createdAt + index}><span>{item.event} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.detail}</b></div>)}
-        <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => item.status === 'solidified-mainnet-verified').length} independently verified</b></div><div className="sponsor-activity-row"><span>Recent wallet transactions</span><b>{walletTransactionsAvailable ? walletTransactions.length + ' confirmed chain records' : 'History unavailable'}</b></div>{walletTransactions.slice(0, 8).map((item) => { const txid = item.txID || item.txid; const type = item.raw_data?.contract?.[0]?.type || 'TRON transaction'; const result = item.ret?.[0]?.contractRet || 'CONFIRMED'; return <div className="sponsor-activity-row" key={txid}><span>{type} · {item.block_timestamp ? new Date(item.block_timestamp).toLocaleString() : 'Confirmed on-chain'}</span><b>{result} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
+        <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => item.status === 'solidified-mainnet-verified').length} independently verified</b></div><div className="sponsor-activity-row"><span>Recent wallet transactions</span><b>{walletTransactionsAvailable ? walletTransactions.length + ' confirmed chain records' : 'History unavailable'}</b></div>{walletTransactions.slice(0, 8).map((item) => { const txid = item.txID || item.txid; const type = item.raw_data?.contract?.[0]?.type || 'TRON transaction'; const result = item.ret?.[0]?.contractRet || 'CONFIRMED'; return <div className="sponsor-activity-row" key={txid}><span>{type} · {item.block_timestamp ? new Date(item.block_timestamp).toLocaleString() : 'Confirmed on-chain'}</span><b>{result} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}<div className="sponsor-activity-row"><span>Official USDT transfers</span><b>{walletTokenTransfersAvailable ? walletTokenTransfers.length + ' confirmed transfers' : 'History unavailable'}</b></div>{walletTokenTransfers.slice(0, 8).map((item) => { const txid = item.transaction_id; const sent = item.from === wallet.address; const amount = (Number(item.value || 0) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }); return <div className="sponsor-activity-row" key={txid}><span>{sent ? 'Sent' : 'Received'} {amount} USDT · {new Date(item.block_timestamp || 0).toLocaleString()}</span><b>{sent ? 'To ' + item.to : 'From ' + item.from} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
       </section>
     </div>}
     
