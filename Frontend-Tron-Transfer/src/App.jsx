@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { TronWeb } from 'tronweb'
-import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, Blocks, Network, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, Blocks, Network, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet, Settings } from 'lucide-react'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
 import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
+import OwnerSettings from './OwnerSettings.jsx'
 
 const NAV_ITEMS = [
   { id: 'home', label: 'AETHERIA MCP Mesh', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { id: 'ownership', label: 'Ownership transfer', description: 'Two-step owner handoff', icon: Wallet },
   { id: 'history', label: 'Credit history', description: 'Confirmed on-chain OwnerCredit events', icon: History },
   { id: 'balance', label: 'External balance lookup', description: 'Read any address token balance', icon: Blocks },
+  { id: 'settings', label: 'Owner Settings', shortLabel: 'Settings', description: 'Individual Mainnet action permissions and safety controls', icon: Settings },
 ]
 
 function isValidTronAddress(address) {
@@ -93,7 +95,7 @@ export default function App() {
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+        {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : activePage === 'settings' ? <OwnerSettings/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/ >}
       </main>
       <footer className="trax-admin-footer">TRON TRANSFER · WALLET-CONTROLLED OWNER WORKSPACE · TRON MAINNET</footer>
     </div>
