@@ -180,7 +180,7 @@ export default function SponsorWalletManager() {
     }
   }, [wallet, tronWeb, notify])
 
-  useEffect(() => { if (wallet) void refresh({ quiet: true }) }, [wallet, refresh])
+  useEffect(() => { if (wallet) void refresh() }, [wallet, refresh])
 
   useEffect(() => {
     if (!wallet) return undefined
