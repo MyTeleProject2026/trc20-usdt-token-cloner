@@ -347,17 +347,84 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     }
   }
 
-  function lockWallet() {
-    recordSecurityEvent(wallet?.address, 'Sponsor Wallet locked', 'In-memory signing key released; encrypted vault retained.')
+  const lockWallet = useCallback((reason = 'manual') => {
+    if (!wallet?.address) return
+    const automatic = reason === 'inactivity' || reason === 'background'
+    recordSecurityEvent(
+      wallet.address,
+      automatic ? 'Sponsor Wallet automatically locked' : 'Sponsor Wallet locked',
+      automatic
+        ? (reason === 'background' ? 'Session locked after the page remained hidden for 60 seconds.' : 'Session locked after 5 minutes without user activity.')
+        : 'In-memory signing key released; encrypted vault retained.',
+    )
     setWallet(null)
     setSaved(true)
     setSnapshot(null)
-      setWalletTransactions([])
-      setWalletTransactionsAvailable(false)
+    setWalletTransactions([])
+    setWalletTransactionsAvailable(false)
+    setWalletTokenTransfers([])
+    setWalletTokenTransfersAvailable(false)
     setLastTx('')
     setLastDelegation(null)
-    notify('success', 'Sponsor Wallet locked', 'The in-memory signing key was released. The encrypted local backup remains available to unlock.')
-  }
+    setUnlockPassword('')
+    setCredential('')
+    setKeystorePassword('')
+    setVaultPassword('')
+    notify(
+      automatic ? 'info' : 'success',
+      automatic ? 'Sponsor Wallet session auto-locked' : 'Sponsor Wallet locked',
+      automatic
+        ? 'The signing session was cleared. Unlock the encrypted local backup to continue.'
+        : 'The in-memory signing key was released. The encrypted local backup remains available to unlock.',
+    )
+  }, [wallet?.address, recordSecurityEvent, notify])
+
+  useEffect(() => {
+    if (!wallet?.address) return undefined
+    let idleTimer
+    let hiddenTimer
+    let locked = false
+    const clearIdle = () => { if (idleTimer) window.clearTimeout(idleTimer); idleTimer = undefined }
+    const clearHidden = () => { if (hiddenTimer) window.clearTimeout(hiddenTimer); hiddenTimer = undefined }
+    const expire = reason => {
+      if (locked) return
+      locked = true
+      lockWallet(reason)
+    }
+    const armIdle = () => {
+      clearIdle()
+      idleTimer = window.setTimeout(() => expire('inactivity'), 5 * 60 * 1000)
+    }
+    const onActivity = () => {
+      if (document.hidden) return
+      clearHidden()
+      armIdle()
+    }
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        clearIdle()
+        clearHidden()
+        hiddenTimer = window.setTimeout(() => expire('background'), 60 * 1000)
+      } else {
+        clearHidden()
+        armIdle()
+      }
+    }
+    for (const event of ['pointerdown', 'keydown', 'touchstart', 'wheel']) {
+      window.addEventListener(event, onActivity, { passive: true })
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    armIdle()
+    if (document.hidden) onVisibilityChange()
+    return () => {
+      clearIdle()
+      clearHidden()
+      for (const event of ['pointerdown', 'keydown', 'touchstart', 'wheel']) {
+        window.removeEventListener(event, onActivity)
+      }
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [wallet?.address, lockWallet])
 
   function logoutWallet() {
     recordSecurityEvent(wallet?.address, 'Sponsor Wallet logged out', 'Active session cleared; encrypted vault retained for reconnect.')
@@ -365,9 +432,15 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     setSaved(false)
     setSnapshot(null)
       setWalletTransactions([])
-      setWalletTransactionsAvailable(false)
+    setWalletTransactionsAvailable(false)
+    setWalletTokenTransfers([])
+    setWalletTokenTransfersAvailable(false)
     setLastTx('')
     setLastDelegation(null)
+    setUnlockPassword('')
+    setCredential('')
+    setKeystorePassword('')
+    setVaultPassword('')
     notify('success', 'Sponsor Wallet logged out', 'The active session is disconnected. Your encrypted local backup is retained.')
   }
 
@@ -376,9 +449,15 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     setWallet(null)
     setSnapshot(null)
       setWalletTransactions([])
-      setWalletTransactionsAvailable(false)
+    setWalletTransactionsAvailable(false)
+    setWalletTokenTransfers([])
+    setWalletTokenTransfersAvailable(false)
     setLastTx('')
     setLastDelegation(null)
+    setUnlockPassword('')
+    setCredential('')
+    setKeystorePassword('')
+    setVaultPassword('')
     setSaved(false)
     setReplacing(true)
     setMode('private-key')
@@ -392,8 +471,14 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     setSaved(false)
     setWallet(null)
     setSnapshot(null)
-      setWalletTransactions([])
-      setWalletTransactionsAvailable(false)
+    setWalletTransactions([])
+    setWalletTransactionsAvailable(false)
+    setWalletTokenTransfers([])
+    setWalletTokenTransfersAvailable(false)
+    setUnlockPassword('')
+    setCredential('')
+    setKeystorePassword('')
+    setVaultPassword('')
     notify('success', 'Local wallet backup removed', 'No on-chain account or funds were changed.')
   }
 
@@ -521,7 +606,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
     {wallet && <div className="sponsor-dashboard">
       <section className="sponsor-card sponsor-wallet-summary">
         <div className="sponsor-card-heading"><Wallet/><div><h3>Sponsor Wallet Overview</h3><p>{wallet.address}</p></div></div>
-        <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Imported · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={lockWallet}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button><button onClick={beginReplace}>Replace</button></div>
+        <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Imported · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={() => lockWallet()}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button><button onClick={beginReplace}>Replace</button></div>
         <div className="sponsor-metric-grid">
           <article><small>TRX BALANCE</small><strong>{snapshot ? formatAmount(snapshot.trxSun) : '—'}</strong></article>
           <article><small>OFFICIAL USDT</small><strong>{snapshot ? (Number(snapshot.usdt) / 1e6).toLocaleString(undefined,{maximumFractionDigits:6}) : '—'}</strong></article>
@@ -529,6 +614,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
           <article><small>BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.maxSingleTransactionBandwidth || Math.max(bandwidthAvailable, freeBandwidthAvailable)).toLocaleString() : '—'}</strong><small>{snapshot ? `${bandwidthAvailable.toLocaleString()} staked + ${freeBandwidthAvailable.toLocaleString()} free` : 'Refresh to read'}</small></article>
         </div>
         <p className="sponsor-muted">Owner recipient: <code>{OWNER_ADDRESS}</code></p>
+        <p className="sponsor-muted">Session protection: automatically locks after 5 minutes without activity or 60 seconds with this page in the background. Locking clears the in-memory signing session; the encrypted local backup remains.</p>
         {snapshot?.resourceReadSource && <p className="sponsor-muted">Resource data source: {snapshot.resourceReadSource === 'resource-api' ? 'TRON Transfer Resource API' : 'Direct TronWeb fallback'}{snapshot.resourceRpcProviders ? ' · ' + Object.values(snapshot.resourceRpcProviders).join(' / ') : ''}</p>}
         {snapshot?.checkedAt && <p className="sponsor-muted">Last live check: {new Date(snapshot.checkedAt).toLocaleString()}</p>}
         {lastTx && <p className="sponsor-tx-link">Last transaction: <a href={`https://tronscan.org/#/transaction/${lastTx}`} target="_blank" rel="noreferrer">{lastTx}</a></p>}

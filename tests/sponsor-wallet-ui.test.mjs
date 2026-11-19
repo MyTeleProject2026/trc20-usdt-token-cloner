@@ -57,6 +57,13 @@ test('Sponsor activity supports persistent local pending records and solidified 
   assert.ok(component.includes('SECURITY_KEY'))
   assert.ok(component.includes('Security events'))
   assert.ok(component.includes('Reconnect saved Sponsor Wallet'))
+  assert.ok(component.includes('Session locked after 5 minutes without user activity'))
+  assert.ok(component.includes('Session locked after the page remained hidden for 60 seconds'))
+  assert.ok(component.includes("window.addEventListener(event, onActivity, { passive: true })"))
+  assert.ok(component.includes("document.addEventListener('visibilitychange', onVisibilityChange)"))
+  assert.ok(component.includes("setUnlockPassword('')"))
+  assert.ok(component.includes("setKeystorePassword('')"))
+  assert.ok(component.includes("setVaultPassword('')"))
 })
 
 test('background monitoring is quiet and center notifications have a single managed timer', () => {
