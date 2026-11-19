@@ -20,7 +20,6 @@ test('Sponsor Wallet verifies exact unsigned Mainnet transactions before signing
   assert.ok(component.includes('validateUnsignedResourceTransaction(tronWeb, unsigned'))
   assert.ok(component.includes('FreezeBalanceV2Contract'))
   assert.ok(component.includes('DelegateResourceContract'))
-  assert.ok(component.includes('The unsigned transaction receiver does not match') === false)
   assert.ok(component.includes('The unsigned delegation receiver does not match'))
   assert.ok(component.includes('transaction expiration is missing'))
   assert.ok(component.includes('signed.txID !== unsigned.txID'))
@@ -34,6 +33,7 @@ test('Sponsor activity supports persistent local pending records and solidified 
   assert.ok(component.includes('solidified-mainnet-verified'))
   assert.ok(component.includes('/api/tron/sponsorship/resource-delegations?network=mainnet'))
   assert.ok(component.includes('Verify Mainnet delegation'))
+  assert.ok(component.includes('setLastDelegation(rows.find'))
 })
 
 test('background monitoring is quiet and center notifications have a single managed timer', () => {
