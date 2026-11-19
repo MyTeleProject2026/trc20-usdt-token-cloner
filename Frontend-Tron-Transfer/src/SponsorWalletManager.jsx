@@ -99,7 +99,13 @@ export default function SponsorWalletManager() {
     }
   }, [wallet, tronWeb, notify])
 
-  useEffect(() => { if (wallet) void refresh() }, [wallet, refresh])\n\n  useEffect(() => {\n    if (!wallet) return undefined\n    const timer = window.setInterval(() => { void refresh() }, 60_000)\n    return () => window.clearInterval(timer)\n  }, [wallet, refresh])
+  useEffect(() => { if (wallet) void refresh() }, [wallet, refresh])
+
+  useEffect(() => {
+    if (!wallet) return undefined
+    const timer = window.setInterval(() => { void refresh() }, 60_000)
+    return () => window.clearInterval(timer)
+  }, [wallet, refresh])
 
   async function importWallet() {
     setBusy(true)
@@ -171,7 +177,9 @@ export default function SponsorWalletManager() {
     const prompt = action === 'stake'
       ? `Stake ${amount} TRX for ${resourceType} in Sponsor Wallet ${wallet.address}?`
       : `Delegate ${amount} TRX-equivalent of ${resourceType} from Sponsor Wallet ${wallet.address} to Owner Wallet ${OWNER_ADDRESS}?`
-    if (!window.confirm(`${prompt}\n\nThis is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?`)) return
+    if (!window.confirm(`${prompt}
+
+This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?`)) return
     setBusy(true)
     try {
       const unsigned = action === 'stake'
