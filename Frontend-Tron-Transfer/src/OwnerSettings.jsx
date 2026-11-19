@@ -2,7 +2,7 @@ import { MAINNET_ACTIONS, readMainnetActionControls, writeMainnetActionControls 
 import { useCallback, useEffect, useState } from 'react'
 
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const RESOURCE_API = String(import.meta.env?.VITE_RESOURCE_API_BASE_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\\/+$/, '')
+const RESOURCE_API = String(import.meta.env?.VITE_RESOURCE_API_BASE_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 
 export default function OwnerSettings() {
   const [controls, setControls] = useState(() => readMainnetActionControls())
