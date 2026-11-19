@@ -62,12 +62,12 @@ async function readResourceSnapshot(address, tronWeb) {
     const payload = await response.json()
     if (payload?.address !== address || payload?.network !== 'TRON Mainnet' || !payload.energy || !payload.bandwidth || !payload.networkResourceWeights) throw new Error('Resource API returned an invalid account snapshot')
     return {
-      energy: { limit: Number(payload.energy.limit || 0), used: Number(payload.energy.used || 0), available: Number(payload.energy.available || 0) },
+      balanceSun: String(payload.balanceSun || '0'),\n      energy: { limit: Number(payload.energy.limit || 0), used: Number(payload.energy.used || 0), available: Number(payload.energy.available || 0) },
       bandwidth: { stakedOrDelegatedLimit: Number(payload.bandwidth.stakedOrDelegatedLimit || 0), stakedOrDelegatedUsed: Number(payload.bandwidth.stakedOrDelegatedUsed || 0), stakedOrDelegatedAvailable: Number(payload.bandwidth.stakedOrDelegatedAvailable || 0), freeLimit: Number(payload.bandwidth.freeLimit || 0), freeUsed: Number(payload.bandwidth.freeUsed || 0), freeAvailable: Number(payload.bandwidth.freeAvailable || 0), maxSingleTransactionAvailable: Number(payload.bandwidth.maxSingleTransactionAvailable || 0) },
       networkResourceWeights: payload.networkResourceWeights || {}, source: 'resource-api', rpc: payload.rpc || null,
     }
   } catch (error) {
-    const raw = await tronWeb.trx.getAccountResources(address)
+    const [raw, balanceSun] = await Promise.all([tronWeb.trx.getAccountResources(address), tronWeb.trx.getBalance(address)])
     const energyLimit = Number(raw.EnergyLimit || 0), energyUsed = Number(raw.EnergyUsed || 0)
     const netLimit = Number(raw.NetLimit || 0), netUsed = Number(raw.NetUsed || 0)
     const freeLimit = Number(raw.freeNetLimit || 0), freeUsed = Number(raw.freeNetUsed || 0)
@@ -235,7 +235,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       const delegatedEnergySun = rows.reduce((sum, row) => sum + BigInt(row.frozen_balance_for_energy || 0), 0n)
       const delegatedBandwidthSun = rows.reduce((sum, row) => sum + BigInt(row.frozen_balance_for_bandwidth || 0), 0n)
       setSnapshot({
-        trxSun: String(balance),
+        trxSun: String(resources.balanceSun),
         usdt: String(usdtRaw),
         energyLimit: resources.energy.limit,
         energyUsed: resources.energy.used,
