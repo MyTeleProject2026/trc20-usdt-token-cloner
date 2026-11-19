@@ -23,6 +23,9 @@ test('Sponsor Wallet verifies exact unsigned Mainnet transactions before signing
   assert.ok(component.includes('The unsigned delegation receiver does not match'))
   assert.ok(component.includes('transaction expiration is missing'))
   assert.ok(component.includes('signed.txID !== unsigned.txID'))
+  assert.ok(component.includes('function estimateStakeSun'))
+  assert.ok(component.includes('Prepare Energy stake'))
+  assert.ok(component.includes('Prepare Bandwidth stake'))
 })
 
 test('Sponsor activity supports persistent local pending records and solidified backend verification', () => {
