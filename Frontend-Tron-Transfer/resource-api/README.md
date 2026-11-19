@@ -6,7 +6,7 @@ Read-only Mainnet resource monitor for the TRON Transfer frontend.
 
 - `GET /health` — service health and upstream identity.
 - `GET /v1/resources/:base58Address` — account Energy, free and staked/delegated Bandwidth by source, the maximum Bandwidth available to cover one transaction, native TRX balance, current chain fee parameters, and network-wide resource limits/weights.
-- `GET /v1/transactions/:base58Address?limit=20` — up to 50 latest confirmed Mainnet transactions for a Sponsor Wallet, retrieved from TronGrid with an optional server-side API key. This avoids TronWeb's deprecated related-transaction endpoints.
+- `GET /v1/transactions/:base58Address?limit=20` — up to 50 latest confirmed Mainnet native transactions and official USDT TRC-20 transfers for a Sponsor Wallet, retrieved from TronGrid with an optional server-side API key. This avoids TronWeb's deprecated related-transaction endpoints.
 
 ## RPC provider diagnostics
 
