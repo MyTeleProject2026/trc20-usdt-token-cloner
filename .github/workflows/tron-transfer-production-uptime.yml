@@ -160,7 +160,7 @@ jobs:
                 ok: item.ok === true,
                 status: Number(item.status) || 0,
                 latencyMs: Math.max(0, Number(item.latencyMs) || 0),
-                detail: String(item.detail || '').replace(/[\\r\\n]/g, ' ').slice(0, 240),
+                detail: String(item.detail || '').replace(/[\r\n]/g, ' ').slice(0, 240),
                 checkedAt: item.checkedAt || checkedAt,
               })),
             };
@@ -180,7 +180,7 @@ jobs:
               const body = {
                 message: 'monitor: archive production uptime probe ' + date + ' #' + record.runNumber,
                 branch,
-                content: Buffer.from(JSON.stringify(document, null, 2) + '\\n').toString('base64'),
+                content: Buffer.from(JSON.stringify(document, null, 2) + '\n').toString('base64'),
               };
               if (current.sha) body.sha = current.sha;
               const { response, payload } = await request('/contents/history/' + date + '.json', 'PUT', body);
