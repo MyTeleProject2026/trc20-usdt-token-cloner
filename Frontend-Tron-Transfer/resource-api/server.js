@@ -641,7 +641,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
         return send(res, status === 429 ? 503 : status, { success: false, provider: 'TEnergy', network: 'mainnet', error: error.providerCode || (status === 404 ? 'PROMO_NOT_REDEEMED' : status === 403 ? 'PROMO_NOT_ELIGIBLE' : status === 409 ? 'PROMO_UNAVAILABLE_OR_ALREADY_REDEEMED' : 'PROVIDER_UNAVAILABLE'), message: String(error.message || 'TEnergy promotional API unavailable').slice(0, 220), retryable: status >= 500 || status === 429 }, origin)
       }
     }
-    const transactionsMatch = url.pathname.match(/^\/v1\/transactions\/(T[1-9A-HJ-NP-Za-km-z]{33})$/)
+    const transactionsMatch = url.pathname.match(/^\/v1\/transactions\/([^/]+)$/)
     if (transactionsMatch) {
       if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
       const address = transactionsMatch[1]
