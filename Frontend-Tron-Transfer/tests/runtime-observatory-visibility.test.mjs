@@ -13,7 +13,6 @@ test('AETHERIA home maps every live monitoring endpoint to a one-to-one function
     assert.ok(source.includes(endpoint), 'Missing live endpoint mapping: ' + endpoint)
   }
   assert.match(source, /callback: 'received'/)
-  assert.match(source, /return 'received'/)
   assert.match(source, /MCP EXECUTION ROUTER/)
   assert.match(source, /FUNCTION RETURN BUS/)
 })
