@@ -68,11 +68,11 @@ async function deriveVaultKey(password, salt) {
 
 export async function saveSponsorWalletVault(account, password) {
   if (typeof password !== 'string' || password.length < 12) throw new Error('Use a wallet-vault password with at least 12 characters.')
-  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const privateKey = normalizePrivateKey(account.privateKey)\n  const derivedAddress = createSponsorTronWeb().address.fromPrivateKey(privateKey)\n  if (derivedAddress !== account.address) throw new Error('Sponsor Wallet address does not match the imported private key.')\n  const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const key = await deriveVaultKey(password, salt)
   const payload = new TextEncoder().encode(JSON.stringify({
-    privateKey: normalizePrivateKey(account.privateKey),
+    privateKey,
     address: account.address,
     network: 'mainnet',
   }))
@@ -95,7 +95,7 @@ export async function unlockSponsorWalletVault(password) {
   if (!raw) throw new Error('No encrypted Sponsor Wallet is saved in this browser. Import your existing wallet first.')
   let vault
   try { vault = JSON.parse(raw) } catch { throw new Error('The saved Sponsor Wallet vault is corrupted.') }
-  if (vault?.version !== 1 || vault?.cipher !== 'AES-256-GCM' || vault?.network !== 'mainnet') {
+  if (vault?.version !== 1 || vault?.kdf !== 'PBKDF2-SHA256' || vault?.iterations !== PBKDF2_ITERATIONS || vault?.cipher !== 'AES-256-GCM' || vault?.network !== 'mainnet') {
     throw new Error('The saved wallet vault version or network is unsupported.')
   }
   try {
