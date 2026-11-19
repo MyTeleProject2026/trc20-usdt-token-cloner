@@ -41,7 +41,7 @@
     "axios": "^1.19.1",
     "tmp": "^0.2.6",
     "ws": "^8.20.2",
-    "ethers": "^6.16.1",
+    "ethers": "6.17.0",
     "google-protobuf": "4.0.3",
     "follow-redirects": "1.16.2"
   }
