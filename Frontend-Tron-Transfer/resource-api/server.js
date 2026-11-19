@@ -96,6 +96,12 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
       maxFeeLimitSun: byKey.getMaxFeeLimit ?? null,
       newAccountFeeSun: byKey.getCreateNewAccountFeeInSystemContract ?? null,
     },
+    networkResourceWeights: {
+      totalEnergyLimit: String(resource.TotalEnergyLimit ?? '0'),
+      totalEnergyWeight: String(resource.TotalEnergyWeight ?? '0'),
+      totalNetLimit: String(resource.TotalNetLimit ?? '0'),
+      totalNetWeight: String(resource.TotalNetWeight ?? '0'),
+    },
     freeEnergyAvailable: false,
     publicFreeOffers: [],
     publicFreeDelegationProviders: [{
