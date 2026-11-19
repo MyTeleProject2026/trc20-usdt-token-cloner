@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 concurrency:
@@ -102,6 +102,101 @@ jobs:
               process.exitCode = 1;
             }
           })().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
+      - name: Persist probe to Git-backed history
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const api = 'https://api.github.com/repos/' + process.env.GITHUB_REPOSITORY;
+          const branch = 'monitoring-history';
+          const headers = {
+            accept: 'application/vnd.github+json',
+            authorization: 'Bearer ' + process.env.GH_TOKEN,
+            'x-github-api-version': '2022-11-28',
+            'content-type': 'application/json',
+          };
+          async function request(path, method = 'GET', body) {
+            const response = await fetch(api + path, {
+              method, headers, ...(body ? { body: JSON.stringify(body) } : {}),
+              signal: AbortSignal.timeout(15000),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok && response.status !== 404) {
+              throw new Error('GitHub history API returned HTTP ' + response.status + ': ' + String(payload.message || '').slice(0, 160));
+            }
+            return { response, payload };
+          }
+          (async () => {
+            if (!fs.existsSync('uptime-results/latest.json')) {
+              console.log('No probe report was produced; history write skipped.');
+              return;
+            }
+            const report = JSON.parse(fs.readFileSync('uptime-results/latest.json', 'utf8'));
+            const checkedAt = report.results?.[0]?.checkedAt || new Date().toISOString();
+            const date = new Date(checkedAt).toISOString().slice(0, 10);
+            const path = '/contents/history/' + date + '.json?ref=' + encodeURIComponent(branch);
+            const failed = (report.results || []).filter(item => !item.ok);
+            const record = {
+              id: Number(process.env.GITHUB_RUN_ID),
+              runNumber: Number(process.env.GITHUB_RUN_NUMBER),
+              checkedAt,
+              status: failed.length ? 'failure' : 'success',
+              conclusion: failed.length ? 'failure' : 'success',
+              commit: process.env.GITHUB_SHA,
+              event: process.env.GITHUB_EVENT_NAME,
+              url: 'https://github.com/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID,
+              results: (report.results || []).map(item => ({
+                name: String(item.name || '').slice(0, 80),
+                ok: item.ok === true,
+                status: Number(item.status) || 0,
+                latencyMs: Math.max(0, Number(item.latencyMs) || 0),
+                detail: String(item.detail || '').replace(/[\\r\\n]/g, ' ').slice(0, 240),
+                checkedAt: item.checkedAt || checkedAt,
+              })),
+            };
+            async function readCurrent() {
+              const { response, payload } = await request(path);
+              if (response.status === 404) return { sha: null, document: { schemaVersion: 1, date, records: [] } };
+              const decoded = Buffer.from(String(payload.content || '').replace(/\\n/g, ''), 'base64').toString('utf8');
+              const document = JSON.parse(decoded);
+              if (!Array.isArray(document.records)) throw new Error('Existing uptime history has an invalid records array');
+              return { sha: payload.sha, document };
+            }
+            async function write(current) {
+              const records = current.document.records.filter(item => Number(item.id) !== record.id);
+              records.push(record);
+              records.sort((a, b) => Date.parse(a.checkedAt) - Date.parse(b.checkedAt));
+              const document = { schemaVersion: 1, date, source: 'Tron Transfer scheduled production probes', records };
+              const body = {
+                message: 'monitor: archive production uptime probe ' + date + ' #' + record.runNumber,
+                branch,
+                content: Buffer.from(JSON.stringify(document, null, 2) + '\\n').toString('base64'),
+              };
+              if (current.sha) body.sha = current.sha;
+              const { response, payload } = await request('/contents/history/' + date + '.json', 'PUT', body);
+              if (!response.ok) throw new Error('Could not persist uptime history: HTTP ' + response.status);
+              console.log('Persisted probe #' + record.runNumber + ' to ' + branch + '/history/' + date + '.json');
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\\nPersistent history: ' + branch + '/history/' + date + '.json (Git-backed)\\n');
+            }
+            let current = await readCurrent();
+            try {
+              await write(current);
+            } catch (error) {
+              if (!String(error.message).includes('HTTP 409')) throw error;
+              current = await readCurrent();
+              await write(current);
+            }
+          })().catch(error => { console.error(error.message); process.exitCode = 1; });
           NODE
       - name: Open or resolve production incident
         if: always()
