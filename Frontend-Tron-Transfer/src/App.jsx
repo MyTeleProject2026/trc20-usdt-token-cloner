@@ -6,8 +6,10 @@ import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
 import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
+import SponsorWalletManager from './SponsorWalletManager.jsx'
 
 const NAV_ITEMS = [
+  { id: 'sponsor', label: 'TRON TRANSFER SPONSOR', shortLabel: 'Sponsor', description: 'Imported sponsor wallet · live resources and verified delegation', icon: ShieldCheck },
   { id: 'home', label: 'AETHERIA MCP Mesh', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
   { id: 'portfolio', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
   { id: 'deploy', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
@@ -28,7 +30,7 @@ function isValidTronAddress(address) {
 }
 
 export default function App() {
-  const [activePage, setActivePage] = useState('home')
+  const [activePage, setActivePage] = useState(() => window.location.hash === '#/sponsor' ? 'sponsor' : 'home')
   const [wallet, setWallet] = useState(null)
   const [walletBusy, setWalletBusy] = useState(false)
   const [walletError, setWalletError] = useState('')
@@ -88,12 +90,12 @@ export default function App() {
         </div>
         <div className="trax-topbar-actions">
           <span className="trax-mainnet-badge"><i/> TRON MAINNET</span>
-          {wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock</button> : <button type="button" className="trax-topbar-connect" disabled={walletBusy} onClick={connectWallet}>{walletBusy ? 'Connecting…' : 'Connect TronLink'}</button>}
+          {wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" disabled={walletBusy} onClick={connectWallet}>{walletBusy ? 'Connecting…' : 'Connect Owner Wallet'}</button>}
         </div>
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+        {activePage === 'sponsor' ? <SponsorWalletManager onNavigate={setActivePage}/> : activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
       </main>
       <footer className="trax-admin-footer">TRON TRANSFER · WALLET-CONTROLLED OWNER WORKSPACE · TRON MAINNET</footer>
     </div>

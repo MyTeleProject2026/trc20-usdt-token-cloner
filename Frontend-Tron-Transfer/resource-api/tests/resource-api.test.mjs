@@ -16,6 +16,8 @@ test('calculates free Bandwidth, staked/delegated Bandwidth, and Energy separate
     freeNetLimit: 600, freeNetUsed: 120,
     NetLimit: 1500, NetUsed: 320,
     EnergyLimit: 100000, EnergyUsed: 25000,
+    TotalEnergyLimit: 180000000000, TotalEnergyWeight: 3000000000,
+    TotalNetLimit: 43200000000, TotalNetWeight: 1200000000,
   }, { balance: 1234567 }, [
     { key: 'getEnergyFee', value: 100 },
     { key: 'getTransactionFee', value: 1000 },
@@ -37,6 +39,7 @@ test('calculates free Bandwidth, staked/delegated Bandwidth, and Energy separate
   assert.equal(result.chainParameters.energyFeeSunPerUnit, 100)
   assert.equal(result.chainParameters.bandwidthFeeSunPerByte, 1000)
   assert.equal(result.chainParameters.maxFeeLimitSun, 15000000000)
+  assert.deepEqual(result.networkResourceWeights, { totalEnergyLimit: '180000000000', totalEnergyWeight: '3000000000', totalNetLimit: '43200000000', totalNetWeight: '1200000000' })
   assert.equal(result.freeEnergyAvailable, false)
   assert.equal(result.exactDeploymentEnergyEstimate, null)
 })
@@ -303,4 +306,55 @@ test('TEnergy promo rate limit ignores caller-controlled X-Forwarded-For rotatio
     if (i < 30) assert.equal(response.status, 200)
   }
   assert.equal(lastStatus, 429)
+})
+
+
+test('confirmed Sponsor Wallet transaction history uses TronGrid Mainnet with a bounded limit', async (t) => {
+  const { createServer, MAINNET_RPC } = await import('../server.js')
+  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const requests = []
+  const server = createServer({
+    env: { TRONGRID_API_KEY: 'test-public-read-key' },
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options })
+      const isTrc20 = String(url).includes('/transactions/trc20?')
+      return { ok: true, status: 200, json: async () => ({ data: [isTrc20 ? { transaction_id: 'b'.repeat(64), from: address, to: address, value: '70000000' } : { txID: 'a'.repeat(64), block_timestamp: 1790000000000 }] }) }
+    },
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  const response = await fetch(base + '/v1/transactions/' + address + '?limit=20')
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.address, address)
+  assert.equal(payload.network, 'TRON Mainnet')
+  assert.equal(payload.source, 'trongrid-confirmed-history')
+  assert.equal(payload.data[0].txID, 'a'.repeat(64))
+  assert.equal(payload.trc20Transfers[0].transaction_id, 'b'.repeat(64))
+  assert.equal(payload.trc20Available, true)
+  assert.equal(requests.length, 2)
+  const parsed = new URL(requests.find((request) => !request.url.includes('/trc20?')).url)
+  assert.equal(parsed.origin, MAINNET_RPC)
+  assert.equal(parsed.pathname, '/v1/accounts/' + address + '/transactions')
+  assert.equal(parsed.searchParams.get('only_confirmed'), 'true')
+  assert.equal(parsed.searchParams.get('limit'), '20')
+  assert.equal(parsed.searchParams.get('order_by'), 'block_timestamp,desc')
+  const tokenRequest = requests.find((request) => request.url.includes('/trc20?'))
+  assert.ok(tokenRequest)
+  const tokenParsed = new URL(tokenRequest.url)
+  assert.equal(tokenParsed.pathname, '/v1/accounts/' + address + '/transactions/trc20')
+  assert.equal(tokenParsed.searchParams.get('contract_address'), 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t')
+  assert.equal(tokenParsed.searchParams.get('only_confirmed'), 'true')
+  assert.equal(requests[0].options.headers['TRON-PRO-API-KEY'], 'test-public-read-key')
+})
+
+test('confirmed Sponsor Wallet transaction history rejects invalid addresses and limits', async (t) => {
+  const { createServer } = await import('../server.js')
+  const server = createServer({ fetchImpl: async () => { throw new Error('should not call upstream') } })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  assert.equal((await fetch(base + '/v1/transactions/not-a-wallet')).status, 400)
+  assert.equal((await fetch(base + '/v1/transactions/TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp?limit=100')).status, 400)
 })

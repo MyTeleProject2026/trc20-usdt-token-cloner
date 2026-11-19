@@ -96,6 +96,12 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
       maxFeeLimitSun: byKey.getMaxFeeLimit ?? null,
       newAccountFeeSun: byKey.getCreateNewAccountFeeInSystemContract ?? null,
     },
+    networkResourceWeights: {
+      totalEnergyLimit: String(resource.TotalEnergyLimit ?? '0'),
+      totalEnergyWeight: String(resource.TotalEnergyWeight ?? '0'),
+      totalNetLimit: String(resource.TotalNetLimit ?? '0'),
+      totalNetWeight: String(resource.TotalNetWeight ?? '0'),
+    },
     freeEnergyAvailable: false,
     publicFreeOffers: [],
     publicFreeDelegationProviders: [{
@@ -633,6 +639,36 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       } catch (error) {
         const status = Number.isInteger(error?.status) ? error.status : 503
         return send(res, status === 429 ? 503 : status, { success: false, provider: 'TEnergy', network: 'mainnet', error: error.providerCode || (status === 404 ? 'PROMO_NOT_REDEEMED' : status === 403 ? 'PROMO_NOT_ELIGIBLE' : status === 409 ? 'PROMO_UNAVAILABLE_OR_ALREADY_REDEEMED' : 'PROVIDER_UNAVAILABLE'), message: String(error.message || 'TEnergy promotional API unavailable').slice(0, 220), retryable: status >= 500 || status === 429 }, origin)
+      }
+    }
+    const transactionsMatch = url.pathname.match(/^\/v1\/transactions\/([^/]+)$/)
+    if (transactionsMatch) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
+      const address = transactionsMatch[1]
+      if (!isMainnetAddress(address)) return send(res, 400, { error: 'INVALID_TRON_ADDRESS' }, origin)
+      const requestedLimit = Number(url.searchParams.get('limit') || 20)
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 50) return send(res, 400, { error: 'INVALID_LIMIT', message: 'limit must be an integer between 1 and 50' }, origin)
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'mainnet-transaction-history')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      const cacheKey = 'transactions:' + address + ':' + requestedLimit
+      const cached = cache.get(cacheKey)
+      if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, cached.value, origin)
+      try {
+        const apiKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
+        const headers = { accept: 'application/json', ...(apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {}) }
+        const query = new URLSearchParams({ only_confirmed: 'true', limit: String(requestedLimit), order_by: 'block_timestamp,desc' })
+        const trc20Query = new URLSearchParams({ only_confirmed: 'true', limit: String(requestedLimit), order_by: 'block_timestamp,desc', contract_address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' })
+        const [nativeResponse, tokenResponse] = await Promise.all([
+          fetchImpl(MAINNET_RPC + '/v1/accounts/' + encodeURIComponent(address) + '/transactions?' + query, { method: 'GET', headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), redirect: 'error' }),
+          fetchImpl(MAINNET_RPC + '/v1/accounts/' + encodeURIComponent(address) + '/transactions/trc20?' + trc20Query, { method: 'GET', headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), redirect: 'error' }).catch(() => null),
+        ])
+        const [nativePayload, tokenPayload] = await Promise.all([nativeResponse.json().catch(() => ({})), tokenResponse?.json().catch(() => ({})) || Promise.resolve({})])
+        if (!nativeResponse.ok || !Array.isArray(nativePayload.data)) throw new Error('TronGrid confirmed native transaction history is unavailable')
+        const value = { address, network: 'TRON Mainnet', data: nativePayload.data, trc20Transfers: Array.isArray(tokenPayload.data) ? tokenPayload.data : [], trc20Available: Boolean(tokenResponse?.ok && Array.isArray(tokenPayload.data)), checkedAt: new Date().toISOString(), source: 'trongrid-confirmed-history', tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' }
+        cache.set(cacheKey, { at: Date.now(), value })
+        return send(res, 200, value, origin)
+      } catch {
+        return send(res, 503, { error: 'TRON_TRANSACTION_HISTORY_UNAVAILABLE', message: 'Could not read confirmed Sponsor Wallet transaction history from TronGrid.' }, origin)
       }
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
