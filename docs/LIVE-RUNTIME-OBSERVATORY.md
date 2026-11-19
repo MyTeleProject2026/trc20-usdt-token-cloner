@@ -60,3 +60,9 @@ The workflow also maintains one deduplicated GitHub issue titled `[Production Mo
 - The Render PostgreSQL instance visible in the workspace is suspended for billing and expired. Durable application-side time-series storage is therefore not enabled by this release.
 - Render lifecycle events remain a separate authenticated integration. Configure a newly rotated `RENDER_API_KEY` only as a server-side secret on the resource API service; never put it in frontend variables or source control.
 
+
+## Render platform metrics integration
+
+The resource API exposes `GET /api/observatory/render-metrics`. When a server-side `RENDER_API_KEY` is configured, it reads Render's documented CPU, memory, HTTP request, HTTP latency p95, and outbound bandwidth metrics for the resource API and frontend services. The response is normalized, read-only, cached for five minutes, and rate-limited. The dashboard polls the endpoint once per minute and displays the most recent platform samples separately from the one-second Node.js process telemetry.
+
+Render's API can return empty series or reject metrics that are unsupported by a service type or workspace plan. Those cases are shown as `No data` or `Unavailable`; the dashboard does not infer platform metrics from process-local measurements. The static frontend does not expose CPU/memory or web-service HTTP metrics, so those are requested only for the resource API; outbound bandwidth is requested for both services.
