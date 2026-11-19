@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowDownUp, CheckCircle2, CircleAlert, FileKey2, LockKeyhole, LogOut, RefreshCw, ShieldCheck, UnlockKeyhole, Wallet } from 'lucide-react'
 import {
   createSponsorTronWeb, deriveSponsorAccount, hasSavedSponsorWallet,
@@ -9,6 +9,8 @@ import './sponsor-wallet.css'
 const OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const SUN = 1_000_000
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
+const ACTIVITY_KEY = 'tron-transfer.sponsor-activity.v1'
 
 function formatAmount(value, digits = 6) {
   const amount = Number(value || 0) / SUN
@@ -50,17 +52,39 @@ export default function SponsorWalletManager() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState(null)
   const [lastTx, setLastTx] = useState('')
+  const [lastDelegation, setLastDelegation] = useState(null)
+  const [activity, setActivity] = useState([])
+  const toastTimer = useRef(null)
 
   const notify = useCallback((kind, title, message) => {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current)
     setToast({ kind, title, message })
-    window.setTimeout(() => setToast(null), 4800)
+    toastTimer.current = window.setTimeout(() => setToast(null), 4800)
   }, [])
+
+  useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
+
+  const recordActivity = useCallback((entry) => {
+    setActivity((previous) => {
+      const next = [entry, ...previous.filter((item) => item.transactionId !== entry.transactionId)].slice(0, 50)
+      try { localStorage.setItem(ACTIVITY_KEY + ':' + entry.sponsorAddress, JSON.stringify(next)) } catch { /* local history is best-effort */ }
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!wallet?.address) return
+    try {
+      const stored = JSON.parse(localStorage.getItem(ACTIVITY_KEY + ':' + wallet.address) || '[]')
+      setActivity(Array.isArray(stored) ? stored.filter((item) => item && item.sponsorAddress === wallet.address).slice(0, 50) : [])
+    } catch { setActivity([]) }
+  }, [wallet?.address])
 
   useEffect(() => { setSaved(hasSavedSponsorWallet()) }, [])
 
   const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ quiet = false } = {}) => {
     if (!wallet || !tronWeb) return
     setBusy(true)
     try {
@@ -96,19 +120,19 @@ export default function SponsorWalletManager() {
         activated: Boolean(account?.address),
         checkedAt: new Date().toISOString(),
       })
-      notify('success', 'Sponsor wallet refreshed', 'Balances and current Mainnet resource counters were read from the TRON node.')
+      if (!quiet) notify('success', 'Sponsor wallet refreshed', 'Balances and current Mainnet resource counters were read from the TRON node.')
     } catch (error) {
-      notify('error', 'Live refresh failed', error instanceof Error ? error.message : 'Could not read Sponsor Wallet data.')
+      if (!quiet) notify('error', 'Live refresh failed', error instanceof Error ? error.message : 'Could not read Sponsor Wallet data.')
     } finally {
       setBusy(false)
     }
   }, [wallet, tronWeb, notify])
 
-  useEffect(() => { if (wallet) void refresh() }, [wallet, refresh])
+  useEffect(() => { if (wallet) void refresh({ quiet: true }) }, [wallet, refresh])
 
   useEffect(() => {
     if (!wallet) return undefined
-    const timer = window.setInterval(() => { void refresh() }, 60_000)
+    const timer = window.setInterval(() => { void refresh({ quiet: true }) }, 60_000)
     return () => window.clearInterval(timer)
   }, [wallet, refresh])
 
@@ -154,6 +178,7 @@ export default function SponsorWalletManager() {
     setWallet(null)
     setSnapshot(null)
     setLastTx('')
+    setLastDelegation(null)
     notify('success', 'Sponsor Wallet locked', 'The in-memory signing key was released. The encrypted local backup remains available to unlock.')
   }
 
@@ -161,6 +186,7 @@ export default function SponsorWalletManager() {
     setWallet(null)
     setSnapshot(null)
     setLastTx('')
+    setLastDelegation(null)
     notify('success', 'Sponsor Wallet logged out', 'The active session is disconnected. Your encrypted local backup is retained.')
   }
 
@@ -168,6 +194,7 @@ export default function SponsorWalletManager() {
     setWallet(null)
     setSnapshot(null)
     setLastTx('')
+    setLastDelegation(null)
     setSaved(false)
     setReplacing(true)
     setMode('private-key')
