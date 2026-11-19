@@ -312,12 +312,13 @@ test('TEnergy promo rate limit ignores caller-controlled X-Forwarded-For rotatio
 test('confirmed Sponsor Wallet transaction history uses TronGrid Mainnet with a bounded limit', async (t) => {
   const { createServer, MAINNET_RPC } = await import('../server.js')
   const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-  let request
+  const requests = []
   const server = createServer({
     env: { TRONGRID_API_KEY: 'test-public-read-key' },
     fetchImpl: async (url, options) => {
-      request = { url, options }
-      return { ok: true, status: 200, json: async () => ({ data: [{ txID: 'a'.repeat(64), block_timestamp: 1790000000000 }] }) }
+      requests.push({ url, options })
+      const isTrc20 = String(url).includes('/transactions/trc20?')
+      return { ok: true, status: 200, json: async () => ({ data: [isTrc20 ? { transaction_id: 'b'.repeat(64), from: address, to: address, value: '70000000' } : { txID: 'a'.repeat(64), block_timestamp: 1790000000000 }] }) }
     },
   })
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -330,13 +331,22 @@ test('confirmed Sponsor Wallet transaction history uses TronGrid Mainnet with a 
   assert.equal(payload.network, 'TRON Mainnet')
   assert.equal(payload.source, 'trongrid-confirmed-history')
   assert.equal(payload.data[0].txID, 'a'.repeat(64))
-  const parsed = new URL(request.url)
+  assert.equal(payload.trc20Transfers[0].transaction_id, 'b'.repeat(64))
+  assert.equal(payload.trc20Available, true)
+  assert.equal(requests.length, 2)
+  const parsed = new URL(requests.find((request) => !request.url.includes('/trc20?')).url)
   assert.equal(parsed.origin, MAINNET_RPC)
   assert.equal(parsed.pathname, '/v1/accounts/' + address + '/transactions')
   assert.equal(parsed.searchParams.get('only_confirmed'), 'true')
   assert.equal(parsed.searchParams.get('limit'), '20')
   assert.equal(parsed.searchParams.get('order_by'), 'block_timestamp,desc')
-  assert.equal(request.options.headers['TRON-PRO-API-KEY'], 'test-public-read-key')
+  const tokenRequest = requests.find((request) => request.url.includes('/trc20?'))
+  assert.ok(tokenRequest)
+  const tokenParsed = new URL(tokenRequest.url)
+  assert.equal(tokenParsed.pathname, '/v1/accounts/' + address + '/transactions/trc20')
+  assert.equal(tokenParsed.searchParams.get('contract_address'), 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t')
+  assert.equal(tokenParsed.searchParams.get('only_confirmed'), 'true')
+  assert.equal(requests[0].options.headers['TRON-PRO-API-KEY'], 'test-public-read-key')
 })
 
 test('confirmed Sponsor Wallet transaction history rejects invalid addresses and limits', async (t) => {
