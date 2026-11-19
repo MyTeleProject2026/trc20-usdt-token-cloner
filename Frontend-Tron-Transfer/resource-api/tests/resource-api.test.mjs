@@ -15,7 +15,7 @@ test('calculates free Bandwidth, staked/delegated Bandwidth, and Energy separate
   const result = summarizeResources({
     freeNetLimit: 600, freeNetUsed: 120,
     NetLimit: 1500, NetUsed: 320,
-    EnergyLimit: 100000, EnergyUsed: 25000,
+    EnergyLimit: 100000, EnergyUsed: 25000,\n    TotalEnergyLimit: 180000000000, TotalEnergyWeight: 3000000000,\n    TotalNetLimit: 43200000000, TotalNetWeight: 1200000000,
   }, { balance: 1234567 }, [
     { key: 'getEnergyFee', value: 100 },
     { key: 'getTransactionFee', value: 1000 },
@@ -37,7 +37,7 @@ test('calculates free Bandwidth, staked/delegated Bandwidth, and Energy separate
   assert.equal(result.chainParameters.energyFeeSunPerUnit, 100)
   assert.equal(result.chainParameters.bandwidthFeeSunPerByte, 1000)
   assert.equal(result.chainParameters.maxFeeLimitSun, 15000000000)
-  assert.equal(result.freeEnergyAvailable, false)
+  assert.deepEqual(result.networkResourceWeights, { totalEnergyLimit: '180000000000', totalEnergyWeight: '3000000000', totalNetLimit: '43200000000', totalNetWeight: '1200000000' })\n  assert.equal(result.freeEnergyAvailable, false)
   assert.equal(result.exactDeploymentEnergyEstimate, null)
 })
 
