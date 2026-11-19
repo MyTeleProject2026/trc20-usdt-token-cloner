@@ -166,6 +166,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   const [activity, setActivity] = useState([])
   const [securityEvents, setSecurityEvents] = useState([])
   const toastTimer = useRef(null)
+  const resourceAlertState = useRef('unknown')
 
   const notify = useCallback((kind, title, message) => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current)
@@ -466,6 +467,17 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
       notify('error', 'Mainnet verification unavailable', error instanceof Error ? error.message : 'Could not reach the verification service.')
     } finally { setBusy(false) }
   }
+
+  useEffect(() => {
+    if (!wallet || !snapshot || !energyTargetValid || !bandwidthTargetValid) return
+    const shortfall = ownerEnergyDeficit > 0 || ownerBandwidthDeficit > 0
+    const nextState = shortfall ? 'shortfall' : 'ready'
+    if (resourceAlertState.current !== nextState) {
+      if (shortfall) notify('info', 'Owner resources below target', 'Energy shortfall: ' + ownerEnergyDeficit.toLocaleString() + ' units; Bandwidth shortfall: ' + ownerBandwidthDeficit.toLocaleString() + ' bytes. Review the prepared stake estimates before signing.')
+      else if (resourceAlertState.current === 'shortfall') notify('success', 'Owner resource targets met', 'The latest confirmed resource snapshot meets both configured targets.')
+      resourceAlertState.current = nextState
+    }
+  }, [wallet?.address, snapshot, energyTargetValid, bandwidthTargetValid, ownerEnergyDeficit, ownerBandwidthDeficit, notify])
 
   const energyAvailable = Math.max(0, (snapshot?.energyLimit || 0) - (snapshot?.energyUsed || 0))
   const energyTargetValid = /^[1-9][0-9]{0,14}$/.test(energyTarget) && Number.isSafeInteger(Number(energyTarget))
