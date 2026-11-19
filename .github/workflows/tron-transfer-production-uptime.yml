@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: tron-transfer-production-uptime
@@ -58,10 +59,10 @@ jobs:
                 results.push({
                   name: target.name,
                   url: target.url,
-                  ok: response.ok && validPayload,
+                  ok: response.ok && validPayload && Date.now() - started <= 5000,
                   status: response.status,
                   latencyMs: Date.now() - started,
-                  detail,
+                  detail: Date.now() - started > 5000 ? detail + ' · latency threshold exceeded' : detail,
                   checkedAt: new Date().toISOString(),
                 });
               } catch (error) {
@@ -93,7 +94,7 @@ jobs:
               '',
               `Checked at: ${new Date().toISOString()}`,
               '',
-              'Probe history is retained as workflow artifacts for 90 days. This is external endpoint monitoring, not a replacement for a durable application database.',
+              'Probe results are retained as workflow artifacts for 90 days. Failed checks open or update one deduplicated GitHub incident; a fully healthy run closes it. This does not replace a permanent metrics database.',
             ].join('\n');
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
             if (failed.length) {
@@ -101,6 +102,77 @@ jobs:
               process.exitCode = 1;
             }
           })().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
+      - name: Open or resolve production incident
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const api = 'https://api.github.com/repos/' + process.env.GITHUB_REPOSITORY;
+          const title = '[Production Monitor] Tron Transfer availability incident';
+          const runUrl = 'https://github.com/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID;
+          const headers = {
+            accept: 'application/vnd.github+json',
+            authorization: 'Bearer ' + process.env.GH_TOKEN,
+            'x-github-api-version': '2022-11-28',
+            'content-type': 'application/json',
+          };
+          async function request(path, method = 'GET', body) {
+            const response = await fetch(api + path, {
+              method, headers, ...(body ? { body: JSON.stringify(body) } : {}),
+              signal: AbortSignal.timeout(15000),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error('GitHub incident API returned HTTP ' + response.status);
+            return payload;
+          }
+          (async () => {
+            if (!fs.existsSync('uptime-results/latest.json')) return;
+            const report = JSON.parse(fs.readFileSync('uptime-results/latest.json', 'utf8'));
+            const failed = (report.results || []).filter(item => !item.ok);
+            const issues = await request('/issues?state=open&per_page=100');
+            const incident = issues.find(item => !item.pull_request && item.title === title);
+            const checkedAt = new Date().toISOString();
+            if (failed.length) {
+              const details = failed.map(item => '- **' + item.name + '** — HTTP ' + item.status + ', ' + item.latencyMs + ' ms: ' + String(item.detail).replace(/[\r\n]/g, ' ').slice(0, 240)).join('\n');
+              const body = [
+                '## Production availability incident',
+                '',
+                'At least one production endpoint failed its health, heartbeat, or latency check.',
+                '',
+                details,
+                '',
+                '**Latest check:** ' + checkedAt,
+                '**Workflow run:** ' + runUrl,
+                '**Commit:** ' + process.env.GITHUB_SHA,
+                '',
+                'This issue is automatically updated by the scheduled production probe and closed after a fully healthy check.',
+              ].join('\n');
+              if (incident) {
+                await request('/issues/' + incident.number, 'PATCH', { body });
+                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\nIncident issue updated: ' + incident.html_url + '\n');
+              } else {
+                const created = await request('/issues', 'POST', { title, body });
+                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\nProduction incident opened: ' + created.html_url + '\n');
+              }
+            } else if (incident) {
+              const body = String(incident.body || '') + '\n\n## Recovery\n\nAll monitored endpoints passed at ' + checkedAt + '. Recovery workflow: ' + runUrl;
+              await request('/issues/' + incident.number, 'PATCH', { state: 'closed', body });
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\nProduction incident resolved: ' + incident.html_url + '\n');
+            } else {
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\nNo open production incident; all checks passed.\n');
+            }
+          })().catch(error => {
+            console.error('Incident automation could not update GitHub issues:', error.message);
+            process.exitCode = 1;
+          });
           NODE
       - name: Retain probe result
         if: always()
