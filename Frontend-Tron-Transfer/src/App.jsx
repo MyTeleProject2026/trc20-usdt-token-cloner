@@ -88,7 +88,7 @@ export default function App() {
         </div>
         <div className="trax-topbar-actions">
           <span className="trax-mainnet-badge"><i/> TRON MAINNET</span>
-          {wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock</button> : <button type="button" className="trax-topbar-connect" disabled={walletBusy} onClick={connectWallet}>{walletBusy ? 'Connecting…' : 'Connect TronLink'}</button>}
+          {wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" disabled={walletBusy} onClick={connectWallet}>{walletBusy ? 'Connecting…' : 'Connect Owner Wallet'}</button>}
         </div>
       </header>
       <main className="trax-admin-content">
