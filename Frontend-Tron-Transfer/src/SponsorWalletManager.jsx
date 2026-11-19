@@ -142,6 +142,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
         const payload = await response.json()
         if (cancelled || !Array.isArray(payload.delegations)) return
         for (const row of payload.delegations.filter((item) => item.sponsorAddress === wallet.address)) {
+          setLastDelegation((current) => current?.transactionId === row.transactionId ? null : current)
           recordActivity({ transactionId: row.transactionId, sponsorAddress: row.sponsorAddress, receiverAddress: row.receiverAddress, resourceType: row.resourceType, stakeEquivalentSun: row.stakeEquivalentSun, action: 'delegate', status: 'solidified-mainnet-verified', blockNumber: row.blockNumber, createdAt: row.recordedAt || new Date().toISOString() })
         }
       } catch { /* The local audit history remains available if the API is offline. */ }
