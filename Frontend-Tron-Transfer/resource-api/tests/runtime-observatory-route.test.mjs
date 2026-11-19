@@ -143,7 +143,7 @@ test('uptime history endpoint exposes persistent Git-backed probe records and ca
           url: 'https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/123',
           commit: 'a'.repeat(40),
           event: 'schedule',
-          results: [{ name: 'resource-api-health', ok: true, status: 200, latencyMs: 120, detail: 'healthy' }],
+          results: [{ name: 'runtime-observatory', ok: true, status: 200, latencyMs: 120, detail: 'healthy', metrics: { rssBytes: 4096, heapUsedBytes: 2048, eventLoopP95Ms: 3.5, p95LatencyMs: 12, errors5xx: 0 } }],
           private: 'must-not-be-exposed',
         }],
       }), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -162,6 +162,8 @@ test('uptime history endpoint exposes persistent Git-backed probe records and ca
   assert.equal(body.runs[0].conclusion, 'success')
   assert.equal(body.runs[0].commit, 'aaaaaaaaaaaa')
   assert.equal(body.runs[0].results[0].latencyMs, 120)
+  assert.equal(body.runs[0].results[0].metrics.rssBytes, 4096)
+  assert.equal(body.runs[0].results[0].metrics.eventLoopP95Ms, 3.5)
   assert.equal(JSON.stringify(body).includes('must-not-be-exposed'), false)
   const second = await fetch(url)
   assert.equal(second.status, 200)
