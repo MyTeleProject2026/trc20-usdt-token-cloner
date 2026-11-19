@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import {
   buildFincraUsdtTronPayoutPayload,
+  FINCRA_MINIMUM_WITHDRAWAL_BASE_UNITS,
   getFincraConfig,
   getFincraPayoutByCustomerReference,
   initiateFincraSandboxUsdtTronPayout,
@@ -17,7 +18,7 @@ const sponsorBusiness = 'BUS-123456'
 const payoutInput = {
   recipientAddress: recipient,
   beneficiaryName: 'Test Beneficiary',
-  amount: '12.345678',
+  amount: '1000.123456',
   customerReference: 'tt-payout-000001',
 }
 
@@ -41,7 +42,7 @@ test('Fincra config defaults to sandbox and does not expose credentials in summa
 
 test('USDT base-unit parsing rejects invalid precision and malformed values', () => {
   assert.equal(parseFincraUsdtBaseUnits('1'), '1000000')
-  assert.equal(parseFincraUsdtBaseUnits('12.345678'), '12345678')
+  assert.equal(parseFincraUsdtBaseUnits('1000.123456'), '1000123456')
   assert.equal(parseFincraUsdtBaseUnits('0.000001'), '1')
   assert.equal(parseFincraUsdtBaseUnits('1.0000001'), null)
   assert.equal(parseFincraUsdtBaseUnits('-1'), null)
@@ -58,7 +59,7 @@ test('Fincra payload is pinned to same-currency official USDT TRON payout scheme
     business: sponsorBusiness,
     sourceCurrency: 'USDT',
     destinationCurrency: 'USDT',
-    amount: 12.345678,
+    amount: 1000.123456,
     customerReference: payoutInput.customerReference,
     description: 'Authorized TRON Mainnet USDT payout',
     paymentDestination: 'crypto_wallet',
@@ -69,6 +70,17 @@ test('Fincra payload is pinned to same-currency official USDT TRON payout scheme
       email: 'owner@example.test',
     },
   })
+})
+
+test('Fincra payout builder enforces the 1,000 USDT minimum and accepts the exact threshold', () => {
+  assert.equal(FINCRA_MINIMUM_WITHDRAWAL_BASE_UNITS, '1000000000')
+  assert.throws(() => buildFincraUsdtTronPayoutPayload({
+    ...payoutInput, businessId: sponsorBusiness, amount: '999.999999',
+  }), /minimum-withdrawal-1000-usdt/)
+  const minimum = buildFincraUsdtTronPayoutPayload({
+    ...payoutInput, businessId: sponsorBusiness, amount: '1000',
+  })
+  assert.equal(minimum.amount, 1000)
 })
 
 test('Fincra payload builder rejects invalid recipients, precision and references', () => {
@@ -92,14 +104,14 @@ test('Fincra successful status requires exact recipient identity and exact net a
     paymentScheme: 'usdt_trc20',
     paymentDestination: 'crypto_wallet',
     beneficiary: { walletAddress: recipient },
-    amountReceived: '12.345678',
-    amountCharged: '12.400000',
+    amountReceived: '1000.123456',
+    amountCharged: '1000.200000',
     reference: 'fincra-reference-1',
   }
   const normalized = normalizeFincraPayoutRecord(payout, payoutInput)
   assert.equal(normalized.valid, true)
   assert.equal(normalized.status, 'successful')
-  assert.equal(normalized.amountReceivedBaseUnits, '12345678')
+  assert.equal(normalized.amountReceivedBaseUnits, '1000123456')
   assert.equal(normalized.providerReference, 'fincra-reference-1')
 })
 
@@ -112,8 +124,8 @@ test('Fincra successful status with fee-shortened receiver amount is sent to man
     paymentScheme: 'usdt_trc20',
     paymentDestination: 'crypto_wallet',
     beneficiary: { walletAddress: recipient },
-    amountReceived: '12.300000',
-    amountCharged: '12.400000',
+    amountReceived: '1000.100000',
+    amountCharged: '1000.200000',
   }
   const normalized = normalizeFincraPayoutRecord(payout, payoutInput)
   assert.equal(normalized.valid, false)
@@ -130,7 +142,7 @@ test('Fincra payout identity mismatch never becomes a successful local status', 
     paymentScheme: 'usdt_trc20',
     paymentDestination: 'crypto_wallet',
     beneficiary: { walletAddress: recipient },
-    amountReceived: '12.345678',
+    amountReceived: '1000.123456',
   }
   const normalized = normalizeFincraPayoutRecord(payout, payoutInput)
   assert.equal(normalized.valid, false)
@@ -224,6 +236,21 @@ test('Fincra sandbox payout submit is disabled unless its explicit sandbox gate 
     }, payoutInput),
     /fincra-sandbox-submission-disabled/,
   )
+})
+
+test('Fincra sandbox submit rejects below-minimum payouts before any provider request', async () => {
+  let called = false
+  await assert.rejects(
+    initiateFincraSandboxUsdtTronPayout({
+      FINCRA_SECRET_KEY: 'sandbox-key',
+      FINCRA_BUSINESS_ID: sponsorBusiness,
+      FINCRA_SANDBOX_PAYOUTS_ENABLED: 'true',
+    }, { ...payoutInput, amount: '999.999999' }, {
+      fetchImpl: async () => { called = true; throw new Error('provider must not be called') },
+    }),
+    /minimum-withdrawal-1000-usdt/,
+  )
+  assert.equal(called, false)
 })
 
 test('Fincra sandbox submit and customer-reference lookup use documented endpoints', async () => {

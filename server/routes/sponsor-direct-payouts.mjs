@@ -16,6 +16,7 @@ import {
   validateOwnerSignedTransaction,
 } from './tron-owner-withdrawals.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
+import { ensureSponsorDirectPayoutArchiveSchema, readSponsorDirectPayoutArchiveDiagnostics } from '../sponsor-direct-payout-archive.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -27,6 +28,7 @@ const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_PREPARED_LIFETIME_MS = 10 * 60 * 1000
 const SPONSOR_MATCH_LIFETIME_MS = 15 * 60 * 1000
 const DEFAULT_FEE_LIMIT_SUN = '100000000'
+export const MINIMUM_WITHDRAWAL_BASE_UNITS = '1000000000' // 1,000 USDT at six decimals
 const USDT_TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
 let pool
@@ -100,40 +102,7 @@ async function ensureSchema(db) {
         'CREATE INDEX IF NOT EXISTS sponsor_direct_applications_status_idx ON ' +
         SCHEMA + '.sponsor_direct_applications (status, created_at ASC)'
       )
-      await db.query(
-        'CREATE TABLE IF NOT EXISTS ' + SCHEMA + '.sponsor_direct_payouts (' +
-        'id UUID PRIMARY KEY, idempotency_key UUID NOT NULL UNIQUE, requester_address TEXT NOT NULL, ' +
-        'sponsor_address TEXT, recipient_address TEXT NOT NULL, token_contract TEXT NOT NULL, ' +
-        'amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0), ' +
-        'status TEXT NOT NULL DEFAULT \'requested\' CHECK (status IN ' +
-        '(\'requested\',\'prepared\',\'broadcasting\',\'submitted\',\'outcome-unknown\',\'broadcast-rejected\',\'confirmed\',\'failed\',\'manual-review\',\'cancelled\',\'expired\')), ' +
-        'unsigned_transaction JSONB, signed_transaction JSONB, transaction_hash CHAR(64), ' +
-        'failure_code TEXT, expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
-        'updated_at TIMESTAMPTZ NOT NULL DEFAULT now())'
-      )
-      await db.query(
-        'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_requester_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (requester_address, created_at DESC)'
-      )
-      await db.query(
-        'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_sponsor_status_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (sponsor_address, status, created_at DESC)'
-      )
-      await db.query(
-        'ALTER TABLE ' + SCHEMA + '.sponsor_direct_payouts ' +
-        'ADD COLUMN IF NOT EXISTS confirmation_block_number BIGINT, ' +
-        'ADD COLUMN IF NOT EXISTS confirmation_log_index INTEGER, ' +
-        'ADD COLUMN IF NOT EXISTS confirmation_verified_at TIMESTAMPTZ, ' +
-        'ADD COLUMN IF NOT EXISTS confirmation_evidence JSONB, ' +
-        'ADD COLUMN IF NOT EXISTS reconciliation_last_checked_at TIMESTAMPTZ, ' +
-        'ADD COLUMN IF NOT EXISTS reconciliation_attempts INTEGER NOT NULL DEFAULT 0, ' +
-        'ADD COLUMN IF NOT EXISTS reconciliation_last_error TEXT'
-      )
-      await db.query(
-        'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_reconciliation_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (updated_at ASC) ' +
-        "WHERE status IN ('broadcasting','submitted','outcome-unknown')"
-      )
+      await ensureSponsorDirectPayoutArchiveSchema(db)
     })().catch((error) => {
       schemaPromise = null
       throw error
@@ -464,6 +433,12 @@ function publicRequest(row) {
     lastReconciledAt: row.reconciliation_last_checked_at ? new Date(row.reconciliation_last_checked_at).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+    archived: row.is_archived === true,
+    ...(row.is_archived === true ? {
+      archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
+      archiveReason: row.archive_reason || 'historical-record',
+      readOnly: true,
+    } : {}),
   }
 }
 
@@ -638,7 +613,7 @@ export function isSponsorDirectAutoRouteEligible({
   const [amount, balance, reserved, perPayout, dailyLimit, dailyUsed] = values.map(BigInt)
   const available = balance > reserved ? balance - reserved : 0n
   return feeCoverage === true
-    && amount > 0n
+    && amount >= BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)
     && amount <= perPayout
     && amount <= available
     && dailyUsed + amount <= dailyLimit
@@ -658,6 +633,9 @@ async function autoAssignSponsorToRequest({
   const amountBaseUnits = String(request.amount_base_units || '')
   if (!/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)) {
     return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+  if (BigInt(amountBaseUnits) < BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)) {
+    return { request, routing: 'below-minimum-policy-blocked' }
   }
   let candidates
   try {
@@ -1053,6 +1031,8 @@ export function createSponsorDirectPayoutsRouter({
       network: 'mainnet',
       asset: 'USDT',
       tokenContract: MAINNET_USDT_CONTRACT,
+      minimumWithdrawalUsdt: '1000',
+      minimumWithdrawalBaseUnits: MINIMUM_WITHDRAWAL_BASE_UNITS,
       payoutMode: 'sponsor-direct',
       requesterWalletFundingRequired: false,
       requesterWalletSignaturePurpose: 'identity-only',
@@ -1223,7 +1203,9 @@ export function createSponsorDirectPayoutsRouter({
           'FROM ' + SCHEMA + '.sponsor_direct_applications',
         ),
         db.query(
-          'SELECT COUNT(*)::int AS total, ' +
+          'SELECT COUNT(*)::int AS active_total, ' +
+          '(SELECT COUNT(*)::int FROM ' + SCHEMA + '.sponsor_direct_payouts_archive)::int AS archived_historical, ' +
+          '(COUNT(*)::int + (SELECT COUNT(*)::int FROM ' + SCHEMA + '.sponsor_direct_payouts_archive)) AS total, ' +
           "COUNT(*) FILTER (WHERE status='requested' AND sponsor_address IS NULL)::int AS awaiting_sponsor, " +
           "COUNT(*) FILTER (WHERE status='requested' AND sponsor_address IS NOT NULL)::int AS matched_awaiting_signature, " +
           "COUNT(*) FILTER (WHERE status='prepared')::int AS prepared, " +
@@ -1257,6 +1239,8 @@ export function createSponsorDirectPayoutsRouter({
         },
         withdrawals: {
           total: count(payoutRow.total),
+          activeTotal: count(payoutRow.active_total),
+          archivedHistorical: count(payoutRow.archived_historical),
           awaitingSponsor: count(payoutRow.awaiting_sponsor),
           matchedAwaitingSignature: count(payoutRow.matched_awaiting_signature),
           prepared: count(payoutRow.prepared),
@@ -1360,12 +1344,20 @@ export function createSponsorDirectPayoutsRouter({
     try { amountBaseUnits = parseSponsorDirectUsdtAmount(body.amount) } catch {
       return res.status(400).json({ success: false, error: 'invalid-usdt-amount' })
     }
+    if (BigInt(amountBaseUnits) < BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)) {
+      return res.status(400).json({
+        success: false,
+        error: 'minimum-withdrawal-1000-usdt',
+        minimumWithdrawalUsdt: '1000',
+        minimumWithdrawalBaseUnits: MINIMUM_WITHDRAWAL_BASE_UNITS,
+      })
+    }
     const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
       const existing = await db.query(
-        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE idempotency_key=$1 LIMIT 1',
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts_history WHERE idempotency_key=$1 LIMIT 1',
         [idempotencyKey],
       )
       if (existing.rows[0]) {
@@ -1405,6 +1397,20 @@ export function createSponsorDirectPayoutsRouter({
     }
   })
 
+  router.get('/archive-migration-status', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      const diagnostics = await readSponsorDirectPayoutArchiveDiagnostics(db, { schemaName: SCHEMA })
+      return res.json({ success: true, migration: diagnostics, readOnly: true })
+    } catch {
+      return res.status(503).json({ success: false, error: 'archive-migration-diagnostics-unavailable' })
+    }
+  })
+
   router.get('/my-requests', async (req, res) => {
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
@@ -1414,20 +1420,51 @@ export function createSponsorDirectPayoutsRouter({
     try {
       await ensureSchema(db)
       const result = await db.query(
-        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE requester_address=$1 ORDER BY created_at DESC LIMIT 50',
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts_history WHERE requester_address=$1 ORDER BY created_at DESC LIMIT 50',
         [auth.address],
       )
       return res.json({
         success: true,
         requests: result.rows.map((row) => ({
           ...publicRequest(row),
-          ...(row.status === 'prepared' && row.sponsor_address === auth.address && row.unsigned_transaction
+          ...(row.is_archived !== true && row.status === 'prepared' && row.sponsor_address === auth.address && row.unsigned_transaction
             ? { unsignedTransaction: row.unsigned_transaction }
             : {}),
         })),
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-withdrawal-history-unavailable' })
+    }
+  })
+
+  router.get('/requests/idempotency/:key', async (req, res) => {
+    setNoStore(res)
+    const auth = await requireWalletSession(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const key = clean(req.params?.key, 64)
+    if (!UUID_RE.test(key)) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const found = await db.query(
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts_history WHERE idempotency_key=$1 LIMIT 1',
+        [key],
+      )
+      if (!found.rows.length) return res.status(404).json({ success: false, error: 'payout-request-not-found' })
+      const row = found.rows[0]
+      if (row.requester_address !== auth.address && row.sponsor_address !== auth.address) {
+        return res.status(403).json({ success: false, error: 'payout-request-access-denied' })
+      }
+      return res.json({
+        success: true,
+        duplicate: true,
+        request: publicRequest(row),
+        payoutAuthorized: false,
+        transactionBroadcast: false,
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'sponsor-withdrawal-idempotency-lookup-unavailable' })
     }
   })
 
@@ -1490,6 +1527,10 @@ export function createSponsorDirectPayoutsRouter({
         return res.status(404).json({ success: false, error: 'payout-request-not-found' })
       }
       let row = found.rows[0]
+      if (BigInt(String(row.amount_base_units || '0')) < BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)) {
+        await client.query('COMMIT')
+        return res.status(409).json({ success: false, error: 'minimum-withdrawal-1000-usdt', minimumWithdrawalBaseUnits: MINIMUM_WITHDRAWAL_BASE_UNITS, lifecycleBlocked: true })
+      }
       if (row.status === 'prepared' && row.sponsor_address === auth.address
         && row.expires_at && new Date(row.expires_at).getTime() > now()) {
         await client.query('COMMIT')
@@ -1734,6 +1775,10 @@ export function createSponsorDirectPayoutsRouter({
         return res.status(404).json({ success: false, error: 'payout-request-not-found' })
       }
       row = found.rows[0]
+      if (BigInt(String(row.amount_base_units || '0')) < BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: 'minimum-withdrawal-1000-usdt', minimumWithdrawalBaseUnits: MINIMUM_WITHDRAWAL_BASE_UNITS, lifecycleBlocked: true })
+      }
       if (row.sponsor_address !== auth.address) {
         await client.query('ROLLBACK')
         return res.status(403).json({ success: false, error: 'assigned-sponsor-only' })
@@ -1904,13 +1949,13 @@ export function createSponsorDirectPayoutsRouter({
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
-      const found = await db.query('SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE id=$1 LIMIT 1', [id])
+      const found = await db.query('SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts_history WHERE id=$1 LIMIT 1', [id])
       if (!found.rows.length) return res.status(404).json({ success: false, error: 'payout-request-not-found' })
       let row = found.rows[0]
       if (row.requester_address !== auth.address && row.sponsor_address !== auth.address) {
         return res.status(403).json({ success: false, error: 'payout-request-access-denied' })
       }
-      if (['submitted', 'outcome-unknown', 'broadcasting'].includes(row.status)) {
+      if (row.is_archived !== true && ['submitted', 'outcome-unknown', 'broadcasting'].includes(row.status)) {
         const verification = await verifyTransfer(env, {
           transactionHash: String(row.transaction_hash || '').trim(),
           from: row.sponsor_address,

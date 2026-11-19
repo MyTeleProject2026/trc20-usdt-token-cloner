@@ -10,6 +10,7 @@ import { createSponsorFundingReader } from '../sponsor-funding.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { parseSponsorDirectUsdtAmount, verifySponsorDirectMainnetTransfer } from './sponsor-direct-payouts.mjs'
 import { resolveOwnerTreasuryFundingAddress } from './owner-treasury.mjs'
+import { ensureSponsorDirectPayoutArchiveSchema } from '../sponsor-direct-payout-archive.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -71,23 +72,7 @@ async function ensureSchema(db) {
     'CREATE INDEX IF NOT EXISTS owner_treasury_verified_inflows_created_idx ON ' +
     SCHEMA + '.owner_treasury_verified_inflows (created_at DESC)'
   )
-  // Keep the same minimal payout table shape used by the sponsor-direct router.
-  // This makes reservation accounting safe even before the sponsor UI is opened.
-  await db.query(
-    'CREATE TABLE IF NOT EXISTS ' + SCHEMA + '.sponsor_direct_payouts (' +
-    'id UUID PRIMARY KEY, idempotency_key UUID NOT NULL UNIQUE, requester_address TEXT NOT NULL, ' +
-    'sponsor_address TEXT, recipient_address TEXT NOT NULL, token_contract TEXT NOT NULL, ' +
-    'amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0), ' +
-    'status TEXT NOT NULL DEFAULT \'requested\' CHECK (status IN ' +
-    '(\'requested\',\'prepared\',\'broadcasting\',\'submitted\',\'outcome-unknown\',\'broadcast-rejected\',\'confirmed\',\'failed\',\'manual-review\',\'cancelled\',\'expired\')), ' +
-    'unsigned_transaction JSONB, signed_transaction JSONB, transaction_hash CHAR(64), ' +
-    'failure_code TEXT, expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
-    'updated_at TIMESTAMPTZ NOT NULL DEFAULT now())'
-  )
-  await db.query(
-    'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_sponsor_status_idx ON ' +
-    SCHEMA + '.sponsor_direct_payouts (sponsor_address, status, created_at DESC)'
-  )
+  await ensureSponsorDirectPayoutArchiveSchema(db)
 }
 
 function ownerAddress(env) {

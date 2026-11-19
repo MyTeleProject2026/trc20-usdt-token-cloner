@@ -342,6 +342,9 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount.trim()) || /^0(?:\.0{1,6})?$/.test(amount.trim())) {
         throw new Error('Enter a positive USDT amount with no more than six decimal places.')
       }
+      const [wholeAmount, fractionalAmount = ''] = amount.trim().split('.')
+      const amountBaseUnits = BigInt(wholeAmount) * 1000000n + BigInt((fractionalAmount + '000000').slice(0, 6))
+      if (amountBaseUnits < 1000000000n) throw new Error('The minimum withdrawal is 1,000 USDT.')
       const result = await api('/api/tron/sponsor-direct/requests', identityToken, {
         method: 'POST',
         body: JSON.stringify({
@@ -624,7 +627,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <input value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient address (T…)" autoComplete="off" spellCheck="false" />
               </label>
               <label>USDT withdrawal amount
-                <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g. 10.00" inputMode="decimal" />
+                <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Minimum 1,000.00 USDT" inputMode="decimal" />
+                <small>Platform minimum: 1,000 USDT. The sponsor must still independently fund and sign the transfer.</small>
               </label>
               <button className="primary-button" disabled={!identityMatchesWallet || busy} onClick={() => void submitRequest()}>
                 <ArrowUpRight size={16} /> Submit sponsored withdrawal request
@@ -815,6 +819,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                       <strong>{formatUnits(item.amountBaseUnits)} USDT</strong>
                       <span>To {item.recipientAddress}</span>
                       <small>Status: {statusLabel(item.status)}</small>
+                      {item.archived && <small className="fine-print">Historical archive · read-only{item.archivedAt ? ' · archived ' + new Date(item.archivedAt).toLocaleString() : ''}</small>}
                       <small>Sponsor: {item.sponsorAddress ? shorten(item.sponsorAddress) : 'Not assigned'}</small>
                       {item.status === 'requested' && <small>{item.sponsorAddress
                         ? 'Automatically matched using current sponsor funding and fee checks. Waiting for the sponsor to prepare and sign this payout.'

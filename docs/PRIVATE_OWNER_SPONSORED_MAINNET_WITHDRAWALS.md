@@ -18,6 +18,8 @@ The sponsor route does not render the owner console. It only exposes the wallet-
 
 ## Mainnet withdrawal flow
 
+The private platform enforces a **1,000 USDT minimum per withdrawal request** (1,000,000,000 base units). This is an application policy, not a provider/network minimum and not evidence of available funds or credit.
+
 1. The owner signs in to the private console and connects the TronLink account that exactly matches `OWNER_WALLET_ADDRESS`.
 2. The owner signs a short-lived wallet-identity challenge. This is a message signature, not a token transfer or spending authorization.
 3. The owner enters the external TRON Mainnet recipient address and exact USDT amount. The backend accepts only the configured owner wallet for `POST /api/tron/sponsor-direct/requests`.
@@ -26,6 +28,14 @@ The sponsor route does not render the owner console. It only exposes the wallet-
 6. The sponsor's own wallet is re-read against solidified Mainnet state. The backend prepares one unsigned USDT transfer bound to the exact sponsor, official token contract, recipient, amount, fee limit, and expiry.
 7. The sponsor reviews the details in TronLink and explicitly signs that exact transaction. The backend validates the signed transaction against the stored intent before asking Tatum to broadcast it.
 8. A broadcast acceptance is only a submitted/pending state. The reconciliation worker checks the solidified Mainnet transaction, successful receipt, and exact official Tether USDT Transfer event before marking the transfer confirmed. A transaction hash alone is not confirmation.
+
+## Historical payout archive and minimum policy
+
+The active `sponsor_direct_payouts` table accepts only requests at or above the 1,000 USDT application minimum. A versioned, transactional schema migration moves only below-minimum records in terminal states (`confirmed`, `failed`, `broadcast-rejected`, `cancelled`, or `expired`) into the separate `sponsor_direct_payouts_archive` table. Original request IDs, idempotency keys, requester/sponsor/recipient addresses, amounts, statuses, transaction hashes, timestamps, confirmation evidence, and reconciliation metadata are retained.
+
+The migration fails closed before changing payout rows if any below-minimum request is still `requested`, `prepared`, `broadcasting`, `submitted`, `outcome-unknown`, or `manual-review`. Such a row must be explicitly resolved and reconciled; expiry timestamps alone do not make an unresolved transaction safe to archive. The migration verifies copied rows and the global idempotency registry before deleting any source row. It then installs and validates an unconditional active-table minimum constraint and removes the legacy `minimum_policy_blocked` bypass column.
+
+A global idempotency registry preserves duplicate detection across active and archived records. Reusing an archived key with the same request details returns the historical request as a duplicate; changing the requester, recipient, or amount returns a conflict. History and detail APIs include archived records with `archived: true`, `archivedAt`, and `readOnly: true`. Archived records are not returned in sponsor queues, cannot be prepared or broadcast, are excluded from reservations and reconciliation, and are protected against updates and deletes at the database layer. Owner overview totals distinguish active requests from archived historical records.
 
 ## Asset and fee rules
 
@@ -75,3 +85,12 @@ Do not place API keys, passwords, wallet private keys, recovery phrases, or OTPs
 Deployment does not create a sponsor, approve an application, add USDT, pay TRX, grant an organization mandate, or create a provider credit facility. The implementation can be reachable while the request queue remains empty. Real withdrawals require a willing sponsor wallet owner who has independently agreed to fund and sign the exact transfer, and the owner must make an informed review decision. Any applicable legal, regulatory, sanctions, and source-of-funds obligations remain in force; this wallet-participation workflow must not be used to evade them.
 
 The current provider-readiness page remains a separate diagnostic: provider-managed payouts are not enabled. This sponsor-direct wallet route is the only active withdrawal submission design in this release.
+
+
+## Stage 18 archive diagnostics and history lookup
+
+The owner-authenticated `GET /api/tron/sponsor-direct/archive-migration-status` endpoint reports a read-only snapshot of the archive migration invariants: active/archive/history/registry object presence, validated active minimum constraint, active idempotency trigger, archive immutability triggers, unresolved below-minimum active rows, and registry consistency. It does not run or repair a migration. A `blocked` result means unresolved below-minimum records remain; an `incomplete` result means one or more required objects or invariants are absent.
+
+Authenticated requester/sponsor sessions can retrieve a prior request by its globally reserved idempotency key through `GET /api/tron/sponsor-direct/requests/idempotency/:key`. The endpoint reads the active/archive history view, applies the same requester-or-sponsor access check as detail, and marks archived records read-only. It does not authorize, prepare, sign, or broadcast a payout.
+
+The isolated PostgreSQL API regression coverage exercises archived requester history, archived detail, duplicate-key lookup, owner-only diagnostics, and denial of diagnostics to a non-owner. These endpoints are inspection surfaces only; they do not make historical records active again.
