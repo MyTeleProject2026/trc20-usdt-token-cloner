@@ -84,7 +84,7 @@
     {
       "id": 44465358596,
       "runNumber": 3,
-      "checkedAt": "2026-11-19T05:28:05.645Z",
+      "checkedAt": "2026-11-19T06:49:33.746Z",
       "status": "success",
       "conclusion": "success",
       "commit": "88301e8295c32566637936ce5e967f20cc104453",
@@ -95,60 +95,60 @@
           "name": "owner-admin-frontend",
           "ok": true,
           "status": 200,
-          "latencyMs": 270,
+          "latencyMs": 445,
           "detail": "HTML response received",
           "metrics": null,
-          "checkedAt": "2026-11-19T05:28:05.645Z"
+          "checkedAt": "2026-11-19T06:49:33.746Z"
         },
         {
           "name": "resource-api-health",
           "ok": true,
           "status": 200,
-          "latencyMs": 263,
-          "detail": "valid JSON health payload · recovered after 16927 ms (2 attempts)",
+          "latencyMs": 433,
+          "detail": "valid JSON health payload",
           "metrics": null,
-          "checkedAt": "2026-11-19T05:28:22.344Z"
+          "checkedAt": "2026-11-19T06:49:33.878Z"
         },
         {
           "name": "runtime-observatory",
           "ok": true,
           "status": 200,
-          "latencyMs": 265,
-          "detail": "valid JSON health payload · recovered after 16930 ms (2 attempts)",
+          "latencyMs": 440,
+          "detail": "valid JSON health payload",
           "metrics": {
-            "sampledAt": "2026-11-19T05:28:22.237Z",
-            "uptimeSeconds": 6,
+            "sampledAt": "2026-11-19T06:49:33.796Z",
+            "uptimeSeconds": 66,
             "heartbeatSuccessPercent": 100,
             "heartbeatMissedIntervals": 0,
-            "rssBytes": 63238144,
-            "heapUsedBytes": 8447040,
-            "heapTotalBytes": 10276864,
-            "eventLoopP95Ms": 20.905983,
+            "rssBytes": 65593344,
+            "heapUsedBytes": 9574744,
+            "heapTotalBytes": 10964992,
+            "eventLoopP95Ms": 20.119551,
             "requestCount": 1,
             "errors5xx": 0,
             "errorRatePercent": 0,
-            "averageLatencyMs": 1,
-            "p95LatencyMs": 1
+            "averageLatencyMs": 0,
+            "p95LatencyMs": 0
           },
-          "checkedAt": "2026-11-19T05:28:22.348Z"
+          "checkedAt": "2026-11-19T06:49:33.886Z"
         },
         {
           "name": "uptime-history",
           "ok": true,
           "status": 200,
-          "latencyMs": 908,
-          "detail": "Git-backed history served · 2 archived runs · recovered after 17600 ms (2 attempts)",
+          "latencyMs": 1032,
+          "detail": "Git-backed history served · 3 archived runs",
           "metrics": null,
-          "checkedAt": "2026-11-19T05:28:23.019Z"
+          "checkedAt": "2026-11-19T06:49:34.479Z"
         },
         {
           "name": "render-metrics",
           "ok": true,
           "status": 200,
-          "latencyMs": 1696,
-          "detail": "server credential verified · CPU and memory samples received · recovered after 18576 ms (2 attempts)",
+          "latencyMs": 1128,
+          "detail": "server credential verified · CPU and memory samples received",
           "metrics": null,
-          "checkedAt": "2026-11-19T05:28:23.995Z"
+          "checkedAt": "2026-11-19T06:49:34.577Z"
         }
       ]
     }
