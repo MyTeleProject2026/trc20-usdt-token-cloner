@@ -63,7 +63,7 @@ export default function SponsorWalletManager() {
     if (!wallet || !tronWeb) return
     setBusy(true)
     try {
-      const [balance, resources, account, usdtContract] = await Promise.all([
+      const [balance, resources, account, usdtContract, ownerResources] = await Promise.all([
         tronWeb.trx.getBalance(wallet.address),
         tronWeb.trx.getAccountResources(wallet.address),
         tronWeb.trx.getAccount(wallet.address),
@@ -71,7 +71,7 @@ export default function SponsorWalletManager() {
       ])
       const usdtRaw = await usdtContract.balanceOf(wallet.address).call()
       const delegated = await tronWeb.trx.getDelegatedResourceV2(wallet.address, OWNER_ADDRESS).catch(() => ({ delegatedResource: [] }))
-      const rows = Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : []
+      const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
       const delegatedEnergySun = rows.reduce((sum, row) => sum + BigInt(row.frozen_balance_for_energy || 0), 0n)
       const delegatedBandwidthSun = rows.reduce((sum, row) => sum + BigInt(row.frozen_balance_for_bandwidth || 0), 0n)
       setSnapshot({
@@ -259,7 +259,7 @@ export default function SponsorWalletManager() {
 
       <section className="sponsor-card">
         <div className="sponsor-card-heading"><Activity/><div><h3>Automatic Resource Engine</h3><p>Live owner-resource monitoring and sponsor capacity checks.</p></div></div>
-        <div className="sponsor-engine-grid"><div><small>OWNER TARGET</small><strong>{OWNER_ADDRESS}</strong></div><div><small>SPONSOR ENERGY STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedEnergySun) + ' TRX eq.' : '—'}</strong></div><div><small>SPONSOR BANDWIDTH STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedBandwidthSun) + ' TRX eq.' : '—'}</strong></div></div>
+        <div className="sponsor-engine-grid"><div><small>OWNER TARGET</small><strong>{OWNER_ADDRESS}</strong></div><div><small>SPONSOR ENERGY STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedEnergySun) + ' TRX eq.' : '—'}</strong></div><div><small>SPONSOR BANDWIDTH STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedBandwidthSun) + ' TRX eq.' : '—'}</strong></div><div><small>OWNER ENERGY AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerEnergyAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>OWNER BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerBandwidthAvailable || 0).toLocaleString() : '—'}</strong></div></div>
         <p className="sponsor-warning">Monitoring is live when refreshed. Automatic unattended signing is intentionally disabled: each stake/delegation requires an explicit on-screen confirmation. A provider rental or free-grant adapter is not configured by this wallet import.</p>
       </section>
 
