@@ -286,7 +286,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
       const unsigned = action === 'stake'
         ? await tronWeb.transactionBuilder.freezeBalanceV2(amountSun, resourceType, target)
         : await tronWeb.transactionBuilder.delegateResource(amountSun, target, resourceType, wallet.address, false, 0)
-      if (!unsigned?.txID || !unsigned?.raw_data_hex) throw new Error('The TRON node returned an incomplete transaction. Nothing was signed.')
+      validateUnsignedResourceTransaction(tronWeb, unsigned, { action, sponsorAddress: wallet.address, receiverAddress: OWNER_ADDRESS, resourceType, amountSun })
       const signed = await tronWeb.trx.sign(unsigned, wallet.privateKey)
       if (!signed?.signature?.length || signed.txID !== unsigned.txID) throw new Error('Signed transaction identity validation failed. Nothing was broadcast.')
       const result = await tronWeb.trx.sendRawTransaction(signed)
