@@ -1,3 +1,4 @@
+import { assertMainnetActionEnabled } from './mainnet-action-controls.mjs'
 import artifacts from './generated/trax-contract-artifacts.js'
 import { TronWeb } from 'tronweb'
 
@@ -1513,6 +1514,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     safetyMarginBps: 12500,
   })
   assertZeroTrxBurnBudget(resourceBudget)
+  assertMainnetActionEnabled('walletSigning')
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
@@ -1593,6 +1595,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   if (!MAINNET_DEPLOYMENT_BROADCAST_ENABLED) {
     throw new Error('Mainnet deployment broadcasting is disabled. Signature was validated, but the transaction was not broadcast.')
   }
+  assertMainnetActionEnabled('transactionBroadcast')
   let broadcast
   try {
     broadcast = await walletTronWeb.trx.sendRawTransaction(signedTransaction)
@@ -1852,8 +1855,10 @@ export async function sendNativeTrxFromTronLink(wallet, toAddress, amountSun) {
   const amount = BigInt(String(amountSun))
   if (amount <= 0n || amount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Invalid TRX funding amount.')
   const unsigned = await tronWeb.transactionBuilder.sendTrx(toAddress, Number(amount), wallet.address)
+  assertMainnetActionEnabled('walletSigning')
   const signed = await tronWeb.trx.sign(unsigned)
   if (!signed?.signature?.length) throw new Error('TronLink did not sign the native TRX funding transaction.')
+  assertMainnetActionEnabled('transactionBroadcast')
   const broadcast = await tronWeb.trx.sendRawTransaction(signed)
   if (broadcast?.result !== true) throw new Error('TRON Mainnet rejected the TRX funding transfer.')
   const receipt = await waitForSolidifiedReceipt(tronWeb, unsigned.txID)
