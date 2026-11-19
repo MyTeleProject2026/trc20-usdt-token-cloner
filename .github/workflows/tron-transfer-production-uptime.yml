@@ -176,7 +176,7 @@ jobs:
           NODE
       - name: Retain probe result
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: tron-transfer-uptime-${{ github.run_id }}
           path: uptime-results/latest.json
