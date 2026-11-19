@@ -207,10 +207,10 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     try {
       const [balance, resources, account, usdtContract, ownerResources, maxEnergyDelegation, maxBandwidthDelegation, txHistory] = await Promise.all([
         tronWeb.trx.getBalance(wallet.address),
-        tronWeb.trx.getAccountResources(wallet.address),
+        readResourceSnapshot(wallet.address, tronWeb),
         tronWeb.trx.getAccount(wallet.address),
         tronWeb.contract().at(USDT_CONTRACT),
-        tronWeb.trx.getAccountResources(OWNER_ADDRESS),
+        readResourceSnapshot(OWNER_ADDRESS, tronWeb),
         tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'ENERGY', { confirmed: true }),
         tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'BANDWIDTH', { confirmed: true }),
         typeof tronWeb.trx.getTransactionsRelated === 'function' ? tronWeb.trx.getTransactionsRelated(wallet.address, 'all', 20, 0, { confirmed: true }).catch(() => null) : Promise.resolve(null),
@@ -224,22 +224,25 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       setSnapshot({
         trxSun: String(balance),
         usdt: String(usdtRaw),
-        energyLimit: Number(resources.EnergyLimit || 0),
-        energyUsed: Number(resources.EnergyUsed || 0),
-        netLimit: Number(resources.NetLimit || 0),
-        netUsed: Number(resources.NetUsed || 0),
-        freeNetLimit: Number(resources.freeNetLimit || 0),
-        freeNetUsed: Number(resources.freeNetUsed || 0),
+        energyLimit: resources.energy.limit,
+        energyUsed: resources.energy.used,
+        netLimit: resources.bandwidth.stakedOrDelegatedLimit,
+        netUsed: resources.bandwidth.stakedOrDelegatedUsed,
+        freeNetLimit: resources.bandwidth.freeLimit,
+        freeNetUsed: resources.bandwidth.freeUsed,
+        maxSingleTransactionBandwidth: resources.bandwidth.maxSingleTransactionAvailable,
+        resourceReadSource: resources.source,
+        resourceRpcProviders: resources.rpc?.providersUsed || null,
         delegatedEnergySun: delegatedEnergySun.toString(),
         delegatedBandwidthSun: delegatedBandwidthSun.toString(),
-        ownerEnergyAvailable: Math.max(0, Number(ownerResources.EnergyLimit || 0) - Number(ownerResources.EnergyUsed || 0)),
-        ownerBandwidthAvailable: Math.max(0, Number(ownerResources.NetLimit || 0) - Number(ownerResources.NetUsed || 0)) + Math.max(0, Number(ownerResources.freeNetLimit || 0) - Number(ownerResources.freeNetUsed || 0)),
+        ownerEnergyAvailable: ownerResources.energy.available,
+        ownerBandwidthAvailable: ownerResources.bandwidth.maxSingleTransactionAvailable,
         maxEnergyDelegatableSun: String(maxEnergyDelegation?.max_size || '0'),
         maxBandwidthDelegatableSun: String(maxBandwidthDelegation?.max_size || '0'),
-        totalEnergyLimit: String(resources.TotalEnergyLimit || '0'),
-        totalEnergyWeight: String(resources.TotalEnergyWeight || '0'),
-        totalNetLimit: String(resources.TotalNetLimit || '0'),
-        totalNetWeight: String(resources.TotalNetWeight || '0'),
+        totalEnergyLimit: String(resources.networkResourceWeights.totalEnergyLimit || '0'),
+        totalEnergyWeight: String(resources.networkResourceWeights.totalEnergyWeight || '0'),
+        totalNetLimit: String(resources.networkResourceWeights.totalNetLimit || '0'),
+        totalNetWeight: String(resources.networkResourceWeights.totalNetWeight || '0'),
         activated: Boolean(account?.address),
         checkedAt: new Date().toISOString(),
       })
@@ -463,7 +466,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
           <article><small>TRX BALANCE</small><strong>{snapshot ? formatAmount(snapshot.trxSun) : '—'}</strong></article>
           <article><small>OFFICIAL USDT</small><strong>{snapshot ? (Number(snapshot.usdt) / 1e6).toLocaleString(undefined,{maximumFractionDigits:6}) : '—'}</strong></article>
           <article><small>ENERGY AVAILABLE</small><strong>{snapshot ? energyAvailable.toLocaleString() : '—'}</strong><small>{snapshot ? `${snapshot.energyUsed.toLocaleString()} used / ${snapshot.energyLimit.toLocaleString()} limit` : 'Refresh to read'}</small></article>
-          <article><small>BANDWIDTH AVAILABLE</small><strong>{snapshot ? (bandwidthAvailable + freeBandwidthAvailable).toLocaleString() : '—'}</strong><small>{snapshot ? `${bandwidthAvailable.toLocaleString()} staked + ${freeBandwidthAvailable.toLocaleString()} free` : 'Refresh to read'}</small></article>
+          <article><small>BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.maxSingleTransactionBandwidth || Math.max(bandwidthAvailable, freeBandwidthAvailable)).toLocaleString() : '—'}</strong><small>{snapshot ? `${bandwidthAvailable.toLocaleString()} staked + ${freeBandwidthAvailable.toLocaleString()} free` : 'Refresh to read'}</small></article>
         </div>
         <p className="sponsor-muted">Owner recipient: <code>{OWNER_ADDRESS}</code></p>
         {snapshot?.checkedAt && <p className="sponsor-muted">Last live check: {new Date(snapshot.checkedAt).toLocaleString()}</p>}
