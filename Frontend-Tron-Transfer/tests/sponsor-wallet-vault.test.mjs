@@ -4,6 +4,7 @@ import { TronWeb } from 'tronweb'
 import { Wallet } from 'ethers'
 import {
   deriveSponsorAccount,
+  getSavedSponsorWalletAddress,
   saveSponsorWalletVault,
   unlockSponsorWalletVault,
   removeSavedSponsorWallet,
@@ -48,6 +49,7 @@ test('stores the Sponsor Wallet only as an encrypted local vault and unlocks it 
     const stored = entries.values().next().value
     assert.ok(stored)
     assert.equal(stored.includes(PRIVATE_KEY), false)
+    assert.equal(getSavedSponsorWalletAddress(), account.address)
     const unlocked = await unlockSponsorWalletVault('a-strong-local-vault-password')
     assert.equal(unlocked.address, account.address)
     await assert.rejects(
@@ -56,6 +58,7 @@ test('stores the Sponsor Wallet only as an encrypted local vault and unlocks it 
     )
     removeSavedSponsorWallet()
     assert.equal(entries.size, 0)
+    assert.equal(getSavedSponsorWalletAddress(), '')
   } finally {
     if (previousStorage === undefined) delete globalThis.localStorage
     else globalThis.localStorage = previousStorage
