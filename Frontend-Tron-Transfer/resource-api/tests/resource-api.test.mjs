@@ -307,3 +307,44 @@ test('TEnergy promo rate limit ignores caller-controlled X-Forwarded-For rotatio
   }
   assert.equal(lastStatus, 429)
 })
+
+
+test('confirmed Sponsor Wallet transaction history uses TronGrid Mainnet with a bounded limit', async (t) => {
+  const { createServer, MAINNET_RPC } = await import('../server.js')
+  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  let request
+  const server = createServer({
+    env: { TRONGRID_API_KEY: 'test-public-read-key' },
+    fetchImpl: async (url, options) => {
+      request = { url, options }
+      return { ok: true, status: 200, json: async () => ({ data: [{ txID: 'a'.repeat(64), block_timestamp: 1790000000000 }] }) }
+    },
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  const response = await fetch(base + '/v1/transactions/' + address + '?limit=20')
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.address, address)
+  assert.equal(payload.network, 'TRON Mainnet')
+  assert.equal(payload.source, 'trongrid-confirmed-history')
+  assert.equal(payload.data[0].txID, 'a'.repeat(64))
+  const parsed = new URL(request.url)
+  assert.equal(parsed.origin, MAINNET_RPC)
+  assert.equal(parsed.pathname, '/v1/accounts/' + address + '/transactions')
+  assert.equal(parsed.searchParams.get('only_confirmed'), 'true')
+  assert.equal(parsed.searchParams.get('limit'), '20')
+  assert.equal(parsed.searchParams.get('order_by'), 'block_timestamp,desc')
+  assert.equal(request.options.headers['TRON-PRO-API-KEY'], 'test-public-read-key')
+})
+
+test('confirmed Sponsor Wallet transaction history rejects invalid addresses and limits', async (t) => {
+  const { createServer } = await import('../server.js')
+  const server = createServer({ fetchImpl: async () => { throw new Error('should not call upstream') } })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  assert.equal((await fetch(base + '/v1/transactions/not-a-wallet')).status, 400)
+  assert.equal((await fetch(base + '/v1/transactions/TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp?limit=100')).status, 400)
+})
