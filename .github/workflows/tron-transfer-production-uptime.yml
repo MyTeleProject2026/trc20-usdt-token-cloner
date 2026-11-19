@@ -32,6 +32,8 @@ jobs:
             { name: 'owner-admin-frontend', url: 'https://tron-transfer.onrender.com/', expectJson: false },
             { name: 'resource-api-health', url: 'https://tron-transfer-resource-api.onrender.com/health', expectJson: true },
             { name: 'runtime-observatory', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/snapshot', expectJson: true },
+            { name: 'uptime-history', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/uptime-history', expectJson: true },
+            { name: 'render-metrics', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/render-metrics', expectJson: true },
           ];
           (async () => {
             // Probe targets concurrently so one sleeping Render service does
@@ -84,8 +86,20 @@ jobs:
                         p95LatencyMs: Number(parsed.requests.p95LatencyMs) || 0,
                       };
                     }
-                    validPayload = response.ok && parsed && parsed.ok === true;
-                    detail = validPayload ? 'valid JSON health payload' : 'unexpected JSON health payload';
+                    if (target.name === 'uptime-history') {
+                      const count = Array.isArray(parsed?.runs) ? parsed.runs.length : 0;
+                      validPayload = response.ok && parsed?.success === true && count > 0;
+                      detail = validPayload ? 'Git-backed history served · ' + count + ' archived runs' : 'history endpoint returned no valid archived records';
+                    } else if (target.name === 'render-metrics') {
+                      const cpu = parsed?.metrics?.find(item => item.id === 'cpu');
+                      const memory = parsed?.metrics?.find(item => item.id === 'memory');
+                      const hasSamples = Boolean(cpu?.points?.length && memory?.points?.length);
+                      validPayload = response.ok && parsed?.success === true && parsed?.configured === true && hasSamples;
+                      detail = validPayload ? 'server credential verified · CPU and memory samples received' : parsed?.configured === false ? 'RENDER_API_KEY is not configured on the resource API' : 'Render metrics payload missing authenticated CPU/memory samples';
+                    } else {
+                      validPayload = response.ok && parsed && parsed.ok === true;
+                      detail = validPayload ? 'valid JSON health payload' : 'unexpected JSON health payload';
+                    }
                   } catch {
                     validPayload = false;
                     detail = 'response was not valid JSON';
