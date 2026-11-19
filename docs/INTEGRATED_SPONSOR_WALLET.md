@@ -29,6 +29,7 @@ This is a local encrypted convenience vault, not a hardware wallet or audited KM
 ## Mainnet observations and actions
 
 The dashboard reads:
+- Sponsor and Owner resource snapshots through the existing TRON Transfer Resource API (Tatum first, TronGrid fallback), with direct TronWeb fallback if that service is unavailable;
 - up to 20 recent confirmed Sponsor Wallet transactions from the TRON node (when the node's related-transactions endpoint is available);
 - Sponsor Wallet TRX balance;
 - official TRON Mainnet USDT balance at `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`;
