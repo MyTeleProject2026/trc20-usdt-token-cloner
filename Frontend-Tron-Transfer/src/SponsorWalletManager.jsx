@@ -76,9 +76,9 @@ export default function SponsorWalletManager() {
     if (!wallet?.address) return
     try {
       const stored = JSON.parse(localStorage.getItem(ACTIVITY_KEY + ':' + wallet.address) || '[]')
-      setActivity(Array.isArray(stored) ? stored.filter((item) => item && item.sponsorAddress === wallet.address).slice(0, 50) : [])
+      const rows = Array.isArray(stored) ? stored.filter((item) => item && item.sponsorAddress === wallet.address).slice(0, 50) : []\n      setActivity(rows)\n      setLastDelegation(rows.find((item) => item.action === 'delegate' && item.status !== 'solidified-mainnet-verified') || null)
     } catch { setActivity([]) }
-  }, [wallet?.address])
+  }, [wallet?.address])\n\n  useEffect(() => {\n    if (!wallet?.address || !API_BASE) return undefined\n    let cancelled = false\n    const loadVerifiedHistory = async () => {\n      try {\n        const response = await fetch(API_BASE + '/api/tron/sponsorship/resource-delegations?network=mainnet&limit=100', { cache: 'no-store' })\n        if (!response.ok) return\n        const payload = await response.json()\n        if (cancelled || !Array.isArray(payload.delegations)) return\n        for (const row of payload.delegations.filter((item) => item.sponsorAddress === wallet.address)) {\n          recordActivity({ transactionId: row.transactionId, sponsorAddress: row.sponsorAddress, receiverAddress: row.receiverAddress, resourceType: row.resourceType, stakeEquivalentSun: row.stakeEquivalentSun, action: 'delegate', status: 'solidified-mainnet-verified', blockNumber: row.blockNumber, createdAt: row.recordedAt || new Date().toISOString() })\n        }\n      } catch { /* The local audit history remains available if the API is offline. */ }\n    }\n    void loadVerifiedHistory()\n    return () => { cancelled = true }\n  }, [wallet?.address, recordActivity])
 
   useEffect(() => { setSaved(hasSavedSponsorWallet()) }, [])
 
