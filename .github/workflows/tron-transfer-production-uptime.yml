@@ -167,7 +167,7 @@ jobs:
             async function readCurrent() {
               const { response, payload } = await request(path);
               if (response.status === 404) return { sha: null, document: { schemaVersion: 1, date, records: [] } };
-              const decoded = Buffer.from(String(payload.content || '').replace(/\\n/g, ''), 'base64').toString('utf8');
+              const decoded = Buffer.from(String(payload.content || '').replace(/\n/g, ''), 'base64').toString('utf8');
               const document = JSON.parse(decoded);
               if (!Array.isArray(document.records)) throw new Error('Existing uptime history has an invalid records array');
               return { sha: payload.sha, document };
