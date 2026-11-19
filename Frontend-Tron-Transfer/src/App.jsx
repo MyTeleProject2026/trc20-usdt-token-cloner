@@ -8,7 +8,7 @@ import MobileNavBar from './MobileNavBar.jsx'
 import PlatformMonitor from './PlatformMonitor.jsx'
 
 const NAV_ITEMS = [
-  { id: 'overview', label: 'Platform monitor', shortLabel: 'Home', description: 'Live infrastructure, API connections and Mainnet resource monitoring', icon: ChartNoAxesCombined },
+  { id: 'overview', label: 'Platform monitor', shortLabel: 'Home', description: 'Spatial runtime topology, live API telemetry and TRON Mainnet resources', icon: ChartNoAxesCombined },
   { id: 'portfolio', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
   { id: 'deploy', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
   { id: 'issuance', label: 'Owner issuance', shortLabel: 'Issue', description: 'Mint new TRӾ to a recipient address', icon: Coins },
