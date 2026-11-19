@@ -366,40 +366,78 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
         return send(res, 200, uptimeHistoryCache.value, origin)
       }
       try {
-        const workflowUrl = 'https://api.github.com/repos/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/tron-transfer-production-uptime.yml/runs?per_page=12'
-        const response = await fetchImpl(workflowUrl, {
-          method: 'GET',
-          headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'tron-transfer-runtime-observatory' },
-          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-          redirect: 'error',
+        const today = new Date()
+        const dates = [0, 1].map(offset => {
+          const date = new Date(today)
+          date.setUTCDate(date.getUTCDate() - offset)
+          return date.toISOString().slice(0, 10)
         })
-        const payload = await response.json().catch(() => ({}))
-        if (!response.ok || !Array.isArray(payload.workflow_runs)) throw new Error('GitHub Actions uptime history returned HTTP ' + response.status)
-        const runs = payload.workflow_runs.slice(0, 12).map(run => ({
-          id: Number(run.id),
-          runNumber: Number(run.run_number),
-          status: String(run.status || 'unknown').slice(0, 32),
-          conclusion: run.conclusion == null ? null : String(run.conclusion).slice(0, 32),
-          createdAt: run.created_at || null,
-          updatedAt: run.updated_at || null,
-          url: typeof run.html_url === 'string' && run.html_url.startsWith('https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/')
-            ? run.html_url : null,
-          commit: typeof run.head_sha === 'string' ? run.head_sha.slice(0, 12) : null,
-          event: String(run.event || 'unknown').slice(0, 24),
+        const documents = await Promise.all(dates.map(async date => {
+          const archiveUrl = 'https://raw.githubusercontent.com/MyTeleProject2026/trc20-usdt-token-cloner/monitoring-history/history/' + date + '.json'
+          const response = await fetchImpl(archiveUrl, {
+            method: 'GET',
+            headers: { accept: 'application/json', 'user-agent': 'tron-transfer-runtime-observatory' },
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+            redirect: 'error',
+          })
+          if (response.status === 404) return { date, records: [] }
+          if (!response.ok) throw new Error('Git-backed uptime history returned HTTP ' + response.status)
+          const document = await response.json()
+          if (!Array.isArray(document?.records)) throw new Error('Git-backed uptime history has an invalid records array')
+          return { date, records: document.records }
+        }))
+        const records = documents.flatMap(document => document.records)
+          .filter(record => record && Number.isFinite(Number(record.id)) && typeof record.checkedAt === 'string')
+          .sort((a, b) => Date.parse(b.checkedAt) - Date.parse(a.checkedAt))
+          .slice(0, 50)
+        const runs = records.map(record => ({
+          id: Number(record.id),
+          runNumber: Number(record.runNumber) || null,
+          status: 'completed',
+          conclusion: record.conclusion === 'success' ? 'success' : 'failure',
+          createdAt: record.checkedAt,
+          updatedAt: record.checkedAt,
+          url: typeof record.url === 'string' && /^https:\/\/github\.com\/MyTeleProject2026\/trc20-usdt-token-cloner\/actions\/runs\/\d+$/.test(record.url) ? record.url : null,
+          commit: typeof record.commit === 'string' ? record.commit.slice(0, 12) : null,
+          event: String(record.event || 'unknown').slice(0, 24),
+          results: (Array.isArray(record.results) ? record.results : []).slice(0, 5).map(item => ({
+            name: String(item.name || '').slice(0, 80),
+            ok: item.ok === true,
+            status: Number(item.status) || 0,
+            latencyMs: Math.max(0, Number(item.latencyMs) || 0),
+            detail: String(item.detail || '').replace(/[\r\n]/g, ' ').slice(0, 240),
+            metrics: item.metrics && typeof item.metrics === 'object' ? {
+              uptimeSeconds: Math.max(0, Number(item.metrics.uptimeSeconds) || 0),
+              heartbeatSuccessPercent: Math.min(100, Math.max(0, Number(item.metrics.heartbeatSuccessPercent) || 0)),
+              heartbeatMissedIntervals: Math.max(0, Number(item.metrics.heartbeatMissedIntervals) || 0),
+              rssBytes: Math.max(0, Number(item.metrics.rssBytes) || 0),
+              heapUsedBytes: Math.max(0, Number(item.metrics.heapUsedBytes) || 0),
+              heapTotalBytes: Math.max(0, Number(item.metrics.heapTotalBytes) || 0),
+              eventLoopP95Ms: Math.max(0, Number(item.metrics.eventLoopP95Ms) || 0),
+              requestCount: Math.max(0, Number(item.metrics.requestCount) || 0),
+              errors5xx: Math.max(0, Number(item.metrics.errors5xx) || 0),
+              errorRatePercent: Math.min(100, Math.max(0, Number(item.metrics.errorRatePercent) || 0)),
+              averageLatencyMs: Math.max(0, Number(item.metrics.averageLatencyMs) || 0),
+              p95LatencyMs: Math.max(0, Number(item.metrics.p95LatencyMs) || 0),
+            } : null,
+            checkedAt: typeof item.checkedAt === 'string' ? item.checkedAt : record.checkedAt,
+          })),
         }))
         const value = {
           success: true,
-          provider: 'GitHub Actions',
-          retentionDays: 90,
+          provider: 'Git-backed GitHub history',
+          storage: 'monitoring-history branch',
+          retentionDays: null,
+          totalRecords: documents.reduce((sum, document) => sum + document.records.length, 0),
           workflowUrl: 'https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/tron-transfer-production-uptime.yml',
           runs,
           checkedAt: new Date().toISOString(),
-          note: 'Workflow run metadata is cached for 60 seconds. Detailed probe JSON artifacts are retained for 90 days.',
+          note: 'Persistent daily probe records are stored in the repository monitoring-history branch. Git commit history preserves previous versions; recent detailed workflow artifacts remain available for 90 days.',
         }
         uptimeHistoryCache = { at: Date.now(), value }
         return send(res, 200, value, origin)
       } catch (error) {
-        return send(res, 503, { success: false, error: 'UPTIME_HISTORY_UNAVAILABLE', message: String(error?.message || 'GitHub Actions uptime history unavailable').slice(0, 160) }, origin)
+        return send(res, 503, { success: false, error: 'UPTIME_HISTORY_UNAVAILABLE', message: String(error?.message || 'Git-backed uptime history unavailable').slice(0, 160) }, origin)
       }
     }
     if (req.method === 'GET' && url.pathname === '/api/observatory/render-metrics') {

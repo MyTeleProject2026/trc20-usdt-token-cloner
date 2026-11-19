@@ -124,26 +124,27 @@ test('rate limiter bounds identity memory, fails closed at capacity, and reclaim
 })
 
 
-test('uptime history endpoint exposes sanitized GitHub Actions run metadata and caches it', async (t) => {
+test('uptime history endpoint exposes persistent Git-backed probe records and caches them', async (t) => {
   let requests = 0
   const server = createServer({
     env: {},
     fetchImpl: async (url, options = {}) => {
       requests += 1
-      assert.match(url, /^https:\/\/api\.github\.com\/repos\/MyTeleProject2026\/trc20-usdt-token-cloner\/actions\/workflows\/tron-transfer-production-uptime\.yml\/runs/)
+      assert.match(url, /^https:\/\/raw\.githubusercontent\.com\/MyTeleProject2026\/trc20-usdt-token-cloner\/monitoring-history\/history\/\d{4}-\d{2}-\d{2}\.json$/)
       assert.equal(options.method, 'GET')
       return new Response(JSON.stringify({
-        workflow_runs: [{
+        schemaVersion: 1,
+        records: [{
           id: 123,
-          run_number: 45,
-          status: 'completed',
+          runNumber: 45,
+          checkedAt: '2026-11-19T01:00:00Z',
+          status: 'success',
           conclusion: 'success',
-          created_at: '2026-11-19T01:00:00Z',
-          updated_at: '2026-11-19T01:00:20Z',
-          html_url: 'https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/123',
-          head_sha: 'a'.repeat(40),
+          url: 'https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/123',
+          commit: 'a'.repeat(40),
           event: 'schedule',
-          head_commit: { message: 'must-not-be-exposed' },
+          results: [{ name: 'runtime-observatory', ok: true, status: 200, latencyMs: 120, detail: 'healthy', metrics: { rssBytes: 4096, heapUsedBytes: 2048, eventLoopP95Ms: 3.5, p95LatencyMs: 12, errors5xx: 0 } }],
+          private: 'must-not-be-exposed',
         }],
       }), { status: 200, headers: { 'content-type': 'application/json' } })
     },
@@ -155,16 +156,39 @@ test('uptime history endpoint exposes sanitized GitHub Actions run metadata and 
   assert.equal(first.status, 200)
   const body = await first.json()
   assert.equal(body.success, true)
-  assert.equal(body.provider, 'GitHub Actions')
-  assert.equal(body.retentionDays, 90)
+  assert.equal(body.provider, 'Git-backed GitHub history')
+  assert.equal(body.storage, 'monitoring-history branch')
+  assert.equal(body.retentionDays, null)
   assert.equal(body.runs[0].conclusion, 'success')
   assert.equal(body.runs[0].commit, 'aaaaaaaaaaaa')
+  assert.equal(body.runs[0].results[0].latencyMs, 120)
+  assert.equal(body.runs[0].results[0].metrics.rssBytes, 4096)
+  assert.equal(body.runs[0].results[0].metrics.eventLoopP95Ms, 3.5)
   assert.equal(JSON.stringify(body).includes('must-not-be-exposed'), false)
   const second = await fetch(url)
   assert.equal(second.status, 200)
-  assert.equal(requests, 1)
+  assert.equal(requests, 2)
 })
 
+test('uptime history endpoint reports an empty archive without fabricating records', async (t) => {
+  let requests = 0
+  const server = createServer({
+    env: {},
+    fetchImpl: async () => {
+      requests += 1
+      return new Response('Not Found', { status: 404 })
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/observatory/uptime-history')
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.success, true)
+  assert.deepEqual(body.runs, [])
+  assert.equal(body.totalRecords, 0)
+  assert.equal(requests, 2)
+})
 
 test('Render metrics endpoint is server-authenticated, normalized, and honest about unsupported metrics', async (t) => {
   const requests = []

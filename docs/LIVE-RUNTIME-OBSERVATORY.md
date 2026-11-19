@@ -13,7 +13,7 @@ The transaction feed is restricted to the configured owner wallet. It uses `only
 
 The backend heartbeat samples its own process once per second. The browser reads this snapshot once per second. Confirmed chain transactions are refreshed every ten seconds to avoid unnecessarily frequent history queries.
 
-Runtime samples and request events are held in bounded process memory. They are lost when Render restarts or suspends the service. The current PostgreSQL resource is suspended, so this release does not claim durable history or 24/7 availability.
+Runtime samples and request events are held in bounded process memory. They are lost when Render restarts or suspends the service. Durable external uptime probe history is separately stored on the Git-backed `monitoring-history` branch as described below; this does not make one-second process telemetry durable or guarantee 24/7 availability. The current PostgreSQL resource remains suspended.
 
 ## Render integration
 
@@ -47,13 +47,13 @@ The dashboard's manual refresh action requests a fresh process snapshot and refr
 
 The production uptime workflow runs on a five-minute GitHub Actions schedule (best effort; GitHub does not guarantee exact schedule start times) and can also be started manually. It probes the production frontend, resource API health endpoint, and Runtime Observatory snapshot. A snapshot is considered healthy only when its process heartbeat is recent; checks exceeding the five-second response threshold fail the probe.
 
-Each run writes a JSON report and retains it as a GitHub Actions artifact for 90 days. The observatory exposes `GET /api/observatory/uptime-history`, which reads the latest 12 workflow-run metadata records from the public GitHub repository API. The endpoint is read-only, rate-limited, and cached for 60 seconds. The dashboard polls it every 60 seconds and links to the full workflow run.
+Each run writes a JSON report and retains it as a GitHub Actions artifact for 90 days. It also appends the complete sanitized probe result to a date-partitioned JSON file on the dedicated `monitoring-history` branch using the workflow-scoped `GITHUB_TOKEN`. The archive is committed on every probe; Git preserves prior versions of each daily file, so history survives Render restarts and is not limited to the artifact's 90-day retention. The observatory exposes `GET /api/observatory/uptime-history`, which reads the current and previous UTC day's persistent records from the public archive branch. The endpoint is read-only, rate-limited, and cached for 60 seconds. The dashboard polls it every 60 seconds and links to the full workflow run.
 
-The workflow also maintains one deduplicated GitHub issue titled `[Production Monitor] Tron Transfer availability incident`. A failed check opens the issue or updates the existing open incident. The first fully healthy check after an incident closes it and records the recovery workflow. This provides repository-native incident notifications; GitHub notification delivery depends on each user's GitHub notification settings.
+The runtime-observatory probe also archives a sanitized five-minute sample of process uptime, heartbeat success/misses, RSS and heap memory, event-loop p95, request counts, 5xx errors, error rate, and API latency. The dashboard displays these archived process samples beside each uptime result; they are snapshots at probe time, not continuous one-second history. The workflow also maintains one deduplicated GitHub issue titled `[Production Monitor] Tron Transfer availability incident`. A failed check opens the issue or updates the existing open incident. The first fully healthy check after an incident closes it and records the recovery workflow. This provides repository-native incident notifications; GitHub notification delivery depends on each user's GitHub notification settings.
 
 ## Retention and platform limitations
 
-- Detailed probe JSON artifacts are retained for 90 days; this is bounded retention, not indefinite metrics storage.
+- Detailed probe JSON artifacts are retained for 90 days as a convenient download; the durable source of record is the `monitoring-history` Git branch, whose commit history preserves prior daily archive versions.
 - Incident history remains in the GitHub issue timeline after the incident is closed.
 - The observatory's one-second process telemetry remains volatile and resets on API process restart.
 - Render platform metrics are not currently available through the connected workspace metrics query (the latest query returned empty data points). The dashboard must not infer CPU, memory, bandwidth, or HTTP platform metrics from process telemetry.
