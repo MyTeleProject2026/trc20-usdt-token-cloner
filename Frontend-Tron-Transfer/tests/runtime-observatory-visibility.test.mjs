@@ -11,6 +11,7 @@ test('runtime observatory suspends background polling while the document is hidd
   assert.match(source, /window\.setInterval\(refreshRuntime, 1000\)/)
   assert.match(source, /window\.setInterval\(refreshTransactions, 10_000\)/)
   assert.match(source, /window\.setInterval\(refreshRenderEvents, 30_000\)/)
+  assert.match(source, /window\.setInterval\(refreshUptimeHistory, 60_000\)/)
 })
 
 test('runtime observatory clears all polling timers on hide and unmount', () => {
