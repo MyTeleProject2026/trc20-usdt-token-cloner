@@ -26,6 +26,10 @@ Lock returns to the encrypted-wallet unlock prompt. Logout clears the active ses
 
 This is a local encrypted convenience vault, not a hardware wallet or audited KMS. Browser XSS, malicious extensions, compromised devices and malicious injected scripts remain in-scope threats. Do not use it to control meaningful funds until an independent security review and stronger isolated/hardware-backed signer have been completed. Clearing browser storage removes this local encrypted copy; users must retain their own recovery backup.
 
+## Sponsor session lock policy
+
+The Sponsor Wallet automatically clears its in-memory signing session after five minutes without pointer, keyboard, touch, or scroll activity. If the page remains hidden/backgrounded for 60 seconds, the session is locked sooner. Returning to the page before that background timeout cancels the background lock and restarts the idle timer. Manual Lock uses the same cleanup path. These actions clear the active wallet object, resource/transaction snapshots, and credential form state while retaining the encrypted local vault for an explicit unlock. This reduces the time that signing material remains reachable through the active application state; it does not protect against an active XSS payload, malicious browser extension, compromised device, or memory inspection while the session is unlocked.
+
 ## Mainnet observations and actions
 
 The dashboard reads:
