@@ -34,24 +34,32 @@ jobs:
             { name: 'runtime-observatory', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/snapshot', expectJson: true },
           ];
           (async () => {
-            const results = [];
-            for (const target of targets) {
+            // Probe targets concurrently so one sleeping Render service does
+            // not consume the retry budget of the other endpoints.
+            const results = await Promise.all(targets.map(async target => {
               const started = Date.now();
               try {
                 let response;
                 let body = '';
-                // Render free instances can sleep between five-minute probes.
-                // Retry transient gateway/service-unavailable responses so a
-                // cold start is not recorded as a persistent outage.
-                for (let attempt = 1; attempt <= 4; attempt += 1) {
+                let responseLatencyMs = 0;
+                let attempts = 0;
+                // Render free instances can need longer than a single request
+                // timeout to wake. Retry transient gateway responses for up
+                // to two minutes; measure the final response separately from
+                // cold-start wait so a healthy warm response is not failed
+                // solely because the instance had been sleeping.
+                for (let attempt = 1; attempt <= 8; attempt += 1) {
+                  const attemptStarted = Date.now();
                   response = await fetch(target.url, {
                     headers: { accept: 'application/json,text/html' },
                     signal: AbortSignal.timeout(20000),
                     redirect: 'follow',
                   });
                   body = await response.text();
-                  if (![502, 503, 504].includes(response.status) || attempt === 4) break;
-                  await new Promise(resolve => setTimeout(resolve, 10000));
+                  responseLatencyMs = Date.now() - attemptStarted;
+                  attempts = attempt;
+                  if (![502, 503, 504].includes(response.status) || attempt === 8) break;
+                  await new Promise(resolve => setTimeout(resolve, 15000));
                 }
                 let validPayload = true;
                 let detail = 'HTTP ' + response.status;
@@ -86,28 +94,35 @@ jobs:
                   validPayload = response.ok && body.length > 0;
                   detail = validPayload ? 'HTML response received' : 'empty or unsuccessful frontend response';
                 }
-                results.push({
+                const elapsedMs = Date.now() - started;
+                if (attempts > 1) detail += ' · recovered after ' + elapsedMs + ' ms (' + attempts + ' attempts)';
+                if (responseLatencyMs > 5000) detail += ' · final response latency threshold exceeded';
+                return {
                   name: target.name,
                   url: target.url,
-                  ok: response.ok && validPayload && Date.now() - started <= 5000,
+                  ok: response.ok && validPayload && responseLatencyMs <= 5000,
                   status: response.status,
-                  latencyMs: Date.now() - started,
-                  detail: Date.now() - started > 5000 ? detail + ' · latency threshold exceeded' : detail,
+                  latencyMs: responseLatencyMs,
+                  elapsedMs,
+                  attempts,
+                  detail,
                   metrics,
                   checkedAt: new Date().toISOString(),
-                });
+                };
               } catch (error) {
-                results.push({
+                return {
                   name: target.name,
                   url: target.url,
                   ok: false,
                   status: 0,
                   latencyMs: Date.now() - started,
+                  elapsedMs: Date.now() - started,
+                  attempts: 0,
                   detail: String(error && error.message || error).slice(0, 240),
                   checkedAt: new Date().toISOString(),
-                });
+                };
               }
-            }
+            }));
             fs.mkdirSync('uptime-results', { recursive: true });
             fs.writeFileSync('uptime-results/latest.json', JSON.stringify({
               service: 'Tron Transfer',
