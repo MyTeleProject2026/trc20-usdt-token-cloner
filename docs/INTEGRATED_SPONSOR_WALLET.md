@@ -36,19 +36,19 @@ The dashboard reads:
 - current delegation state from the Sponsor Wallet to the configured Owner Wallet;
 - Owner Wallet Energy and Bandwidth counters.
 
-The dashboard refreshes after import/unlock, on demand, and every 60 seconds while unlocked.
+The dashboard refreshes after import/unlock, on demand, and every 60 seconds while unlocked. Background refreshes do not repeatedly interrupt the operator with success toasts; initial/manual failures remain visible in a centered, dismissible notification.
 
-The explicit Stake TRX and Delegate Resource actions construct, sign and broadcast Stake 2.0 transactions from the imported Sponsor Wallet. Each action requires an on-screen confirmation, validates the transaction identity before broadcast, rejects amounts below 1 TRX and preserves a minimum 1 TRX balance reserve for fees. The reserve is a guard, not a guarantee that every transaction's actual fee can be paid.
+The explicit Stake TRX and Delegate Resource actions construct, sign and broadcast Stake 2.0 transactions from the imported Sponsor Wallet. Each action requires an on-screen confirmation and validates the exact contract type, sponsor address, receiver address, resource type, amount, transaction ID, raw bytes and expiry before asking the imported key to sign. It rejects amounts below 1 TRX and preserves a minimum 1 TRX balance reserve for fees. The reserve is a guard, not a guarantee that every transaction's actual fee can be paid.
 
-A sponsor can delegate only its own eligible Stake 2.0 resources. Incoming delegated resources cannot be re-delegated. The confirmed `getCanDelegatedMaxSize` ceiling is checked before the delegation action.
+A sponsor can delegate only its own eligible Stake 2.0 resources. Incoming delegated resources cannot be re-delegated. The confirmed `getCanDelegatedMaxSize` ceiling is checked before the delegation action. After broadcast, the public transaction ID and expected delegation details can be sent to the backend's rate-limited `/api/tron/sponsorship/resource-delegations/verify-wallet` endpoint. The backend independently checks the solidified transaction and resulting delegation state, then persists only a verified chain fact to the PostgreSQL audit ledger. It accepts no private key, mnemonic, keystore, password or signature. The existing stricter `/verify` endpoint remains restricted to the configured fee-sponsor address.
 
 ## Not yet enabled
 
 - Paid Energy/Bandwidth rental or provider purchase: no authorized provider adapter is configured.
 - Automatic free Energy/Bandwidth grants: no verified provider grant adapter is configured.
 - Unattended automatic signing: intentionally disabled; stake/delegation requires an explicit on-screen confirmation.
-- Independent transaction-specific solidified receipt verification and persistent server-side sponsor activity ledger: follow-up implementation and review required.
+- The browser activity timeline stores up to 50 local records per sponsor address. Independently verified delegations are also available from the server-side PostgreSQL audit ledger; unverified broadcasts are never presented as verified.
 - Production KMS/HSM or hardware-backed signer: not implemented by this browser vault.
 - Mainnet deployment readiness: remains controlled by the existing Owner Admin live preflight and zero-TRX-burn gate; importing a Sponsor Wallet does not by itself make deployment ready.
 
-A successful transaction broadcast is not the same as a solidified transaction or independently verified resource allocation. Always refresh and verify Mainnet state before relying on a delegation.
+The verification API uses the backend's configured Tatum Mainnet access and database. If either is unavailable, the UI retains a pending local record and refuses to mark the delegation verified. A successful transaction broadcast is not the same as a solidified transaction or independently verified resource allocation. Always refresh and verify Mainnet state before relying on a delegation.
