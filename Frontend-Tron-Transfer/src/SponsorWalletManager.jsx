@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowDownUp, CheckCircle2, CircleAlert, FileKey2, LockKeyhole, LogOut, RefreshCw, ShieldCheck, UnlockKeyhole, Wallet } from 'lucide-react'
 import {
-  createSponsorTronWeb, deriveSponsorAccount, hasSavedSponsorWallet,
+  createSponsorTronWeb, deriveSponsorAccount, getSavedSponsorWalletAddress, hasSavedSponsorWallet,
   removeSavedSponsorWallet, saveSponsorWalletVault, unlockSponsorWalletVault,
 } from './sponsor-wallet-vault.mjs'
 import './sponsor-wallet.css'
@@ -312,7 +312,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
 
   function removeVault() {
     if (!window.confirm('Remove the encrypted Sponsor Wallet backup from this browser? This does not affect the on-chain wallet. Make sure you have your own recovery backup.')) return
-    try { removeSavedSponsorWallet() } catch (error) { notify('error', 'Could not remove local backup', error instanceof Error ? error.message : 'Browser storage is unavailable.'); return }
+    recordSecurityEvent(wallet?.address || getSavedSponsorWalletAddress(), 'Sponsor Wallet backup removed', 'Encrypted local vault removed from this browser; on-chain funds were not changed.')\n    try { removeSavedSponsorWallet() } catch (error) { notify('error', 'Could not remove local backup', error instanceof Error ? error.message : 'Browser storage is unavailable.'); return }
     setSaved(false)
     setWallet(null)
     setSnapshot(null)
