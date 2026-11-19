@@ -4,6 +4,7 @@ import { access, readFile } from 'node:fs/promises'
 
 const source = await readFile(new URL('../src/AetheriaMcpMesh.jsx', import.meta.url), 'utf8')
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+const mobileNav = await readFile(new URL('../src/MobileNavBar.jsx', import.meta.url), 'utf8')
 
 test('AETHERIA home maps every live monitoring endpoint to a one-to-one function flow', () => {
   for (const id of ['health', 'runtime', 'resources', 'tenergy', 'transactions', 'renderEvents', 'uptime', 'renderMetrics']) {
@@ -36,6 +37,8 @@ test('Owner Admin Home mounts AETHERIA directly and removes the former monitor r
   assert.ok(app.includes("import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'"))
   assert.ok(app.includes("activePage === 'home' ? <AetheriaMcpMesh"))
   assert.doesNotMatch(app, /PlatformMonitor|RuntimeObservatory|overview/)
+  assert.ok(mobileNav.includes("const primaryIds = ['home', 'issuance', 'credits', 'transfers']"))
+  assert.doesNotMatch(mobileNav, /overview/)
 })
 
 test('former platform monitor UI sources are removed rather than retained beside the mesh', async () => {
