@@ -42,3 +42,21 @@ Render platform metrics have a coarser sampling interval than the process heartb
 The Owner Admin Home renders a five-node topology for the browser console, resource API, TRON Mainnet, TEnergy, and Render control plane. The browser polls the process snapshot every second with a single-flight guard and a seven-second request timeout. The UI shows a local clock, last snapshot age, measured browser-to-API request time, heartbeat age, process uptime, RSS/heap, event-loop p95, request counts, errors and latency. A heartbeat older than 3.5 seconds is shown as stale/degraded; the UI does not keep a green LIVE state when fresh samples stop arriving. Confirmed owner-wallet history is refreshed every ten seconds, and Render lifecycle events every 30 seconds. The display is responsive and includes animated connection pulses and a state legend. The one-second signal is the application process heartbeat, not a Render platform metric or an external 24/7 uptime guarantee.
 
 The dashboard's manual refresh action requests a fresh process snapshot and refreshes both external event feeds. Runtime snapshot requests are single-flight so slow responses cannot build up overlapping one-second polling calls.
+
+## External uptime history and incident automation
+
+The production uptime workflow runs on a five-minute GitHub Actions schedule (best effort; GitHub does not guarantee exact schedule start times) and can also be started manually. It probes the production frontend, resource API health endpoint, and Runtime Observatory snapshot. A snapshot is considered healthy only when its process heartbeat is recent; checks exceeding the five-second response threshold fail the probe.
+
+Each run writes a JSON report and retains it as a GitHub Actions artifact for 90 days. The observatory exposes `GET /api/observatory/uptime-history`, which reads the latest 12 workflow-run metadata records from the public GitHub repository API. The endpoint is read-only, rate-limited, and cached for 60 seconds. The dashboard polls it every 60 seconds and links to the full workflow run.
+
+The workflow also maintains one deduplicated GitHub issue titled `[Production Monitor] Tron Transfer availability incident`. A failed check opens the issue or updates the existing open incident. The first fully healthy check after an incident closes it and records the recovery workflow. This provides repository-native incident notifications; GitHub notification delivery depends on each user's GitHub notification settings.
+
+## Retention and platform limitations
+
+- Detailed probe JSON artifacts are retained for 90 days; this is bounded retention, not indefinite metrics storage.
+- Incident history remains in the GitHub issue timeline after the incident is closed.
+- The observatory's one-second process telemetry remains volatile and resets on API process restart.
+- Render platform metrics are not currently available through the connected workspace metrics query (the latest query returned empty data points). The dashboard must not infer CPU, memory, bandwidth, or HTTP platform metrics from process telemetry.
+- The Render PostgreSQL instance visible in the workspace is suspended for billing and expired. Durable application-side time-series storage is therefore not enabled by this release.
+- Render lifecycle events remain a separate authenticated integration. Configure a newly rotated `RENDER_API_KEY` only as a server-side secret on the resource API service; never put it in frontend variables or source control.
+
