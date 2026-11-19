@@ -50,6 +50,8 @@ test('stores the Sponsor Wallet only as an encrypted local vault and unlocks it 
     assert.ok(stored)
     assert.equal(stored.includes(PRIVATE_KEY), false)
     assert.equal(getSavedSponsorWalletAddress(), account.address)
+    await assert.rejects(saveSponsorWalletVault({ ...account, address: 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL' }, 'a-strong-local-vault-password'), /does not match the imported private key/)
+    assert.equal(getSavedSponsorWalletAddress(), account.address, 'failed replacement must not overwrite the previous encrypted vault')
     const unlocked = await unlockSponsorWalletVault('a-strong-local-vault-password')
     assert.equal(unlocked.address, account.address)
     await assert.rejects(
