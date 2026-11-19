@@ -19,7 +19,7 @@ const POLL = Object.freeze({
   renderMetrics: 60_000,
 })
 const API_FLOWS = [
-  { id: 'health', hub: 'RESOURCE API', fn: 'platform.health.read', method: 'GET', path: '/health', interval: '5s' },
+  { id: 'health', hub: 'RESOURCE API', fn: 'platform.health.read', method: 'GET', path: '/health', interval: '1s' },
   { id: 'runtime', hub: 'RUNTIME CORE', fn: 'runtime.snapshot.read', method: 'GET', path: '/api/observatory/snapshot', interval: '1s' },
   { id: 'resources', hub: 'TRON MAINNET', fn: 'mainnet.resources.read', method: 'GET', path: '/v1/resources/{owner}', interval: '15s · cached' },
   { id: 'tenergy', hub: 'TENERGY', fn: 'tenergy.promotion.status', method: 'GET', path: '/api/tron/tenergy/promo?address={owner}', interval: '15s' },
