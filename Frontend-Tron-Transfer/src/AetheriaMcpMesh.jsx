@@ -150,14 +150,25 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     setRuntime(body)
   }), [invoke])
   const refreshResources = useCallback(() => invoke('resources', '/v1/resources/' + OWNER, body => {
-    const valid = body.network === 'TRON Mainnet' && body.address === OWNER && body.energy && body.bandwidth
-    if (!valid) throw new Error('Mainnet resource response did not match the expected owner/network schema')
+    const failures = []
+    if (body?.network !== 'TRON Mainnet') failures.push('network=' + String(body?.network ?? 'missing'))
+    if (body?.address !== OWNER) failures.push('address=' + String(body?.address ?? 'missing'))
+    if (!body?.energy || typeof body.energy !== 'object' || !Number.isFinite(Number(body.energy.available))) failures.push('energy.available missing or invalid')
+    if (!body?.bandwidth || typeof body.bandwidth !== 'object' || !Number.isFinite(Number(body.bandwidth.maxSingleTransactionAvailable))) failures.push('bandwidth.maxSingleTransactionAvailable missing or invalid')
+    if (body?.balanceSun == null || !/^[0-9]+$/.test(String(body.balanceSun))) failures.push('balanceSun missing or invalid')
+    if (failures.length) throw new Error('Mainnet resource payload validation failed: ' + failures.join('; '))
     setResources(body)
+    const used = body.rpc?.providersUsed || {}
+    return { detail: 'Owner and resource schema verified · RPC: ' + Object.entries(used).map(([key, value]) => key + '=' + value).join(', ') }
   }), [invoke])
   const refreshPromo = useCallback(() => invoke('tenergy', '/api/tron/tenergy/promo?address=' + encodeURIComponent(OWNER), body => {
-    if (!body.success) throw new Error(body.error || 'TEnergy promotion response was unsuccessful')
+    if (!body?.success) {
+      const reason = [body?.error, body?.message, body?.provider && 'provider=' + body.provider, body?.network && 'network=' + body.network].filter(Boolean).join(' · ')
+      throw new Error(reason || 'TEnergy promotion response was unsuccessful')
+    }
+    if (body.network !== 'mainnet') throw new Error('TEnergy returned a network other than TRON Mainnet')
     setPromo(body)
-    return body.promo?.state === 'active' ? null : { state: 'warning', detail: 'TEnergy promotion is not active; provider response received' }
+    return body.promo?.state === 'active' ? { detail: 'TEnergy Mainnet promotion status received; no Energy is counted until on-chain delegation is confirmed' } : { state: 'warning', detail: 'TEnergy promotion is not active; no resource grant is assumed' }
   }), [invoke])
   const refreshTransactions = useCallback(() => invoke('transactions', '/api/observatory/transactions?address=' + encodeURIComponent(OWNER), body => {
     if (!body.success) throw new Error(body.message || 'Confirmed transaction response was unsuccessful')
