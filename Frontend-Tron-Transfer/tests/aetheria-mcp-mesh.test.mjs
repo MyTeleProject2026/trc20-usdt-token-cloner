@@ -22,6 +22,7 @@ test('mesh UI ticks every second while upstream polling respects service cache a
   for (const cadence of ['health: 1_000', 'runtime: 1_000', 'resources: 15_000', 'tenergy: 15_000', 'transactions: 10_000', 'renderEvents: 30_000', 'uptime: 60_000', 'renderMetrics: 60_000']) {
     assert.ok(source.includes(cadence), 'Missing polling cadence: ' + cadence)
   }
+  assert.ok(source.includes("path: '/health', interval: '1s'"))
   assert.ok(source.includes('window.setInterval(() => setClockNow(Date.now()), 1000)'))
 })
 
