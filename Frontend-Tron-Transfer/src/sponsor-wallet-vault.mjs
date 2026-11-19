@@ -117,11 +117,11 @@ export async function unlockSponsorWalletVault(password) {
 }
 
 export function hasSavedSponsorWallet() {
-  return Boolean(localStorage.getItem(STORAGE_KEY))
+  try { return Boolean(localStorage.getItem(STORAGE_KEY)) } catch { return false }
 }
 
 export function removeSavedSponsorWallet() {
-  localStorage.removeItem(STORAGE_KEY)
+  try { localStorage.removeItem(STORAGE_KEY) } catch { throw new Error('The browser could not remove the local Sponsor Wallet backup.') }
 }
 
 export function clearSponsorSecretFields() {
