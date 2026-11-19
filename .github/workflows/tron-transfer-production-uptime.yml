@@ -43,9 +43,27 @@ jobs:
                 const body = await response.text();
                 let validPayload = true;
                 let detail = 'HTTP ' + response.status;
+                let metrics = null;
                 if (target.expectJson) {
                   try {
                     const parsed = JSON.parse(body);
+                    if (target.name === 'runtime-observatory' && parsed?.process && parsed?.requests && parsed?.heartbeat) {
+                      metrics = {
+                        sampledAt: parsed.sampledAt || null,
+                        uptimeSeconds: Number(parsed.uptimeSeconds) || 0,
+                        heartbeatSuccessPercent: Number(parsed.heartbeat.successPercent) || 0,
+                        heartbeatMissedIntervals: Number(parsed.heartbeat.missedIntervals) || 0,
+                        rssBytes: Number(parsed.process.rssBytes) || 0,
+                        heapUsedBytes: Number(parsed.process.heapUsedBytes) || 0,
+                        heapTotalBytes: Number(parsed.process.heapTotalBytes) || 0,
+                        eventLoopP95Ms: Number(parsed.process.eventLoopP95Ms) || 0,
+                        requestCount: Number(parsed.requests.count) || 0,
+                        errors5xx: Number(parsed.requests.errors5xx) || 0,
+                        errorRatePercent: Number(parsed.requests.errorRatePercent) || 0,
+                        averageLatencyMs: Number(parsed.requests.averageLatencyMs) || 0,
+                        p95LatencyMs: Number(parsed.requests.p95LatencyMs) || 0,
+                      };
+                    }
                     validPayload = response.ok && parsed && parsed.ok === true;
                     detail = validPayload ? 'valid JSON health payload' : 'unexpected JSON health payload';
                   } catch {
@@ -63,6 +81,7 @@ jobs:
                   status: response.status,
                   latencyMs: Date.now() - started,
                   detail: Date.now() - started > 5000 ? detail + ' · latency threshold exceeded' : detail,
+                  metrics,
                   checkedAt: new Date().toISOString(),
                 });
               } catch (error) {
@@ -161,6 +180,7 @@ jobs:
                 status: Number(item.status) || 0,
                 latencyMs: Math.max(0, Number(item.latencyMs) || 0),
                 detail: String(item.detail || '').replace(/[\r\n]/g, ' ').slice(0, 240),
+                metrics: item.metrics && typeof item.metrics === 'object' ? item.metrics : null,
                 checkedAt: item.checkedAt || checkedAt,
               })),
             };
