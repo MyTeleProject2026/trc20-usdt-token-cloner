@@ -1,6 +1,9 @@
 name: Tron Transfer Production Uptime Probe
 
 on:
+  push:
+    branches:
+      - ui/modern-crypto-dashboard-theme
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
