@@ -11,6 +11,7 @@ const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const SUN = 1_000_000
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const ACTIVITY_KEY = 'tron-transfer.sponsor-activity.v1'
+const SECURITY_KEY = 'tron-transfer.sponsor-security-events.v1'
 
 function formatAmount(value, digits = 6) {
   const amount = Number(value || 0) / SUN
@@ -105,6 +106,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   const [lastTx, setLastTx] = useState('')
   const [lastDelegation, setLastDelegation] = useState(null)
   const [activity, setActivity] = useState([])
+  const [securityEvents, setSecurityEvents] = useState([])
   const toastTimer = useRef(null)
 
   const notify = useCallback((kind, title, message) => {
@@ -114,6 +116,23 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   }, [])
 
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
+
+  const recordSecurityEvent = useCallback((address, event, detail) => {
+    if (!address) return
+    setSecurityEvents((previous) => {
+      const next = [{ event, detail, address, createdAt: new Date().toISOString() }, ...previous].slice(0, 30)
+      try { localStorage.setItem(SECURITY_KEY + ':' + address, JSON.stringify(next)) } catch { /* audit convenience is best-effort */ }
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!wallet?.address) return
+    try {
+      const stored = JSON.parse(localStorage.getItem(SECURITY_KEY + ':' + wallet.address) || '[]')
+      setSecurityEvents(Array.isArray(stored) ? stored.filter((item) => item && item.address === wallet.address).slice(0, 30) : [])
+    } catch { setSecurityEvents([]) }
+  }, [wallet?.address])
 
   const recordActivity = useCallback((entry) => {
     setActivity((previous) => {
@@ -219,6 +238,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       if (account.address === OWNER_ADDRESS) throw new Error('The Sponsor Wallet must be independent from the existing Owner Wallet.')
       await saveSponsorWalletVault(account, vaultPassword)
       setWallet(account)
+      recordSecurityEvent(account.address, 'Sponsor Wallet imported', 'Existing account credentials encrypted in this browser.')
       setSaved(true)
       setReplacing(false)
       setCredential('')
@@ -240,6 +260,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       const account = await unlockSponsorWalletVault(unlockPassword)
       if (account.address === OWNER_ADDRESS) throw new Error('The saved Sponsor Wallet must be independent from the Owner Wallet.')
       setWallet(account)
+      recordSecurityEvent(account.address, 'Sponsor Wallet unlocked', 'Encrypted local vault successfully unlocked.')
       setUnlockPassword('')
       setSnapshot(null)
       notify('success', 'Sponsor Wallet unlocked', account.address)
@@ -251,6 +272,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   }
 
   function lockWallet() {
+    recordSecurityEvent(wallet?.address, 'Sponsor Wallet locked', 'In-memory signing key released; encrypted vault retained.')
     setWallet(null)
     setSaved(true)
     setSnapshot(null)
@@ -260,6 +282,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   }
 
   function logoutWallet() {
+    recordSecurityEvent(wallet?.address, 'Sponsor Wallet logged out', 'Active session cleared; encrypted vault retained for reconnect.')
     setWallet(null)
     setSaved(false)
     setSnapshot(null)
@@ -269,6 +292,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   }
 
   function beginReplace() {
+    recordSecurityEvent(wallet?.address, 'Sponsor Wallet replacement started', 'Replacement import requested; existing encrypted vault retained until successful import.')
     setWallet(null)
     setSnapshot(null)
     setLastTx('')
@@ -319,6 +343,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
       if (result?.result !== true) throw new Error(result?.message ? String(result.message) : 'The TRON node rejected the transaction broadcast.')
       const transactionId = String(result.txid || signed.txID)
       setLastTx(transactionId)
+      recordSecurityEvent(wallet.address, 'Resource transaction broadcast', action + ' ' + resourceType + ' · ' + transactionId)
       const event = { transactionId, sponsorAddress: wallet.address, receiverAddress: target, action, resourceType, stakeEquivalentSun: String(amountSun), status: 'broadcast-pending-verification', createdAt: new Date().toISOString() }
       recordActivity(event)
       if (action === 'delegate') setLastDelegation(event)
@@ -349,6 +374,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
       }
       const verified = { ...lastDelegation, status: 'solidified-mainnet-verified', blockNumber: payload.verification.blockNumber, verifiedAt: payload.verification.checkedAt }
       recordActivity(verified)
+      recordSecurityEvent(wallet.address, 'Delegation verified', 'Solidified Mainnet block ' + payload.verification.blockNumber + ' verified by backend.')
       setLastDelegation(null)
       notify('success', 'Delegation independently verified', 'Solidified Mainnet block ' + payload.verification.blockNumber + '; verified record persisted in the project audit ledger.')
       await refresh({ quiet: true })
@@ -433,7 +459,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
       <section className="sponsor-card">
         <div className="sponsor-card-heading"><FileKey2/><div><h3>Sponsor Activity</h3><p>Current browser session and latest observed transaction.</p></div></div>
         <div className="sponsor-activity-row"><span>Wallet connection</span><b>Unlocked locally</b></div>
-        <div className="sponsor-activity-row"><span>Network</span><b>TRON Mainnet</b></div>
+        <div className="sponsor-activity-row"><span>Network</span><b>TRON Mainnet</b></div><div className="sponsor-activity-row"><span>Security events</span><b>{securityEvents.length} local events</b></div>{securityEvents.slice(0, 5).map((item, index) => <div className="sponsor-activity-row" key={item.createdAt + index}><span>{item.event} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.detail}</b></div>)
         <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => item.status === 'solidified-mainnet-verified').length} independently verified</b></div><div className="sponsor-activity-row"><span>Recent wallet transactions</span><b>{walletTransactions.length} confirmed chain records</b></div>{walletTransactions.slice(0, 8).map((item) => { const txid = item.txID || item.txid; const type = item.raw_data?.contract?.[0]?.type || 'TRON transaction'; const result = item.ret?.[0]?.contractRet || 'CONFIRMED'; return <div className="sponsor-activity-row" key={txid}><span>{type} · {item.block_timestamp ? new Date(item.block_timestamp).toLocaleString() : 'Confirmed on-chain'}</span><b>{result} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
       </section>
     </div>}
