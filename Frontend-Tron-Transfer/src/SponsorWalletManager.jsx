@@ -63,7 +63,7 @@ export default function SponsorWalletManager() {
     if (!wallet || !tronWeb) return
     setBusy(true)
     try {
-      const [balance, resources, account, usdtContract, ownerResources] = await Promise.all([
+      const [balance, resources, account, usdtContract, ownerResources, maxEnergyDelegation, maxBandwidthDelegation] = await Promise.all([
         tronWeb.trx.getBalance(wallet.address),
         tronWeb.trx.getAccountResources(wallet.address),
         tronWeb.trx.getAccount(wallet.address),
@@ -172,6 +172,10 @@ export default function SponsorWalletManager() {
     if (amountSun < SUN) { notify('error', 'Minimum Stake 2.0 amount', 'Use at least 1 TRX for staking or resource delegation.'); return }
     const available = BigInt(snapshot?.trxSun || '0')
     if (available < BigInt(amountSun) + 1_000_000n) { notify('error', 'Insufficient TRX reserve', 'Keep at least 1 TRX available for network fees. The requested amount cannot consume the full Sponsor Wallet balance.'); return }
+    if (action === 'delegate') {
+      const maxDelegatable = BigInt(resourceType === 'ENERGY' ? snapshot?.maxEnergyDelegatableSun || '0' : snapshot?.maxBandwidthDelegatableSun || '0')
+      if (BigInt(amountSun) > maxDelegatable) { notify('error', 'Insufficient delegatable stake', 'The requested resource amount exceeds the sponsor wallet\'s confirmed Stake 2.0 delegation ceiling. Stake TRX for this resource first or reduce the amount.'); return }
+    }
     const verb = action === 'stake' ? 'stake' : 'delegate'
     const target = action === 'stake' ? wallet.address : OWNER_ADDRESS
     const prompt = action === 'stake'
@@ -251,8 +255,8 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
           <label className="sponsor-field">Amount (TRX)<input inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)}/></label>
           <label className="sponsor-field">Resource<select value={resourceType} onChange={event => setResourceType(event.target.value)}><option value="ENERGY">Energy</option><option value="BANDWIDTH">Bandwidth</option></select></label>
         </div>
-        <div className="sponsor-actions"><button className="sponsor-secondary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('stake')}>Stake TRX for {resourceType}</button><button className="sponsor-primary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('delegate')}>Delegate {resourceType} to Owner</button></div>
-        <p className="sponsor-warning">These buttons create real Mainnet transactions and can consume TRX fees. Staked TRX is locked under Stake 2.0 rules; delegations are limited by the sponsor's own eligible stake. Incoming delegated resources cannot be re-delegated.</p>
+        <div className="sponsor-actions"><button className="sponsor-secondary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('stake')}>Stake TRX for {resourceType}</button><button className="sponsor-primary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('delegate')}>Delegate {resourceType} to Owner</button><button className="sponsor-secondary" disabled={busy || !snapshot} onClick={() => void refresh()}>Verify delegation state</button></div>
+        <p className="sponsor-muted">Confirmed delegation ceiling: {snapshot ? formatAmount(resourceType === 'ENERGY' ? snapshot.maxEnergyDelegatableSun : snapshot.maxBandwidthDelegatableSun) + ' TRX equivalent' : 'Refresh to read'}.</p><p className="sponsor-warning">These buttons create real Mainnet transactions and can consume TRX fees. Staked TRX is locked under Stake 2.0 rules; delegations are limited by the sponsor's own eligible stake. Incoming delegated resources cannot be re-delegated.</p>
       </section>
 
       <section className="sponsor-card">
