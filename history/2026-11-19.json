@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-19",
+  "source": "Tron Transfer scheduled production probes",
+  "records": [
+    {
+      "id": 44456444183,
+      "runNumber": 1,
+      "checkedAt": "2026-11-19T04:10:18.077Z",
+      "status": "failure",
+      "conclusion": "failure",
+      "commit": "d66c7c9393c43fa9625c9586767fe4d19cf4e079",
+      "event": "push",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/44456444183",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 335,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-19T04:10:18.077Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": false,
+          "status": 503,
+          "latencyMs": 1492,
+          "detail": "response was not valid JSON",
+          "metrics": null,
+          "checkedAt": "2026-11-19T04:10:19.573Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": false,
+          "status": 503,
+          "latencyMs": 1249,
+          "detail": "response was not valid JSON",
+          "metrics": null,
+          "checkedAt": "2026-11-19T04:10:20.822Z"
+        }
+      ]
+    }
+  ]
+}
