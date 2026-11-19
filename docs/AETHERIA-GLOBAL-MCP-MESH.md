@@ -23,7 +23,7 @@ The dashboard clock, callback ages, heartbeat freshness, and process snapshot up
 
 Other upstreams are intentionally polled at their supported intervals to respect API limits and avoid presenting cached values as fresh measurements:
 
-- Resource API health: 5 seconds.
+- Resource API health: 1 second (lightweight local health route).
 - TRON Mainnet account resources: 15 seconds (the backend resource cache is 15 seconds).
 - TEnergy promotion status: 15 seconds.
 - Confirmed owner-wallet transactions: 10 seconds.
