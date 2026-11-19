@@ -20,8 +20,8 @@ test('TRӾ workspace exposes dedicated owner-admin pages and one Mainnet deploym
   assert.ok(panel.includes('preflightContractDeployments(wallet, [{'))
   assert.ok(panel.includes('expiresAt: Date.now() + 60000'))
   assert.ok(panel.includes('verifyTRAXTokenContract'))
-  assert.ok(panel.includes("activePage = 'overview'"))
-  for (const page of ['overview','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
+  assert.ok(panel.includes("activePage = 'home'"))
+  for (const page of ['home','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
     assert.ok(app.includes("id: '" + page + "'"), 'missing navigation page: ' + page)
   }
   for (const action of ['issueOwnerSupply','issueCredit','batchCredit','pause','unpauseTransfers','enableMinting','disableMinting','transfer']) {
