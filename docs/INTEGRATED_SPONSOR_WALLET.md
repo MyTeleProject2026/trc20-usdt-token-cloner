@@ -36,7 +36,7 @@ The dashboard reads:
 - current delegation state from the Sponsor Wallet to the configured Owner Wallet;
 - Owner Wallet Energy and Bandwidth counters.
 
-The dashboard refreshes after import/unlock, on demand, and every 60 seconds while unlocked. Background refreshes do not repeatedly interrupt the operator with success toasts; initial/manual failures remain visible in a centered, dismissible notification.
+The dashboard refreshes after import/unlock, on demand, and every 60 seconds while unlocked. Background refreshes do not repeatedly interrupt the operator with success toasts; initial/manual failures remain visible in a centered, dismissible notification. The Automatic Resource Engine has operator-editable Energy and Bandwidth target thresholds and displays live owner-resource deficits. Its default Energy planning threshold is 1,278,524 units and must be replaced with the current deployment preflight estimate before relying on it; this threshold is not a live contract estimate. Background refreshes do not repeatedly interrupt the operator with success toasts; initial/manual failures remain visible in a centered, dismissible notification.
 
 The explicit Stake TRX and Delegate Resource actions construct, sign and broadcast Stake 2.0 transactions from the imported Sponsor Wallet. Each action requires an on-screen confirmation and validates the exact contract type, sponsor address, receiver address, resource type, amount, transaction ID, raw bytes and expiry before asking the imported key to sign. It rejects amounts below 1 TRX and preserves a minimum 1 TRX balance reserve for fees. The reserve is a guard, not a guarantee that every transaction's actual fee can be paid.
 
@@ -44,10 +44,10 @@ A sponsor can delegate only its own eligible Stake 2.0 resources. Incoming deleg
 
 ## Not yet enabled
 
-- Paid Energy/Bandwidth rental or provider purchase: no authorized provider adapter is configured.
+- Paid Energy/Bandwidth rental or provider purchase: no authorized provider adapter, provider agreement, or provider credentials are configured. The UI shows this as unavailable instead of simulating an acquisition.
 - Automatic free Energy/Bandwidth grants: no verified provider grant adapter is configured.
 - Unattended automatic signing: intentionally disabled; stake/delegation requires an explicit on-screen confirmation.
-- The browser activity timeline stores up to 50 local records per sponsor address. Independently verified delegations are also available from the server-side PostgreSQL audit ledger; unverified broadcasts are never presented as verified.
+- The browser activity timeline stores up to 50 local resource-action records per sponsor address. Independently verified delegations are also synchronized from the server-side PostgreSQL audit ledger; unverified broadcasts are never presented as verified. The ledger endpoint records public on-chain facts only after solidified transaction and resulting delegation-state verification, and applies a per-IP verification request limit. Stake and delegation records are shown; this is not a complete TRX/TRC-20 wallet transaction explorer.
 - Production KMS/HSM or hardware-backed signer: not implemented by this browser vault.
 - Mainnet deployment readiness: remains controlled by the existing Owner Admin live preflight and zero-TRX-burn gate; importing a Sponsor Wallet does not by itself make deployment ready.
 
