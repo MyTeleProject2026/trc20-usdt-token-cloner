@@ -479,6 +479,8 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
     }
   }, [wallet?.address, snapshot, energyTargetValid, bandwidthTargetValid, ownerEnergyDeficit, ownerBandwidthDeficit, notify])
 
+  useEffect(() => { resourceAlertState.current = 'unknown' }, [wallet?.address])
+
   const energyAvailable = Math.max(0, (snapshot?.energyLimit || 0) - (snapshot?.energyUsed || 0))
   const energyTargetValid = /^[1-9][0-9]{0,14}$/.test(energyTarget) && Number.isSafeInteger(Number(energyTarget))
   const bandwidthTargetValid = /^[1-9][0-9]{0,14}$/.test(bandwidthTarget) && Number.isSafeInteger(Number(bandwidthTarget))
