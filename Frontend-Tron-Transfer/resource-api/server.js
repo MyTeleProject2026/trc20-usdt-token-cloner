@@ -262,6 +262,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
   const rateLimiters = new Map()
+  let uptimeHistoryCache = { at: 0, value: null }
   const allowRequest = (ip, scope = 'default', limit = RATE_LIMIT) => {
     let limiter = rateLimiters.get(scope)
     if (!limiter) {
@@ -355,6 +356,49 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
         return send(res, 200, { success: true, configured: true, provider: 'Render API', services: services.map(({ id, label }) => ({ id, label })), events, checkedAt: new Date().toISOString() }, origin)
       } catch (error) {
         return send(res, 503, { success: false, configured: true, error: 'RENDER_EVENTS_UNAVAILABLE', message: String(error?.message || 'Render control-plane events unavailable').slice(0, 160), checkedAt: new Date().toISOString() }, origin)
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/observatory/uptime-history') {
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'observatory-uptime-history', 10)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      if (uptimeHistoryCache.value && Date.now() - uptimeHistoryCache.at < 60_000) {
+        return send(res, 200, uptimeHistoryCache.value, origin)
+      }
+      try {
+        const workflowUrl = 'https://api.github.com/repos/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/tron-transfer-production-uptime.yml/runs?per_page=12'
+        const response = await fetchImpl(workflowUrl, {
+          method: 'GET',
+          headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'tron-transfer-runtime-observatory' },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+          redirect: 'error',
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok || !Array.isArray(payload.workflow_runs)) throw new Error('GitHub Actions uptime history returned HTTP ' + response.status)
+        const runs = payload.workflow_runs.slice(0, 12).map(run => ({
+          id: Number(run.id),
+          runNumber: Number(run.run_number),
+          status: String(run.status || 'unknown').slice(0, 32),
+          conclusion: run.conclusion == null ? null : String(run.conclusion).slice(0, 32),
+          createdAt: run.created_at || null,
+          updatedAt: run.updated_at || null,
+          url: typeof run.html_url === 'string' && run.html_url.startsWith('https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/')
+            ? run.html_url : null,
+          commit: typeof run.head_sha === 'string' ? run.head_sha.slice(0, 12) : null,
+          event: String(run.event || 'unknown').slice(0, 24),
+        }))
+        const value = {
+          success: true,
+          provider: 'GitHub Actions',
+          retentionDays: 90,
+          workflowUrl: 'https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/tron-transfer-production-uptime.yml',
+          runs,
+          checkedAt: new Date().toISOString(),
+          note: 'Workflow run metadata is cached for 60 seconds. Detailed probe JSON artifacts are retained for 90 days.',
+        }
+        uptimeHistoryCache = { at: Date.now(), value }
+        return send(res, 200, value, origin)
+      } catch (error) {
+        return send(res, 503, { success: false, error: 'UPTIME_HISTORY_UNAVAILABLE', message: String(error?.message || 'GitHub Actions uptime history unavailable').slice(0, 160) }, origin)
       }
     }
     if (req.method === 'GET' && url.pathname === '/health') {
