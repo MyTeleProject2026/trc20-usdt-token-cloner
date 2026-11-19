@@ -211,9 +211,9 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
         tronWeb.trx.getAccount(wallet.address),
         tronWeb.contract().at(USDT_CONTRACT),
         readResourceSnapshot(OWNER_ADDRESS, tronWeb),
-        tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'ENERGY', { confirmed: true }),
-        tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'BANDWIDTH', { confirmed: true }),
-        typeof tronWeb.trx.getTransactionsRelated === 'function' ? tronWeb.trx.getTransactionsRelated(wallet.address, 'all', 20, 0, { confirmed: true }).catch(() => null) : Promise.resolve(null),
+        typeof tronWeb.trx.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'ENERGY', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
+        typeof tronWeb.trx.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'BANDWIDTH', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
+        typeof tronWeb.trx.getTransactionsRelated === 'function' ? Promise.resolve().then(() => tronWeb.trx.getTransactionsRelated(wallet.address, 'all', 20, 0, { confirmed: true })).catch(() => null) : Promise.resolve(null),
       ])
       setWalletTransactions(Array.isArray(txHistory?.data) ? txHistory.data : Array.isArray(txHistory) ? txHistory : [])
       const usdtRaw = await usdtContract.balanceOf(wallet.address).call()
