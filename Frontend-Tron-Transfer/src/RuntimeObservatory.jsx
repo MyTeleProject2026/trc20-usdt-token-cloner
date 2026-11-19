@@ -49,6 +49,9 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
   const [uptimeRuns, setUptimeRuns] = useState([])
   const [uptimeState, setUptimeState] = useState('checking')
   const [uptimeNote, setUptimeNote] = useState('')
+  const [renderMetrics, setRenderMetrics] = useState([])
+  const [renderMetricsState, setRenderMetricsState] = useState('checking')
+  const [renderMetricsNote, setRenderMetricsNote] = useState('')
   const [clockNow, setClockNow] = useState(Date.now())
   const [lastRuntimeAt, setLastRuntimeAt] = useState(null)
   const [runtimeLatency, setRuntimeLatency] = useState(null)
@@ -121,6 +124,30 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
     }
   }, [apiBase])
 
+  const refreshRenderMetrics = useCallback(async () => {
+    try {
+      const response = await fetch(apiBase + '/api/observatory/render-metrics', { cache: 'no-store', headers: { accept: 'application/json' } })
+      const body = await response.json()
+      if (!response.ok || !body.success) throw new Error(body.message || 'Render platform metrics unavailable')
+      setRenderMetrics(Array.isArray(body.metrics) ? body.metrics : [])
+      setRenderMetricsState(body.configured ? 'online' : 'warning')
+      setRenderMetricsNote(body.note || (body.configured ? 'Authenticated Render platform metrics' : 'Render API key is not configured on the backend.'))
+    } catch (error) {
+      setRenderMetricsState('warning')
+      setRenderMetricsNote(error?.message || 'Render platform metrics unavailable')
+    }
+  }, [apiBase])
+
+  const renderMetricSummary = metric => {
+    if (!metric) return '—'
+    if (metric.state === 'unavailable') return 'Unavailable'
+    if (!metric.points?.length) return 'No data'
+    const latest = metric.points.reduce((a, b) => Date.parse(a.timestamp) > Date.parse(b.timestamp) ? a : b)
+    const value = Number(latest.value)
+    const shown = Number.isFinite(value) ? (Math.abs(value) >= 1000 ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : value.toFixed(2)) : '—'
+    return shown + (latest.unit ? ' ' + latest.unit : '')
+  }
+
   useEffect(() => {
     let timers = []
 
@@ -135,11 +162,13 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
       refreshTransactions()
       refreshRenderEvents()
       refreshUptimeHistory()
+      refreshRenderMetrics()
       timers = [
         window.setInterval(refreshRuntime, 1000),
         window.setInterval(refreshTransactions, 10_000),
         window.setInterval(refreshRenderEvents, 30_000),
         window.setInterval(refreshUptimeHistory, 60_000),
+        window.setInterval(refreshRenderMetrics, 60_000),
         window.setInterval(() => setClockNow(Date.now()), 250),
       ]
     }
@@ -155,7 +184,7 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
       stopPolling()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [refreshRuntime, refreshTransactions, refreshRenderEvents, refreshUptimeHistory])
+  }, [refreshRuntime, refreshTransactions, refreshRenderEvents, refreshUptimeHistory, refreshRenderMetrics])
 
   const heartbeat = runtime?.heartbeat
   const process = runtime?.process
@@ -215,6 +244,15 @@ export default function RuntimeObservatory({ apiBase, resourceState, promoState 
     <p className="ro-render-state-note">{renderNote}</p>
     <div className="ro-render-events">
       {renderEvents.length ? renderEvents.map(event => <div className="ro-render-event" key={event.id}><span>{event.serviceLabel}</span><b>{event.type.replaceAll('_', ' ')}</b><time>{time(event.timestamp)}</time></div>) : <div className="ro-empty">{renderState === 'warning' ? 'Render event integration is not configured or is temporarily unavailable.' : 'No recent Render service events were returned.'}</div>}
+    </div>
+
+    <div className="ro-section-heading"><div><span className="ro-eyebrow">RENDER PLATFORM TELEMETRY</span><h4>Service resource metrics</h4><p>Platform CPU, memory, request, latency and bandwidth series from Render's Metrics API.</p></div><Status value={renderMetricsState}/></div>
+    <p className="ro-render-state-note">{renderMetricsNote}</p>
+    <div className="ro-metrics-grid ro-platform-metrics">
+      {['cpu','memory','http_requests','http_latency','bandwidth'].map(id => {
+        const metric = renderMetrics.find(item => item.id === id)
+        return <article className="ro-metric" key={id}><span>{metric?.label || ({cpu:'CPU usage',memory:'Memory usage',http_requests:'HTTP requests',http_latency:'HTTP latency p95',bandwidth:'Outbound bandwidth'}[id])}</span><b>{renderMetricSummary(metric)}</b><small>{metric?.state === 'unavailable' ? metric.note || 'Not available for this plan' : metric?.points?.length ? metric.points.length + ' platform samples · last hour' : 'Awaiting configured Render metrics'}</small></article>
+      })}
     </div>
 
     <div className="ro-section-heading"><div><span className="ro-eyebrow">EXTERNAL UPTIME HISTORY</span><h4>Scheduled production checks</h4><p>GitHub Actions probe results for the frontend, API health endpoint, and process heartbeat.</p></div><Status value={uptimeState}/></div>
