@@ -38,6 +38,7 @@ function CenterToast({ toast, onClose }) {
 export default function SponsorWalletManager() {
   const [wallet, setWallet] = useState(null)
   const [saved, setSaved] = useState(false)
+  const [replacing, setReplacing] = useState(false)
   const [mode, setMode] = useState('private-key')
   const [credential, setCredential] = useState('')
   const [keystorePassword, setKeystorePassword] = useState('')
@@ -119,6 +120,7 @@ export default function SponsorWalletManager() {
       await saveSponsorWalletVault(account, vaultPassword)
       setWallet(account)
       setSaved(true)
+      setReplacing(false)
       setCredential('')
       setKeystorePassword('')
       setVaultPassword('')
@@ -156,8 +158,20 @@ export default function SponsorWalletManager() {
   }
 
   function logoutWallet() {
-    lockWallet()
+    setWallet(null)
+    setSnapshot(null)
+    setLastTx('')
     notify('success', 'Sponsor Wallet logged out', 'The active session is disconnected. Your encrypted local backup is retained.')
+  }
+
+  function beginReplace() {
+    setWallet(null)
+    setSnapshot(null)
+    setLastTx('')
+    setSaved(false)
+    setReplacing(true)
+    setMode('private-key')
+    notify('info', 'Replace Sponsor Wallet', 'Import the replacement account. The current encrypted backup remains until the new import succeeds.')
   }
 
   function removeVault() {
@@ -227,7 +241,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
         : <label className="sponsor-field">{mode === 'private-key' ? 'Private key' : 'Recovery mnemonic phrase'}<textarea value={credential} onChange={event => setCredential(event.target.value)} rows={mode === 'mnemonic' ? 3 : 2} autoComplete="off" spellCheck="false" placeholder={mode === 'private-key' ? 'Paste private key locally' : 'Enter recovery words locally'}/></label>}
       {mode === 'keystore' && <label className="sponsor-field">Keystore password<input type="password" value={keystorePassword} onChange={event => setKeystorePassword(event.target.value)} autoComplete="new-password"/></label>}
       <label className="sponsor-field">New local vault password<input type="password" value={vaultPassword} onChange={event => setVaultPassword(event.target.value)} minLength={12} autoComplete="new-password"/><small>At least 12 characters. It encrypts the private key with AES-256-GCM and PBKDF2-SHA256 in this browser.</small></label>
-      <button className="sponsor-primary" disabled={busy || !credential.trim() || vaultPassword.length < 12} onClick={() => void importWallet()}>{busy ? 'Importing securely…' : 'Import & encrypt Sponsor Wallet'}</button>
+      <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !credential.trim() || vaultPassword.length < 12} onClick={() => void importWallet()}>{busy ? 'Importing securely…' : 'Import & encrypt Sponsor Wallet'}</button>{replacing && <button className="sponsor-secondary" onClick={() => {setSaved(hasSavedSponsorWallet());setReplacing(false)}}>Cancel replacement</button>}</div>
       <p className="sponsor-security-note"><ShieldCheck/> Never paste credentials into chat. The private key is not sent to the Tron Transfer API. Browser storage is device-specific; keep your original recovery backup safe.</p>
     </section>}
 
@@ -241,7 +255,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
     {wallet && <div className="sponsor-dashboard">
       <section className="sponsor-card sponsor-wallet-summary">
         <div className="sponsor-card-heading"><Wallet/><div><h3>Sponsor Wallet Overview</h3><p>{wallet.address}</p></div></div>
-        <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Imported · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={lockWallet}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button></div>
+        <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Imported · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={lockWallet}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button><button onClick={beginReplace}>Replace</button></div>
         <div className="sponsor-metric-grid">
           <article><small>TRX BALANCE</small><strong>{snapshot ? formatAmount(snapshot.trxSun) : '—'}</strong></article>
           <article><small>OFFICIAL USDT</small><strong>{snapshot ? (Number(snapshot.usdt) / 1e6).toLocaleString(undefined,{maximumFractionDigits:6}) : '—'}</strong></article>
