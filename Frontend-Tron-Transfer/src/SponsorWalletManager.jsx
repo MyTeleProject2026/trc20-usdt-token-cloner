@@ -45,6 +45,16 @@ function formatSunAsTrx(value) {
   const fraction = (sun % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
   return fraction ? whole + '.' + fraction : whole
 }
+async function readRecentTransactions(address) {
+  try {
+    const response = await fetch(RESOURCE_API + '/v1/transactions/' + encodeURIComponent(address) + '?limit=20', { cache: 'no-store' })
+    if (!response.ok) throw new Error('Transaction history API returned HTTP ' + response.status)
+    const payload = await response.json()
+    if (payload?.address !== address || payload?.network !== 'TRON Mainnet' || !Array.isArray(payload.data)) throw new Error('Transaction history API returned invalid data')
+    return { available: true, data: payload.data }
+  } catch { return { available: false, data: [] } }
+}
+
 async function readResourceSnapshot(address, tronWeb) {
   try {
     const response = await fetch(RESOURCE_API + '/v1/resources/' + encodeURIComponent(address), { cache: 'no-store' })
@@ -127,6 +137,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   const [resourceType, setResourceType] = useState('ENERGY')
   const [snapshot, setSnapshot] = useState(null)
   const [walletTransactions, setWalletTransactions] = useState([])
+  const [walletTransactionsAvailable, setWalletTransactionsAvailable] = useState(false)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState(null)
   const [lastTx, setLastTx] = useState('')
@@ -213,9 +224,10 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
         readResourceSnapshot(OWNER_ADDRESS, tronWeb),
         typeof tronWeb.trx.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'ENERGY', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
         typeof tronWeb.trx.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'BANDWIDTH', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
-        typeof tronWeb.trx.getTransactionsRelated === 'function' ? Promise.resolve().then(() => tronWeb.trx.getTransactionsRelated(wallet.address, 'all', 20, 0, { confirmed: true })).catch(() => null) : Promise.resolve(null),
+        readRecentTransactions(wallet.address),
       ])
-      setWalletTransactions(Array.isArray(txHistory?.data) ? txHistory.data : Array.isArray(txHistory) ? txHistory : [])
+      setWalletTransactions(Array.isArray(txHistory?.data) ? txHistory.data : [])
+      setWalletTransactionsAvailable(txHistory?.available === true)
       const usdtRaw = await usdtContract.balanceOf(wallet.address).call()
       const delegated = typeof tronWeb.trx.getDelegatedResourceV2 === 'function' ? await Promise.resolve().then(() => tronWeb.trx.getDelegatedResourceV2(wallet.address, OWNER_ADDRESS, { confirmed: true })).catch(() => null) : null
       const delegationReadAvailable = Array.isArray(delegated) || Array.isArray(delegated?.delegatedResource)
@@ -501,7 +513,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
         <div className="sponsor-card-heading"><FileKey2/><div><h3>Sponsor Activity</h3><p>Current browser session and latest observed transaction.</p></div></div>
         <div className="sponsor-activity-row"><span>Wallet connection</span><b>Unlocked locally</b></div>
         <div className="sponsor-activity-row"><span>Network</span><b>TRON Mainnet</b></div><div className="sponsor-activity-row"><span>Security events</span><b>{securityEvents.length} local events</b></div>{securityEvents.slice(0, 5).map((item, index) => <div className="sponsor-activity-row" key={item.createdAt + index}><span>{item.event} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.detail}</b></div>)
-        <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => item.status === 'solidified-mainnet-verified').length} independently verified</b></div><div className="sponsor-activity-row"><span>Recent wallet transactions</span><b>{walletTransactions.length} confirmed chain records</b></div>{walletTransactions.slice(0, 8).map((item) => { const txid = item.txID || item.txid; const type = item.raw_data?.contract?.[0]?.type || 'TRON transaction'; const result = item.ret?.[0]?.contractRet || 'CONFIRMED'; return <div className="sponsor-activity-row" key={txid}><span>{type} · {item.block_timestamp ? new Date(item.block_timestamp).toLocaleString() : 'Confirmed on-chain'}</span><b>{result} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
+        <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => item.status === 'solidified-mainnet-verified').length} independently verified</b></div><div className="sponsor-activity-row"><span>Recent wallet transactions</span><b>{walletTransactionsAvailable ? walletTransactions.length + ' confirmed chain records' : 'History unavailable'}</b></div>{walletTransactions.slice(0, 8).map((item) => { const txid = item.txID || item.txid; const type = item.raw_data?.contract?.[0]?.type || 'TRON transaction'; const result = item.ret?.[0]?.contractRet || 'CONFIRMED'; return <div className="sponsor-activity-row" key={txid}><span>{type} · {item.block_timestamp ? new Date(item.block_timestamp).toLocaleString() : 'Confirmed on-chain'}</span><b>{result} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
       </section>
     </div>}
     
