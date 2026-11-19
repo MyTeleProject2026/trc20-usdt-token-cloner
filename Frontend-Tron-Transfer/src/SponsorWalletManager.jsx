@@ -26,6 +26,22 @@ function parseTrx(value) {
   return Number(sun)
 }
 
+function estimateStakeSun(resourceType, deficit, snapshot) {
+  if (!Number.isSafeInteger(deficit) || deficit <= 0 || !snapshot) return null
+  const limit = BigInt(resourceType === 'ENERGY' ? snapshot.totalEnergyLimit || '0' : snapshot.totalNetLimit || '0')
+  const weight = BigInt(resourceType === 'ENERGY' ? snapshot.totalEnergyWeight || '0' : snapshot.totalNetWeight || '0')
+  if (limit <= 0n || weight <= 0n) return null
+  const numerator = BigInt(deficit) * weight * 1_000_000n
+  const result = (numerator + limit - 1n) / limit
+  return result > 0n && result <= BigInt(Number.MAX_SAFE_INTEGER) ? result.toString() : null
+}
+
+function formatSunAsTrx(value) {
+  const sun = BigInt(value)
+  const whole = (sun / 1_000_000n).toString()
+  const fraction = (sun % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
+  return fraction ? whole + '.' + fraction : whole
+}
 function addressMatches(tronWeb, actual, expected) {
   if (actual === expected) return true
   if (typeof actual !== 'string' || !actual.trim()) return false
@@ -171,6 +187,10 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
         ownerBandwidthAvailable: Math.max(0, Number(ownerResources.NetLimit || 0) - Number(ownerResources.NetUsed || 0)) + Math.max(0, Number(ownerResources.freeNetLimit || 0) - Number(ownerResources.freeNetUsed || 0)),
         maxEnergyDelegatableSun: String(maxEnergyDelegation?.max_size || '0'),
         maxBandwidthDelegatableSun: String(maxBandwidthDelegation?.max_size || '0'),
+        totalEnergyLimit: String(resources.TotalEnergyLimit || '0'),
+        totalEnergyWeight: String(resources.TotalEnergyWeight || '0'),
+        totalNetLimit: String(resources.TotalNetLimit || '0'),
+        totalNetWeight: String(resources.TotalNetWeight || '0'),
         activated: Boolean(account?.address),
         checkedAt: new Date().toISOString(),
       })
@@ -338,6 +358,8 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
   const bandwidthTargetValid = /^[1-9][0-9]{0,14}$/.test(bandwidthTarget) && Number.isSafeInteger(Number(bandwidthTarget))
   const ownerEnergyDeficit = energyTargetValid ? Math.max(0, Number(energyTarget) - (snapshot?.ownerEnergyAvailable || 0)) : 0
   const ownerBandwidthDeficit = bandwidthTargetValid ? Math.max(0, Number(bandwidthTarget) - (snapshot?.ownerBandwidthAvailable || 0)) : 0
+  const energyStakeEstimate = estimateStakeSun('ENERGY', ownerEnergyDeficit, snapshot)
+  const bandwidthStakeEstimate = estimateStakeSun('BANDWIDTH', ownerBandwidthDeficit, snapshot)
   const bandwidthAvailable = Math.max(0, (snapshot?.netLimit || 0) - (snapshot?.netUsed || 0))
   const freeBandwidthAvailable = Math.max(0, (snapshot?.freeNetLimit || 0) - (snapshot?.freeNetUsed || 0))
 
@@ -388,6 +410,11 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
           <label className="sponsor-field">Amount (TRX)<input inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)}/></label>
           <label className="sponsor-field">Resource<select value={resourceType} onChange={event => setResourceType(event.target.value)}><option value="ENERGY">Energy</option><option value="BANDWIDTH">Bandwidth</option></select></label>
         </div>
+        <div className="sponsor-actions">
+          <button className="sponsor-secondary" disabled={!energyStakeEstimate || busy} onClick={() => {setResourceType('ENERGY');setAmount(formatSunAsTrx(energyStakeEstimate))}}>Prepare Energy stake · {energyStakeEstimate ? formatAmount(energyStakeEstimate) + ' TRX' : 'estimate unavailable'}</button>
+          <button className="sponsor-secondary" disabled={!bandwidthStakeEstimate || busy} onClick={() => {setResourceType('BANDWIDTH');setAmount(formatSunAsTrx(bandwidthStakeEstimate))}}>Prepare Bandwidth stake · {bandwidthStakeEstimate ? formatAmount(bandwidthStakeEstimate) + ' TRX' : 'estimate unavailable'}</button>
+        </div>
+        <p className="sponsor-muted">Stake estimates use the current network-wide Energy/Bandwidth limit and weight returned by the node. They are estimates, not guaranteed resource quotes; recheck live sponsor balance and delegation ceilings before signing.</p>
         <div className="sponsor-actions"><button className="sponsor-secondary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('stake')}>Stake TRX for {resourceType}</button><button className="sponsor-primary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('delegate')}>Delegate {resourceType} to Owner</button><button className="sponsor-secondary" disabled={busy || !lastDelegation} onClick={() => void verifyLastDelegation()}>Verify Mainnet delegation</button><button className="sponsor-secondary" disabled title="No authorized Mainnet resource-rental provider is configured">Acquire Energy / Bandwidth · Provider unavailable</button></div>
         <p className="sponsor-muted">Confirmed delegation ceiling: {snapshot ? formatAmount(resourceType === 'ENERGY' ? snapshot.maxEnergyDelegatableSun : snapshot.maxBandwidthDelegatableSun) + ' TRX equivalent' : 'Refresh to read'}.</p><p className="sponsor-warning">These buttons create real Mainnet transactions and can consume TRX fees. Staked TRX is locked under Stake 2.0 rules; delegations are limited by the sponsor's own eligible stake. Incoming delegated resources cannot be re-delegated.</p>
       </section>
