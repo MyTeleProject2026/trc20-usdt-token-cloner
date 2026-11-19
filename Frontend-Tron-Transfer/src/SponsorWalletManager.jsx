@@ -13,6 +13,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? ''
 const RESOURCE_API = (import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 const ACTIVITY_KEY = 'tron-transfer.sponsor-activity.v1'
 const SECURITY_KEY = 'tron-transfer.sponsor-security-events.v1'
+const TARGETS_KEY = 'tron-transfer.sponsor-resource-targets.v1'
 
 function formatAmount(value, digits = 6) {
   const amount = Number(value || 0) / SUN
@@ -37,6 +38,13 @@ function estimateStakeSun(resourceType, deficit, snapshot) {
   const denominator = limit * 100n
   const result = (numerator + denominator - 1n) / denominator
   return result > 0n && result <= BigInt(Number.MAX_SAFE_INTEGER) ? result.toString() : null
+}
+
+function readSavedTarget(key, fallback) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TARGETS_KEY) || '{}')
+    return typeof saved[key] === 'string' ? saved[key] : fallback
+  } catch { return fallback }
 }
 
 function formatTokenUnits(raw, decimals = 6) {
@@ -143,8 +151,8 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   const [vaultPassword, setVaultPassword] = useState('')
   const [unlockPassword, setUnlockPassword] = useState('')
   const [amount, setAmount] = useState('10')
-  const [energyTarget, setEnergyTarget] = useState('1278524')
-  const [bandwidthTarget, setBandwidthTarget] = useState('1000')
+  const [energyTarget, setEnergyTarget] = useState(() => readSavedTarget('energy', '1278524'))
+  const [bandwidthTarget, setBandwidthTarget] = useState(() => readSavedTarget('bandwidth', '1000'))
   const [resourceType, setResourceType] = useState('ENERGY')
   const [snapshot, setSnapshot] = useState(null)
   const [walletTransactions, setWalletTransactions] = useState([])
@@ -166,6 +174,8 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   }, [])
 
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
+
+  useEffect(() => { try { localStorage.setItem(TARGETS_KEY, JSON.stringify({ energy: energyTarget, bandwidth: bandwidthTarget })) } catch { /* targets are a local preference */ } }, [energyTarget, bandwidthTarget])
 
   const recordSecurityEvent = useCallback((address, event, detail) => {
     if (!address) return
