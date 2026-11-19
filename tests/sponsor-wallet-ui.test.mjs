@@ -28,6 +28,8 @@ test('Sponsor Wallet verifies exact unsigned Mainnet transactions before signing
   assert.ok(component.includes('Run Resource Preflight'))
   assert.ok(component.includes('TARGETS_KEY'))
   assert.ok(component.includes('readSavedTarget'))
+  assert.ok(component.includes('Owner resources below target'))
+  assert.ok(component.includes('Owner resource targets met'))
   assert.ok(component.includes('readResourceSnapshot(wallet.address, tronWeb)'))
   assert.ok(component.includes('tron-transfer-resource-api.onrender.com'))
   assert.ok(component.includes('direct-tronweb-fallback'))
