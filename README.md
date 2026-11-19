@@ -23,7 +23,7 @@ The individual sponsor path separates the requester from the wallet that supplie
 5. The sponsor reviews the recipient and amount and signs the specific transaction in their own TronLink wallet.
 6. The backend revalidates the signed transaction before broadcast and independently checks the solidified receipt and exact official USDT Transfer event.
 
-The separate sponsor route is `#/sponsor` in the frontend build. Do not connect a wallet to an unfamiliar or untrusted deployment; verify the code and deployment first.
+The Sponsor Wallet is integrated into the existing Owner Admin navigation as an import-only module. It does not create wallets or require the standalone sponsor route. Sponsor credentials are locally encrypted in the browser; review [the integrated Sponsor Wallet architecture and security boundaries](./docs/INTEGRATED_SPONSOR_WALLET.md) before importing an account. Do not import credentials into an unfamiliar or untrusted deployment.
 
 ## Funding target and custody boundary
 
