@@ -69,7 +69,7 @@ function CenterToast({ toast, onClose }) {
   </div>
 }
 
-export default function SponsorWalletManager() {
+export default function SponsorWalletManager({ onNavigate = () => {} }) {
   const [wallet, setWallet] = useState(null)
   const [saved, setSaved] = useState(false)
   const [replacing, setReplacing] = useState(false)
@@ -389,7 +389,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
       <section className="sponsor-card">
         <div className="sponsor-card-heading"><Activity/><div><h3>Automatic Resource Engine</h3><p>Live owner-resource monitoring and sponsor capacity checks.</p></div></div>
         <div className="sponsor-engine-grid"><div><small>OWNER TARGET</small><strong>{OWNER_ADDRESS}</strong></div><div><small>SPONSOR ENERGY STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedEnergySun) + ' TRX eq.' : '—'}</strong></div><div><small>SPONSOR BANDWIDTH STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedBandwidthSun) + ' TRX eq.' : '—'}</strong></div><div><small>OWNER ENERGY AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerEnergyAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>OWNER BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerBandwidthAvailable || 0).toLocaleString() : '—'}</strong></div></div>
-        <p className="sponsor-warning">Monitoring is live when refreshed. Automatic unattended signing is intentionally disabled: each stake/delegation requires an explicit on-screen confirmation. A provider rental or free-grant adapter is not configured by this wallet import.</p>
+        <div className="sponsor-actions"><button className="sponsor-secondary" onClick={() => onNavigate('deploy')}>Open Owner Admin deployment preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('portfolio')}>Open Owner portfolio</button></div><p className="sponsor-warning">Monitoring is live when refreshed. Automatic unattended signing is intentionally disabled: each stake/delegation requires an explicit on-screen confirmation. A provider rental or free-grant adapter is not configured by this wallet import.</p>
       </section>
 
       <section className="sponsor-card">
