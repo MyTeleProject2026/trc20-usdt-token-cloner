@@ -90,6 +90,8 @@ export default function SponsorWalletManager() {
         delegatedBandwidthSun: delegatedBandwidthSun.toString(),
         ownerEnergyAvailable: Math.max(0, Number(ownerResources.EnergyLimit || 0) - Number(ownerResources.EnergyUsed || 0)),
         ownerBandwidthAvailable: Math.max(0, Number(ownerResources.NetLimit || 0) - Number(ownerResources.NetUsed || 0)) + Math.max(0, Number(ownerResources.freeNetLimit || 0) - Number(ownerResources.freeNetUsed || 0)),
+        maxEnergyDelegatableSun: String(maxEnergyDelegation?.max_size || '0'),
+        maxBandwidthDelegatableSun: String(maxBandwidthDelegation?.max_size || '0'),
         activated: Boolean(account?.address),
         checkedAt: new Date().toISOString(),
       })
