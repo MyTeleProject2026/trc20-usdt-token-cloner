@@ -13,7 +13,7 @@ The transaction feed is restricted to the configured owner wallet. It uses `only
 
 The backend heartbeat samples its own process once per second. The browser reads this snapshot once per second. Confirmed chain transactions are refreshed every ten seconds to avoid unnecessarily frequent history queries.
 
-Runtime samples and request events are held in bounded process memory. They are lost when Render restarts or suspends the service. The current PostgreSQL resource is suspended, so this release does not claim durable history or 24/7 availability.
+Runtime samples and request events are held in bounded process memory. They are lost when Render restarts or suspends the service. Durable external uptime probe history is separately stored on the Git-backed `monitoring-history` branch as described below; this does not make one-second process telemetry durable or guarantee 24/7 availability. The current PostgreSQL resource remains suspended.
 
 ## Render integration
 
