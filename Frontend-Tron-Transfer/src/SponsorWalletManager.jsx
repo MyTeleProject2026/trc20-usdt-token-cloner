@@ -250,6 +250,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
 
   function lockWallet() {
     setWallet(null)
+    setSaved(true)
     setSnapshot(null)
     setLastTx('')
     setLastDelegation(null)
@@ -258,6 +259,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
 
   function logoutWallet() {
     setWallet(null)
+    setSaved(false)
     setSnapshot(null)
     setLastTx('')
     setLastDelegation(null)
@@ -379,6 +381,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
       {mode === 'keystore' && <label className="sponsor-field">Keystore password<input type="password" value={keystorePassword} onChange={event => setKeystorePassword(event.target.value)} autoComplete="new-password"/></label>}
       <label className="sponsor-field">New local vault password<input type="password" value={vaultPassword} onChange={event => setVaultPassword(event.target.value)} minLength={12} autoComplete="new-password"/><small>At least 12 characters. It encrypts the private key with AES-256-GCM and PBKDF2-SHA256 in this browser.</small></label>
       <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !credential.trim() || vaultPassword.length < 12} onClick={() => void importWallet()}>{busy ? 'Importing securely…' : 'Import & encrypt Sponsor Wallet'}</button>{replacing && <button className="sponsor-secondary" onClick={() => {setSaved(hasSavedSponsorWallet());setReplacing(false)}}>Cancel replacement</button>}</div>
+      {hasSavedSponsorWallet() && !replacing && <button className="sponsor-secondary" onClick={() => setSaved(true)}>Reconnect saved Sponsor Wallet</button>}
       <p className="sponsor-security-note"><ShieldCheck/> Never paste credentials into chat. The private key is not sent to the Tron Transfer API. Browser storage is device-specific; keep your original recovery backup safe.</p>
     </section>}
 
