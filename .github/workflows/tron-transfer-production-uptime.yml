@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - ui/modern-crypto-dashboard-theme
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
@@ -30,7 +31,7 @@ jobs:
           const fs = require('node:fs');
           const targets = [
             { name: 'owner-admin-frontend', url: 'https://tron-transfer.onrender.com/', expectJson: false },
-            { name: 'resource-api-health', url: 'https://tron-transfer-resource-api.onrender.com/health', expectJson: true },
+            { name: 'resource-api-health', url: 'https://tron-transfer-resource-api.onrender.com/health', expectJson: true, expectedNetwork: 'TRON Mainnet' },
             { name: 'runtime-observatory', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/snapshot', expectJson: true },
             { name: 'uptime-history', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/uptime-history', expectJson: true },
             { name: 'render-metrics', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/render-metrics', expectJson: true },
@@ -97,8 +98,13 @@ jobs:
                       validPayload = response.ok && parsed?.success === true && parsed?.configured === true && hasSamples;
                       detail = validPayload ? 'server credential verified · CPU and memory samples received' : parsed?.configured === false ? 'RENDER_API_KEY is not configured on the resource API' : 'Render metrics payload missing authenticated CPU/memory samples';
                     } else {
-                      validPayload = response.ok && parsed && parsed.ok === true;
-                      detail = validPayload ? 'valid JSON health payload' : 'unexpected JSON health payload';
+                      const networkMatches = !target.expectedNetwork || parsed?.network === target.expectedNetwork;
+                      validPayload = response.ok && parsed && parsed.ok === true && networkMatches;
+                      detail = validPayload
+                        ? (target.expectedNetwork ? 'healthy · ' + target.expectedNetwork : 'valid JSON health payload')
+                        : !networkMatches
+                          ? 'unexpected network: ' + String(parsed?.network || 'missing')
+                          : 'unexpected JSON health payload';
                     }
                   } catch {
                     validPayload = false;

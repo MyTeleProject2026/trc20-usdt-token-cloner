@@ -1,8 +1,5 @@
 {
   "name": "trax-tronbox-compiler-project",
   "private": true,
-  "type": "commonjs",
-  "dependencies": {
-    "tronbox": "4.12.0"
-  }
+  "type": "commonjs"
 }

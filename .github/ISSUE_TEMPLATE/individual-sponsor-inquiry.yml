@@ -1,0 +1,85 @@
+name: Individual sponsor inquiry
+description: Public, non-sensitive expression of interest in TRON Transfer sponsorship.
+title: "[Sponsor inquiry]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for considering a voluntary sponsorship or technical review of TRON Transfer.
+
+        **This issue is public.** Do not post wallet addresses, email addresses, phone numbers, legal names, identity documents, residence details, source-of-funds records, transaction payloads, private keys, seed phrases, passwords, OTPs, or any other confidential information. Any required identity, jurisdiction, sanctions, or source-of-funds checks must be handled separately through an appropriate private process after the parties agree on a safe channel.
+
+        This is an inquiry only. It is not a sponsor acceptance, funding commitment, payout authorization, investment offer, or promise of service.
+  - type: dropdown
+    id: involvement
+    attributes:
+      label: What type of involvement are you exploring?
+      options:
+        - Individual self-custody sponsor (USDT principal; I sign each exact payout)
+        - Network-fee or TRON resource sponsorship only
+        - Software development sponsorship (separate from payout liquidity)
+        - Technical or security review
+        - Potential contracted payout-provider partnership
+        - I am still exploring
+    validations:
+      required: true
+  - type: dropdown
+    id: participation
+    attributes:
+      label: What participation model would you consider?
+      options:
+        - One low-value pilot after review and due diligence
+        - One-time, individually approved payout
+        - Time-limited capped availability with a fresh signature for every payout
+        - Technical review only
+        - Not sure yet
+    validations:
+      required: true
+  - type: dropdown
+    id: capacity
+    attributes:
+      label: Optional indicative capacity (not a commitment)
+      description: This is only a public indication of interest. Do not disclose private financial details.
+      options:
+        - Prefer not to say publicly
+        - A single low-value pilot
+        - Under $500 equivalent
+        - $500–$2,000 equivalent
+        - $2,000–$5,000 equivalent
+        - $5,000–$10,000 equivalent
+        - More than $10,000 equivalent
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Required acknowledgements
+      options:
+        - label: I understand the sponsor keeps control of their own wallet and must review and sign each exact payout; a wallet connection or identity message does not authorize spending.
+          required: true
+        - label: I understand no funds should be sent to the project operator or a platform-controlled wallet, and no return, interest, reimbursement, or repayment is promised.
+          required: true
+        - label: I understand this public inquiry does not prove eligibility, funding, approval, or a live payout capability; applicable legal and compliance checks remain required.
+          required: true
+  - type: input
+    id: public_contact
+    attributes:
+      label: Optional public GitHub profile or public project link
+      description: Only provide a link you are comfortable sharing publicly. GitHub already shows your username with this issue.
+      placeholder: https://github.com/your-public-profile
+    validations:
+      required: false
+  - type: textarea
+    id: scope
+    attributes:
+      label: What would you like to discuss or review?
+      description: Describe your general interest only. Keep all private details out of this public issue.
+      placeholder: I would like to review the sponsor workflow and discuss a capped, self-custody pilot after independent review.
+    validations:
+      required: true
+      min_length: 20
+      max_length: 2000
+  - type: markdown
+    attributes:
+      value: |
+        The project will not ask you for a seed phrase, private key, password, OTP, or remote access. Review the [individual sponsor brief](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/blob/ui/modern-crypto-dashboard-theme/docs/SPONSOR_BRIEF.md) and [draft implementation PR #153](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/153) before proceeding.

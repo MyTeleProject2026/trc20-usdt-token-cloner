@@ -11,3 +11,8 @@ dist/
 # and the docs MCP server so an export keeps working in an external agent.
 .scaffolded
 .opencode/
+
+# Generated TRӾ compiler workspace and frontend bytecode artifacts
+/Frontend-Tron-Transfer/trax-build/contracts/
+/Frontend-Tron-Transfer/trax-build/build/
+/Frontend-Tron-Transfer/src/generated/trax-contract-artifacts.js

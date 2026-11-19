@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 # Keep only the newest audit for a given PR or branch while preserving the
-# required critical/high-severity release gate and report artifact.
+# critical/high release gate and report artifact.
 concurrency:
   group: dependency-audit-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -35,18 +35,15 @@ jobs:
       - name: Run npm audit and summarize findings
         shell: bash
         run: |
-          set +e
-          npm audit --json > npm-audit-report.json
-          audit_exit=$?
-          set -e
+          npm audit --json > npm-audit-report.json || true
           node --input-type=module <<'NODE'
           import fs from 'node:fs'
           const report = JSON.parse(fs.readFileSync('npm-audit-report.json', 'utf8'))
           if (report.error || !report.metadata?.vulnerabilities) {
             console.error('npm audit did not return a valid vulnerability report.')
-            process.exitCode = 1
+            process.exit(1)
           }
-          const counts = report.metadata?.vulnerabilities ?? {}
+          const counts = report.metadata.vulnerabilities
           const clean = value => String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ')
           const rank = { critical: 0, high: 1, moderate: 2, low: 3, info: 4 }
           const packages = Object.entries(report.vulnerabilities ?? {}).sort((a, b) =>
@@ -63,7 +60,7 @@ jobs:
           const summary = [
             '## Dependency security audit',
             '',
-            'Release gate: critical and high severity advisories fail this workflow. Moderate and low advisories remain visible for remediation.',
+            'Critical/high dependency advisories block release. No advisory-specific exceptions are permitted.',
             '',
             '| Severity | Count |',
             '|---|---:|',
@@ -83,12 +80,8 @@ jobs:
           ].join('\n')
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n')
           console.log(summary)
-          if ((counts.critical ?? 0) > 0 || (counts.high ?? 0) > 0) {
-            console.error('Blocking dependency advisories detected: resolve critical/high findings before release.')
-            process.exitCode = 1
-          }
           NODE
-          echo "npm audit exit code: $audit_exit"
+          node scripts/check-npm-audit.mjs npm-audit-report.json
       - name: Upload audit report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

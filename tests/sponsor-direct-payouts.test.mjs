@@ -234,9 +234,13 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     [createHash('sha256').update(outsiderToken).digest('hex'), recipientAddress],
   ])
   let sponsorApplicationId = null
+  const noSponsorIdempotencyKey = randomUUID()
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
-  const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey]
+  const thirdIdempotencyKey = randomUUID()
+  const idempotencyKeys = [noSponsorIdempotencyKey, firstIdempotencyKey, secondIdempotencyKey, thirdIdempotencyKey]
+  let approvedAddresses = [requesterAddress]
+  let broadcastAttempts = 0
   let server
 
   try {
@@ -263,6 +267,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
         } : { success: true, session: null }
       },
       getDatabase: () => db,
+      verifyTransfer: async (_env, intent) => ({ verified: false, status: 'awaiting-solidified-receipt', transactionHash: intent.transactionHash }),
       readSnapshot: async (_env, address) => ({
         sponsorAddress: address,
         network: 'mainnet',
@@ -289,6 +294,13 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
         }
         if (providerPath === 'wallet/triggersmartcontract') {
           return { result: { result: true }, transaction: unsignedTransfer() }
+        }
+        if (providerPath === 'wallet/getapprovedlist') {
+          return { result: { result: true }, approved_list: approvedAddresses }
+        }
+        if (providerPath === 'wallet/broadcasttransaction') {
+          broadcastAttempts += 1
+          return { result: true }
         }
         throw new Error('Unexpected Tatum integration-test path: ' + providerPath)
       },
@@ -319,11 +331,50 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE requester_address=$1 OR sponsor_address=$2', [requesterAddress, sponsorAddress])
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE sponsor_address=$1', [sponsorAddress])
-    const registration = await call('/application', sponsorToken, { displayName: 'Individual sponsor' })
+
+    // The owner must be able to create a real withdrawal request before any
+    // sponsor has registered. It remains unassigned and cannot be broadcast.
+    const noSponsorRequest = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '5',
+      idempotencyKey: noSponsorIdempotencyKey,
+    })
+    assert.equal(noSponsorRequest.response.status, 201)
+    assert.equal(noSponsorRequest.payload.sponsorRouting, 'awaiting-eligible-sponsor')
+    assert.equal(noSponsorRequest.payload.request.sponsorAddress, null)
+    assert.equal(noSponsorRequest.payload.payoutAuthorized, false)
+    assert.equal(noSponsorRequest.payload.transactionBroadcast, false)
+    assert.equal(broadcastAttempts, 0)
+
+    const missingConsent = await call('/application', sponsorToken, { displayName: 'Individual sponsor' })
+    assert.equal(missingConsent.response.status, 400)
+    assert.equal(missingConsent.payload.error, 'sponsor-participation-consent-required')
+    const registration = await call('/application', sponsorToken, {
+      displayName: 'Individual sponsor',
+      participationConsent: true,
+    })
     assert.equal(registration.response.status, 201)
     sponsorApplicationId = registration.payload.application.id
     assert.equal(registration.payload.application.status, 'pending-review')
     assert.equal(registration.payload.complianceVerified, false)
+    assert.equal(registration.payload.application.participationTermsVersion, 'sponsor-participation-v1')
+    assert.ok(registration.payload.application.participationConsentAt)
+    const legacyApplicationId = randomUUID()
+    await db.query(
+      'INSERT INTO trc20_token_clone.sponsor_direct_applications ' +
+      '(id,sponsor_address,display_name,status) VALUES ($1,$2,$3,$4)',
+      [legacyApplicationId, recipientAddress, 'Legacy application without consent', 'pending-review'],
+    )
+    const legacyApproval = await call('/applications/' + legacyApplicationId + '/review', ownerToken, {
+      decision: 'approve',
+      reviewReference: 'legacy-no-consent',
+      perPayoutLimit: '10',
+      dailyLimit: '20',
+    })
+    assert.equal(legacyApproval.response.status, 409)
+    assert.equal(legacyApproval.payload.error, 'application-not-pending-or-current-consent-required')
+    await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [legacyApplicationId])
+
     const ownerReview = await call('/applications/' + registration.payload.application.id + '/review', ownerToken, {
       decision: 'approve',
       reviewReference: 'wallet-sponsor-review-001',
@@ -333,6 +384,15 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(ownerReview.response.status, 200)
     assert.equal(ownerReview.payload.application.status, 'active')
     assert.equal(ownerReview.payload.complianceVerified, false)
+
+    // A newly approved sponsor can see the previously queued, unassigned
+    // request. Sponsor registration was not a prerequisite for owner intake.
+    const queueWithEarlierRequest = await call('/queue', sponsorToken)
+    assert.equal(queueWithEarlierRequest.response.status, 200)
+    assert.equal(queueWithEarlierRequest.payload.requests.some((item) =>
+      item.id === noSponsorRequest.payload.request.id && item.status === 'requested'
+        && item.sponsorAddress === null), true)
+
     const outsiderRequest = await call('/requests', outsiderToken, {
       recipientAddress,
       amount: '25',
@@ -351,6 +411,15 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(first.payload.payoutAuthorized, false)
     assert.equal(first.payload.transactionBroadcast, false)
     assert.equal(first.payload.request.sponsorAddress, sponsorAddress)
+
+    const duplicateFirst = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '25',
+      idempotencyKey: firstIdempotencyKey,
+    })
+    assert.equal(duplicateFirst.response.status, 200)
+    assert.equal(duplicateFirst.payload.duplicate, true)
+    assert.equal(duplicateFirst.payload.request.id, first.payload.request.id)
 
     const second = await call('/requests', requesterToken, {
       recipientAddress,
@@ -389,6 +458,61 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(requesterHistory.response.status, 200)
     const requesterCopy = requesterHistory.payload.requests.find((item) => item.id === first.payload.request.id)
     assert.equal(requesterCopy.unsignedTransaction, undefined)
+
+    const unsignedSignedTransaction = {
+      ...prepared.payload.unsignedTransaction,
+      signature: ['a'.repeat(130)],
+    }
+    const rejectedBroadcast = await call('/requests/' + first.payload.request.id + '/broadcast', sponsorToken, {
+      signedTransaction: unsignedSignedTransaction,
+    })
+    assert.equal(rejectedBroadcast.response.status, 401)
+    assert.equal(rejectedBroadcast.payload.error, 'sponsor-signature-not-approved-by-tron-network')
+    assert.equal(broadcastAttempts, 0)
+
+    approvedAddresses = [sponsorAddress]
+    const submitted = await call('/requests/' + first.payload.request.id + '/broadcast', sponsorToken, {
+      signedTransaction: unsignedSignedTransaction,
+    })
+    assert.equal(submitted.response.status, 202)
+    assert.equal(submitted.payload.status, 'submitted')
+    assert.equal(submitted.payload.transactionHash, prepared.payload.unsignedTransaction.txID)
+    assert.equal(broadcastAttempts, 1)
+
+    const statusAfterBroadcast = await call('/requests/' + first.payload.request.id, requesterToken)
+    assert.equal(statusAfterBroadcast.response.status, 200)
+    assert.equal(statusAfterBroadcast.payload.request.status, 'submitted')
+    assert.equal(statusAfterBroadcast.payload.confirmation, null)
+    assert.equal(statusAfterBroadcast.payload.exchangeCreditStatus, 'not-verified-by-tron-chain')
+
+    const cannotCancelSubmitted = await call('/requests/' + first.payload.request.id + '/cancel', requesterToken, {})
+    assert.equal(cannotCancelSubmitted.response.status, 409)
+    assert.equal(cannotCancelSubmitted.payload.error, 'payout-can-no-longer-be-cancelled-safely')
+
+    const cancelledPending = await call('/requests/' + second.payload.request.id + '/cancel', requesterToken, {})
+    assert.equal(cancelledPending.response.status, 200)
+    assert.equal(cancelledPending.payload.request.status, 'cancelled')
+    assert.equal(cancelledPending.payload.transactionBroadcast, false)
+
+    const third = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '25',
+      idempotencyKey: thirdIdempotencyKey,
+    })
+    assert.equal(third.response.status, 201)
+    assert.equal(third.payload.sponsorRouting, 'auto-assigned-awaiting-sponsor-signature')
+    const thirdPrepared = await call('/requests/' + third.payload.request.id + '/prepare', sponsorToken, {})
+    assert.equal(thirdPrepared.response.status, 201)
+    assert.equal(thirdPrepared.payload.request.status, 'prepared')
+    const cancelledPrepared = await call('/requests/' + third.payload.request.id + '/cancel', requesterToken, {})
+    assert.equal(cancelledPrepared.response.status, 200)
+    assert.equal(cancelledPrepared.payload.request.status, 'cancelled')
+    assert.equal(cancelledPrepared.payload.request.transactionHash, null)
+    assert.equal(cancelledPrepared.payload.request.sponsorAddress, null)
+    assert.equal(cancelledPrepared.payload.transactionBroadcast, false)
+    const queueAfterCancellation = await call('/queue', sponsorToken)
+    assert.equal(queueAfterCancellation.response.status, 200)
+    assert.equal(queueAfterCancellation.payload.requests.some((item) => item.id === third.payload.request.id), false)
   } finally {
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE idempotency_key = ANY($1::uuid[])', [idempotencyKeys]).catch(() => {})
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [sponsorApplicationId]).catch(() => {})
@@ -483,3 +607,67 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(JSON.stringify(payload).includes(sponsorAddress), false)
 })
 
+
+test('owner-only partner prospect API persists contact tracking without granting payout eligibility', async (t) => {
+  const ownerToken = 'p'.repeat(43)
+  const origin = 'https://tron-transfer.integration.test'
+  const saved = new Map()
+  const database = {
+    async query(sql, values = []) {
+      if (sql.startsWith('INSERT INTO trc20_token_clone.payout_partner_prospects')) {
+        const [id,name,type,contact,notes] = values
+        const row = { id, name, prospect_type:type, public_contact:contact, notes, status:'identified', created_at:new Date(), updated_at:new Date() }
+        saved.set(id,row)
+        return { rows:[row], rowCount:1 }
+      }
+      if (sql.startsWith('SELECT id,name,prospect_type,public_contact,notes,status,created_at,updated_at')) return { rows:[...saved.values()] }
+      if (sql.startsWith('UPDATE trc20_token_clone.payout_partner_prospects')) {
+        const [id,status] = values, row=saved.get(id)
+        if (!row) return { rows:[], rowCount:0 }
+        row.status=status
+        return { rows:[{id,status}], rowCount:1 }
+      }
+      if (sql.startsWith('DELETE FROM trc20_token_clone.payout_partner_prospects')) {
+        const deleted=saved.delete(values[0])
+        return { rows:[], rowCount:deleted?1:0 }
+      }
+      return { rows:[], rowCount:0 }
+    },
+  }
+  const app = express()
+  app.use(express.json())
+  app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({
+    env:{ FRONTEND_ORIGIN:origin, OWNER_WALLET_ADDRESS:requesterAddress },
+    getSession:async ({origin:requestOrigin})=>({success:true,session:{
+      address:requesterAddress,network:'mainnet',origin:requestOrigin,expiresAt:Date.now()+3600000,
+    }}),
+    getDatabase:()=>database,
+  }))
+  const server=createServer(app)
+  await new Promise((resolve)=>server.listen(0,'127.0.0.1',resolve))
+  t.after(()=>new Promise((resolve,reject)=>server.close((error)=>error?reject(error):resolve())))
+  const base='http://127.0.0.1:'+server.address().port+'/api/tron/sponsor-direct/partner-prospects'
+  const headers={Origin:origin,Authorization:'Bearer '+ownerToken,'Content-Type':'application/json'}
+  const created=await fetch(base,{method:'POST',headers,body:JSON.stringify({
+    name:'Example Treasury Desk',type:'treasury-partner',contact:'https://example.test/contact',notes:'Ask for official API specification.',
+  })})
+  const createdPayload=await created.json()
+  assert.equal(created.status,201)
+  assert.equal(createdPayload.prospect.status,'identified')
+  assert.equal(createdPayload.payoutEligible,false)
+  const id=createdPayload.prospect.id
+  const listed=await fetch(base,{headers})
+  const listedPayload=await listed.json()
+  assert.equal(listed.status,200)
+  assert.equal(listedPayload.prospects.length,1)
+  const changed=await fetch(base+'/'+id+'/status',{method:'POST',headers,body:JSON.stringify({status:'due-diligence'})})
+  assert.equal(changed.status,200)
+  assert.equal((await changed.json()).payoutEligible,false)
+  const removed=await fetch(base+'/'+id,{method:'DELETE',headers})
+  assert.equal(removed.status,200)
+  assert.equal((await removed.json()).deleted,true)
+  const invalid=await fetch(base,{method:'POST',headers,body:JSON.stringify({
+    name:'Bad URL',type:'payout-provider',contact:'http://untrusted.test',
+  })})
+  assert.equal(invalid.status,400)
+})

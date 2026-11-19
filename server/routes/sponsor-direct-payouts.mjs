@@ -93,12 +93,29 @@ async function ensureSchema(db) {
         'contact_email TEXT, status TEXT NOT NULL DEFAULT \'pending-review\' ' +
         'CHECK (status IN (\'pending-review\',\'active\',\'declined\',\'suspended\')), ' +
         'per_payout_limit_base_units NUMERIC(78,0), daily_limit_base_units NUMERIC(78,0), ' +
-        'review_reference TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
+        'review_reference TEXT, participation_consent_at TIMESTAMPTZ, participation_terms_version TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
         'updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), reviewed_at TIMESTAMPTZ)'
+      )
+      await db.query(
+        'ALTER TABLE ' + SCHEMA + '.sponsor_direct_applications ' +
+        'ADD COLUMN IF NOT EXISTS participation_consent_at TIMESTAMPTZ, ' +
+        'ADD COLUMN IF NOT EXISTS participation_terms_version TEXT'
       )
       await db.query(
         'CREATE INDEX IF NOT EXISTS sponsor_direct_applications_status_idx ON ' +
         SCHEMA + '.sponsor_direct_applications (status, created_at ASC)'
+      )
+      await db.query(
+        'CREATE TABLE IF NOT EXISTS ' + SCHEMA + '.payout_partner_prospects (' +
+        'id UUID PRIMARY KEY, name TEXT NOT NULL, prospect_type TEXT NOT NULL CHECK (prospect_type IN ' +
+        '(\'payout-provider\',\'treasury-partner\',\'grant-program\',\'individual-sponsor\')), ' +
+        'public_contact TEXT, notes TEXT, status TEXT NOT NULL DEFAULT \'identified\' CHECK (status IN ' +
+        '(\'identified\',\'contacted\',\'due-diligence\',\'agreement-pending\',\'sandbox-pending\',\'declined\')), ' +
+        'created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())'
+      )
+      await db.query(
+        'CREATE INDEX IF NOT EXISTS payout_partner_prospects_created_idx ON ' +
+        SCHEMA + '.payout_partner_prospects (created_at DESC)'
       )
       await db.query(
         'CREATE TABLE IF NOT EXISTS ' + SCHEMA + '.sponsor_direct_payouts (' +
@@ -436,6 +453,8 @@ function publicApplication(row) {
     perPayoutLimitBaseUnits: row.per_payout_limit_base_units == null ? null : String(row.per_payout_limit_base_units),
     dailyLimitBaseUnits: row.daily_limit_base_units == null ? null : String(row.daily_limit_base_units),
     reviewReference: row.review_reference || null,
+    participationConsentAt: row.participation_consent_at ? new Date(row.participation_consent_at).toISOString() : null,
+    participationTermsVersion: row.participation_terms_version || null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
     ...(row.reviewed_at ? { reviewedAt: new Date(row.reviewed_at).toISOString() } : {}),
@@ -681,6 +700,14 @@ async function autoAssignSponsorToRequest({
     candidates = found.rows || []
   } catch {
     // A temporary database or sponsor-profile issue leaves the request unassigned.
+    return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+
+  // Creating an owner withdrawal request never depends on sponsor registration.
+  // If no approved sponsor exists, keep the request queued without contacting
+  // Tatum or pretending that funding is available. A later approved sponsor can
+  // accept it through the normal prepare-and-sign flow.
+  if (!candidates.length) {
     return { request, routing: 'awaiting-eligible-sponsor' }
   }
 
@@ -1046,6 +1073,78 @@ export function createSponsorDirectPayoutsRouter({
 } = {}) {
   const router = Router()
 
+  // Owner-only prospect CRM. Contact notes never grant payout authority.
+  router.get('/partner-prospects', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query('SELECT id,name,prospect_type,public_contact,notes,status,created_at,updated_at FROM ' + SCHEMA + '.payout_partner_prospects ORDER BY created_at DESC LIMIT 100')
+      return res.json({ success: true, prospects: result.rows.map((row) => ({ id: row.id, name: row.name, type: row.prospect_type, contact: row.public_contact, notes: row.notes, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at })), fundingVerified: false, payoutEligible: false })
+    } catch {
+      return res.status(503).json({ success: false, error: 'partner-prospect-list-unavailable' })
+    }
+  })
+
+  router.post('/partner-prospects', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).some((key) => !['name','type','contact','notes'].includes(key))) return res.status(400).json({ success: false, error: 'unexpected-fields' })
+    const name = clean(body.name, 100), type = clean(body.type, 32), contact = clean(body.contact, 160), notes = clean(body.notes, 1000)
+    if (name.length < 2 || !['payout-provider','treasury-partner','grant-program','individual-sponsor'].includes(type)) return res.status(400).json({ success: false, error: 'invalid-partner-prospect' })
+    if (contact && !/^https:\/\//i.test(contact) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) return res.status(400).json({ success: false, error: 'contact-must-be-public-https-url-or-email' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query('INSERT INTO ' + SCHEMA + '.payout_partner_prospects (id,name,prospect_type,public_contact,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id,name,prospect_type,public_contact,notes,status,created_at,updated_at', [randomUUID(),name,type,contact || null,notes || null])
+      const row = result.rows[0]
+      return res.status(201).json({ success: true, prospect: { id: row.id, name: row.name, type: row.prospect_type, contact: row.public_contact, notes: row.notes, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at }, fundingVerified: false, payoutEligible: false })
+    } catch {
+      return res.status(503).json({ success: false, error: 'partner-prospect-create-failed' })
+    }
+  })
+
+  router.post('/partner-prospects/:id/status', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const id = clean(req.params?.id, 64), status = clean(req.body?.status, 32)
+    if (!UUID_RE.test(id) || !['identified','contacted','due-diligence','agreement-pending','sandbox-pending','declined'].includes(status)) return res.status(400).json({ success: false, error: 'invalid-prospect-status' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query('UPDATE ' + SCHEMA + '.payout_partner_prospects SET status=$2,updated_at=now() WHERE id=$1 RETURNING id,status', [id,status])
+      if (!result.rowCount) return res.status(404).json({ success: false, error: 'partner-prospect-not-found' })
+      return res.json({ success: true, id: result.rows[0].id, status: result.rows[0].status, payoutEligible: false })
+    } catch {
+      return res.status(503).json({ success: false, error: 'partner-prospect-update-failed' })
+    }
+  })
+
+  router.delete('/partner-prospects/:id', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const id = clean(req.params?.id, 64)
+    if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-prospect-id' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query('DELETE FROM ' + SCHEMA + '.payout_partner_prospects WHERE id=$1', [id])
+      return result.rowCount ? res.json({ success: true, deleted: true }) : res.status(404).json({ success: false, error: 'partner-prospect-not-found' })
+    } catch {
+      return res.status(503).json({ success: false, error: 'partner-prospect-delete-failed' })
+    }
+  })
+
   router.get('/config', (_req, res) => {
     setNoStore(res)
     return res.json({
@@ -1091,11 +1190,14 @@ export function createSponsorDirectPayoutsRouter({
       return res.status(403).json({ success: false, error: 'platform-owner-wallet-cannot-act-as-third-party-sponsor' })
     }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
-    if (Object.keys(body).some((key) => !['displayName', 'contactEmail'].includes(key))) {
+    if (Object.keys(body).some((key) => !['displayName', 'contactEmail', 'participationConsent'].includes(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields' })
     }
     const displayName = clean(body.displayName, 120)
     const contactEmail = clean(body.contactEmail, 254).toLowerCase()
+    if (body.participationConsent !== true) {
+      return res.status(400).json({ success: false, error: 'sponsor-participation-consent-required' })
+    }
     if (displayName.length < 2
       || (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contactEmail))) {
       return res.status(400).json({ success: false, error: 'invalid-sponsor-profile' })
@@ -1109,8 +1211,9 @@ export function createSponsorDirectPayoutsRouter({
       const id = randomUUID()
       const result = await db.query(
         'INSERT INTO ' + SCHEMA + '.sponsor_direct_applications ' +
-        '(id,sponsor_address,display_name,contact_email,status) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-        [id, auth.address, displayName, contactEmail || null, 'pending-review'],
+        '(id,sponsor_address,display_name,contact_email,status,participation_consent_at,participation_terms_version) ' +
+        'VALUES ($1,$2,$3,$4,$5,now(),$6) RETURNING *',
+        [id, auth.address, displayName, contactEmail || null, 'pending-review', 'sponsor-participation-v1'],
       )
       return res.status(201).json({
         success: true,
@@ -1185,11 +1288,15 @@ export function createSponsorDirectPayoutsRouter({
       const result = await db.query(
         'UPDATE ' + SCHEMA + '.sponsor_direct_applications SET status=$2, review_reference=$3, ' +
         'per_payout_limit_base_units=$4, daily_limit_base_units=$5, updated_at=now(), reviewed_at=now() ' +
-        'WHERE id=$1 AND status=\'pending-review\' RETURNING *',
+        'WHERE id=$1 AND status=\'pending-review\' ' +
+        'AND ($6::boolean = false OR (participation_consent_at IS NOT NULL AND participation_terms_version=$7)) RETURNING *',
         [id, decision === 'approve' ? 'active' : 'declined', reviewReference,
-          perPayoutBaseUnits, dailyBaseUnits],
+          perPayoutBaseUnits, dailyBaseUnits, decision === 'approve', 'sponsor-participation-v1'],
       )
-      if (!result.rowCount) return res.status(409).json({ success: false, error: 'application-not-pending-or-not-found' })
+      if (!result.rowCount) return res.status(409).json({
+        success: false,
+        error: decision === 'approve' ? 'application-not-pending-or-current-consent-required' : 'application-not-pending-or-not-found',
+      })
       return res.json({
         success: true,
         application: publicApplication(result.rows[0]),
@@ -1200,6 +1307,36 @@ export function createSponsorDirectPayoutsRouter({
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-application-review-failed' })
+    }
+  })
+
+  // Owner-only list of approved sponsor wallet profiles. Approval is not proof of
+  // current USDT or TRON resource sufficiency; each sponsor's own live readiness
+  // endpoint and the pre-sign/broadcast checks remain authoritative.
+  router.get('/approved-sponsors', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_applications WHERE status=$1 ORDER BY reviewed_at DESC NULLS LAST, created_at ASC LIMIT 100',
+        ['active'],
+      )
+      return res.json({
+        success: true,
+        sponsors: result.rows.map((row) => ({
+          ...publicApplication(row),
+          contactEmail: row.contact_email || null,
+          liveFundingStatus: 'not-checked',
+          liveFundingVerified: false,
+        })),
+        note: 'Approval permits wallet participation only. Current USDT balance and TRON resources must be checked live by the sponsor and again before each payout.',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'approved-sponsor-list-unavailable' })
     }
   })
 
@@ -1892,6 +2029,75 @@ export function createSponsorDirectPayoutsRouter({
       transactionHash: row.transaction_hash,
       note: 'Tatum accepted the sponsor-signed transfer. Final confirmation remains pending until the solidified Mainnet receipt and official USDT Transfer event are verified.',
     })
+  })
+
+
+  // The platform owner may cancel only a request that has not been signed or
+  // submitted. Once broadcasting begins, only reconciliation/manual review is
+  // safe; a cancellation must never be treated as proof that funds did not move.
+  router.post('/requests/:id/cancel', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const id = clean(req.params?.id, 64)
+    if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-payout-request-id' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    let client
+    try {
+      await ensureSchema(db)
+      client = await db.connect()
+      await client.query('BEGIN')
+      const found = await client.query(
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE id=$1 FOR UPDATE',
+        [id],
+      )
+      if (!found.rows.length) {
+        await client.query('ROLLBACK')
+        return res.status(404).json({ success: false, error: 'payout-request-not-found' })
+      }
+      const row = found.rows[0]
+      if (row.requester_address !== auth.address) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'payout-request-owner-only' })
+      }
+      if (!['requested', 'prepared'].includes(row.status) || row.signed_transaction) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({
+          success: false,
+          error: 'payout-can-no-longer-be-cancelled-safely',
+          request: publicRequest(row),
+          note: 'This request has reached signing or broadcast processing. Refresh and reconcile its existing transaction instead of cancelling or creating a replacement.',
+        })
+      }
+      const updated = await client.query(
+        "UPDATE " + SCHEMA + ".sponsor_direct_payouts SET status='cancelled', " +
+        "failure_code='cancelled-by-platform-owner', unsigned_transaction=NULL, " +
+        'transaction_hash=NULL, expires_at=NULL, sponsor_address=NULL, updated_at=now() ' +
+        "WHERE id=$1 AND requester_address=$2 AND status IN ('requested','prepared') " +
+        'AND signed_transaction IS NULL RETURNING *',
+        [id, auth.address],
+      )
+      if (!updated.rowCount) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: 'payout-cancellation-raced-with-signing-or-broadcast' })
+      }
+      await client.query('COMMIT')
+      return res.json({
+        success: true,
+        request: publicRequest(updated.rows[0]),
+        payoutAuthorized: false,
+        transactionBroadcast: false,
+        note: 'The unsigned payout request was cancelled. Its sponsor reservation is released. No funds were moved.',
+      })
+    } catch {
+      if (client) {
+        try { await client.query('ROLLBACK') } catch {}
+      }
+      return res.status(503).json({ success: false, error: 'payout-cancellation-unavailable' })
+    } finally {
+      client?.release()
+    }
   })
 
   router.get('/requests/:id', async (req, res) => {
