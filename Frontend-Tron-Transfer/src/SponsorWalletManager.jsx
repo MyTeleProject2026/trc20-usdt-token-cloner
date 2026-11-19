@@ -99,6 +99,8 @@ export default function SponsorWalletManager() {
     }
   }, [wallet, tronWeb, notify])
 
+  useEffect(() => { if (wallet) void refresh() }, [wallet, refresh])
+
   async function importWallet() {
     setBusy(true)
     try {
@@ -112,7 +114,6 @@ export default function SponsorWalletManager() {
       setVaultPassword('')
       setSnapshot(null)
       notify('success', 'Sponsor Wallet imported', `TRON Mainnet address verified: ${account.address}`)
-      setTimeout(() => void refreshAfterImport(account), 0)
     } catch (error) {
       notify('error', 'Wallet import failed', error instanceof Error ? error.message : 'Unable to import the Sponsor Wallet.')
     } finally {
@@ -120,22 +121,6 @@ export default function SponsorWalletManager() {
     }
   }
 
-  async function refreshAfterImport(account) {
-    try {
-      const client = createSponsorTronWeb(account.privateKey)
-      const [balance, resources] = await Promise.all([
-        client.trx.getBalance(account.address),
-        client.trx.getAccountResources(account.address),
-      ])
-      setSnapshot({
-        trxSun: String(balance), usdt: '0',
-        energyLimit: Number(resources.EnergyLimit || 0), energyUsed: Number(resources.EnergyUsed || 0),
-        netLimit: Number(resources.NetLimit || 0), netUsed: Number(resources.NetUsed || 0),
-        freeNetLimit: Number(resources.freeNetLimit || 0), freeNetUsed: Number(resources.freeNetUsed || 0),
-        delegatedEnergySun: '0', delegatedBandwidthSun: '0', activated: true, checkedAt: new Date().toISOString(),
-      })
-    } catch { /* The dashboard remains imported; Refresh shows the actionable provider error. */ }
-  }
 
   async function unlockWallet() {
     setBusy(true)
@@ -176,9 +161,11 @@ export default function SponsorWalletManager() {
 
   async function submitResourceTransaction(action) {
     if (!wallet || !tronWeb || busy) return
-    const amountSun = parseTrx(amount)
+    let amountSun
+    try { amountSun = parseTrx(amount) } catch (error) { notify('error', 'Invalid resource amount', error.message); return }
+    if (amountSun < SUN) { notify('error', 'Minimum Stake 2.0 amount', 'Use at least 1 TRX for staking or resource delegation.'); return }
     const available = BigInt(snapshot?.trxSun || '0')
-    if (available < BigInt(amountSun)) throw new Error('Sponsor Wallet TRX balance is below the requested amount.')
+    if (available < BigInt(amountSun) + 1_000_000n) { notify('error', 'Insufficient TRX reserve', 'Keep at least 1 TRX available for network fees. The requested amount cannot consume the full Sponsor Wallet balance.'); return }
     const verb = action === 'stake' ? 'stake' : 'delegate'
     const target = action === 'stake' ? wallet.address : OWNER_ADDRESS
     const prompt = action === 'stake'
