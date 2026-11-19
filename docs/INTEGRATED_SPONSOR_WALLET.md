@@ -12,7 +12,7 @@ The module is import-only:
 There is no Create Wallet action. The imported sponsor account must be different from the configured Owner Wallet:
 `TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp`.
 
-The Sponsor Wallet can be locked or logged out without deleting its encrypted local vault. It can be replaced by importing another account; the previous encrypted backup is retained until the replacement import succeeds. Removing the encrypted local backup is a separate, explicitly confirmed action.
+Lock returns to the encrypted-wallet unlock prompt. Logout clears the active session and returns to the import screen while retaining the encrypted backup; a separate Reconnect saved Sponsor Wallet action restores the unlock prompt. Neither action deletes the vault. The wallet can be replaced by importing another account; the previous encrypted backup is retained until the replacement import succeeds. Removing the encrypted local backup is a separate, explicitly confirmed action.
 
 ## Local wallet vault
 
