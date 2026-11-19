@@ -68,7 +68,10 @@ async function deriveVaultKey(password, salt) {
 
 export async function saveSponsorWalletVault(account, password) {
   if (typeof password !== 'string' || password.length < 12) throw new Error('Use a wallet-vault password with at least 12 characters.')
-  const privateKey = normalizePrivateKey(account.privateKey)\n  const derivedAddress = createSponsorTronWeb().address.fromPrivateKey(privateKey)\n  if (derivedAddress !== account.address) throw new Error('Sponsor Wallet address does not match the imported private key.')\n  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const privateKey = normalizePrivateKey(account.privateKey)
+  const derivedAddress = createSponsorTronWeb().address.fromPrivateKey(privateKey)
+  if (derivedAddress !== account.address) throw new Error('Sponsor Wallet address does not match the imported private key.')
+  const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const key = await deriveVaultKey(password, salt)
   const payload = new TextEncoder().encode(JSON.stringify({
