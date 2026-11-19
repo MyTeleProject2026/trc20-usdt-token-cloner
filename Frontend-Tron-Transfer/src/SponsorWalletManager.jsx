@@ -7,7 +7,7 @@ import {
 import './sponsor-wallet.css'
 
 const OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const USDT_CONTRACT = 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj'
+const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const SUN = 1_000_000
 
 function formatAmount(value, digits = 6) {
@@ -99,7 +99,7 @@ export default function SponsorWalletManager() {
     }
   }, [wallet, tronWeb, notify])
 
-  useEffect(() => { if (wallet) void refresh() }, [wallet, refresh])
+  useEffect(() => { if (wallet) void refresh() }, [wallet, refresh])\n\n  useEffect(() => {\n    if (!wallet) return undefined\n    const timer = window.setInterval(() => { void refresh() }, 60_000)\n    return () => window.clearInterval(timer)\n  }, [wallet, refresh])
 
   async function importWallet() {
     setBusy(true)
