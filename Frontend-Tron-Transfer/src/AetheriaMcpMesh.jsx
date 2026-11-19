@@ -121,12 +121,12 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     try {
       const result = await readJson(path)
       if (!alive.current) return
-      consume(result.body)
+      const outcome = consume(result.body) || {}
       const returnedAt = new Date().toISOString()
       setCalls(previous => ({ ...previous, [id]: {
-        state: 'online', statusCode: result.statusCode, latencyMs: result.latencyMs,
+        state: outcome.state || 'online', statusCode: result.statusCode, latencyMs: result.latencyMs,
         requestedAt, returnedAt, requestId, callback: 'received',
-        detail: 'HTTP ' + result.statusCode + ' · callback received',
+        detail: outcome.detail || ('HTTP ' + result.statusCode + ' · callback received'),
       } }))
       recordEvent(id, 'success', 'Return callback received in ' + result.latencyMs + ' ms')
     } catch (error) {
@@ -144,7 +144,7 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     }
   }, [recordEvent])
 
-  const refreshHealth = useCallback(() => invoke('health', '/health', body => setHealth(body)), [invoke])
+  const refreshHealth = useCallback(() => invoke('health', '/health', body => { setHealth(body); return body.ok && body.network === 'TRON Mainnet' ? null : { state: 'warning', detail: 'Health payload did not confirm TRON Mainnet' } }), [invoke])
   const refreshRuntime = useCallback(() => invoke('runtime', '/api/observatory/snapshot', body => {
     if (!body?.ok) throw new Error('Runtime snapshot payload is not healthy')
     setRuntime(body)
@@ -157,6 +157,7 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const refreshPromo = useCallback(() => invoke('tenergy', '/api/tron/tenergy/promo?address=' + encodeURIComponent(OWNER), body => {
     if (!body.success) throw new Error(body.error || 'TEnergy promotion response was unsuccessful')
     setPromo(body)
+    return body.promo?.state === 'active' ? null : { state: 'warning', detail: 'TEnergy promotion is not active; provider response received' }
   }), [invoke])
   const refreshTransactions = useCallback(() => invoke('transactions', '/api/observatory/transactions?address=' + encodeURIComponent(OWNER), body => {
     if (!body.success) throw new Error(body.message || 'Confirmed transaction response was unsuccessful')
@@ -165,27 +166,25 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const refreshRenderEvents = useCallback(() => invoke('renderEvents', '/api/observatory/render-events', body => {
     if (!body.success) throw new Error(body.message || 'Render events response was unsuccessful')
     setRenderEvents(Array.isArray(body.events) ? body.events : [])
+    return body.configured ? null : { state: 'warning', detail: body.note || 'Render API credential is not configured' }
   }), [invoke])
   const refreshUptime = useCallback(() => invoke('uptime', '/api/observatory/uptime-history', body => {
     if (!body.success) throw new Error(body.message || 'Uptime history response was unsuccessful')
     setUptimeRuns(Array.isArray(body.runs) ? body.runs : [])
+    return Array.isArray(body.runs) && body.runs.length ? null : { state: 'warning', detail: 'Archive is reachable but currently contains no records' }
   }), [invoke])
   const refreshRenderMetrics = useCallback(() => invoke('renderMetrics', '/api/observatory/render-metrics', body => {
     if (!body.success) throw new Error(body.message || 'Render metrics response was unsuccessful')
     setRenderMetrics(Array.isArray(body.metrics) ? body.metrics : [])
+    const hasSamples = body.metrics?.some(item => ['cpu', 'memory'].includes(item.id) && item.points?.length)
+    return body.configured && hasSamples ? null : { state: 'warning', detail: body.note || 'Authenticated Render metrics samples are not available' }
   }), [invoke])
 
-  const refreshAll = useCallback(() => {
+  const refreshAll = useCallback(async () => {
     setRefreshing(true)
-    refreshHealth()
-    refreshRuntime()
-    refreshResources()
-    refreshPromo()
-    refreshTransactions()
-    refreshRenderEvents()
-    refreshUptime()
-    refreshRenderMetrics()
-    window.setTimeout(() => setRefreshing(false), 900)
+    try {
+      await Promise.all([refreshHealth(), refreshRuntime(), refreshResources(), refreshPromo(), refreshTransactions(), refreshRenderEvents(), refreshUptime(), refreshRenderMetrics()])
+    } finally { setRefreshing(false) }
   }, [refreshHealth, refreshRuntime, refreshResources, refreshPromo, refreshTransactions, refreshRenderEvents, refreshUptime, refreshRenderMetrics])
 
   useEffect(() => {
@@ -244,15 +243,14 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const bandwidth = resources?.bandwidth?.maxSingleTransactionAvailable
   const providers = health?.rpcProviderPriority || []
   const providerUsed = resources?.rpc?.providersUsed || {}
-  const flowOnline = Object.values(calls).filter(item => item.state === 'online').length
-  const flowCount = API_FLOWS.length
+    const flowCount = API_FLOWS.length
   const allFlowCount = API_FLOWS.filter(item => calls[item.id].state === 'online').length
   const latestTick = calls.runtime.returnedAt
   const metricsById = useMemo(() => Object.fromEntries(renderMetrics.map(metric => [metric.id, metric])), [renderMetrics])
   const cpu = metricsById.cpu
   const memory = metricsById.memory
   const nodes = [
-    { id: 'owner', label: 'OWNER CONSOLE', sub: 'Operator session', state: 'online', x: 500, y: 220, icon: Wallet },
+    { id: 'owner', label: 'OWNER CONSOLE', sub: ownerConnected ? 'Configured owner wallet connected' : 'Dashboard session · wallet not connected', state: ownerConnected ? 'online' : 'warning', x: 500, y: 220, icon: Wallet },
     { id: 'gateway', label: 'MCP GATEWAY', sub: 'Resource API · 1:1 routes', state: calls.health.state === 'online' && runtimeState === 'online' ? 'online' : calls.health.state, x: 500, y: 78, icon: Network },
     { id: 'mainnet', label: 'TRON MAINNET', sub: 'Owner resources · confirmed chain', state: calls.resources.state, x: 210, y: 220, icon: Globe2 },
     { id: 'tatum', label: 'TATUM RPC', sub: 'Primary provider route', state: providers.includes('tatum') ? 'online' : calls.resources.state === 'online' ? 'warning' : 'checking', x: 115, y: 85, icon: Server },
