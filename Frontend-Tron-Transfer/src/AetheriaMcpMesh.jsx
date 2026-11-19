@@ -9,7 +9,7 @@ import './aetheria-mcp-mesh.css'
 const RESOURCE_API = (import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/$/, '')
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const POLL = Object.freeze({
-  health: 5_000,
+  health: 1_000,
   runtime: 1_000,
   resources: 15_000,
   tenergy: 15_000,
