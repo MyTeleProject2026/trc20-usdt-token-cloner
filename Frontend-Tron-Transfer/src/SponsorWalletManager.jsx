@@ -76,9 +76,29 @@ export default function SponsorWalletManager() {
     if (!wallet?.address) return
     try {
       const stored = JSON.parse(localStorage.getItem(ACTIVITY_KEY + ':' + wallet.address) || '[]')
-      const rows = Array.isArray(stored) ? stored.filter((item) => item && item.sponsorAddress === wallet.address).slice(0, 50) : []\n      setActivity(rows)\n      setLastDelegation(rows.find((item) => item.action === 'delegate' && item.status !== 'solidified-mainnet-verified') || null)
+      const rows = Array.isArray(stored) ? stored.filter((item) => item && item.sponsorAddress === wallet.address).slice(0, 50) : []
+      setActivity(rows)
+      setLastDelegation(rows.find((item) => item.action === 'delegate' && item.status !== 'solidified-mainnet-verified') || null)
     } catch { setActivity([]) }
-  }, [wallet?.address])\n\n  useEffect(() => {\n    if (!wallet?.address || !API_BASE) return undefined\n    let cancelled = false\n    const loadVerifiedHistory = async () => {\n      try {\n        const response = await fetch(API_BASE + '/api/tron/sponsorship/resource-delegations?network=mainnet&limit=100', { cache: 'no-store' })\n        if (!response.ok) return\n        const payload = await response.json()\n        if (cancelled || !Array.isArray(payload.delegations)) return\n        for (const row of payload.delegations.filter((item) => item.sponsorAddress === wallet.address)) {\n          recordActivity({ transactionId: row.transactionId, sponsorAddress: row.sponsorAddress, receiverAddress: row.receiverAddress, resourceType: row.resourceType, stakeEquivalentSun: row.stakeEquivalentSun, action: 'delegate', status: 'solidified-mainnet-verified', blockNumber: row.blockNumber, createdAt: row.recordedAt || new Date().toISOString() })\n        }\n      } catch { /* The local audit history remains available if the API is offline. */ }\n    }\n    void loadVerifiedHistory()\n    return () => { cancelled = true }\n  }, [wallet?.address, recordActivity])
+  }, [wallet?.address])
+
+  useEffect(() => {
+    if (!wallet?.address || !API_BASE) return undefined
+    let cancelled = false
+    const loadVerifiedHistory = async () => {
+      try {
+        const response = await fetch(API_BASE + '/api/tron/sponsorship/resource-delegations?network=mainnet&limit=100', { cache: 'no-store' })
+        if (!response.ok) return
+        const payload = await response.json()
+        if (cancelled || !Array.isArray(payload.delegations)) return
+        for (const row of payload.delegations.filter((item) => item.sponsorAddress === wallet.address)) {
+          recordActivity({ transactionId: row.transactionId, sponsorAddress: row.sponsorAddress, receiverAddress: row.receiverAddress, resourceType: row.resourceType, stakeEquivalentSun: row.stakeEquivalentSun, action: 'delegate', status: 'solidified-mainnet-verified', blockNumber: row.blockNumber, createdAt: row.recordedAt || new Date().toISOString() })
+        }
+      } catch { /* The local audit history remains available if the API is offline. */ }
+    }
+    void loadVerifiedHistory()
+    return () => { cancelled = true }
+  }, [wallet?.address, recordActivity])
 
   useEffect(() => { setSaved(hasSavedSponsorWallet()) }, [])
 
@@ -347,6 +367,6 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
         <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => item.status === 'solidified-mainnet-verified').length} independently verified</b></div>{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
       </section>
     </div>}
-    <CenterToast toast={toast} onClose={() => setToast(null)}/>
+    
   </section>
 }
