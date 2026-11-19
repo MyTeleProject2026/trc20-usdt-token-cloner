@@ -65,7 +65,7 @@ export default function App() {
     if (!provider?.on) return undefined
     const invalidate = () => {
       setWallet(null)
-      setActivePage('overview')
+      setActivePage('home')
       setWalletNotice('TronLink account or network changed. Reconnect and verify the intended owner address.')
     }
     for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) provider.on(event, invalidate)
