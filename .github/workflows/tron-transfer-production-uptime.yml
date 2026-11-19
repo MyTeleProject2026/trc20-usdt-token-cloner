@@ -27,7 +27,7 @@ jobs:
           const fs = require('node:fs');
           const targets = [
             { name: 'owner-admin-frontend', url: 'https://tron-transfer.onrender.com/', expectJson: false },
-            { name: 'resource-api-health', url: 'https://tron-transfer-resource-api.onrender.com/health', expectJson: true },
+            { name: 'resource-api-health', url: 'https://tron-transfer-resource-api.onrender.com/health', expectJson: true, expectedNetwork: 'TRON Mainnet' },
             { name: 'runtime-observatory', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/snapshot', expectJson: true },
           ];
           (async () => {
@@ -64,8 +64,13 @@ jobs:
                         p95LatencyMs: Number(parsed.requests.p95LatencyMs) || 0,
                       };
                     }
-                    validPayload = response.ok && parsed && parsed.ok === true;
-                    detail = validPayload ? 'valid JSON health payload' : 'unexpected JSON health payload';
+                    const networkMatches = !target.expectedNetwork || parsed?.network === target.expectedNetwork;
+                    validPayload = response.ok && parsed && parsed.ok === true && networkMatches;
+                    detail = validPayload
+                      ? (target.expectedNetwork ? 'healthy · ' + target.expectedNetwork : 'valid JSON health payload')
+                      : !networkMatches
+                        ? 'unexpected network: ' + String(parsed?.network || 'missing')
+                        : 'unexpected JSON health payload';
                   } catch {
                     validPayload = false;
                     detail = 'response was not valid JSON';
