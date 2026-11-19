@@ -79,6 +79,8 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   const [vaultPassword, setVaultPassword] = useState('')
   const [unlockPassword, setUnlockPassword] = useState('')
   const [amount, setAmount] = useState('10')
+  const [energyTarget, setEnergyTarget] = useState('1278524')
+  const [bandwidthTarget, setBandwidthTarget] = useState('1000')
   const [resourceType, setResourceType] = useState('ENERGY')
   const [snapshot, setSnapshot] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -332,6 +334,8 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
   }
 
   const energyAvailable = Math.max(0, (snapshot?.energyLimit || 0) - (snapshot?.energyUsed || 0))
+  const ownerEnergyDeficit = Math.max(0, (Number(energyTarget) || 0) - (snapshot?.ownerEnergyAvailable || 0))
+  const ownerBandwidthDeficit = Math.max(0, (Number(bandwidthTarget) || 0) - (snapshot?.ownerBandwidthAvailable || 0))
   const bandwidthAvailable = Math.max(0, (snapshot?.netLimit || 0) - (snapshot?.netUsed || 0))
   const freeBandwidthAvailable = Math.max(0, (snapshot?.freeNetLimit || 0) - (snapshot?.freeNetUsed || 0))
 
@@ -388,7 +392,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
 
       <section className="sponsor-card">
         <div className="sponsor-card-heading"><Activity/><div><h3>Automatic Resource Engine</h3><p>Live owner-resource monitoring and sponsor capacity checks.</p></div></div>
-        <div className="sponsor-engine-grid"><div><small>OWNER TARGET</small><strong>{OWNER_ADDRESS}</strong></div><div><small>SPONSOR ENERGY STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedEnergySun) + ' TRX eq.' : '—'}</strong></div><div><small>SPONSOR BANDWIDTH STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedBandwidthSun) + ' TRX eq.' : '—'}</strong></div><div><small>OWNER ENERGY AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerEnergyAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>OWNER BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerBandwidthAvailable || 0).toLocaleString() : '—'}</strong></div></div>
+        <div className="sponsor-resource-controls"><label className="sponsor-field">Owner Energy target (units)<input inputMode="numeric" value={energyTarget} onChange={event => setEnergyTarget(event.target.value)}/><small>Default planning target only. Set this to the current deployment estimate from Owner Admin preflight.</small></label><label className="sponsor-field">Owner Bandwidth target (bytes)<input inputMode="numeric" value={bandwidthTarget} onChange={event => setBandwidthTarget(event.target.value)}/></label></div><div className="sponsor-engine-grid"><div><small>OWNER TARGET</small><strong>{OWNER_ADDRESS}</strong></div><div><small>SPONSOR ENERGY STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedEnergySun) + ' TRX eq.' : '—'}</strong></div><div><small>SPONSOR BANDWIDTH STAKED</small><strong>{snapshot ? formatAmount(snapshot.delegatedBandwidthSun) + ' TRX eq.' : '—'}</strong></div><div><small>OWNER ENERGY AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerEnergyAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>OWNER BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerBandwidthAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>ENERGY TARGET DEFICIT</small><strong>{snapshot ? ownerEnergyDeficit.toLocaleString() : '—'}</strong></div><div><small>BANDWIDTH TARGET DEFICIT</small><strong>{snapshot ? ownerBandwidthDeficit.toLocaleString() : '—'}</strong></div><div><small>RESOURCE PRECHECK</small><strong>{snapshot ? (ownerEnergyDeficit === 0 && ownerBandwidthDeficit === 0 ? 'Targets met' : 'Resource shortfall') : 'Awaiting live read'}</strong></div></div>
         <div className="sponsor-actions"><button className="sponsor-secondary" onClick={() => onNavigate('deploy')}>Open Owner Admin deployment preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('portfolio')}>Open Owner portfolio</button></div><p className="sponsor-warning">Monitoring is live when refreshed. Automatic unattended signing is intentionally disabled: each stake/delegation requires an explicit on-screen confirmation. A provider rental or free-grant adapter is not configured by this wallet import.</p>
       </section>
 
