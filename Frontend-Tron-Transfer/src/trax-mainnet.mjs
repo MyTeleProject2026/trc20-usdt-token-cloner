@@ -1399,6 +1399,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   estimateEnergy = estimateMainnetDeploymentEnergy,
   expectedOwnerAddress = '',
 } = {}) {
+  assertMainnetActionEnabled('deploymentExecution')
   // Build the unsigned deployment transaction with the SAME injected
   // TronWeb instance that will sign it. TronLink's provider can use a different
   // TronWeb/protobuf version than the app's pinned verifier; constructing with
