@@ -10,6 +10,7 @@ const OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const SUN = 1_000_000
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
+const RESOURCE_API = (import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 const ACTIVITY_KEY = 'tron-transfer.sponsor-activity.v1'
 const SECURITY_KEY = 'tron-transfer.sponsor-security-events.v1'
 
@@ -43,6 +44,30 @@ function formatSunAsTrx(value) {
   const whole = (sun / 1_000_000n).toString()
   const fraction = (sun % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
   return fraction ? whole + '.' + fraction : whole
+}
+async function readResourceSnapshot(address, tronWeb) {
+  try {
+    const response = await fetch(RESOURCE_API + '/v1/resources/' + encodeURIComponent(address), { cache: 'no-store' })
+    if (!response.ok) throw new Error('Resource API returned HTTP ' + response.status)
+    const payload = await response.json()
+    if (payload?.address !== address || payload?.network !== 'TRON Mainnet' || !payload.energy || !payload.bandwidth) throw new Error('Resource API returned an invalid account snapshot')
+    return {
+      energy: { limit: Number(payload.energy.limit || 0), used: Number(payload.energy.used || 0), available: Number(payload.energy.available || 0) },
+      bandwidth: { stakedOrDelegatedLimit: Number(payload.bandwidth.stakedOrDelegatedLimit || 0), stakedOrDelegatedUsed: Number(payload.bandwidth.stakedOrDelegatedUsed || 0), stakedOrDelegatedAvailable: Number(payload.bandwidth.stakedOrDelegatedAvailable || 0), freeLimit: Number(payload.bandwidth.freeLimit || 0), freeUsed: Number(payload.bandwidth.freeUsed || 0), freeAvailable: Number(payload.bandwidth.freeAvailable || 0), maxSingleTransactionAvailable: Number(payload.bandwidth.maxSingleTransactionAvailable || 0) },
+      networkResourceWeights: payload.networkResourceWeights || {}, source: 'resource-api', rpc: payload.rpc || null,
+    }
+  } catch (error) {
+    const raw = await tronWeb.trx.getAccountResources(address)
+    const energyLimit = Number(raw.EnergyLimit || 0), energyUsed = Number(raw.EnergyUsed || 0)
+    const netLimit = Number(raw.NetLimit || 0), netUsed = Number(raw.NetUsed || 0)
+    const freeLimit = Number(raw.freeNetLimit || 0), freeUsed = Number(raw.freeNetUsed || 0)
+    return {
+      energy: { limit: energyLimit, used: energyUsed, available: Math.max(0, energyLimit - energyUsed) },
+      bandwidth: { stakedOrDelegatedLimit: netLimit, stakedOrDelegatedUsed: netUsed, stakedOrDelegatedAvailable: Math.max(0, netLimit - netUsed), freeLimit, freeUsed, freeAvailable: Math.max(0, freeLimit - freeUsed), maxSingleTransactionAvailable: Math.max(Math.max(0, netLimit - netUsed), Math.max(0, freeLimit - freeUsed)) },
+      networkResourceWeights: { totalEnergyLimit: String(raw.TotalEnergyLimit || '0'), totalEnergyWeight: String(raw.TotalEnergyWeight || '0'), totalNetLimit: String(raw.TotalNetLimit || '0'), totalNetWeight: String(raw.TotalNetWeight || '0') },
+      source: 'direct-tronweb-fallback', rpc: { fallbackReason: String(error?.message || 'resource-api-unavailable').slice(0, 120) },
+    }
+  }
 }
 function addressMatches(tronWeb, actual, expected) {
   if (actual === expected) return true
