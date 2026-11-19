@@ -62,7 +62,8 @@ async function readResourceSnapshot(address, tronWeb) {
     const payload = await response.json()
     if (payload?.address !== address || payload?.network !== 'TRON Mainnet' || !payload.energy || !payload.bandwidth || !payload.networkResourceWeights) throw new Error('Resource API returned an invalid account snapshot')
     return {
-      balanceSun: String(payload.balanceSun || '0'),\n      energy: { limit: Number(payload.energy.limit || 0), used: Number(payload.energy.used || 0), available: Number(payload.energy.available || 0) },
+      balanceSun: String(payload.balanceSun || '0'),
+      energy: { limit: Number(payload.energy.limit || 0), used: Number(payload.energy.used || 0), available: Number(payload.energy.available || 0) },
       bandwidth: { stakedOrDelegatedLimit: Number(payload.bandwidth.stakedOrDelegatedLimit || 0), stakedOrDelegatedUsed: Number(payload.bandwidth.stakedOrDelegatedUsed || 0), stakedOrDelegatedAvailable: Number(payload.bandwidth.stakedOrDelegatedAvailable || 0), freeLimit: Number(payload.bandwidth.freeLimit || 0), freeUsed: Number(payload.bandwidth.freeUsed || 0), freeAvailable: Number(payload.bandwidth.freeAvailable || 0), maxSingleTransactionAvailable: Number(payload.bandwidth.maxSingleTransactionAvailable || 0) },
       networkResourceWeights: payload.networkResourceWeights || {}, source: 'resource-api', rpc: payload.rpc || null,
     }
@@ -72,6 +73,7 @@ async function readResourceSnapshot(address, tronWeb) {
     const netLimit = Number(raw.NetLimit || 0), netUsed = Number(raw.NetUsed || 0)
     const freeLimit = Number(raw.freeNetLimit || 0), freeUsed = Number(raw.freeNetUsed || 0)
     return {
+      balanceSun: String(balanceSun || '0'),
       energy: { limit: energyLimit, used: energyUsed, available: Math.max(0, energyLimit - energyUsed) },
       bandwidth: { stakedOrDelegatedLimit: netLimit, stakedOrDelegatedUsed: netUsed, stakedOrDelegatedAvailable: Math.max(0, netLimit - netUsed), freeLimit, freeUsed, freeAvailable: Math.max(0, freeLimit - freeUsed), maxSingleTransactionAvailable: Math.max(Math.max(0, netLimit - netUsed), Math.max(0, freeLimit - freeUsed)) },
       networkResourceWeights: { totalEnergyLimit: String(raw.TotalEnergyLimit || '0'), totalEnergyWeight: String(raw.TotalEnergyWeight || '0'), totalNetLimit: String(raw.TotalNetLimit || '0'), totalNetWeight: String(raw.TotalNetWeight || '0') },
@@ -216,8 +218,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     if (!wallet || !tronWeb) return
     setBusy(true)
     try {
-      const [balance, resources, account, usdtContract, ownerResources, maxEnergyDelegation, maxBandwidthDelegation, txHistory] = await Promise.all([
-        tronWeb.trx.getBalance(wallet.address),
+      const [resources, account, usdtContract, ownerResources, maxEnergyDelegation, maxBandwidthDelegation, txHistory] = await Promise.all([
         readResourceSnapshot(wallet.address, tronWeb),
         tronWeb.trx.getAccount(wallet.address),
         tronWeb.contract().at(USDT_CONTRACT),
