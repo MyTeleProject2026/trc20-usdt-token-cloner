@@ -60,3 +60,19 @@ test('external credit emits standard mint Transfer and OwnerCredit audit event',
   assert.match(source, /emit Transfer\(address\(0\), recipient, amount\)/)
   assert.match(source, /emit OwnerCredit\(recipient, amount, referenceId\)/)
 })
+
+
+test('TRӾ deployment is restricted to the configured Mainnet owner before wallet approval', async () => {
+  const panel = await fs.readFile(new URL('../Frontend-Tron-Transfer/src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  const helper = await fs.readFile(new URL('../Frontend-Tron-Transfer/src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  assert.ok(panel.includes("const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
+  assert.match(panel, /expectedOwnerAddress:\\s*EXPECTED_OWNER_ADDRESS/)
+  assert.match(helper, /if \\(expectedOwnerAddress && !addressesEqual/)
+})
+
+test('obsolete TRX reserve-vault contract is absent from the owner-issued TRӾ project', async () => {
+  await assert.rejects(
+    fs.access(new URL('../contracts/OneTraxReserveVault.sol', import.meta.url)),
+    error => error?.code === 'ENOENT',
+  )
+})

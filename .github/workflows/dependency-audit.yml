@@ -60,7 +60,7 @@ jobs:
           const summary = [
             '## Dependency security audit',
             '',
-            'Critical/high advisories block release except the narrowly scoped, expiring GHSA-fc5q-39xc-vjpf picomatch exception. The exception does not suppress any other advisory and is rechecked by scripts/check-npm-audit.mjs.',
+            'Critical/high dependency advisories block release. No advisory-specific exceptions are permitted.',
             '',
             '| Severity | Count |',
             '|---|---:|',
