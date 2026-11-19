@@ -239,14 +239,44 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
       if (!signed?.signature?.length || signed.txID !== unsigned.txID) throw new Error('Signed transaction identity validation failed. Nothing was broadcast.')
       const result = await tronWeb.trx.sendRawTransaction(signed)
       if (result?.result !== true) throw new Error(result?.message ? String(result.message) : 'The TRON node rejected the transaction broadcast.')
-      setLastTx(String(result.txid || signed.txID))
-      notify('success', `${verb[0].toUpperCase() + verb.slice(1)} transaction broadcast`, `Transaction ID: ${result.txid || signed.txID}. Refresh after solidification to verify the resulting resources.`)
-      await refresh()
+      const transactionId = String(result.txid || signed.txID)
+      setLastTx(transactionId)
+      const event = { transactionId, sponsorAddress: wallet.address, receiverAddress: target, action, resourceType, stakeEquivalentSun: String(amountSun), status: 'broadcast-pending-verification', createdAt: new Date().toISOString() }
+      recordActivity(event)
+      if (action === 'delegate') setLastDelegation(event)
+      notify('success', `${verb[0].toUpperCase() + verb.slice(1)} transaction broadcast`, `Transaction ID: ${transactionId}. Use Verify Mainnet delegation after the transaction is solidified.`)
+      await refresh({ quiet: true })
     } catch (error) {
       notify('error', 'Resource transaction failed', error instanceof Error ? error.message : 'The transaction was not completed.')
     } finally {
       setBusy(false)
     }
+  }
+
+  async function verifyLastDelegation() {
+    if (!lastDelegation || busy) return
+    if (!API_BASE) { notify('error', 'Verification API unavailable', 'Configure VITE_API_BASE_URL for the Tron Transfer backend before requesting independent solidified verification.'); return }
+    setBusy(true)
+    try {
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/resource-delegations/verify-wallet', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ network: 'mainnet', transactionId: lastDelegation.transactionId, sponsorAddress: lastDelegation.sponsorAddress, receiverAddress: lastDelegation.receiverAddress, resourceType: lastDelegation.resourceType, stakeEquivalentSun: lastDelegation.stakeEquivalentSun }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload.verified !== true || payload.persistence?.persisted !== true) {
+        const detail = payload.message || payload.verification?.reason || payload.error || ('Verification service returned HTTP ' + response.status + '.')
+        recordActivity({ ...lastDelegation, status: 'verification-pending', verificationMessage: detail })
+        notify('error', 'Mainnet verification not complete', detail)
+        return
+      }
+      const verified = { ...lastDelegation, status: 'solidified-mainnet-verified', blockNumber: payload.verification.blockNumber, verifiedAt: payload.verification.checkedAt }
+      recordActivity(verified)
+      setLastDelegation(null)
+      notify('success', 'Delegation independently verified', 'Solidified Mainnet block ' + payload.verification.blockNumber + '; verified record persisted in the project audit ledger.')
+      await refresh({ quiet: true })
+    } catch (error) {
+      notify('error', 'Mainnet verification unavailable', error instanceof Error ? error.message : 'Could not reach the verification service.')
+    } finally { setBusy(false) }
   }
 
   const energyAvailable = Math.max(0, (snapshot?.energyLimit || 0) - (snapshot?.energyUsed || 0))
@@ -300,7 +330,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
           <label className="sponsor-field">Amount (TRX)<input inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)}/></label>
           <label className="sponsor-field">Resource<select value={resourceType} onChange={event => setResourceType(event.target.value)}><option value="ENERGY">Energy</option><option value="BANDWIDTH">Bandwidth</option></select></label>
         </div>
-        <div className="sponsor-actions"><button className="sponsor-secondary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('stake')}>Stake TRX for {resourceType}</button><button className="sponsor-primary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('delegate')}>Delegate {resourceType} to Owner</button><button className="sponsor-secondary" disabled={busy || !snapshot} onClick={() => void refresh()}>Verify Mainnet delegation</button><button className="sponsor-secondary" disabled title="No authorized Mainnet resource-rental provider is configured">Acquire Energy / Bandwidth · Provider unavailable</button></div>
+        <div className="sponsor-actions"><button className="sponsor-secondary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('stake')}>Stake TRX for {resourceType}</button><button className="sponsor-primary" disabled={busy || !snapshot} onClick={() => void submitResourceTransaction('delegate')}>Delegate {resourceType} to Owner</button><button className="sponsor-secondary" disabled={busy || !lastDelegation} onClick={() => void verifyLastDelegation()}>Verify Mainnet delegation</button><button className="sponsor-secondary" disabled title="No authorized Mainnet resource-rental provider is configured">Acquire Energy / Bandwidth · Provider unavailable</button></div>
         <p className="sponsor-muted">Confirmed delegation ceiling: {snapshot ? formatAmount(resourceType === 'ENERGY' ? snapshot.maxEnergyDelegatableSun : snapshot.maxBandwidthDelegatableSun) + ' TRX equivalent' : 'Refresh to read'}.</p><p className="sponsor-warning">These buttons create real Mainnet transactions and can consume TRX fees. Staked TRX is locked under Stake 2.0 rules; delegations are limited by the sponsor's own eligible stake. Incoming delegated resources cannot be re-delegated.</p>
       </section>
 
@@ -314,7 +344,7 @@ This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?
         <div className="sponsor-card-heading"><FileKey2/><div><h3>Sponsor Activity</h3><p>Current browser session and latest observed transaction.</p></div></div>
         <div className="sponsor-activity-row"><span>Wallet connection</span><b>Unlocked locally</b></div>
         <div className="sponsor-activity-row"><span>Network</span><b>TRON Mainnet</b></div>
-        <div className="sponsor-activity-row"><span>Resource history</span><b>{lastTx ? 'Transaction submitted · refresh to inspect chain state' : 'No action recorded in this session'}</b></div>
+        <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => item.status === 'solidified-mainnet-verified').length} independently verified</b></div>{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
       </section>
     </div>}
     <CenterToast toast={toast} onClose={() => setToast(null)}/>
