@@ -247,6 +247,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       setKeystorePassword('')
       setVaultPassword('')
       setSnapshot(null)
+      setWalletTransactions([])
       notify('success', 'Sponsor Wallet imported', `TRON Mainnet address verified: ${account.address}`)
     } catch (error) {
       notify('error', 'Wallet import failed', error instanceof Error ? error.message : 'Unable to import the Sponsor Wallet.')
@@ -265,6 +266,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       recordSecurityEvent(account.address, 'Sponsor Wallet unlocked', 'Encrypted local vault successfully unlocked.')
       setUnlockPassword('')
       setSnapshot(null)
+      setWalletTransactions([])
       notify('success', 'Sponsor Wallet unlocked', account.address)
     } catch (error) {
       notify('error', 'Unlock failed', error instanceof Error ? error.message : 'Unable to unlock the Sponsor Wallet.')
@@ -278,6 +280,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     setWallet(null)
     setSaved(true)
     setSnapshot(null)
+      setWalletTransactions([])
     setLastTx('')
     setLastDelegation(null)
     notify('success', 'Sponsor Wallet locked', 'The in-memory signing key was released. The encrypted local backup remains available to unlock.')
@@ -288,6 +291,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     setWallet(null)
     setSaved(false)
     setSnapshot(null)
+      setWalletTransactions([])
     setLastTx('')
     setLastDelegation(null)
     notify('success', 'Sponsor Wallet logged out', 'The active session is disconnected. Your encrypted local backup is retained.')
@@ -297,6 +301,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     recordSecurityEvent(wallet?.address, 'Sponsor Wallet replacement started', 'Replacement import requested; existing encrypted vault retained until successful import.')
     setWallet(null)
     setSnapshot(null)
+      setWalletTransactions([])
     setLastTx('')
     setLastDelegation(null)
     setSaved(false)
@@ -311,6 +316,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     setSaved(false)
     setWallet(null)
     setSnapshot(null)
+      setWalletTransactions([])
     notify('success', 'Local wallet backup removed', 'No on-chain account or funds were changed.')
   }
 
