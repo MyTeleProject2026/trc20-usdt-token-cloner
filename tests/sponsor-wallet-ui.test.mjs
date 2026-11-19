@@ -27,6 +27,9 @@ test('Sponsor Wallet verifies exact unsigned Mainnet transactions before signing
   assert.ok(component.includes('function estimateStakeSun'))
   assert.ok(component.includes('Prepare Energy stake'))
   assert.ok(component.includes('Prepare Bandwidth stake'))
+  assert.ok(component.includes('getTransactionsRelated'))
+  assert.ok(component.includes('Recent wallet transactions'))
+  assert.ok(component.includes('function estimateStakeSun'))
 })
 
 test('Sponsor activity supports persistent local pending records and solidified backend verification', () => {
@@ -38,6 +41,9 @@ test('Sponsor activity supports persistent local pending records and solidified 
   assert.ok(component.includes('/api/tron/sponsorship/resource-delegations?network=mainnet'))
   assert.ok(component.includes('Verify Mainnet delegation'))
   assert.ok(component.includes('setLastDelegation(rows.find'))
+  assert.ok(component.includes('SECURITY_KEY'))
+  assert.ok(component.includes('Security events'))
+  assert.ok(component.includes('Reconnect saved Sponsor Wallet'))
 })
 
 test('background monitoring is quiet and center notifications have a single managed timer', () => {
