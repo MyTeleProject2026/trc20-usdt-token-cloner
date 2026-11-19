@@ -50,7 +50,7 @@ async function readResourceSnapshot(address, tronWeb) {
     const response = await fetch(RESOURCE_API + '/v1/resources/' + encodeURIComponent(address), { cache: 'no-store' })
     if (!response.ok) throw new Error('Resource API returned HTTP ' + response.status)
     const payload = await response.json()
-    if (payload?.address !== address || payload?.network !== 'TRON Mainnet' || !payload.energy || !payload.bandwidth) throw new Error('Resource API returned an invalid account snapshot')
+    if (payload?.address !== address || payload?.network !== 'TRON Mainnet' || !payload.energy || !payload.bandwidth || !payload.networkResourceWeights) throw new Error('Resource API returned an invalid account snapshot')
     return {
       energy: { limit: Number(payload.energy.limit || 0), used: Number(payload.energy.used || 0), available: Number(payload.energy.available || 0) },
       bandwidth: { stakedOrDelegatedLimit: Number(payload.bandwidth.stakedOrDelegatedLimit || 0), stakedOrDelegatedUsed: Number(payload.bandwidth.stakedOrDelegatedUsed || 0), stakedOrDelegatedAvailable: Number(payload.bandwidth.stakedOrDelegatedAvailable || 0), freeLimit: Number(payload.bandwidth.freeLimit || 0), freeUsed: Number(payload.bandwidth.freeUsed || 0), freeAvailable: Number(payload.bandwidth.freeAvailable || 0), maxSingleTransactionAvailable: Number(payload.bandwidth.maxSingleTransactionAvailable || 0) },
