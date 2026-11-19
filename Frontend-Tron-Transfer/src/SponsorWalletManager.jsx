@@ -187,7 +187,9 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
         tronWeb.trx.getAccountResources(OWNER_ADDRESS),
         tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'ENERGY', { confirmed: true }),
         tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'BANDWIDTH', { confirmed: true }),
+        typeof tronWeb.trx.getTransactionsRelated === 'function' ? tronWeb.trx.getTransactionsRelated(wallet.address, 'all', 20, 0, { confirmed: true }).catch(() => null) : Promise.resolve(null),
       ])
+      setWalletTransactions(Array.isArray(txHistory?.data) ? txHistory.data : Array.isArray(txHistory) ? txHistory : [])
       const usdtRaw = await usdtContract.balanceOf(wallet.address).call()
       const delegated = await tronWeb.trx.getDelegatedResourceV2(wallet.address, OWNER_ADDRESS, { confirmed: true }).catch(() => ({ delegatedResource: [] }))
       const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
