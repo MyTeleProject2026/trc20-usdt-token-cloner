@@ -164,3 +164,37 @@ test('uptime history endpoint exposes sanitized GitHub Actions run metadata and 
   assert.equal(second.status, 200)
   assert.equal(requests, 1)
 })
+
+
+test('Render metrics endpoint is server-authenticated, normalized, and honest about unsupported metrics', async (t) => {
+  const requests = []
+  const server = createServer({
+    env: { RENDER_API_KEY: 'render-metrics-secret', RENDER_RESOURCE_API_SERVICE_ID: 'srv-api-test', RENDER_FRONTEND_SERVICE_ID: 'srv-web-test' },
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url, options })
+      const metric = new URL(url).pathname.split('/').at(-1)
+      if (metric === 'http-latency') return new Response(JSON.stringify({ error: 'not available on this plan' }), { status: 403 })
+      return new Response(JSON.stringify([{
+        labels: [{ field: 'service', value: 'srv-api-test' }],
+        values: [{ timestamp: '2026-11-19T01:00:00Z', value: metric === 'cpu' ? 0.25 : 1024 }],
+        unit: metric === 'cpu' ? 'CPU' : 'bytes',
+      }]), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const url = 'http://127.0.0.1:' + server.address().port + '/api/observatory/render-metrics'
+  const response = await fetch(url)
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.success, true)
+  assert.equal(body.configured, true)
+  assert.equal(body.metrics.find(item => item.id === 'cpu').points[0].value, 0.25)
+  assert.equal(body.metrics.find(item => item.id === 'http_latency').state, 'unavailable')
+  assert.equal(JSON.stringify(body).includes('render-metrics-secret'), false)
+  assert.equal(requests.length, 5)
+  for (const request of requests) {
+    assert.equal(request.options.headers.authorization, 'Bearer render-metrics-secret')
+    assert.match(request.url, /^https:\/\/api\.render\.com\/v1\/metrics\//)
+  }
+})
