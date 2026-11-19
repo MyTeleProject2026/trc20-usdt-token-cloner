@@ -262,6 +262,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
   const rateLimiters = new Map()
+  let uptimeHistoryCache = { at: 0, value: null }
+  let renderMetricsCache = { at: 0, value: null }
   const allowRequest = (ip, scope = 'default', limit = RATE_LIMIT) => {
     let limiter = rateLimiters.get(scope)
     if (!limiter) {
@@ -356,6 +358,115 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       } catch (error) {
         return send(res, 503, { success: false, configured: true, error: 'RENDER_EVENTS_UNAVAILABLE', message: String(error?.message || 'Render control-plane events unavailable').slice(0, 160), checkedAt: new Date().toISOString() }, origin)
       }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/observatory/uptime-history') {
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'observatory-uptime-history', 10)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      if (uptimeHistoryCache.value && Date.now() - uptimeHistoryCache.at < 60_000) {
+        return send(res, 200, uptimeHistoryCache.value, origin)
+      }
+      try {
+        const workflowUrl = 'https://api.github.com/repos/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/tron-transfer-production-uptime.yml/runs?per_page=12'
+        const response = await fetchImpl(workflowUrl, {
+          method: 'GET',
+          headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'tron-transfer-runtime-observatory' },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+          redirect: 'error',
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok || !Array.isArray(payload.workflow_runs)) throw new Error('GitHub Actions uptime history returned HTTP ' + response.status)
+        const runs = payload.workflow_runs.slice(0, 12).map(run => ({
+          id: Number(run.id),
+          runNumber: Number(run.run_number),
+          status: String(run.status || 'unknown').slice(0, 32),
+          conclusion: run.conclusion == null ? null : String(run.conclusion).slice(0, 32),
+          createdAt: run.created_at || null,
+          updatedAt: run.updated_at || null,
+          url: typeof run.html_url === 'string' && run.html_url.startsWith('https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/')
+            ? run.html_url : null,
+          commit: typeof run.head_sha === 'string' ? run.head_sha.slice(0, 12) : null,
+          event: String(run.event || 'unknown').slice(0, 24),
+        }))
+        const value = {
+          success: true,
+          provider: 'GitHub Actions',
+          retentionDays: 90,
+          workflowUrl: 'https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/tron-transfer-production-uptime.yml',
+          runs,
+          checkedAt: new Date().toISOString(),
+          note: 'Workflow run metadata is cached for 60 seconds. Detailed probe JSON artifacts are retained for 90 days.',
+        }
+        uptimeHistoryCache = { at: Date.now(), value }
+        return send(res, 200, value, origin)
+      } catch (error) {
+        return send(res, 503, { success: false, error: 'UPTIME_HISTORY_UNAVAILABLE', message: String(error?.message || 'GitHub Actions uptime history unavailable').slice(0, 160) }, origin)
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/observatory/render-metrics') {
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'observatory-render-metrics', 10)) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      if (renderMetricsCache.value && Date.now() - renderMetricsCache.at < 300_000) {
+        return send(res, 200, renderMetricsCache.value, origin)
+      }
+      const apiKey = typeof env.RENDER_API_KEY === 'string' ? env.RENDER_API_KEY.trim() : ''
+      if (!apiKey) return send(res, 200, {
+        success: true, configured: false, provider: 'Render Metrics API', metrics: [],
+        checkedAt: new Date().toISOString(),
+        note: 'Set a newly rotated RENDER_API_KEY as a server-side secret to enable Render platform metrics.',
+      }, origin)
+      const resourceApiId = env.RENDER_RESOURCE_API_SERVICE_ID || 'srv-dbrjpq56e07s73bueevg'
+      const frontendId = env.RENDER_FRONTEND_SERVICE_ID || 'srv-dblmrad6e07s739cs2lg'
+      const endTime = new Date().toISOString()
+      const startTime = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+      const metricSpecs = [
+        { id: 'cpu', label: 'CPU usage', path: '/metrics/cpu', resources: [resourceApiId] },
+        { id: 'memory', label: 'Memory usage', path: '/metrics/memory', resources: [resourceApiId] },
+        { id: 'bandwidth', label: 'Outbound bandwidth', path: '/metrics/bandwidth', resources: [resourceApiId, frontendId] },
+        { id: 'http_requests', label: 'HTTP requests', path: '/metrics/http-requests', resources: [resourceApiId] },
+        { id: 'http_latency', label: 'HTTP latency p95', path: '/metrics/http-latency', resources: [resourceApiId], extras: { quantile: '0.95' } },
+      ]
+      const normalizeRows = rows => (Array.isArray(rows) ? rows : []).flatMap(row => {
+        const labels = Object.fromEntries((Array.isArray(row?.labels) ? row.labels : [])
+          .filter(label => label && typeof label.field === 'string')
+          .map(label => [label.field, String(label.value)]))
+        return (Array.isArray(row?.values) ? row.values : []).map(point => ({
+          timestamp: point.timestamp || null,
+          value: Number.isFinite(Number(point.value)) ? Number(point.value) : null,
+          unit: typeof row.unit === 'string' ? row.unit : null,
+          resourceId: labels.service || labels.resource || null,
+          instanceId: labels.instance || null,
+          statusCode: labels.statusCode || labels.status_code || null,
+          quantile: labels.quantile || null,
+        })).filter(point => point.timestamp && point.value !== null)
+      })
+      const metrics = await Promise.all(metricSpecs.map(async spec => {
+        const query = new URLSearchParams({ startTime, endTime, ...(spec.id === 'bandwidth' ? {} : { resolutionSeconds: '300' }), ...spec.extras })
+        for (const resource of spec.resources) query.append('resource', resource)
+        try {
+          const response = await fetchImpl('https://api.render.com/v1' + spec.path + '?' + query, {
+            method: 'GET',
+            headers: { accept: 'application/json', authorization: 'Bearer ' + apiKey },
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+            redirect: 'error',
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok) return { id: spec.id, label: spec.label, state: 'unavailable', points: [], note: 'Render API returned HTTP ' + response.status }
+          const points = normalizeRows(Array.isArray(payload) ? payload : payload.data)
+          return { id: spec.id, label: spec.label, state: points.length ? 'available' : 'no_data', points }
+        } catch (error) {
+          return { id: spec.id, label: spec.label, state: 'unavailable', points: [], note: String(error?.message || 'Render metrics unavailable').slice(0, 120) }
+        }
+      }))
+      const availableCount = metrics.filter(metric => metric.state !== 'unavailable').length
+      if (!availableCount) return send(res, 503, { success: false, configured: true, error: 'RENDER_METRICS_UNAVAILABLE', metrics, checkedAt: new Date().toISOString() }, origin)
+      const value = {
+        success: true, configured: true, provider: 'Render Metrics API',
+        window: { startTime, endTime, resolutionSeconds: 300 },
+        metrics, checkedAt: new Date().toISOString(),
+        note: 'Render platform metrics use the platform sampling interval. Empty or unsupported metrics are shown as unavailable; process heartbeat values are reported separately.',
+      }
+      renderMetricsCache = { at: Date.now(), value }
+      return send(res, 200, value, origin)
     }
     if (req.method === 'GET' && url.pathname === '/health') {
       const tatumConfigured = typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim().length > 0

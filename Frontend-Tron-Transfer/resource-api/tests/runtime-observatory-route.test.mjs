@@ -122,3 +122,79 @@ test('rate limiter bounds identity memory, fails closed at capacity, and reclaim
   assert.equal(limiter('ip-c', 2), true)
   assert.equal(limiter('ip-c', 2), false)
 })
+
+
+test('uptime history endpoint exposes sanitized GitHub Actions run metadata and caches it', async (t) => {
+  let requests = 0
+  const server = createServer({
+    env: {},
+    fetchImpl: async (url, options = {}) => {
+      requests += 1
+      assert.match(url, /^https:\/\/api\.github\.com\/repos\/MyTeleProject2026\/trc20-usdt-token-cloner\/actions\/workflows\/tron-transfer-production-uptime\.yml\/runs/)
+      assert.equal(options.method, 'GET')
+      return new Response(JSON.stringify({
+        workflow_runs: [{
+          id: 123,
+          run_number: 45,
+          status: 'completed',
+          conclusion: 'success',
+          created_at: '2026-11-19T01:00:00Z',
+          updated_at: '2026-11-19T01:00:20Z',
+          html_url: 'https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/123',
+          head_sha: 'a'.repeat(40),
+          event: 'schedule',
+          head_commit: { message: 'must-not-be-exposed' },
+        }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const url = 'http://127.0.0.1:' + server.address().port + '/api/observatory/uptime-history'
+  const first = await fetch(url)
+  assert.equal(first.status, 200)
+  const body = await first.json()
+  assert.equal(body.success, true)
+  assert.equal(body.provider, 'GitHub Actions')
+  assert.equal(body.retentionDays, 90)
+  assert.equal(body.runs[0].conclusion, 'success')
+  assert.equal(body.runs[0].commit, 'aaaaaaaaaaaa')
+  assert.equal(JSON.stringify(body).includes('must-not-be-exposed'), false)
+  const second = await fetch(url)
+  assert.equal(second.status, 200)
+  assert.equal(requests, 1)
+})
+
+
+test('Render metrics endpoint is server-authenticated, normalized, and honest about unsupported metrics', async (t) => {
+  const requests = []
+  const server = createServer({
+    env: { RENDER_API_KEY: 'render-metrics-secret', RENDER_RESOURCE_API_SERVICE_ID: 'srv-api-test', RENDER_FRONTEND_SERVICE_ID: 'srv-web-test' },
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url, options })
+      const metric = new URL(url).pathname.split('/').at(-1)
+      if (metric === 'http-latency') return new Response(JSON.stringify({ error: 'not available on this plan' }), { status: 403 })
+      return new Response(JSON.stringify([{
+        labels: [{ field: 'service', value: 'srv-api-test' }],
+        values: [{ timestamp: '2026-11-19T01:00:00Z', value: metric === 'cpu' ? 0.25 : 1024 }],
+        unit: metric === 'cpu' ? 'CPU' : 'bytes',
+      }]), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const url = 'http://127.0.0.1:' + server.address().port + '/api/observatory/render-metrics'
+  const response = await fetch(url)
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.success, true)
+  assert.equal(body.configured, true)
+  assert.equal(body.metrics.find(item => item.id === 'cpu').points[0].value, 0.25)
+  assert.equal(body.metrics.find(item => item.id === 'http_latency').state, 'unavailable')
+  assert.equal(JSON.stringify(body).includes('render-metrics-secret'), false)
+  assert.equal(requests.length, 5)
+  for (const request of requests) {
+    assert.equal(request.options.headers.authorization, 'Bearer render-metrics-secret')
+    assert.match(request.url, /^https:\/\/api\.render\.com\/v1\/metrics\//)
+  }
+})

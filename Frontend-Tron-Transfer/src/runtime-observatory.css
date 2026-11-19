@@ -11,3 +11,7 @@
     transition: none !important;
   }
 }
+
+.ro-render-event a{color:#8de7b2;text-decoration:none;margin-left:5px}.ro-render-event a:hover{text-decoration:underline}
+
+.ro-platform-metrics{margin:0 0 14px}.ro-platform-metrics .ro-metric b{font-size:17px}
