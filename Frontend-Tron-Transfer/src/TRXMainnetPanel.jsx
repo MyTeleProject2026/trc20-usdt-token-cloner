@@ -34,7 +34,7 @@ function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
 }
 
-export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home', onNavigate }) {
+export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home', onNavigate, enabledFeatures = {} }) {
   const initial = useMemo(() => loadSavedContracts(), [])
   const [tokenAddress, setTokenAddress] = useState(initial.tokenAddress)
   const [snapshot, setSnapshot] = useState(null)
@@ -355,7 +355,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     await refresh()
   })
 
-  const show = (...pages) => pages.includes(activePage)
+  const pageEnabled = enabledFeatures[activePage] !== false
+  const show = (...pages) => pageEnabled && pages.includes(activePage)
 
   return <section className="trax-workspace">
     <div className="section-heading">
@@ -370,6 +371,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/>{error}</div>}
     {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
     {step && <div className="trax-progress" role="status"><RefreshCw size={15} className="trax-spin"/>{step}</div>}
+
+    {!pageEnabled && <div className="notice notice-warning" role="status"><AlertTriangle size={16}/>This feature is disabled in Owner Settings. Open Settings to enable it. No contract or wallet state has been changed.</div>}
 
     <div className="trax-addresses">
       <label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
