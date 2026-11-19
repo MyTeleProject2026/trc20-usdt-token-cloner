@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { TronWeb } from 'tronweb'
-import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, ArrowUpFromLine, Ban, Blocks, ChartNoAxesCombined, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, Blocks, Network, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
-import PlatformMonitor from './PlatformMonitor.jsx'
+import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
 
 const NAV_ITEMS = [
-  { id: 'overview', label: 'Platform monitor', shortLabel: 'Home', description: 'Spatial runtime topology, live API telemetry and TRON Mainnet resources', icon: ChartNoAxesCombined },
+  { id: 'home', label: 'AETHERIA MCP Mesh', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
   { id: 'portfolio', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
   { id: 'deploy', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
   { id: 'issuance', label: 'Owner issuance', shortLabel: 'Issue', description: 'Mint new TRӾ to a recipient address', icon: Coins },
@@ -28,7 +28,7 @@ function isValidTronAddress(address) {
 }
 
 export default function App() {
-  const [activePage, setActivePage] = useState('overview')
+  const [activePage, setActivePage] = useState('home')
   const [wallet, setWallet] = useState(null)
   const [walletBusy, setWalletBusy] = useState(false)
   const [walletError, setWalletError] = useState('')
@@ -56,7 +56,7 @@ export default function App() {
 
   function lockWallet() {
     setWallet(null)
-    setActivePage('overview')
+    setActivePage('home')
     setWalletNotice('Wallet disconnected from this workspace. Your wallet remains under your control in TronLink.')
   }
 
@@ -65,7 +65,7 @@ export default function App() {
     if (!provider?.on) return undefined
     const invalidate = () => {
       setWallet(null)
-      setActivePage('overview')
+      setActivePage('home')
       setWalletNotice('TronLink account or network changed. Reconnect and verify the intended owner address.')
     }
     for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) provider.on(event, invalidate)
@@ -93,7 +93,7 @@ export default function App() {
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        {activePage === 'overview' ? <PlatformMonitor wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+        {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
       </main>
       <footer className="trax-admin-footer">TRON TRANSFER · WALLET-CONTROLLED OWNER WORKSPACE · TRON MAINNET</footer>
     </div>

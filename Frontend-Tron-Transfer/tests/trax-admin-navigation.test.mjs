@@ -8,13 +8,13 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
   const app = await read('../src/App.jsx')
   const sidebar = await read('../src/TRAXSidebar.jsx')
   const mobile = await read('../src/MobileNavBar.jsx')
-  const ids = ['overview','portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']
+  const ids = ['home','portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']
   for (const id of ids) assert.ok(app.includes("id: '" + id + "'"), 'missing page route: ' + id)
   assert.ok(sidebar.includes('Desktop workspace navigation'))
   assert.ok(sidebar.includes('collapsed'))
   assert.ok(sidebar.includes('Expand sidebar'))
   assert.ok(sidebar.includes('Collapse sidebar'))
-  assert.ok(mobile.includes("const primaryIds = ['overview', 'issuance', 'credits', 'transfers']"))
+  assert.ok(mobile.includes("const primaryIds = ['home', 'issuance', 'credits', 'transfers']"))
   assert.ok(mobile.includes('More workspace'))
   assert.ok(mobile.includes('role="dialog"'))
 })
@@ -22,10 +22,11 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
 test('each TRӾ admin page is wired to the existing on-chain operation', async () => {
   const panel = await read('../src/TRXMainnetPanel.jsx')
   const app = await read('../src/App.jsx')
-  const monitor = await read('../src/PlatformMonitor.jsx')
-  assert.ok(app.includes("activePage === 'overview' ? <PlatformMonitor"), 'Home must render the live platform monitor')
-  assert.ok(monitor.includes("/health") && monitor.includes("/v1/resources/"), 'monitor must poll real API routes')
-  assert.ok(monitor.includes("/api/tron/tenergy/promo"), 'monitor must poll TEnergy status')
+  const mesh = await read('../src/AetheriaMcpMesh.jsx')
+  assert.ok(app.includes("activePage === 'home' ? <AetheriaMcpMesh"), 'Home must render AETHERIA Global MCP Mesh')
+  assert.ok(mesh.includes("/health") && mesh.includes("/v1/resources/"), 'mesh must poll real API routes')
+  assert.ok(mesh.includes("/api/tron/tenergy/promo"), 'mesh must poll TEnergy status')
+  assert.ok(mesh.includes('MCP EXECUTION ROUTER') && mesh.includes('FUNCTION RETURN BUS'), 'mesh must expose function and callback flows')
   assert.ok(panel.includes('onClick={claimTenergyPromo}'), 'deployment page must expose explicit TEnergy claim action')
   assert.ok(panel.includes('Check &amp; claim TEnergy Energy'), 'TEnergy claim action must be visible')
   for (const page of ['portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {

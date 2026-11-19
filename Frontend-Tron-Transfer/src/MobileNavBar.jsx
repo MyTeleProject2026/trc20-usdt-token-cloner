@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronRight, Grid2X2, X } from 'lucide-react'
 
-const primaryIds = ['overview', 'issuance', 'credits', 'transfers']
+const primaryIds = ['home', 'issuance', 'credits', 'transfers']
 
 export default function MobileNavBar({ items, activePage, onNavigate }) {
   const [moreOpen, setMoreOpen] = useState(false)

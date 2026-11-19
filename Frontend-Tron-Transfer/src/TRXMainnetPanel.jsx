@@ -34,7 +34,7 @@ function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
 }
 
-export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'overview', onNavigate }) {
+export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home', onNavigate }) {
   const initial = useMemo(() => loadSavedContracts(), [])
   const [tokenAddress, setTokenAddress] = useState(initial.tokenAddress)
   const [snapshot, setSnapshot] = useState(null)
