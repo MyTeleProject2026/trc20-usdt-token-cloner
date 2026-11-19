@@ -20,7 +20,7 @@ jobs:
   probe:
     name: Probe live frontend and resource API
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - name: Probe production endpoints
         id: probe
@@ -38,12 +38,21 @@ jobs:
             for (const target of targets) {
               const started = Date.now();
               try {
-                const response = await fetch(target.url, {
-                  headers: { accept: 'application/json,text/html' },
-                  signal: AbortSignal.timeout(20000),
-                  redirect: 'follow',
-                });
-                const body = await response.text();
+                let response;
+                let body = '';
+                // Render free instances can sleep between five-minute probes.
+                // Retry transient gateway/service-unavailable responses so a
+                // cold start is not recorded as a persistent outage.
+                for (let attempt = 1; attempt <= 4; attempt += 1) {
+                  response = await fetch(target.url, {
+                    headers: { accept: 'application/json,text/html' },
+                    signal: AbortSignal.timeout(20000),
+                    redirect: 'follow',
+                  });
+                  body = await response.text();
+                  if (![502, 503, 504].includes(response.status) || attempt === 4) break;
+                  await new Promise(resolve => setTimeout(resolve, 10000));
+                }
                 let validPayload = true;
                 let detail = 'HTTP ' + response.status;
                 let metrics = null;
@@ -255,7 +264,19 @@ jobs:
             if (!fs.existsSync('uptime-results/latest.json')) return;
             const report = JSON.parse(fs.readFileSync('uptime-results/latest.json', 'utf8'));
             const failed = (report.results || []).filter(item => !item.ok);
-            const issues = await request('/issues?state=open&per_page=100');
+            let issues;
+            try {
+              issues = await request('/issues?state=open&per_page=100');
+            } catch (error) {
+              // Repositories with Issues disabled return HTTP 410. Keep the
+              // health probe and durable archive working without issue alerts.
+              if (String(error.message).includes('HTTP 410')) {
+                console.log('GitHub Issues are disabled for this repository; incident tracking skipped.');
+                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\\nIncident tracking skipped: GitHub Issues are disabled (HTTP 410).\\n');
+                return;
+              }
+              throw error;
+            }
             const incident = issues.find(item => !item.pull_request && item.title === title);
             const checkedAt = new Date().toISOString();
             if (failed.length) {
