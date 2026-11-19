@@ -176,8 +176,9 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const refreshRenderMetrics = useCallback(() => invoke('renderMetrics', '/api/observatory/render-metrics', body => {
     if (!body.success) throw new Error(body.message || 'Render metrics response was unsuccessful')
     setRenderMetrics(Array.isArray(body.metrics) ? body.metrics : [])
-    const hasSamples = body.metrics?.some(item => ['cpu', 'memory'].includes(item.id) && item.points?.length)
-    return body.configured && hasSamples ? null : { state: 'warning', detail: body.note || 'Authenticated Render metrics samples are not available' }
+    const hasCpuSamples = body.metrics?.some(item => item.id === 'cpu' && item.points?.length)
+    const hasMemorySamples = body.metrics?.some(item => item.id === 'memory' && item.points?.length)
+    return body.configured && hasCpuSamples && hasMemorySamples ? null : { state: 'warning', detail: body.note || 'Authenticated CPU and memory samples are not both available' }
   }), [invoke])
 
   const refreshAll = useCallback(async () => {
