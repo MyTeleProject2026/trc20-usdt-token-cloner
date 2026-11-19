@@ -116,7 +116,7 @@ export async function unlockSponsorWalletVault(password) {
   }
 }
 
-export function hasSavedSponsorWallet() {
+export function getSavedSponsorWalletAddress() {\n  try {\n    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')\n    return typeof saved.address === 'string' ? saved.address : ''\n  } catch { return '' }\n}\n\nexport function hasSavedSponsorWallet() {
   try { return Boolean(localStorage.getItem(STORAGE_KEY)) } catch { return false }
 }
 
