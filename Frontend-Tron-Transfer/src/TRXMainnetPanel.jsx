@@ -181,13 +181,15 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     // A grant is never assumed: fresh Mainnet preflight below remains the sole
     // authority for readiness and also checks Bandwidth.
     setStep('Checking eligible free Energy promotion before deployment')
-    const promo = await claimTenergyPromoForDeployment(wallet, EXPECTED_OWNER_ADDRESS, {
+    const promo = readMainnetActionControls().resourceClaims
+      ? await claimTenergyPromoForDeployment(wallet, EXPECTED_OWNER_ADDRESS, {
       onStage: stage => setStep(stage),
     }).catch(error => ({
       status: 'promo-check-failed',
       energyVerified: false,
       message: error instanceof Error ? error.message : String(error),
     }))
+      : { status: 'resource-claims-disabled', energyVerified: false, message: 'Automatic TEnergy claim is disabled in Owner Settings. Continuing with live Mainnet resource preflight only.' }
     setPromoClaimStatus(promo)
     if (promo?.message) setNotice(promo.message)
     // One-click flow: run a fresh read-only estimate immediately, then let
