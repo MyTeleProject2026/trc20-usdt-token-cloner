@@ -3,7 +3,7 @@ import { ChevronRight, Grid2X2, X } from 'lucide-react'
 
 const primaryIds = ['home', 'issuance', 'credits', 'transfers']
 
-export default function MobileNavBar({ items, activePage, onNavigate }) {
+export default function MobileNavBar({ items, activePage, onNavigate, enabledFeatures = {} }) {
   const [moreOpen, setMoreOpen] = useState(false)
   const moreButtonRef = useRef(null)
   const sheetRef = useRef(null)
@@ -62,7 +62,8 @@ export default function MobileNavBar({ items, activePage, onNavigate }) {
         <div className="trax-mobile-sheet-grid">
           {secondary.map(item => {
             const Icon = item.icon
-            return <button key={item.id} className={activePage === item.id ? 'selected' : ''} onClick={() => choose(item.id)}>
+            const disabled = enabledFeatures[item.id] === false
+            return <button key={item.id} disabled={disabled} className={activePage === item.id ? 'selected' : ''} onClick={() => choose(item.id)}>
               <span className="trax-nav-icon"><Icon size={17}/></span>
               <span><b>{item.label}</b><small>{item.description}</small></span>
               <ChevronRight size={15}/>
@@ -74,7 +75,8 @@ export default function MobileNavBar({ items, activePage, onNavigate }) {
     <nav className="trax-mobile-nav" aria-label="Main mobile navigation">
       {primary.map(item => {
         const Icon = item.icon
-        return <button key={item.id} className={activePage === item.id ? 'active' : ''} aria-current={activePage === item.id ? 'page' : undefined} onClick={() => choose(item.id)}>
+        const disabled = enabledFeatures[item.id] === false
+        return <button key={item.id} disabled={disabled} className={activePage === item.id ? 'active' : ''} aria-current={activePage === item.id ? 'page' : undefined} onClick={() => choose(item.id)}>
           <Icon size={19}/><span>{item.shortLabel || item.label}</span>
         </button>
       })}
