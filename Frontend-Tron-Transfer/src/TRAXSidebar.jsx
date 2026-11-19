@@ -1,7 +1,7 @@
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useState } from 'react'
 
-export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onConnect, onLock }) {
+export default function TRAXSidebar({ items, activePage, onNavigate, enabledFeatures = {}, wallet, onConnect, onLock }) {
   const [collapsed, setCollapsed] = useState(false)
   return <aside className={collapsed ? 'trax-sidebar collapsed' : 'trax-sidebar'}>
     <div className="trax-sidebar-brand">
@@ -13,7 +13,8 @@ export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onC
     <nav id="trax-desktop-workspace-nav" aria-label="Desktop workspace navigation">
       {items.map(item => {
         const Icon = item.icon
-        return <button key={item.id} title={collapsed ? item.label : undefined} className={activePage === item.id ? 'active' : ''} aria-current={activePage === item.id ? 'page' : undefined} onClick={() => onNavigate(item.id)}>
+        const disabled = item.id !== 'settings' && enabledFeatures[item.id] === false
+        return <button key={item.id} disabled={disabled} title={collapsed ? item.label + (disabled ? ' · disabled in settings' : '') : undefined} className={activePage === item.id ? 'active' : ''} aria-current={activePage === item.id ? 'page' : undefined} onClick={() => onNavigate(item.id)}>
           <Icon size={18}/>{!collapsed && <span>{item.label}</span>}
         </button>
       })}
