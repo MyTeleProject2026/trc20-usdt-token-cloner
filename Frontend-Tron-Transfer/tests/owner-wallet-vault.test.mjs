@@ -78,7 +78,7 @@ test('local Owner signer signs a locally built transaction offline without broad
   let broadcastCalls = 0
   tronWeb.trx.sendRawTransaction = async () => { broadcastCalls += 1; throw new Error('Broadcast must not run in this test.') }
   const now = Date.now()
-  const unsigned = await tronWeb.transactionBuilder.sendTrx(account.address, 1, account.address, {
+  const unsigned = await tronWeb.transactionBuilder.sendTrx('TJRabPrwbZy45sbavfcjinPJC18kjpRTv8', 1, account.address, {
     blockHeader: {
       ref_block_bytes: '0001',
       ref_block_hash: '0000000000000000',
