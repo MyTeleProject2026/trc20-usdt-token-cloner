@@ -100,6 +100,14 @@ function sessionSecret(env) {
   return typeof env.SPONSOR_SESSION_SECRET === 'string' && Buffer.byteLength(env.SPONSOR_SESSION_SECRET) >= 32
     ? env.SPONSOR_SESSION_SECRET : null
 }
+function adminTokenRequired(env) {
+  return typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length > 0
+}
+function verifyAdminToken(req, env) {
+  if (!adminTokenRequired(env)) return true
+  const expected = env.SPONSOR_ADMIN_TOKEN
+  return expected.length >= 32 && equalText(req.headers?.['x-sponsor-admin-token'], expected)
+}
 function issueSession(address, env, now = Date.now()) {
   const secret = sessionSecret(env)
   if (!secret) throw new Error('sponsor-session-secret-not-configured')
@@ -223,7 +231,7 @@ export function createSponsorResourceApi({
         feePolicy: readiness.feePolicy,
         stakingPolicy: readiness.stakingPolicy,
         ownerTopupPolicy: readiness.ownerTopupPolicy,
-        adminAutomationConfigured: readiness.adminAutomationConfigured === true,
+        adminTokenRequired: adminTokenRequired(env),
         checkedAt: new Date(now()).toISOString(),
       }, origin)
     }
@@ -284,6 +292,7 @@ export function createSponsorResourceApi({
     if (!session) return reply(res, 401, { success: false, error: 'sponsor-session-required' }, origin)
 
     if (req.method === 'POST' && path === '/api/sponsor/intent') {
+      if (!verifyAdminToken(req, env)) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!rateLimit(req, 'intent', 10)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
@@ -302,6 +311,7 @@ export function createSponsorResourceApi({
     }
 
     if (req.method === 'POST' && path === '/api/sponsor/operations') {
+      if (!verifyAdminToken(req, env)) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!rateLimit(req, 'execute', 3)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
