@@ -73,16 +73,22 @@ export function createSponsorTransactionEngine({
     }
     const enabled = env.SPONSOR_TRANSACTION_ENGINE_ENABLED === 'true'
       && env.SPONSOR_MAINNET_BROADCAST_ENABLED === 'true'
+    const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
+    const feeCapValid = maxFeeRaw === '0' || positiveSun(String(maxFeeRaw)) !== null
+    const reserveTrx = String(env.SPONSOR_LIQUID_RESERVE_TRX || '2')
+    const reserveValid = decimalTrxToSun(reserveTrx) !== null
+    const policyValid = feeCapValid && reserveValid
     return {
-      configured: keyShapeValid && addressShapeValid && signerMatches,
+      configured: keyShapeValid && addressShapeValid && signerMatches && policyValid,
       enabled,
       ownerAddress,
       sponsorAddress: addressShapeValid ? sponsorAddress : null,
       databaseRequired: true,
-      broadcastAvailable: enabled && keyShapeValid && addressShapeValid && signerMatches,
+      broadcastAvailable: enabled && keyShapeValid && addressShapeValid && signerMatches && policyValid,
       feePolicy: {
-        maxBandwidthFeeSun: String(env.SPONSOR_MAX_TX_FEE_SUN || '0'),
-        protectedReserveTrx: String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'),
+        valid: policyValid,
+        maxBandwidthFeeSun: String(maxFeeRaw),
+        protectedReserveTrx: reserveTrx,
       },
     }
   }
