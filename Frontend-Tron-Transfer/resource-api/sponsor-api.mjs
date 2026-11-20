@@ -161,7 +161,7 @@ export function createSponsorResourceApi({
   const ownerAddress = allowedAddress
   const rateCounts = new Map()
   function rateLimit(req, key, max = 12) {
-    const ip = String(req.headers?.['cf-connecting-ip'] || req.socket?.remoteAddress || 'unknown').slice(0, 80)
+    const ip = String(req.socket?.remoteAddress || 'unknown').slice(0, 80)
     const bucket = key + ':' + ip
     const timestamp = now()
     const previous = rateCounts.get(bucket)
