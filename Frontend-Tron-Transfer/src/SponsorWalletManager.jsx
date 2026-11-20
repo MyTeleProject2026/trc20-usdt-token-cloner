@@ -375,6 +375,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     setWalletTokenTransfers([])
     setWalletTokenTransfersAvailable(false)
     setLastTx('')
+    setLastOperationReference('')
     setLastDelegation(null)
     setUnlockPassword('')
     setCredential('')
@@ -533,7 +534,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         setLastTx(transactionId)
         recordSecurityEvent(wallet.address, 'Sponsor transaction submitted by Resource API', action + ' ' + resourceType + ' · ' + transactionId)
         const operationReference = result.operationReference || idempotencyKey
-        setLastOperationReference(operationReference)
+        setLastOperationReference(result.solidified ? '' : operationReference)
         const event = {
           transactionId, operationReference, sponsorAddress: wallet.address, receiverAddress: target, action,
           resourceType, stakeEquivalentSun: String(amountSun),
@@ -541,7 +542,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
           blockNumber: result.confirmationBlock || null, createdAt: new Date().toISOString(),
         }
         recordActivity(event)
-        if (action === 'delegate' && !result.solidified) setLastDelegation(event)
+        if (action === 'delegate') setLastDelegation(result.solidified ? null : event)
       }
       if (result.success && result.solidified) {
         notify('success', `${verb[0].toUpperCase() + verb.slice(1)} confirmed on Mainnet`, `Solidified transaction: ${transactionId}`)
