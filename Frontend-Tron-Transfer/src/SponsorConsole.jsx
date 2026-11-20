@@ -12,6 +12,11 @@ export default function SponsorConsole() {
   const [data, setData] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [adminToken, setAdminToken] = useState('')
+  const [stakeAmount, setStakeAmount] = useState('1')
+  const [stakeResource, setStakeResource] = useState('ENERGY')
+  const [plan, setPlan] = useState(null)
+  const [planning, setPlanning] = useState(false)
 
   const refresh = useCallback(async () => {
     setBusy(true); setError('')
@@ -27,6 +32,17 @@ export default function SponsorConsole() {
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
+  const runStakePreflight = async (event) => {
+    event.preventDefault(); setPlanning(true); setPlan(null); setError('')
+    try {
+      const response = await fetch(`${API}/api/tron/sponsor/stake/plan`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ amountTrx: stakeAmount, resource: stakeResource }) })
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.error || result.plan?.status || 'Stake preflight failed.')
+      setPlan(result.plan)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Stake preflight failed.') }
+    finally { setPlanning(false) }
+  }
+
   const sponsor = data?.sponsor
   const resources = sponsor?.resources
   const caps = data?.capabilities
@@ -51,6 +67,15 @@ export default function SponsorConsole() {
       <article><h3><ShieldCheck size={17}/> Signing readiness</h3><p>Server signer: <strong>{caps?.serverSignerConfigured ? 'Configured' : 'Not configured'}</strong></p><p>Admin authorization: <strong>{caps?.adminAuthorizationConfigured ? 'Configured' : 'Not configured'}</strong></p><p>Transaction engine: <strong>{caps?.stakingEnabled ? 'Configured · activation gated' : 'Disabled'}</strong></p><p className="sponsor-warning">{caps?.reason || 'Readiness is being checked.'}</p></article>
     </div>
     <article className="sponsor-readiness"><h3>Mainnet readiness checks</h3><p>Independent Sponsor / Owner identities: <strong>{readiness?.sponsorOwnerIdentityVerified ? 'Verified' : 'Not verified'}</strong></p><p>Stake operation: <strong>Disabled pending signer review</strong></p><p>Owner contract deployment: <strong>Not authorized by Sponsor status</strong></p>{readiness?.blockers?.length > 0 && <ul>{readiness.blockers.map((item) => <li key={item}>{item}</li>)}</ul>}</article>
+    <form className="sponsor-stake-planner" onSubmit={runStakePreflight}>
+      <h3>Stake 2.0 policy preflight</h3>
+      <p>Validate a proposed Sponsor stake against a fresh Mainnet balance, the 2 TRX protected reserve and the configured automatic stake ceiling. This does not create or sign a transaction.</p>
+      <label>Admin authorization token<input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} required minLength={32} placeholder="Enter your server-configured Sponsor admin token" /></label>
+      <label>Stake amount (TRX)<input inputMode="decimal" value={stakeAmount} onChange={(event) => setStakeAmount(event.target.value)} required pattern="[0-9]+(\\.[0-9]{1,6})?" /></label>
+      <label>Resource<select value={stakeResource} onChange={(event) => setStakeResource(event.target.value)}><option value="ENERGY">Energy</option><option value="BANDWIDTH">Bandwidth</option></select></label>
+      <button type="submit" disabled={planning || !adminToken}>{planning ? 'Checking Mainnet…' : 'Run Stake Preflight'}</button>
+      {plan && <p className="sponsor-plan-success" role="status">Preflight passed: {plan.amountTrx} TRX for {plan.resource}. Remaining liquid balance: {(Number(plan.remainingLiquidBalanceSun) / 1000000).toFixed(6)} TRX. No transaction created, signed or broadcast.</p>}
+    </form>
     <div className="sponsor-actions">
       <button type="button" disabled title="Requires the reviewed server-side Stake 2.0 signer">Stake for Energy</button>
       <button type="button" disabled title="Requires the reviewed server-side Stake 2.0 signer">Stake for Bandwidth</button>
