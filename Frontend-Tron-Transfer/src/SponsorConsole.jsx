@@ -53,7 +53,7 @@ export default function SponsorConsole() {
     try {
       const response = await fetch(`${API}/api/tron/sponsor/delegation/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ transactionId: delegationTxid.trim(), required: { ENERGY: requiredEnergy, BANDWIDTH: requiredBandwidth } }) })
       const result = await response.json()
-      if (!response.ok || !result.verification) throw new Error(result.error || result.verification?.status || 'Delegation verification failed.')
+      if (!result.verification) throw new Error(result.error || 'Delegation verification failed.')
       setVerification(result.verification)
     } catch (e) { setError(e instanceof Error ? e.message : 'Delegation verification failed.') }
     finally { setVerifying(false); setAdminToken('') }
