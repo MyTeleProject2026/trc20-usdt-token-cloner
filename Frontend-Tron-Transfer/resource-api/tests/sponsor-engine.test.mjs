@@ -23,7 +23,7 @@ function configuredEnv(overrides = {}) {
     ...overrides,
   }
 }
-function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast } = {}) {
+function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverrides = {} } = {}) {
   let signedCount = 0
   let broadcastCount = 0
   let durableTxId = false
@@ -53,7 +53,7 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast } = {}) {
       : { txID: TXID, raw_data: { contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: sponsorHex, resource: 1, frozen_balance: '1000000' } } }] } },
   })
   const engine = createSponsorTransactionEngine({
-    env: configuredEnv(),
+    env: configuredEnv(envOverrides),
     tronWebFactory: () => fakeTronWeb,
     fetchImpl,
   })
@@ -88,7 +88,7 @@ test('engine persists the transaction ID before broadcasting and verifies a soli
 })
 
 test('zero-fee policy blocks transactions whose own Bandwidth pool cannot cover the full transaction', async () => {
-  const f = fixture({ bandwidth: 0 })
+  const f = fixture({ bandwidth: 0, envOverrides: { SPONSOR_MAX_TX_FEE_SUN: undefined } })
   const result = await f.engine.execute({
     operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
     onSigned: async () => assert.fail('must not sign a transaction with an unauthorized fee shortfall'),
