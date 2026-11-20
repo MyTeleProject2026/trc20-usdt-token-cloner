@@ -22,6 +22,11 @@ export default function SponsorConsole() {
   const [requiredBandwidth, setRequiredBandwidth] = useState('0')
   const [verification, setVerification] = useState(null)
   const [verifying, setVerifying] = useState(false)
+  const [operation, setOperation] = useState('stake')
+  const [confirmationPhrase, setConfirmationPhrase] = useState('')
+  const [operationResult, setOperationResult] = useState(null)
+  const [executing, setExecuting] = useState(false)
+  const [operationKey, setOperationKey] = useState(() => globalThis.crypto?.randomUUID?.() || '')
 
   const refresh = useCallback(async () => {
     setBusy(true); setError('')
@@ -57,6 +62,22 @@ export default function SponsorConsole() {
       setVerification(result.verification)
     } catch (e) { setError(e instanceof Error ? e.message : 'Delegation verification failed.') }
     finally { setVerifying(false); setAdminToken('') }
+  }
+
+  const executeSponsorOperation = async (event) => {
+    event.preventDefault(); setExecuting(true); setOperationResult(null); setError('')
+    try {
+      if (!operationKey) throw new Error('Secure idempotency key generation is unavailable in this browser.')
+      const [whole, fraction = ''] = stakeAmount.split('.')
+      if (!/^(0|[1-9][0-9]*)$/.test(whole) || !/^[0-9]{0,6}$/.test(fraction)) throw new Error('Enter a valid TRX amount with up to six decimals.')
+      const amountSun = (BigInt(whole) * 1000000n + BigInt((fraction + '000000').slice(0, 6))).toString()
+      const response = await fetch(`${API}/api/tron/sponsor/transaction/execute`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ operation, amountSun, resource: stakeResource, idempotencyKey: operationKey, confirmPhrase: confirmationPhrase }) })
+      const result = await response.json()
+      setOperationResult(result)
+      if (!response.ok) throw new Error(result.error || result.resultCode || 'Sponsor transaction was not completed.')
+      if (result.solidified) { setConfirmationPhrase(''); setAdminToken(''); setOperationKey(globalThis.crypto?.randomUUID?.() || '') }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Sponsor transaction failed. Do not retry with a new idempotency key until the previous outcome is reconciled.') }
+    finally { setExecuting(false) }
   }
 
   const sponsor = data?.sponsor
@@ -102,12 +123,24 @@ export default function SponsorConsole() {
       <button type="submit" disabled={verifying || !adminToken}>{verifying ? 'Verifying solidified state…' : 'Verify Owner Delegation'}</button>
       {verification && <p className={verification.verified ? 'sponsor-plan-success' : 'sponsor-error'} role="status">{verification.status} · Solidified: {verification.solidified ? 'Yes' : 'No'} · Energy: {verification.ENERGY ?? '—'} · Bandwidth: {verification.BANDWIDTH ?? '—'}</p>}
     </form>
+    <form className="sponsor-stake-planner" onSubmit={executeSponsorOperation}>
+      <h3>Stake 2.0 Mainnet transaction</h3>
+      <p>Creates and signs a real Mainnet transaction using the server-held Sponsor key only when both backend execution flags are enabled. Every operation requires explicit confirmation and a durable idempotency record.</p>
+      <label>Operation<select value={operation} onChange={(event) => setOperation(event.target.value)}><option value="stake">Stake TRX 2.0</option><option value="delegate">Delegate frozen resource to Owner</option></select></label>
+      <label>Amount (TRX)<input inputMode="decimal" value={stakeAmount} onChange={(event) => setStakeAmount(event.target.value)} required pattern="[0-9]+(\.[0-9]{1,6})?" /></label>
+      <label>Resource<select value={stakeResource} onChange={(event) => setStakeResource(event.target.value)}><option value="ENERGY">Energy</option><option value="BANDWIDTH">Bandwidth</option></select></label>
+      <label>Admin authorization token<input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} required minLength={32} /></label>
+      <label>Type exact confirmation phrase<input value={confirmationPhrase} onChange={(event) => setConfirmationPhrase(event.target.value)} autoComplete="off" required /></label>
+      <p className="sponsor-warning">Required phrase: <code>CONFIRM TRON MAINNET SPONSOR TRANSACTION</code>. This can lock Sponsor TRX or delegate frozen resources. Confirm the amount and Owner address before proceeding.</p>
+      <button type="submit" disabled={executing || !adminToken || !operationKey || (operation === 'stake' ? !caps?.canStake : !caps?.canDelegate)}>{executing ? 'Submitting Mainnet transaction…' : operation === 'stake' ? 'Confirm & Stake on Mainnet' : 'Confirm & Delegate to Owner'}</button>
+      {operationResult && <p className={operationResult.solidified ? 'sponsor-plan-success' : 'sponsor-error'} role="status">{operationResult.resultCode || operationResult.error || operationResult.operationStatus} · TX: {operationResult.transactionId || 'Not returned'} · Solidified: {operationResult.solidified ? 'Yes' : 'No'} · Retry allowed: {operationResult.retryAllowed ? 'Yes' : 'No'}</p>}
+    </form>
     <div className="sponsor-actions">
       <button type="button" disabled title="Requires the reviewed server-side Stake 2.0 signer">Stake for Energy</button>
       <button type="button" disabled title="Requires the reviewed server-side Stake 2.0 signer">Stake for Bandwidth</button>
       <button type="button" disabled title="Requires verified staking and authenticated delegation service">Delegate to Owner</button>
       <button type="button" disabled title="Automatic unstaking is intentionally disabled">Unstake / Reclaim</button>
     </div>
-    <p className="sponsor-footnote"><Activity size={14}/> This page currently displays live, read-only Mainnet account resources. It does not claim to stake, purchase, or delegate resources. Transaction controls remain disabled until server-side signing, admin authorization, transaction simulation, and audit protections are completed.</p>
+    <p className="sponsor-footnote"><Activity size={14}/> This page displays live Mainnet resources. Transaction submission is gated by server-side feature flags, a matching Sponsor signer, admin authorization, durable idempotency, and exact per-operation confirmation. A broadcast is not reported as complete until solidified verification succeeds.</p>
   </section>
 }
