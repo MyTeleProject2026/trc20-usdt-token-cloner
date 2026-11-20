@@ -1,0 +1,25 @@
+# Render Blueprint for the existing TRON Transfer Resource API and Sponsor ledger.
+# Apply this Blueprint using existingResources: adopt after reviewing the planned sync.
+# Existing service/database settings not declared here are retained by Render.
+services:
+  - type: web
+    name: tron-transfer-resource-api
+    runtime: node
+    region: singapore
+    repo: https://github.com/MyTeleProject2026/trc20-usdt-token-cloner
+    branch: ui/modern-crypto-dashboard-theme
+    buildCommand: cd Frontend-Tron-Transfer/resource-api && npm test && npm run check
+    startCommand: cd Frontend-Tron-Transfer/resource-api && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tron-transfer-sponsor-ledger-free
+          property: connectionString
+
+databases:
+  - name: tron-transfer-sponsor-ledger-free
+    databaseName: tron_transfer_sponsor_ledger_free
+    user: tron_transfer_sponsor_ledger_free_user
+    postgresMajorVersion: "18"
+    region: singapore
