@@ -15,7 +15,7 @@ function configuredAddress(value) {
 
 function hasValidSponsorAdminToken(req) {
   const expected = process.env.SPONSOR_ADMIN_TOKEN
-  const supplied = req.get?.('authorization')?.replace(/^Bearer\\s+/i, '') || ''
+  const supplied = req.get?.('authorization')?.replace(/^Bearer\s+/i, '') || ''
   if (typeof expected !== 'string' || expected.length < 32 || !supplied || supplied.length !== expected.length) return false
   return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))
 }
