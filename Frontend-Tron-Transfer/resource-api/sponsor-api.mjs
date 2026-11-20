@@ -194,6 +194,8 @@ export function createSponsorResourceApi({
     if (req.method === 'GET' && path === '/api/sponsor/status') {
       const readiness = engine.readiness()
       const dbConfigured = Boolean(env.DATABASE_URL)
+      const ownerAddressMatches = readiness.ownerAddress === ownerAddress
+      const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
       let databaseReady = false
       if (dbConfigured) {
         try {
@@ -209,9 +211,11 @@ export function createSponsorResourceApi({
         sessionAuthenticationConfigured: Boolean(sessionSecret(env)),
         databaseConfigured: dbConfigured,
         databaseReady,
+        ownerAddressMatches,
+        sponsorIndependent,
         engineConfigured: readiness.configured === true,
         engineEnabled: readiness.enabled === true,
-        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)),
+        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent,
         feePolicy: readiness.feePolicy,
         checkedAt: new Date(now()).toISOString(),
       }, origin)
