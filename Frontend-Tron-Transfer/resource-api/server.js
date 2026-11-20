@@ -123,14 +123,29 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
   }
 }
 
+function tatumRestBaseUrl(env = process.env) {
+  const configured = typeof env.TATUM_TRON_RPC_URL === 'string' ? env.TATUM_TRON_RPC_URL.trim() : ''
+  if (!configured) return TATUM_MAINNET_RPC
+  try {
+    const endpoint = new URL(configured)
+    if (endpoint.protocol !== 'https:' || endpoint.hostname !== 'tron-mainnet.gateway.tatum.io'
+      || endpoint.username || endpoint.password || !['', '/', '/jsonrpc'].includes(endpoint.pathname)
+      || endpoint.search || endpoint.hash) return TATUM_MAINNET_RPC
+    // The resource reader calls Tatum's TRON REST-compatible /wallet endpoints.
+    // Render may store the provider's JSON-RPC URL; use its trusted origin here.
+    return endpoint.origin
+  } catch { return TATUM_MAINNET_RPC }
+}
+
 function rpcProviders(env = process.env) {
   const providers = []
   const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
+  const tatumNetwork = String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase()
   const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
-  if (tatumKey) {
+  if (tatumKey && tatumNetwork === 'mainnet') {
     providers.push({
       id: 'tatum',
-      baseUrl: TATUM_MAINNET_RPC,
+      baseUrl: tatumRestBaseUrl(env),
       headers: { 'x-api-key': tatumKey },
     })
   }
