@@ -134,7 +134,7 @@ function CenterToast({ toast, onClose }) {
   </div>
 }
 
-export default function SponsorWalletManager({ onNavigate = () => {} }) {
+export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {} }) {
   const [wallet, setWallet] = useState(null)
   const [saved, setSaved] = useState(false)
   const [replacing, setReplacing] = useState(false)
@@ -640,6 +640,16 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     } finally { setBusy(false) }
   }
 
+  const energyAvailable = Math.max(0, (snapshot?.energyLimit || 0) - (snapshot?.energyUsed || 0))
+  const energyTargetValid = /^[1-9][0-9]{0,14}$/.test(energyTarget) && Number.isSafeInteger(Number(energyTarget))
+  const bandwidthTargetValid = /^[1-9][0-9]{0,14}$/.test(bandwidthTarget) && Number.isSafeInteger(Number(bandwidthTarget))
+  const ownerEnergyDeficit = energyTargetValid ? Math.max(0, Number(energyTarget) - (snapshot?.ownerEnergyAvailable || 0)) : 0
+  const ownerBandwidthDeficit = bandwidthTargetValid ? Math.max(0, Number(bandwidthTarget) - (snapshot?.ownerBandwidthAvailable || 0)) : 0
+  const energyStakeEstimate = estimateStakeSun('ENERGY', ownerEnergyDeficit, snapshot)
+  const bandwidthStakeEstimate = estimateStakeSun('BANDWIDTH', ownerBandwidthDeficit, snapshot)
+  const bandwidthAvailable = Math.max(0, (snapshot?.netLimit || 0) - (snapshot?.netUsed || 0))
+  const freeBandwidthAvailable = Math.max(0, (snapshot?.freeNetLimit || 0) - (snapshot?.freeNetUsed || 0))
+
   useEffect(() => {
     if (!wallet || !snapshot || !energyTargetValid || !bandwidthTargetValid) return
     const shortfall = ownerEnergyDeficit > 0 || ownerBandwidthDeficit > 0
@@ -652,16 +662,6 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
   }, [wallet?.address, snapshot, energyTargetValid, bandwidthTargetValid, ownerEnergyDeficit, ownerBandwidthDeficit, notify])
 
   useEffect(() => { resourceAlertState.current = 'unknown' }, [wallet?.address])
-
-  const energyAvailable = Math.max(0, (snapshot?.energyLimit || 0) - (snapshot?.energyUsed || 0))
-  const energyTargetValid = /^[1-9][0-9]{0,14}$/.test(energyTarget) && Number.isSafeInteger(Number(energyTarget))
-  const bandwidthTargetValid = /^[1-9][0-9]{0,14}$/.test(bandwidthTarget) && Number.isSafeInteger(Number(bandwidthTarget))
-  const ownerEnergyDeficit = energyTargetValid ? Math.max(0, Number(energyTarget) - (snapshot?.ownerEnergyAvailable || 0)) : 0
-  const ownerBandwidthDeficit = bandwidthTargetValid ? Math.max(0, Number(bandwidthTarget) - (snapshot?.ownerBandwidthAvailable || 0)) : 0
-  const energyStakeEstimate = estimateStakeSun('ENERGY', ownerEnergyDeficit, snapshot)
-  const bandwidthStakeEstimate = estimateStakeSun('BANDWIDTH', ownerBandwidthDeficit, snapshot)
-  const bandwidthAvailable = Math.max(0, (snapshot?.netLimit || 0) - (snapshot?.netUsed || 0))
-  const freeBandwidthAvailable = Math.max(0, (snapshot?.freeNetLimit || 0) - (snapshot?.freeNetUsed || 0))
 
   useEffect(() => {
     const sectionId = ({
