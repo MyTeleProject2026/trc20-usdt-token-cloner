@@ -156,7 +156,8 @@ export function createSponsorTransactionEngine({
       const sponsorAddress = tronWeb.address.fromPrivateKey(privateKey)
       if (sponsorAddress !== env.SPONSOR_MAINNET_ADDRESS || sponsorAddress === recipient) throw new Error('sponsor-signer-address-mismatch')
       const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
-      const maxFee = positiveSun(String(env.SPONSOR_MAX_TX_FEE_SUN || '0')) ?? (env.SPONSOR_MAX_TX_FEE_SUN === '0' ? 0n : null)
+      const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
+      const maxFee = maxFeeRaw === '0' ? 0n : positiveSun(String(maxFeeRaw))
       if (reserve === null || maxFee === null) throw new Error('invalid-sponsor-fee-policy')
       const balance = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
       if (operation === 'stake' && balance < amount + reserve) return { success: false, status: 'insufficient-balance-after-reserve', signed: false, broadcast: false }
