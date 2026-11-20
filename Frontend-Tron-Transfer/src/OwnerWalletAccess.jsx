@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import './owner-wallet-access.css'
 import { KeyRound, LockKeyhole, ShieldCheck, Upload, Wallet } from 'lucide-react'
 import {
   createOwnerTronWeb, deriveOwnerAccount, getSavedOwnerWalletAddress, hasSavedOwnerWallet,
