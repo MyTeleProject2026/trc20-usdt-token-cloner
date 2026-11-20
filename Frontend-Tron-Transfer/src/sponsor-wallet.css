@@ -114,3 +114,19 @@
   .sponsor-card { border-radius:14px; }
   .sponsor-product-tabs { border-radius:10px; }
 }
+
+/* Each Sponsor route is a real page surface; hidden routes must never affect layout or focus. */
+.sponsor-dashboard > section[hidden] { display: none !important; }
+.sponsor-render-error { border-color: rgba(255,150,158,.34); }
+.sponsor-page-locked { max-width: 760px; }
+.sponsor-manager :is(button,a,input,select,textarea):focus-visible {
+  outline: 2px solid #67cafa;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sponsor-manager *, .sponsor-manager *::before, .sponsor-manager *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
