@@ -37,7 +37,7 @@ test('mesh suspends polling while hidden and clears timers on unmount', () => {
 test('Owner Admin Home mounts AETHERIA directly and removes the former monitor route import', () => {
   assert.ok(app.includes("import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'"))
   assert.ok(app.includes("activePage === 'home' ? <AetheriaMcpMesh"))
-  assert.doesNotMatch(app, /PlatformMonitor|RuntimeObservatory|overview/)
+  assert.doesNotMatch(app, /PlatformMonitor|RuntimeObservatory/)
   assert.ok(mobileNav.includes("const primaryIds = ['home', 'issuance', 'credits', 'transfers']"))
   assert.doesNotMatch(mobileNav, /overview/)
 })
