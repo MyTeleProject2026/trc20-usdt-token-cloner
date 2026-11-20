@@ -200,7 +200,7 @@ export function createSponsorResourceApi({
       if (dbConfigured) {
         try {
           const db = getDatabase()
-          if (db) { await db.query('SELECT 1'); databaseReady = true }
+          if (db) { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true }
         } catch { databaseReady = false }
       }
       return reply(res, 200, {
