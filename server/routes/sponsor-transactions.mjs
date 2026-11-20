@@ -55,6 +55,48 @@ function sha(value) { return createHash('sha256').update(value).digest('hex') }
 
 export function createSponsorTransactionRouter({ env = process.env, getDatabase = () => database(env), engine = createSponsorTransactionEngine({ env }) } = {}) {
   const router = Router()
+  router.get('/sponsor/transaction/:idempotencyKey', async (req, res) => {
+    noStore(res)
+    if (!authorized(req, env)) return res.status(401).json({ success: false, error: 'unauthorized' })
+    const key = req.params?.idempotencyKey
+    if (typeof key !== 'string' || !IDEMPOTENCY.test(key)) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
+    const db = getDatabase()
+    if (!db) return res.status(503).json({ success: false, error: 'durable-idempotency-storage-required' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(
+        'SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,transaction_id,result_code,confirmation_block FROM ' + SCHEMA + '.sponsor_chain_operations WHERE idempotency_key_hash=$1',
+        [sha(key)],
+      )
+      const row = result.rows[0]
+      if (!row) return res.status(404).json({ success: false, error: 'sponsor-operation-not-found' })
+      if (!row.transaction_id || row.status === 'failed' || row.status === 'confirmed') {
+        return res.json({ success: row.status === 'confirmed', operationStatus: row.status, transactionId: row.transaction_id, resultCode: row.result_code, confirmationBlock: row.confirmation_block, retryAllowed: false })
+      }
+      const check = await engine.reconcile({
+        transactionId: row.transaction_id,
+        operation: row.operation,
+        amountSun: row.amount_sun,
+        resource: row.resource,
+        ownerAddress: row.owner_address,
+      })
+      if (check.confirmed) {
+        await db.query('UPDATE ' + SCHEMA + '.sponsor_chain_operations SET status=\'confirmed\',result_code=$2,confirmation_block=$3,updated_at=now() WHERE idempotency_key_hash=$1', [sha(key), check.status, check.blockNumber])
+      }
+      return res.status(check.confirmed ? 200 : 202).json({
+        success: check.confirmed,
+        operationStatus: check.confirmed ? 'confirmed' : row.status,
+        transactionId: row.transaction_id,
+        resultCode: check.status,
+        confirmationBlock: check.blockNumber || row.confirmation_block,
+        solidified: check.confirmed,
+        retryAllowed: false,
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'sponsor-transaction-reconciliation-unavailable', retryAllowed: false })
+    }
+  })
+
   router.post('/sponsor/transaction/execute', async (req, res) => {
     noStore(res)
     if (!authorized(req, env)) return res.status(401).json({ success: false, error: 'unauthorized', signed: false, broadcast: false })
