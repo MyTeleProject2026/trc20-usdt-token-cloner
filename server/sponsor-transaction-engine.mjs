@@ -94,6 +94,23 @@ export function createSponsorTransactionEngine({
     return { confirmed: true, status: 'solidified-success', blockNumber: info.blockNumber }
   }
 
+  async function reconcile({ transactionId, operation, amountSun, resource, ownerAddress } = {}) {
+    if (!TXID.test(transactionId || '') || !['stake','delegate'].includes(operation)
+      || !['ENERGY','BANDWIDTH'].includes(resource) || !positiveSun(amountSun)
+      || !ADDRESS.test(ownerAddress || '') || !ADDRESS.test(env.SPONSOR_MAINNET_ADDRESS || '')) {
+      return { confirmed: false, status: 'invalid-reconciliation-request' }
+    }
+    const result = await verifySolidified(transactionId, env.SPONSOR_MAINNET_ADDRESS, ownerAddress, operation, resource, amountSun)
+    if (!result.confirmed) return result
+    if (operation === 'delegate') {
+      const check = await createTronMainnetDelegationVerifier({ fetchImpl }).verifyDelegation({
+        ownerAddress, transactionId, required: { ENERGY: '0', BANDWIDTH: '0' }, network: 'mainnet',
+      })
+      if (!check.verified) return { confirmed: false, status: 'delegation-record-or-owner-resources-not-yet-verified' }
+    }
+    return result
+  }
+
   async function execute({ operation, amountSun, resource, ownerAddress, confirmPhrase } = {}) {
     if (env.SPONSOR_TRANSACTION_ENGINE_ENABLED !== 'true' || env.SPONSOR_MAINNET_BROADCAST_ENABLED !== 'true') {
       return { success: false, status: 'sponsor-transaction-engine-disabled', signed: false, broadcast: false }
@@ -173,5 +190,5 @@ export function createSponsorTransactionEngine({
     }
   }
 
-  return Object.freeze({ execute })
+  return Object.freeze({ execute, reconcile })
 }
