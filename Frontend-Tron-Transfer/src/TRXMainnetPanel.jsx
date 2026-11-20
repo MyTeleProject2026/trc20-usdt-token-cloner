@@ -103,7 +103,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
   const assertOwner = useCallback(async (token, tronWeb) => {
     const owner = await callMainnetView(token.owner())
-    if (!addressesEqual(tronWeb, owner, connectedAddress)) throw new Error('Connected TronLink wallet is not the on-chain TRӾ owner.')
+    if (!addressesEqual(tronWeb, owner, connectedAddress)) throw new Error('Connected Owner Wallet is not the on-chain TRӾ owner.')
     return owner
   }, [connectedAddress])
 
@@ -126,14 +126,14 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     }
     setSnapshot(next)
     if (!valid) throw new Error('Token metadata mismatch. Expected TRӾ / TRӾ / 6 decimals.')
-    if (!ownerValid) throw new Error('Connected TronLink account is not the token owner.')
+    if (!ownerValid) throw new Error('Connected Owner Wallet is not the token owner.')
     setNotice('Mainnet contract reads succeeded. This is an owner-issued, unbacked token; no reserve or redemption is represented.')
     return next
   })
 
   const checkDeploymentReadiness = () => run('Checking live TRON Mainnet deployment readiness · read-only', async () => {
     setDeploymentReadiness(null)
-    if (!walletReady) throw new Error('Connect the configured owner TronLink wallet first.')
+    if (!walletReady) throw new Error('Unlock the configured Owner Wallet first.')
     if (!feeCapSun) throw new Error('Enter a valid deployment fee cap between 0.000001 and 500 TRX.')
     if (tokenAddress) throw new Error('A token contract address is already saved. Clear it only if you intend to deploy a new token.')
     if (!TRAX_TOKEN_ARTIFACT?.bytecode || !TRAX_TOKEN_ARTIFACT?.deployedBytecode) throw new Error('The compiled TRӾ deployment artifact is incomplete.')
@@ -159,7 +159,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   })
 
   const claimTenergyPromo = () => run('Checking TEnergy owner eligibility · message signature only', async () => {
-    if (!walletReady) throw new Error('Connect the configured owner TronLink wallet on TRON Mainnet before requesting a TEnergy claim.')
+    if (!walletReady) throw new Error('Unlock the configured Owner Wallet on TRON Mainnet before requesting a TEnergy claim.')
     const result = await claimTenergyPromoForDeployment(wallet, EXPECTED_OWNER_ADDRESS, {
       onStage: stage => setStep(stage),
     })
@@ -168,12 +168,12 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return result
   })
 
-  const deployToken = () => run('Preparing TRӾ Mainnet deployment · TronLink approval required', async () => {
-    if (!walletReady) throw new Error('Connect the configured owner TronLink wallet first.')
+  const deployToken = () => run('Preparing TRӾ Mainnet deployment · local Owner Wallet signing', async () => {
+    if (!walletReady) throw new Error('Unlock the configured Owner Wallet first.')
     if (!feeCapSun) throw new Error('Enter a valid deployment fee cap between 0.000001 and 500 TRX.')
     if (tokenAddress) throw new Error('A token contract address is already saved. Clear it only if you intend to deploy a new token.')
     // Attempt the provider's documented one-time Energy promotion from this
-    // explicit user click. The provider may require a separate TronLink message
+    // explicit user click. The provider may require a separate owner message
     // signature; this is not an on-chain transaction. No signature is bypassed.
     // A grant is never assumed: fresh Mainnet preflight below remains the sole
     // authority for readiness and also checks Bandwidth.
@@ -189,7 +189,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     if (promo?.message) setNotice(promo.message)
     // One-click flow: run a fresh read-only estimate immediately, then let
     // deployContractFromTronLink repeat resource/permission checks before the
-    // TronLink prompt, after signing, and immediately before broadcast.
+    // local signing, after signing, and immediately before broadcast.
     setDeploymentReadiness(null)
     setStep('Checking Mainnet Energy, Bandwidth, owner permission and zero-TRX fallback')
     const preflight = await preflightContractDeployments(wallet, [{
@@ -199,7 +199,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     }])
     const deployment = preflight.deployments?.[0]
     if (!preflight.conservative || !deployment?.energyEstimateAvailable || preflight.requiredTrxSun !== '0') {
-      throw new Error('Deployment is blocked: exact Energy estimation, complete Bandwidth coverage, owner permission, or zero-TRX fallback could not be verified. No TronLink prompt, signature, or broadcast was attempted.')
+      throw new Error('Deployment is blocked: exact Energy estimation, complete Bandwidth coverage, owner permission, or zero-TRX fallback could not be verified. No signature or broadcast was attempted.')
     }
     setDeploymentReadiness({
       owner: connectedAddress,
@@ -210,7 +210,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       energyWithSafetyMargin: deployment.energyWithSafetyMargin,
       bandwidthBytes: deployment.estimatedBandwidthBytes,
     })
-    setStep('Preflight passed · preparing the owner-approved TronLink deployment')
+    setStep('Preflight passed · preparing the locally signed Owner deployment')
     const result = await deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, { expectedOwnerAddress: EXPECTED_OWNER_ADDRESS })
     setTokenAddress(result.address)
     setLastTx(result.txID)
@@ -225,7 +225,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setError('')
   }
 
-  const activate = () => run('Enabling owner issuance · two TronLink approvals', async () => {
+  const activate = () => run('Enabling owner issuance · two explicit Owner signatures', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
     const paused = await callMainnetView(token.paused())
@@ -243,7 +243,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     await refresh()
   })
 
-  const unpauseTransfers = () => run('Unpausing TRӾ transfers · TronLink approval required', async () => {
+  const unpauseTransfers = () => run('Unpausing TRӾ transfers · local Owner signature required', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
     if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
@@ -254,7 +254,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     await refresh()
   })
 
-  const enableMinting = () => run('Enabling owner issuance · TronLink approval required', async () => {
+  const enableMinting = () => run('Enabling owner issuance · local Owner signature required', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
     if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
@@ -335,7 +335,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     await refresh()
   })
 
-  const pause = () => run('Emergency pause · TronLink approval required', async () => {
+  const pause = () => run('Emergency pause · local Owner signature required', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
     if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
@@ -345,7 +345,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     await refresh()
   })
 
-  const disableMinting = () => run('Disabling owner issuance · TronLink approval required', async () => {
+  const disableMinting = () => run('Disabling owner issuance · local Owner signature required', async () => {
     const { tronWeb, token } = await getToken()
     await assertOwner(token, tronWeb)
     if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
@@ -359,13 +359,13 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
   return <section className="trax-workspace">
     <div className="section-heading">
-      <div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token control center</h2><p>Manage the existing TRӾ TRC-20 contract. Every write is validated and separately approved in TronLink.</p></div>
+      <div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token control center</h2><p>Manage the existing TRӾ TRC-20 contract. Every write is validated and signed locally by the unlocked Owner Wallet.</p></div>
       <div className="panel-icon" aria-label="TRӾ token"><TraxTokenMark/><small>TRӾ / TRӾ</small></div>
     </div>
 
     <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>
 
-    {!walletReady ? <div className="trax-connect"><p>{connectedAddress ? 'Connected account does not match the configured contract owner (' + EXPECTED_OWNER_ADDRESS + '). Switch accounts in TronLink and reconnect.' : 'Connect the configured owner TronLink wallet on TRON Mainnet to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Connect owner TronLink</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
+    {!walletReady ? <div className="trax-connect"><p>{connectedAddress ? 'Connected account does not match the configured contract owner (' + EXPECTED_OWNER_ADDRESS + '). Switch accounts in TronLink and reconnect.' : 'Unlock the configured Owner Wallet on TRON Mainnet to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Unlock Owner Wallet</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
 
     {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/>{error}</div>}
     {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
@@ -431,7 +431,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
     {show('batch') && <div className="trax-actions">
       <h3>Batch wallet credits</h3>
-      <p className="fine-print">Issue multiple recipient credits in one contract call. Maximum 50 addresses per batch. Review every address and amount before opening TronLink.</p>
+      <p className="fine-print">Issue multiple recipient credits in one contract call. Maximum 50 addresses per batch. Review every address and amount before requesting the local Owner Wallet signature.</p>
       <label>Recipient list (one TRON_ADDRESS,AMOUNT per line)<textarea value={batchInput} onChange={e => setBatchInput(e.target.value)} rows={7} placeholder={'TAddressOne,100\nTAddressTwo,250'}/></label>
       <div className="trax-balance-note">Maximum 50 rows · Amounts use six token decimals.</div>
       <button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || snapshot?.paused || !feeCapSun || !batchInput.trim()} onClick={batchCredit}>Review &amp; batch-credit addresses</button>
@@ -441,7 +441,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <h3>Emergency transfer controls</h3>
       <div className={snapshot?.paused ? 'trax-state-banner warning' : 'trax-state-banner success'}><b>{snapshot ? snapshot.paused ? 'Transfers currently paused' : 'Transfers currently active' : 'Contract state not loaded'}</b><span>{snapshot ? snapshot.paused ? 'Token transfers and owner issuance are blocked until the owner unpauses.' : 'Transfers are available subject to normal TRC-20 balances and allowances.' : 'Refresh contract state before making an emergency change.'}</span></div>
       <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot || snapshot.paused || !feeCapSun} onClick={pause}>Emergency pause transfers</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.paused || !feeCapSun} onClick={unpauseTransfers}>Unpause transfers</button></div>
-      <p className="fine-print">Only the current on-chain owner can change pause state. Both actions require a separate TronLink signature and network resources.</p>
+      <p className="fine-print">Only the current on-chain owner can change pause state. Both actions require a separate local Owner Wallet signature and network resources.</p>
     </div>}
 
     {show('minting') && <div className="trax-actions">
