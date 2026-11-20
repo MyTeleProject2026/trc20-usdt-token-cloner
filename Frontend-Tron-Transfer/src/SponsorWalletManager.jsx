@@ -520,6 +520,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         body: { operation: action, resource: resourceType, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
+      if (!window.confirm('Authorize this exact Sponsor operation with a signed message?\n\n' + intent.message + '\n\nThis is an off-chain authorization message, not a TRON transaction.')) return
       const signature = await tronWeb.trx.signMessageV2(intent.message, wallet.privateKey)
       const result = await sponsorApiRequest('/api/sponsor/operations', {
         method: 'POST', token,
@@ -620,7 +621,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
 
     {wallet && <section className="sponsor-card">
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Server-side signing, exact-intent authorization and durable operation ledger.</p></div></div>
-      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {sponsorApiStatus?.databaseReady ? 'connected' : sponsorApiStatus?.databaseConfigured ? 'configured but unavailable' : 'not configured'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'}</p>
+      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {sponsorApiStatus?.databaseReady ? 'connected' : sponsorApiStatus?.databaseConfigured ? 'configured but unavailable' : 'not configured'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'}</p>
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Exact Sponsor message signature, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
     </section>}
