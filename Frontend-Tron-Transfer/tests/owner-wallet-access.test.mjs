@@ -22,7 +22,7 @@ test('Owner Admin connects to its independent local encrypted Owner Wallet inste
 })
 
 test('TRӾ owner contract actions consume the local TronWeb signer and no longer instruct operators to use TronLink', () => {
-  assert.ok(panel.includes('deployContractFromTronLink(wallet'))
+  assert.ok(panel.includes('deployContractWithOwnerSigner(wallet'))
   assert.ok(panel.includes('local Owner Wallet signing'))
   assert.ok(panel.includes('local Owner signature required'))
   assert.doesNotMatch(panel, /Connect owner TronLink|opening TronLink|TronLink approval required/)
