@@ -69,7 +69,7 @@ Required server-side configuration:
 - `SPONSOR_STAKING_ENABLED=true` — explicitly enables Sponsor Stake 2.0 operations.
 - `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` — maximum single stake operation; your current value of `10` caps each stake request at 10 TRX.
 - `SPONSOR_MAX_OWNER_TOPUP_TRX` — optional separate maximum single Owner top-up; if omitted, the existing `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` value is used as the top-up cap.
-- `SPONSOR_ADMIN_TOKEN` — optional second-factor secret for Sponsor write requests. If set, it must be supplied by the operator in the Sponsor UI; it is not exposed as a frontend build variable.
+- `SPONSOR_ADMIN_TOKEN` — optional second-factor secret for Sponsor write requests. If set, it must contain at least 32 characters and be supplied by the operator in the Sponsor UI; it is not exposed as a frontend build variable.
 - `SPONSOR_MAX_TX_FEE_SUN` — maximum permitted Bandwidth-shortfall fee in SUN; defaults to zero, so an uncovered transaction is blocked.
 
 The transaction engine validates the exact Stake 2.0, delegation, or native TRX transfer contract; Sponsor signer; fixed Owner recipient; resource; amount; and expiration. It checks Sponsor balance, protected reserve, configured stake/top-up cap, and one-source Bandwidth coverage; persists the transaction ID before broadcast; and verifies the transaction against solidified Mainnet state. Delegation is additionally checked against the live delegated-resource state. An ambiguous broadcast is never automatically retried. No Owner wallet key is accepted by this API. Owner-originated contract deployment and token operations remain TronLink-signed by the Owner wallet; Sponsor funding does not sign those Owner transactions.
