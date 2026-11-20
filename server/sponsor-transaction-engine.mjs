@@ -155,7 +155,7 @@ export function createSponsorTransactionEngine({
       broadcastAttempted = true
       const broadcast = await tronWeb.trx.sendRawTransaction(signed)
       if (broadcast?.result !== true) {
-        return { success: false, status: 'broadcast-rejected-or-unknown', txid: signed.txID, signed: true, broadcast: false }
+        return { success: false, status: 'broadcast-rejected-or-unknown', txid: signed.txID, signed: true, broadcast: true }
       }
       const verification = await verifySolidified(signed.txID, sponsorAddress, ownerAddress, operation, resource, amount.toString())
       let delegationVerified = false
