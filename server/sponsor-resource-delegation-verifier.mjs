@@ -99,19 +99,24 @@ export function createSponsorResourceDelegationVerifier({
         || !info || Object.keys(info).length === 0 || !Number.isSafeInteger(info.blockNumber) || info.blockNumber <= 0) {
         return fail('pending-solidification', 'solidified-transaction-not-found')
       }
-      const contract = transaction.raw_data?.contract?.find((entry) => entry?.type === 'DelegateResourceContract')
+      const contracts = transaction.raw_data?.contract
+      const contract = Array.isArray(contracts) && contracts.length === 1 && contracts[0]?.type === 'DelegateResourceContract'
+        ? contracts[0]
+        : null
       const value = contract?.parameter?.value
       const amount = numericText(value?.balance)
       const returnedResource = normalizeResource(value?.resource)
       const receiptFailed = String(info.result || '').toUpperCase() === 'FAILED'
         || String(info.receipt?.result || '').toUpperCase() === 'FAILED'
-      const executionSucceeded = transaction.ret?.[0]?.contractRet === 'SUCCESS'
+      const receiptSucceeded = String(info.receipt?.result || '').toUpperCase() === 'SUCCESS'
+      const executionSucceeded = Array.isArray(transaction.ret) && transaction.ret.length === 1
+        && transaction.ret[0]?.contractRet === 'SUCCESS'
       const exactTransaction = normalizeAddress(tronWeb, value?.owner_address) === expectedOwner
         && normalizeAddress(tronWeb, value?.receiver_address) === expectedReceiver
         && amount === stakeEquivalentSun
         && returnedResource === resourceType
-        && value?.lock !== true
-      if (!exactTransaction || !executionSucceeded || receiptFailed) {
+        && ![true, 1, '1', 'true'].includes(typeof value?.lock === 'string' ? value.lock.toLowerCase() : value?.lock)
+      if (!exactTransaction || !executionSucceeded || !receiptSucceeded || receiptFailed) {
         return fail('solidified-transaction-mismatch', 'solidified-delegation-mismatch', { blockNumber: info.blockNumber })
       }
 
