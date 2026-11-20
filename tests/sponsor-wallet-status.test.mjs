@@ -57,3 +57,9 @@ test('Sponsor delegation verification endpoint pins the configured Owner and is 
 test('Sponsor bearer authorization parser accepts standard Bearer whitespace', () => {
   assert.match(route, /replace\(\/\^Bearer\\s\+\/i, ''\)/)
 })
+
+test('Sponsor signer readiness requires the private key to derive the configured Sponsor address', () => {
+  assert.match(route, /tronWeb\.address\.fromPrivateKey\(process\.env\.SPONSOR_MAINNET_PRIVATE_KEY\)/)
+  assert.match(route, /privateKeyMatchesAddress/)
+  assert.match(route, /serverSignerAddressMatches/)
+})
