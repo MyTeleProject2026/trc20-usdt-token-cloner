@@ -75,8 +75,8 @@ async function ensureSchema(db) {
       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       idempotency_key_hash CHAR(64) NOT NULL UNIQUE,
       request_hash CHAR(64) NOT NULL,
-      operation TEXT NOT NULL CHECK (operation IN ('stake','delegate')),
-      resource TEXT NOT NULL CHECK (resource IN ('ENERGY','BANDWIDTH')),
+      operation TEXT NOT NULL CHECK (operation IN ('stake','delegate','topup')),
+      resource TEXT NOT NULL CHECK (resource IN ('ENERGY','BANDWIDTH','TRX')),
       amount_sun NUMERIC(21,0) NOT NULL CHECK (amount_sun > 0),
       sponsor_address TEXT NOT NULL,
       owner_address TEXT NOT NULL,
@@ -87,6 +87,10 @@ async function ensureSchema(db) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_operation_check;
+    ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_operation_check CHECK (operation IN ('stake','delegate','topup'));
+    ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_resource_check;
+    ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_resource_check CHECK (resource IN ('ENERGY','BANDWIDTH','TRX'));
     CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_operations_sponsor_created
       ON public.tron_transfer_sponsor_operations (sponsor_address, created_at DESC);
   `).catch(error => { schemaPromise = null; throw error })
@@ -281,7 +285,9 @@ export function createSponsorResourceApi({
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
       const { operation, resource, amountSun, idempotencyKey } = body
-      if (!['stake', 'delegate'].includes(operation) || !['ENERGY', 'BANDWIDTH'].includes(resource)
+      const validOperation = ['stake', 'delegate', 'topup'].includes(operation)
+      const validResource = operation === 'topup' ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
+      if (!validOperation || !validResource
         || !positiveSun(amountSun) || !IDEMPOTENCY.test(String(idempotencyKey || ''))) {
         return reply(res, 400, { success: false, error: 'invalid-sponsor-operation-intent' }, origin)
       }
