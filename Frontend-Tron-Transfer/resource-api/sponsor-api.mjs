@@ -22,7 +22,20 @@ function equalText(a, b) {
   return left.length === right.length && left.length > 0 && timingSafeEqual(left, right)
 }
 function validAddress(value) {
-  return typeof value === 'string' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value)
+  if (typeof value !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value)) return false
+  let decoded = 0n
+  for (const char of value) {
+    const digit = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'.indexOf(char)
+    if (digit < 0) return false
+    decoded = decoded * 58n + BigInt(digit)
+  }
+  let hex = decoded.toString(16)
+  if (hex.length % 2) hex = '0' + hex
+  const payload = Buffer.from(hex, 'hex')
+  if (payload.length !== 25 || payload[0] !== 0x41) return false
+  const body = payload.subarray(0, 21)
+  const checksum = createHash('sha256').update(createHash('sha256').update(body).digest()).digest().subarray(0, 4)
+  return checksum.equals(payload.subarray(21))
 }
 function positiveSun(value) {
   return typeof value === 'string' && /^[1-9][0-9]{0,20}$/.test(value) && BigInt(value) <= (1n << 63n) - 1n
@@ -350,7 +363,7 @@ export function createSponsorResourceApi({
           [session.address, ownerAddress, body.transactionId],
         )
         const row = result.rows?.[0]
-        if (!row || row.amount_sun !== String(body.stakeEquivalentSun) || row.status === 'failed') return reply(res, 404, { success: false, verified: false, error: 'delegation-not-in-sponsor-ledger' }, origin)
+        if (!row || row.amount_sun !== String(body.stakeEquivalentSun) || row.resource !== body.resourceType || row.status === 'failed') return reply(res, 404, { success: false, verified: false, error: 'delegation-not-in-sponsor-ledger' }, origin)
         const check = await engine.reconcile({
           transactionId: body.transactionId, operation: 'delegate', resource: body.resourceType,
           amountSun: row.amount_sun, sponsorAddress: session.address, ownerAddress,
