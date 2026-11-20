@@ -6,7 +6,8 @@ const route = await readFile(new URL('../server/routes/sponsor-wallet.mjs', impo
 
 test('Sponsor status is read-only and never returns signing material', () => {
   assert.match(route, /router\.get\('\/sponsor\/status'/)
-  assert.match(route, /canStake: false/)
+  assert.match(route, /canStake: Boolean\(/)
+  assert.match(route, /transactionEngineEnabled && mainnetBroadcastEnabled/)
   assert.match(route, /canDelegate: false/)
   assert.match(route, /read-only-until-signer-and-admin-auth-are-configured/)
   assert.doesNotMatch(route, /res\.json\([^)]*privateKey\s*:/s)
