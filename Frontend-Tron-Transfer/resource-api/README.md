@@ -53,8 +53,8 @@ The resource API owns Sponsor operations; the frontend must not fall back to the
 
 - `GET /api/sponsor/status` — reports non-secret Sponsor configuration and whether execution is available.
 - `POST /api/sponsor/session/challenge` and `POST /api/sponsor/session/verify` — authenticate the configured independent Sponsor wallet with a one-time signed message. The returned bearer session is short-lived and held by the client only.
-- `POST /api/sponsor/intent` — creates a five-minute exact-intent message bound to Mainnet, Sponsor, Owner recipient, operation, resource, amount and idempotency key.
-- `POST /api/sponsor/operations` — requires the Sponsor's signature over that exact intent and the explicit confirmation phrase before the server-side signer can act.
+- `POST /api/sponsor/intent` — creates a five-minute exact-intent message bound to Mainnet, Sponsor, Owner recipient, operation, resource, amount and idempotency key. Supported operations are `stake`, `delegate`, and a bounded Sponsor-to-Owner native TRX `topup`.
+- `POST /api/sponsor/operations` — requires the Sponsor's signature over that exact intent and the explicit confirmation phrase before the server-side signer can act. When `SPONSOR_ADMIN_TOKEN` is configured, the same write request must also include `x-sponsor-admin-token`; the frontend accepts it in a memory-only password field and never stores it.
 - `GET /api/sponsor/operations` and `GET /api/sponsor/operations/:idempotencyKey` — read the durable Sponsor operation ledger and reconcile ambiguous broadcasts.
 - `GET /api/tron/sponsorship/resource-delegations` and `POST /api/tron/sponsorship/resource-delegations/verify-wallet` — authenticated, ledger-backed delegation history and independent Mainnet verification.
 
@@ -66,8 +66,12 @@ Required server-side configuration:
 - `TRON_OWNER_ADDRESS` — the existing Owner recipient; must differ from the Sponsor address.
 - `SPONSOR_TRANSACTION_ENGINE_ENABLED=true` and `SPONSOR_MAINNET_BROADCAST_ENABLED=true` — both are required to enable execution. Both default to disabled.
 - `SPONSOR_LIQUID_RESERVE_TRX` — protected liquid TRX reserve; defaults to 2 TRX.
+- `SPONSOR_STAKING_ENABLED=true` — explicitly enables Sponsor Stake 2.0 operations.
+- `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` — maximum single stake operation; your current value of `10` caps each stake request at 10 TRX.
+- `SPONSOR_MAX_OWNER_TOPUP_TRX` — optional separate maximum single Owner top-up; if omitted, the existing `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` value is used as the top-up cap.
+- `SPONSOR_ADMIN_TOKEN` — optional second-factor secret for Sponsor write requests. If set, it must be supplied by the operator in the Sponsor UI; it is not exposed as a frontend build variable.
 - `SPONSOR_MAX_TX_FEE_SUN` — maximum permitted Bandwidth-shortfall fee in SUN; defaults to zero, so an uncovered transaction is blocked.
 
-The transaction engine validates the exact Stake 2.0 contract, Sponsor signer, Owner recipient, resource, amount and expiration; checks Sponsor balance/reserve and one-source Bandwidth coverage; persists the transaction ID before broadcast; and only reports a delegation verified after a successful solidified Mainnet receipt and matching on-chain delegation state. An ambiguous broadcast is never automatically retried. No Owner wallet key is accepted by this API.
+The transaction engine validates the exact Stake 2.0, delegation, or native TRX transfer contract; Sponsor signer; fixed Owner recipient; resource; amount; and expiration. It checks Sponsor balance, protected reserve, configured stake/top-up cap, and one-source Bandwidth coverage; persists the transaction ID before broadcast; and verifies the transaction against solidified Mainnet state. Delegation is additionally checked against the live delegated-resource state. An ambiguous broadcast is never automatically retried. No Owner wallet key is accepted by this API. Owner-originated contract deployment and token operations remain TronLink-signed by the Owner wallet; Sponsor funding does not sign those Owner transactions.
 
-The Sponsor engine remains unavailable until its server-side credentials and database are configured. Adding the code does not create Energy, Bandwidth, TRX, or a provider grant, and does not authorize a TRӾ deployment.
+The Sponsor engine remains fail-closed until its server-side credentials, independent Sponsor signer, session secret, admin token (when configured), and database are verified. Sponsor resource actions and TRX top-ups are explicit, per-operation approvals; this release does not run an unattended scheduler or automatically spend Sponsor funds in the background. Adding the code does not create Energy, Bandwidth, TRX, or a provider grant, and does not authorize a TRӾ deployment.
