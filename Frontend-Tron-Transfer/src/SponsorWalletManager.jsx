@@ -584,7 +584,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
           transactionId: operation.transaction_id || local?.transactionId || '',
           operationReference: lastOperationReference,
           sponsorAddress: operation.sponsor_address || wallet.address,
-          receiverAddress: operation.owner_address || OWNER_ADDRESS,
+          receiverAddress: operation.operation === 'stake' ? (operation.sponsor_address || wallet.address) : (operation.owner_address || OWNER_ADDRESS),
           action: operation.operation || local?.action,
           resourceType: operation.resource || local?.resourceType,
           stakeEquivalentSun: operation.amount_sun || local?.stakeEquivalentSun,
