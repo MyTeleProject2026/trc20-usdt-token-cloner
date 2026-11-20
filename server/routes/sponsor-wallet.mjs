@@ -101,6 +101,10 @@ router.get('/sponsor/status', async (_req, res) => {
   const adminAuthConfigured = Boolean(process.env.SPONSOR_ADMIN_TOKEN)
   const stakingEnabled = process.env.SPONSOR_STAKING_ENABLED === 'true'
   const tronWeb = new TronWeb({ fullHost: MAINNET, headers: process.env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': process.env.TRONGRID_API_KEY } : {} })
+  let privateKeyMatchesAddress = false
+  if (privateKeyConfigured && sponsorAddress) {
+    try { privateKeyMatchesAddress = tronWeb.address.fromPrivateKey(process.env.SPONSOR_MAINNET_PRIVATE_KEY) === sponsorAddress } catch {}
+  }
   let account = null
   let resources = null
   let readError = null
@@ -155,6 +159,7 @@ router.get('/sponsor/status', async (_req, res) => {
         ...(!account ? ['Sponsor Mainnet balance could not be verified.'] : []),
         ...(!resources ? ['Sponsor resource capacity could not be verified.'] : []),
         ...(!privateKeyConfigured ? ['Server-side Sponsor signer is not configured.'] : []),
+        ...(privateKeyConfigured && !privateKeyMatchesAddress ? ['Sponsor signer key does not derive the configured Sponsor address.'] : []),
         ...(!adminAuthConfigured ? ['Sponsor administrator authorization is not configured.'] : []),
         ...(!stakingEnabled ? ['Sponsor staking engine is not explicitly enabled.'] : []),
         ...(!reserveConfigured || !maxStakeConfigured ? ['Sponsor spending policy configuration is invalid.'] : []),
@@ -163,7 +168,8 @@ router.get('/sponsor/status', async (_req, res) => {
     sponsor: { configured: Boolean(sponsorAddress), account, resources, readError },
     owner: { configured: Boolean(ownerAddress), address: ownerAddress || null },
     capabilities: {
-      serverSignerConfigured: privateKeyConfigured,
+      serverSignerConfigured: privateKeyConfigured && privateKeyMatchesAddress,
+      serverSignerAddressMatches: privateKeyMatchesAddress,
       adminAuthorizationConfigured: adminAuthConfigured,
       stakingEnabled,
       canStake: false,
