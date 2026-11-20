@@ -176,7 +176,7 @@ export function createSponsorResourceApi({
     rateCounts.set(bucket, { startedAt: timestamp, count: 1 })
     return true
   }
-  const reply = (res, status, value, origin) => send(res, status, value, origin)
+  const reply = (res, status, value, origin) => { send(res, status, value, origin); return true }
 
   async function handle(req, res, url, origin) {
     const path = url.pathname
