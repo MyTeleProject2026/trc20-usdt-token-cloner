@@ -24,3 +24,13 @@ test('Sponsor automatic staking policy keeps conservative defaults and disables 
   assert.match(route, /SPONSOR_LIQUID_RESERVE_TRX \|\| 2/)
   assert.match(route, /automaticUnstakeEnabled: false/)
 })
+
+test('Sponsor status is explicitly non-cacheable and reports fail-closed readiness blockers', () => {
+  assert.match(route, /Cache-Control', 'no-store'/)
+  assert.match(route, /sponsorOwnerIdentityVerified/)
+  assert.match(route, /spendableTrxAfterReserve/)
+  assert.match(route, /canStakeNow: false/)
+  assert.match(route, /canDelegateNow: false/)
+  assert.match(route, /canDeployOwnerContractNow: false/)
+  assert.match(route, /Sponsor and Owner addresses must be independent/)
+})
