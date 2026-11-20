@@ -175,7 +175,10 @@ export function createSponsorTransactionEngine({
       const freeBandwidth = Math.max(0, Number(accountResources.freeNetLimit || 0) - Number(accountResources.freeNetUsed || 0))
       const stakedBandwidth = Math.max(0, Number(accountResources.NetLimit || 0) - Number(accountResources.NetUsed || 0))
       const availableBandwidth = Math.max(freeBandwidth, stakedBandwidth)
-      const transactionBytes = Buffer.from(transaction.raw_data_hex, 'hex').length
+      // raw_data_hex omits the transaction signature and outer protobuf fields.
+      // Add a conservative 100-byte envelope/signature allowance before deciding
+      // whether the Sponsor's own Bandwidth pool covers this single transaction.
+      const transactionBytes = Buffer.from(transaction.raw_data_hex, 'hex').length + 100
       const chainParameters = await tronWeb.trx.getChainParameters()
       const bandwidthFee = Number((chainParameters || []).find(item => item.key === 'getTransactionFee')?.value || 0)
       if (!Number.isSafeInteger(transactionBytes) || transactionBytes <= 0 || !Number.isSafeInteger(bandwidthFee) || bandwidthFee <= 0) throw new Error('mainnet-bandwidth-preflight-unavailable')
