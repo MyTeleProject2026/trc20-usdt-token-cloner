@@ -532,7 +532,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         const event = {
           transactionId, sponsorAddress: wallet.address, receiverAddress: target, action,
           resourceType, stakeEquivalentSun: String(amountSun),
-          status: result.solidified ? 'solidified-mainnet-verified' : 'broadcast-pending-verification',
+          status: result.solidified ? (action === 'delegate' ? 'solidified-mainnet-verified' : 'solidified-mainnet-confirmed') : 'broadcast-pending-verification',
           blockNumber: result.confirmationBlock || null, createdAt: new Date().toISOString(),
         }
         recordActivity(event)
@@ -620,7 +620,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
 
     {wallet && <section className="sponsor-card">
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Server-side signing, exact-intent authorization and durable operation ledger.</p></div></div>
-      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {sponsorApiStatus?.databaseConfigured ? 'configured' : 'not configured'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'}</p>
+      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {sponsorApiStatus?.databaseReady ? 'connected' : sponsorApiStatus?.databaseConfigured ? 'configured but unavailable' : 'not configured'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'}</p>
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Exact Sponsor message signature, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
     </section>}
