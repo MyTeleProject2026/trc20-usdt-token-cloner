@@ -92,7 +92,7 @@ export function createSponsorTransactionEngine({
     const post = async (path, body) => {
       const response = await fetchImpl(MAINNET + path, {
         method: 'POST',
-        headers: { accept: 'application/json', 'content-type': 'application/json' },
+        headers: { accept: 'application/json', 'content-type': 'application/json', ...(env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {}) },
         body: JSON.stringify(body),
         redirect: 'error',
         signal: AbortSignal.timeout(8_000),
