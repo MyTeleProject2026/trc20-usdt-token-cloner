@@ -335,11 +335,11 @@ export async function verifyTRAXTokenContract(tronWeb, address) {
 }
 
 export function assertMainnetWallet(wallet) {
-  if (!wallet?.tronWeb || !wallet?.address) throw new Error('Connect a TronLink wallet first.')
+  if (!wallet?.tronWeb || !wallet?.address) throw new Error('Unlock the configured Owner Wallet first.')
   let host = ''
   try { host = new URL(String(wallet.tronWeb.fullNode?.host || '')).hostname.toLowerCase() } catch {}
-  if (host !== 'api.trongrid.io') throw new Error('Wrong network. Switch TronLink to TRON Mainnet and reconnect.')
-  if (!wallet.tronWeb.isAddress(wallet.address)) throw new Error('TronLink returned an invalid TRON address.')
+  if (host !== 'api.trongrid.io') throw new Error('Wrong network. The local Owner Wallet signer must use TRON Mainnet.')
+  if (!wallet.tronWeb.isAddress(wallet.address)) throw new Error('Owner Wallet returned an invalid TRON address.')
   return wallet.tronWeb
 }
 
