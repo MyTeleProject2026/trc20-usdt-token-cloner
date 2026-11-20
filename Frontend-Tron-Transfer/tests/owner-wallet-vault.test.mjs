@@ -71,3 +71,17 @@ test('local Owner Wallet signer passes the shared Mainnet wallet gate without an
   assert.equal(typeof tronWeb.trx.sendRawTransaction, 'function')
   assert.equal(typeof deployContractWithOwnerSigner, 'function')
 })
+
+test('local Owner signer signs a synthetic transaction offline without broadcasting it', async () => {
+  const account = await deriveOwnerAccount({ mode: 'private-key', value: PRIVATE_KEY })
+  const tronWeb = createOwnerTronWeb(account.privateKey)
+  let broadcastCalls = 0
+  tronWeb.trx.sendRawTransaction = async () => { broadcastCalls += 1; throw new Error('Broadcast must not run in this test.') }
+  const unsigned = { txID: 'a'.repeat(64), raw_data_hex: '0a00', raw_data: { contract: [] } }
+  const signed = await tronWeb.trx.sign(unsigned, account.privateKey)
+  assert.equal(signed.txID, unsigned.txID)
+  assert.equal(Array.isArray(signed.signature), true)
+  assert.equal(signed.signature.length, 1)
+  assert.match(signed.signature[0], /^[0-9a-f]{130}$/i)
+  assert.equal(broadcastCalls, 0)
+})
