@@ -2186,3 +2186,259 @@ td { color: #d2e1f5; }
 @media(max-width:900px) and (min-width:721px){.trax-admin-shell{grid-template-columns:76px minmax(0,1fr)}.trax-sidebar{width:76px;padding-inline:9px}.trax-sidebar .trax-sidebar-brand div,.trax-sidebar .trax-sidebar-label,.trax-sidebar .trax-sidebar-network b,.trax-sidebar .trax-sidebar-network small,.trax-sidebar .trax-sidebar-wallet,.trax-sidebar nav button span,.trax-sidebar .trax-sidebar-toggle span{display:none}.trax-sidebar .trax-sidebar-network,.trax-sidebar nav button{justify-content:center;padding-inline:0}.trax-topbar-actions{flex-wrap:wrap}}
 @media(max-width:720px){.trax-workspace-switch{width:100%;display:grid;grid-template-columns:1fr 1fr}.trax-workspace-switch button{min-width:0;padding-inline:6px;font-size:9px}.trax-topbar-actions{align-items:stretch}.trax-topbar-actions>.trax-mainnet-badge{align-self:center}.trax-admin-content{overflow-x:clip}.trax-mobile-nav-sponsor button{min-height:54px}}
 @media(max-width:380px){.trax-kicker{font-size:7px;letter-spacing:.11em}.trax-topbar-title h1{font-size:19px}.trax-mainnet-badge{padding-inline:8px;font-size:7px}}
+
+
+/* Tron Transfer institutional dashboard theme.
+   Inspired by the information hierarchy of JustLend's market dashboard;
+   original Tron Transfer branding, routes, controls and workflows are retained. */
+:root {
+  color-scheme: dark;
+  --bg: #07111f;
+  --bg-raised: #0b192b;
+  --surface: rgba(14, 29, 49, .92);
+  --surface-strong: rgba(18, 38, 63, .97);
+  --surface-soft: rgba(22, 46, 73, .72);
+  --surface-glass: rgba(10, 25, 43, .88);
+  --line: rgba(132, 170, 211, .15);
+  --line-strong: rgba(94, 174, 232, .32);
+  --ink: #edf5ff;
+  --ink-soft: #b8c9dd;
+  --muted: #8298b2;
+  --muted-deep: #637c98;
+  --mint: #8bd7ff;
+  --mint-bright: #52bdf2;
+  --emerald: #269ed5;
+  --amber: #e6c27c;
+  --red: #ff969e;
+  --radius: 17px;
+  --radius-sm: 10px;
+  --shadow: 0 20px 56px rgba(0, 0, 0, .26);
+  background: var(--bg);
+  color: var(--ink);
+}
+body {
+  background:
+    radial-gradient(ellipse at 10% -8%, rgba(39, 128, 190, .18), transparent 38rem),
+    radial-gradient(ellipse at 92% 0%, rgba(39, 92, 153, .14), transparent 34rem),
+    linear-gradient(145deg, #07111f 0%, #0a192b 48%, #07111f 100%);
+  color: var(--ink);
+}
+body::before { opacity: .075; }
+.trax-admin-shell {
+  width: min(100%, 1840px);
+  grid-template-columns: 264px minmax(0,1fr);
+  background: transparent;
+}
+.trax-sidebar {
+  width: 264px;
+  padding: 25px 17px 20px;
+  border-right: 1px solid rgba(137,176,218,.14);
+  background: linear-gradient(180deg, rgba(8,20,36,.98), rgba(9,24,42,.96));
+  box-shadow: 12px 0 38px rgba(0,0,0,.12);
+}
+.trax-sidebar-brand img {
+  border-radius: 12px;
+  background: #f5f9ff;
+  box-shadow: 0 5px 18px rgba(48,153,211,.18);
+}
+.trax-sidebar-brand b { color:#edf6ff; letter-spacing:.075em; }
+.trax-sidebar-brand small,.trax-kicker,.trax-sidebar-label {
+  color:#76c9f4;
+}
+.trax-sidebar-network {
+  border-color:rgba(82,189,242,.2);
+  background:linear-gradient(130deg,rgba(25,102,151,.18),rgba(16,48,78,.3));
+}
+.trax-sidebar-network b { color:#d8edff; }
+.trax-sidebar-network small { color:#8ca9c7; }
+.trax-live-dot,.trax-mainnet-badge i {
+  background:#4bc3ef;
+  box-shadow:0 0 0 4px rgba(75,195,239,.1),0 0 13px rgba(75,195,239,.5);
+}
+.trax-sidebar nav { gap:6px; }
+.trax-sidebar nav button {
+  min-height:44px;
+  border-radius:10px;
+  color:#9db2ca;
+  font-size:11px;
+}
+.trax-sidebar nav button svg { color:#85a7c8; }
+.trax-sidebar nav button:hover {
+  border-color:rgba(105,183,231,.15);
+  background:rgba(66,137,190,.1);
+  color:#f0f7ff;
+}
+.trax-sidebar nav button.active {
+  border-color:rgba(82,189,242,.28);
+  background:linear-gradient(100deg,rgba(36,139,195,.24),rgba(29,82,129,.2));
+  color:#d8f2ff;
+  box-shadow:inset 3px 0 #52bdf2,0 8px 22px rgba(0,0,0,.12);
+}
+.trax-sidebar nav button.active svg { color:#66cdf8; }
+.trax-sidebar-wallet {
+  border-color:var(--line);
+  background:rgba(14,34,57,.78);
+}
+.trax-sidebar-wallet small { color:#7fa5c8; }
+.trax-sidebar-wallet b { color:#dcecff; }
+.trax-sidebar-toggle,.trax-sidebar-connect {
+  border-color:rgba(105,174,220,.22);
+  border-radius:10px;
+  background:rgba(21,54,84,.62);
+  color:#c8e5f8;
+}
+.trax-sidebar-connect {
+  border-color:rgba(82,189,242,.3);
+  background:linear-gradient(120deg,#1e75a8,#185783);
+  color:#f3fbff;
+}
+.trax-admin-topbar {
+  min-height:104px;
+  padding:18px clamp(20px,3.2vw,48px);
+  border-bottom:1px solid rgba(137,176,218,.14);
+  background:rgba(7,17,31,.86);
+  box-shadow:0 8px 28px rgba(0,0,0,.1);
+}
+.trax-topbar-title h1 {
+  color:#f0f7ff;
+  font-size:clamp(22px,2.25vw,29px);
+}
+.trax-topbar-title p { color:#91a9c4; font-size:11px; }
+.trax-topbar-actions { gap:9px; }
+.trax-workspace-switch {
+  padding:4px;
+  border-color:rgba(131,171,211,.2);
+  border-radius:11px;
+  background:rgba(4,14,27,.8);
+}
+.trax-workspace-switch button {
+  min-height:35px;
+  border-radius:8px;
+  color:#92a9c3;
+  font-size:10px;
+}
+.trax-workspace-switch button.active {
+  border-color:rgba(82,189,242,.25);
+  background:linear-gradient(120deg,rgba(43,143,197,.28),rgba(26,85,135,.25));
+  color:#e0f5ff;
+}
+.trax-workspace-switch button.active.sponsor {
+  border-color:rgba(89,202,178,.3);
+  background:linear-gradient(120deg,rgba(28,143,137,.25),rgba(21,93,110,.23));
+  color:#baf3e7;
+}
+.trax-mainnet-badge {
+  border-color:rgba(82,189,242,.22);
+  background:rgba(26,104,150,.14);
+  color:#b6e7ff;
+}
+.trax-topbar-wallet,.trax-topbar-connect {
+  border-color:rgba(82,189,242,.25);
+  border-radius:10px;
+  background:rgba(22,82,122,.35);
+  color:#d5f0ff;
+}
+.trax-topbar-connect {
+  background:linear-gradient(120deg,#2697cc,#176b9f);
+  color:#fff;
+}
+.trax-admin-content {
+  width:min(100%,1540px);
+  padding:clamp(20px,3vw,38px);
+}
+.trax-admin-footer {
+  border-top:1px solid rgba(137,176,218,.12);
+  color:#6f88a5;
+}
+.trax-admin-shell .panel,
+.trax-admin-shell .card,
+.trax-admin-shell .trax-card {
+  border-color:rgba(132,170,211,.16);
+  border-radius:16px;
+  background:linear-gradient(145deg,rgba(17,38,62,.94),rgba(10,25,43,.96));
+  box-shadow:0 16px 42px rgba(0,0,0,.2),inset 0 1px rgba(255,255,255,.025);
+}
+.trax-admin-shell :is(input,select,textarea) {
+  border-color:rgba(132,170,211,.2);
+  border-radius:10px;
+  background:#08182a;
+  color:#eaf4ff;
+}
+.trax-admin-shell :is(input,select,textarea):focus {
+  border-color:rgba(82,189,242,.7);
+  box-shadow:0 0 0 3px rgba(82,189,242,.11);
+}
+.trax-admin-shell :is(button,.trax-button,.primary-button) {
+  transition:background .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease;
+}
+.trax-admin-shell button:focus-visible,.trax-admin-shell a:focus-visible {
+  outline:2px solid #67cafa;
+  outline-offset:3px;
+}
+.trax-admin-shell button:not(:disabled):active { transform:translateY(1px); }
+@media(max-width:1100px) {
+  .trax-admin-shell { grid-template-columns:220px minmax(0,1fr); }
+  .trax-sidebar { width:220px; }
+}
+@media(max-width:900px) and (min-width:721px) {
+  .trax-admin-shell { grid-template-columns:76px minmax(0,1fr); }
+  .trax-sidebar { width:76px; }
+}
+@media(max-width:720px) {
+  .trax-admin-shell { display:block; min-height:100vh; }
+  .trax-sidebar { display:none; }
+  .trax-admin-topbar {
+    position:relative;
+    align-items:stretch;
+    flex-direction:column;
+    min-height:0;
+    gap:12px;
+    padding:16px 14px 13px;
+  }
+  .trax-topbar-title h1 { font-size:22px; }
+  .trax-topbar-actions { width:100%; justify-content:space-between; }
+  .trax-workspace-switch { width:100%; display:grid; grid-template-columns:1fr 1fr; }
+  .trax-workspace-switch button { min-width:0; padding-inline:5px; font-size:9px; }
+  .trax-admin-content { padding:14px 12px calc(112px + env(safe-area-inset-bottom,0px)); }
+  .trax-mobile-nav {
+    position:fixed;
+    z-index:100;
+    right:0; bottom:0; left:0;
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:4px;
+    padding:8px 9px calc(8px + env(safe-area-inset-bottom,0px));
+    border-top:1px solid rgba(125,173,216,.2);
+    background:rgba(6,17,31,.97);
+    box-shadow:0 -12px 36px rgba(0,0,0,.3);
+    backdrop-filter:blur(22px);
+  }
+  .trax-mobile-nav button {
+    min-width:0;
+    min-height:55px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:5px;
+    border:1px solid transparent;
+    border-radius:10px;
+    background:transparent;
+    color:#8ea7c1;
+    font-size:9px;
+    font-weight:700;
+  }
+  .trax-mobile-nav button.active {
+    border-color:rgba(82,189,242,.22);
+    background:linear-gradient(180deg,rgba(37,137,190,.2),rgba(18,65,105,.22));
+    color:#bcecff;
+  }
+  .trax-mobile-nav button span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .trax-mobile-nav-sponsor { grid-template-columns:repeat(5,minmax(0,1fr))!important; }
+}
+@media(max-width:380px) {
+  .trax-kicker { font-size:7px; letter-spacing:.1em; }
+  .trax-topbar-title h1 { font-size:19px; }
+  .trax-mainnet-badge { padding-inline:8px; font-size:7px; }
+  .trax-topbar-wallet,.trax-topbar-connect { font-size:9px; }
+}
