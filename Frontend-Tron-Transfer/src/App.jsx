@@ -7,6 +7,7 @@ import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
 import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
 import SponsorWalletManager from './SponsorWalletManager.jsx'
+import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 
 const NAV_ITEMS = [
   { id: 'sponsor', label: 'TRON TRANSFER SPONSOR', shortLabel: 'Sponsor', description: 'Imported sponsor wallet · live resources and verified delegation', icon: ShieldCheck },
@@ -35,31 +36,26 @@ export default function App() {
   const [walletBusy, setWalletBusy] = useState(false)
   const [walletError, setWalletError] = useState('')
   const [walletNotice, setWalletNotice] = useState('')
+  const [ownerAccessOpen, setOwnerAccessOpen] = useState(false)
 
-  async function connectWallet() {
-    setWalletBusy(true)
+  function connectWallet() {
     setWalletError('')
     setWalletNotice('')
-    try {
-      const provider = await discoverTronLinkProvider(window)
-      if (!provider) throw new Error("No compatible injected TRON wallet was detected. Open this page in TronLink's DApp browser or enable its browser extension.")
-      const { address, tronWeb } = await requestTronLinkConnection(provider, window)
-      if (!isValidTronAddress(address)) throw new Error('TronLink returned an invalid TRON address.')
-      const host = new URL(String(tronWeb.fullNode?.host || '')).hostname.toLowerCase()
-      if (host !== 'api.trongrid.io') throw new Error('Network mismatch. Switch TronLink to TRON Mainnet and reconnect.')
-      setWallet({ address, tronWeb, provider })
-      setWalletNotice('Wallet connected. Every contract write still requires a separate TronLink approval.')
-    } catch (error) {
-      setWalletError(error instanceof Error ? error.message : 'Wallet connection failed.')
-    } finally {
-      setWalletBusy(false)
-    }
+    setOwnerAccessOpen(true)
+  }
+
+  function acceptOwnerWallet(ownerWallet) {
+    setWallet(ownerWallet)
+    setOwnerAccessOpen(false)
+    setWalletError('')
+    setWalletNotice('Owner Wallet unlocked. Transactions are signed locally by your encrypted Owner vault; each write still requires explicit application confirmation.')
   }
 
   function lockWallet() {
     setWallet(null)
+    setOwnerAccessOpen(true)
     setActivePage('home')
-    setWalletNotice('Wallet disconnected from this workspace. Your wallet remains under your control in TronLink.')
+    setWalletNotice('Owner Wallet locked. Its encrypted local backup remains available for unlock or logout.')
   }
 
   useEffect(() => {
@@ -78,6 +74,36 @@ export default function App() {
     }
   }, [wallet?.provider])
 
+  useEffect(() => {
+    if (!wallet) return undefined
+    let idleTimer
+    let backgroundTimer
+    const lock = () => {
+      setWallet(null)
+      setActivePage('home')
+      setOwnerAccessOpen(true)
+      setWalletNotice('Owner Wallet automatically locked. Unlock it with your local vault password to continue.')
+    }
+    const resetIdle = () => {
+      window.clearTimeout(idleTimer)
+      idleTimer = window.setTimeout(lock, 5 * 60 * 1000)
+    }
+    const onVisibility = () => {
+      window.clearTimeout(backgroundTimer)
+      if (document.visibilityState === 'hidden') backgroundTimer = window.setTimeout(lock, 60 * 1000)
+      else resetIdle()
+    }
+    for (const event of ['pointerdown','keydown','touchstart','scroll']) window.addEventListener(event, resetIdle, { passive: true })
+    document.addEventListener('visibilitychange', onVisibility)
+    resetIdle()
+    return () => {
+      window.clearTimeout(idleTimer)
+      window.clearTimeout(backgroundTimer)
+      for (const event of ['pointerdown','keydown','touchstart','scroll']) window.removeEventListener(event, resetIdle)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [wallet])
+
   const page = NAV_ITEMS.find(item => item.id === activePage) || NAV_ITEMS[0]
   return <div className="trax-admin-shell">
     <TRAXSidebar items={NAV_ITEMS} activePage={activePage} onNavigate={setActivePage} wallet={wallet} onConnect={connectWallet} onLock={lockWallet}/>
@@ -90,14 +116,15 @@ export default function App() {
         </div>
         <div className="trax-topbar-actions">
           <span className="trax-mainnet-badge"><i/> TRON MAINNET</span>
-          {wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" disabled={walletBusy} onClick={connectWallet}>{walletBusy ? 'Connecting…' : 'Connect Owner Wallet'}</button>}
+          {wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" disabled={walletBusy} onClick={connectWallet}>{walletBusy ? 'Connecting…' : 'Unlock Owner Wallet'}</button>}
         </div>
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
         {activePage === 'sponsor' ? <SponsorWalletManager onNavigate={setActivePage}/> : activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
       </main>
-      <footer className="trax-admin-footer">TRON TRANSFER · WALLET-CONTROLLED OWNER WORKSPACE · TRON MAINNET</footer>
+      {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
+    <footer className="trax-admin-footer">TRON TRANSFER · INDEPENDENT OWNER SIGNING · TRON MAINNET</footer>
     </div>
     <MobileNavBar items={NAV_ITEMS} activePage={activePage} onNavigate={setActivePage}/>
   </div>
