@@ -25,7 +25,7 @@ export async function deriveOwnerAccount({ mode, value, secretPassword = '' }) {
   let privateKey
   if (mode === 'private-key') privateKey = normalizePrivateKey(value)
   else if (mode === 'mnemonic') {
-    const phrase = String(value || '').trim().replace(/\\s+/g, ' ')
+    const phrase = String(value || '').trim().replace(/\s+/g, ' ')
     if (![12,15,18,21,24].includes(phrase.split(' ').length)) throw new Error('Enter a complete 12, 15, 18, 21 or 24-word recovery phrase.')
     privateKey = normalizePrivateKey(TronWeb.fromMnemonic(phrase).privateKey)
   } else if (mode === 'keystore') {
