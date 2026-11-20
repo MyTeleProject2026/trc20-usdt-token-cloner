@@ -499,12 +499,12 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The Resource API requires a verified server signer, durable PostgreSQL ledger, session secret and both explicit Mainnet execution flags. No transaction was sent.'); return }
     let amountSun
     try { amountSun = parseTrx(amount) } catch (error) { notify('error', 'Invalid resource amount', error.message); return }
-    if (amountSun < SUN) { notify('error', 'Minimum Stake 2.0 amount', 'Use at least 1 TRX for staking or resource delegation.'); return }
+    if (action !== 'topup' && amountSun < SUN) { notify('error', 'Minimum resource amount', 'Use at least 1 TRX for staking or resource delegation.'); return }
     const available = BigInt(snapshot?.trxSun || '0')
     let protectedReserveSun
     try { protectedReserveSun = BigInt(parseTrx(String(sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'))) }
     catch { notify('error', 'Invalid Sponsor reserve policy', 'The Resource API returned an invalid protected TRX reserve. No transaction was sent.'); return }
-    const requiredLiquidSun = (action === 'stake' ? BigInt(amountSun) : 0n) + protectedReserveSun
+    const requiredLiquidSun = (action === 'stake' || action === 'topup' ? BigInt(amountSun) : 0n) + protectedReserveSun
     if (available < requiredLiquidSun) {
       notify('error', 'Insufficient protected TRX reserve', 'The Sponsor Wallet must retain the configured liquid reserve in addition to the requested stake or delegation fee.'); return
     }
@@ -512,11 +512,13 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       const maxDelegatable = BigInt(resourceType === 'ENERGY' ? snapshot?.maxEnergyDelegatableSun || '0' : snapshot?.maxBandwidthDelegatableSun || '0')
       if (BigInt(amountSun) > maxDelegatable) { notify('error', 'Insufficient delegatable stake', 'The requested resource amount exceeds the Sponsor Wallet\'s confirmed Stake 2.0 delegation ceiling.'); return }
     }
-    const verb = action === 'stake' ? 'stake' : 'delegate'
+    const verb = action === 'stake' ? 'stake' : action === 'topup' ? 'top up' : 'delegate'
     const target = action === 'stake' ? wallet.address : OWNER_ADDRESS
     const prompt = action === 'stake'
       ? `Stake ${amount} TRX for ${resourceType} in Sponsor Wallet ${wallet.address}?`
-      : `Delegate ${amount} TRX-equivalent of ${resourceType} from Sponsor Wallet ${wallet.address} to Owner Wallet ${OWNER_ADDRESS}?`
+      : action === 'topup'
+        ? `Send ${amount} TRX from Sponsor Wallet ${wallet.address} to the existing Owner Wallet ${OWNER_ADDRESS}? This is a real Mainnet TRX transfer.`
+        : `Delegate ${amount} TRX-equivalent of ${resourceType} from Sponsor Wallet ${wallet.address} to Owner Wallet ${OWNER_ADDRESS}?`
     if (!window.confirm(`${prompt}
 
 This request is sent to the authenticated TRON Transfer Resource API. The backend enforces the configured fee cap and reserve, signs only the exact intent authorized by this Sponsor Wallet, and records the transaction ID before broadcast. Continue?`)) return
@@ -526,7 +528,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       const idempotencyKey = createIdempotencyKey()
       const intent = await sponsorApiRequest('/api/sponsor/intent', {
         method: 'POST', token,
-        body: { operation: action, resource: resourceType, amountSun: String(amountSun), idempotencyKey },
+        body: { operation: action, resource: action === 'topup' ? 'TRX' : resourceType, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
       if (!window.confirm('Authorize this exact Sponsor operation with a signed message?\n\n' + intent.message + '\n\nThis is an off-chain authorization message, not a TRON transaction.')) return
@@ -538,12 +540,12 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       const transactionId = typeof result.transactionId === 'string' ? result.transactionId : ''
       if (transactionId) {
         setLastTx(transactionId)
-        recordSecurityEvent(wallet.address, 'Sponsor transaction submitted by Resource API', action + ' ' + resourceType + ' · ' + transactionId)
+        recordSecurityEvent(wallet.address, 'Sponsor transaction submitted by Resource API', action + ' ' + (action === 'topup' ? 'TRX' : resourceType) + ' · ' + transactionId)
         const operationReference = result.operationReference || idempotencyKey
         setLastOperationReference(result.solidified || !result.broadcast ? '' : operationReference)
         const event = {
           transactionId, operationReference, sponsorAddress: wallet.address, receiverAddress: target, action,
-          resourceType, stakeEquivalentSun: String(amountSun),
+          resourceType: action === 'topup' ? 'TRX' : resourceType, stakeEquivalentSun: String(amountSun),
           status: result.solidified ? (action === 'delegate' ? 'solidified-mainnet-verified' : 'solidified-mainnet-confirmed') : result.broadcast ? 'broadcast-pending-verification' : 'signed-not-broadcast',
           blockNumber: result.confirmationBlock || null, createdAt: new Date().toISOString(),
         }
@@ -667,7 +669,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
 
     {wallet && <section className="sponsor-card">
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Server-side signing, exact-intent authorization and durable operation ledger.</p></div></div>
-      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {sponsorApiStatus?.databaseReady ? 'connected' : sponsorApiStatus?.databaseConfigured ? 'configured but unavailable' : 'not configured'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
+      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {sponsorApiStatus?.databaseReady ? 'connected' : sponsorApiStatus?.databaseConfigured ? 'configured but unavailable' : 'not configured'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Admin token: {sponsorApiStatus?.adminAutomationConfigured ? 'configured' : 'not configured'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Exact Sponsor message signature, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
     </section>}
@@ -720,7 +722,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
           <button className="sponsor-secondary" disabled={!bandwidthStakeEstimate || busy} onClick={() => {setResourceType('BANDWIDTH');setAmount(formatSunAsTrx(bandwidthStakeEstimate))}}>Prepare Bandwidth stake · {bandwidthStakeEstimate ? formatAmount(bandwidthStakeEstimate) + ' TRX' : 'estimate unavailable'}</button>
         </div>
         <p className="sponsor-muted">Stake estimates use the current network-wide Energy/Bandwidth limit and weight returned by the node. They include a 15% planning buffer, but are not guaranteed resource quotes; recheck live sponsor balance and delegation ceilings before signing.</p><p className="sponsor-warning">USDT is shown as a capital balance only. Stake 2.0 requires TRX; this module does not swap USDT automatically. A USDT balance by itself does not create Energy or Bandwidth.</p>
-        <div className="sponsor-actions"><button className="sponsor-secondary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true} onClick={() => void submitResourceTransaction('stake')}>Stake TRX for {resourceType}</button><button className="sponsor-primary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true} onClick={() => void submitResourceTransaction('delegate')}>Delegate {resourceType} to Owner</button><button className="sponsor-secondary" disabled={busy || !lastOperationReference} onClick={() => void reconcileLastSponsorOperation()}>Reconcile last Sponsor operation</button><button className="sponsor-secondary" disabled={busy || !lastDelegation} onClick={() => void verifyLastDelegation()}>Verify Mainnet delegation</button><button className="sponsor-secondary" disabled title="No authorized Mainnet resource-rental provider is configured">Acquire Energy / Bandwidth · Provider unavailable</button></div>
+        <div className="sponsor-actions"><button className="sponsor-secondary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true || sponsorApiStatus?.stakingPolicy?.enabled !== true} onClick={() => void submitResourceTransaction('stake')}>Stake TRX for {resourceType} · max {sponsorApiStatus?.stakingPolicy?.maxStakeTrx || '0'} TRX</button><button className="sponsor-primary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true} onClick={() => void submitResourceTransaction('delegate')}>Delegate {resourceType} to Owner</button><button className="sponsor-secondary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true || sponsorApiStatus?.ownerTopupPolicy?.enabled !== true} onClick={() => void submitResourceTransaction('topup')}>Send TRX to Owner · max {sponsorApiStatus?.ownerTopupPolicy?.maxTopupTrx || 'disabled'} TRX</button><button className="sponsor-secondary" disabled={busy || !lastOperationReference} onClick={() => void reconcileLastSponsorOperation()}>Reconcile last Sponsor operation</button><button className="sponsor-secondary" disabled={busy || !lastDelegation} onClick={() => void verifyLastDelegation()}>Verify Mainnet delegation</button><button className="sponsor-secondary" disabled title="No authorized Mainnet resource-rental provider is configured">Acquire Energy / Bandwidth · Provider unavailable</button></div>
         <p className="sponsor-muted">Confirmed delegation ceiling: {snapshot ? formatAmount(resourceType === 'ENERGY' ? snapshot.maxEnergyDelegatableSun : snapshot.maxBandwidthDelegatableSun) + ' TRX equivalent' : 'Refresh to read'}.</p><p className="sponsor-warning">These buttons create real Mainnet transactions and can consume TRX fees. Staked TRX is locked under Stake 2.0 rules; delegations are limited by the sponsor's own eligible stake. Incoming delegated resources cannot be re-delegated.</p>
       </section>
 
