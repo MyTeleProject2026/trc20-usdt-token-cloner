@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { TronWeb } from 'tronweb'
 import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, Blocks, Network, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
@@ -24,10 +23,6 @@ const NAV_ITEMS = [
   { id: 'balance', label: 'External balance lookup', description: 'Read any address token balance', icon: Blocks },
 ]
 
-function isValidTronAddress(address) {
-  try { return TronWeb.isAddress(String(address || '')) && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(String(address)) }
-  catch { return false }
-}
 
 export default function App() {
   const [activePage, setActivePage] = useState(() => window.location.hash === '#/sponsor' ? 'sponsor' : 'home')
@@ -114,7 +109,7 @@ export default function App() {
         </div>
         <div className="trax-topbar-actions">
           <span className="trax-mainnet-badge"><i/> TRON MAINNET</span>
-          {wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" disabled={walletBusy} onClick={connectWallet}>{walletBusy ? 'Connecting…' : 'Unlock Owner Wallet'}</button>}
+          {wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Unlock Owner Wallet</button>}
         </div>
       </header>
       <main className="trax-admin-content">
