@@ -11,7 +11,7 @@ function configuredAddress(value) {
 
 router.get('/sponsor/status', async (_req, res) => {
   const sponsorAddress = configuredAddress(process.env.SPONSOR_MAINNET_ADDRESS)
-  const ownerAddress = configuredAddress(process.env.TRON_OWNER_ADDRESS || process.env.TRON_OWNER_WALLET_ADDRESS || 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp')
+  const ownerAddress = configuredAddress(process.env.TRON_OWNER_ADDRESS || process.env.TRON_OWNER_WALLET_ADDRESS)
   const privateKeyConfigured = Boolean(process.env.SPONSOR_MAINNET_PRIVATE_KEY)
   const adminAuthConfigured = Boolean(process.env.SPONSOR_ADMIN_TOKEN)
   const stakingEnabled = process.env.SPONSOR_STAKING_ENABLED === 'true'
