@@ -80,6 +80,7 @@ export function createSponsorTransactionEngine({
     let ownerBase58 = ''
     try { ownerBase58 = new TronWeb().address.fromHex(owner) } catch {}
     if (ownerBase58 !== sponsorAddress) return { confirmed: false, status: 'solidified-sponsor-owner-mismatch' }
+    if (value.resource !== undefined && value.resource !== (operation === 'stake' ? (value.resource === 1 ? 'ENERGY' : value.resource === 0 ? 'BANDWIDTH' : value.resource) : value.resource)) return { confirmed: false, status: 'solidified-resource-type-mismatch' }
     if (operation === 'delegate' && value.receiver_address) {
       let recipient = ''
       try { recipient = new TronWeb().address.fromHex(value.receiver_address) } catch {}
@@ -103,9 +104,19 @@ export function createSponsorTransactionEngine({
       signer = loadSigner()
       if (signer.sponsorAddress === ownerAddress) return { success: false, status: 'sponsor-owner-wallets-must-be-independent', signed: false, broadcast: false }
       const { tronWeb, privateKey, sponsorAddress } = signer
-      const balanceSun = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
-      const reserve = positiveSun(String(BigInt(Math.round(Number(env.SPONSOR_LIQUID_RESERVE_TRX || '2') * 1_000_000))))
-      if (!reserve || balanceSun < amount + reserve) return { success: false, status: 'insufficient-balance-after-protected-reserve', signed: false, broadcast: false }
+      if (operation === 'stake') {
+        const balanceSun = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
+        const reserveTrx = typeof env.SPONSOR_LIQUID_RESERVE_TRX === 'string' ? env.SPONSOR_LIQUID_RESERVE_TRX : '2'
+        if (!/^(0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(reserveTrx)) return { success: false, status: 'invalid-protected-reserve-policy', signed: false, broadcast: false }
+        const [whole, fraction = ''] = reserveTrx.split('.')
+        const reserve = BigInt(whole) * SUN + BigInt((fraction + '000000').slice(0, 6))
+        if (balanceSun < amount + reserve) return { success: false, status: 'insufficient-balance-after-protected-reserve', signed: false, broadcast: false }
+      } else {
+        // A delegation consumes already-frozen Stake 2.0 capacity, not liquid TRX.
+        // Ask the Mainnet node for the maximum currently delegatable amount.
+        const maximum = await tronWeb.trx.getCanDelegatedMaxSize(sponsorAddress, resource)
+        if (BigInt(String(maximum)) < amount) return { success: false, status: 'insufficient-frozen-resource-to-delegate', signed: false, broadcast: false }
+      }
       const transaction = operation === 'stake'
         ? await tronWeb.transactionBuilder.freezeBalanceV2(amount.toString(), resource, sponsorAddress)
         : await tronWeb.transactionBuilder.delegateResource(amount.toString(), ownerAddress, resource, false, 0, sponsorAddress)
