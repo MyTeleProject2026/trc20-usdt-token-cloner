@@ -303,7 +303,7 @@ export function createSponsorResourceApi({
           const prior = await db.query('SELECT request_hash,status,transaction_id,result_code,confirmation_block FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1', [keyHash])
           const row = prior.rows?.[0]
           if (!row || row.request_hash !== requestHash) return reply(res, 409, { success: false, error: 'idempotency-key-reused-with-different-intent', retryAllowed: false }, origin)
-          return reply(res, 409, { success: false, error: 'operation-already-recorded', operationStatus: row.status, transactionId: row.transaction_id, resultCode: row.result_code, confirmationBlock: row.confirmation_block, retryAllowed: false }, origin)
+          return reply(res, 409, { success: false, error: 'operation-already-recorded', operationReference: intent.idempotencyKey, operationStatus: row.status, transactionId: row.transaction_id, resultCode: row.result_code, confirmationBlock: row.confirmation_block, retryAllowed: false }, origin)
         }
         const result = await engine.execute({
           operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, ownerAddress,
@@ -322,7 +322,7 @@ export function createSponsorResourceApi({
           [keyHash, status, result.txid || null, result.status || 'unknown', result.blockNumber || null],
         )
         return reply(res, result.success ? 200 : result.broadcast ? 202 : 422, {
-          success: result.success === true, operationStatus: status, transactionId: result.txid || null,
+          success: result.success === true, operationReference: intent.idempotencyKey, operationStatus: status, transactionId: result.txid || null,
           resultCode: result.status || 'unknown', confirmationBlock: result.blockNumber || null,
           sponsorAddress: session.address, ownerAddress, operation: intent.operation, resource: intent.resource,
           amountSun: intent.amountSun, signed: result.signed === true, broadcast: result.broadcast === true,
@@ -416,7 +416,7 @@ export function createSponsorResourceApi({
             row.confirmation_block = check.blockNumber
           }
         }
-        return reply(res, 200, { success: row.status === 'confirmed', operation: row, retryAllowed: false }, origin)
+        return reply(res, 200, { success: row.status === 'confirmed', operationReference: key, operation: row, retryAllowed: false }, origin)
       } catch { return reply(res, 503, { success: false, error: 'sponsor-operation-reconciliation-unavailable', retryAllowed: false }, origin) }
     }
 
