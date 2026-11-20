@@ -51,21 +51,6 @@ export default function App() {
     setWalletNotice('Owner Wallet locked. Its encrypted local backup remains available for unlock or logout.')
   }
 
-  useEffect(() => {
-    const provider = wallet?.provider
-    if (!provider?.on) return undefined
-    const invalidate = () => {
-      setWallet(null)
-      setActivePage('home')
-      setWalletNotice('TronLink account or network changed. Reconnect and verify the intended owner address.')
-    }
-    for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) provider.on(event, invalidate)
-    return () => {
-      if (typeof provider.removeListener === 'function') {
-        for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) provider.removeListener(event, invalidate)
-      }
-    }
-  }, [wallet?.provider])
 
   useEffect(() => {
     if (!wallet) return undefined
