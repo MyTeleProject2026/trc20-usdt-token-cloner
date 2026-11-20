@@ -19,9 +19,10 @@ function request(method, path, body, token) {
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null } = {}) {
+function setup({ database = null, engine = null, adminToken = '' } = {}) {
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
+    ...(adminToken ? { SPONSOR_ADMIN_TOKEN: adminToken } : {}),
     SPONSOR_MAINNET_ADDRESS: SPONSOR,
     TRON_OWNER_ADDRESS: OWNER,
     SPONSOR_TRANSACTION_ENGINE_ENABLED: 'false',
@@ -243,4 +244,32 @@ test('invalid resource combinations cannot create Sponsor intents', async () => 
   }, token)
   assert.equal(result.status, 400)
   assert.equal(result.payload.error, 'invalid-sponsor-operation-intent')
+})
+
+
+test('configured Sponsor Admin token is required as a second factor for write intents', async () => {
+  const adminToken = 'admin-token-with-at-least-thirty-two-bytes-long'
+  const { api } = setup({ adminToken })
+  const token = await authenticated(api)
+  const body = {
+    operation: 'topup', resource: 'TRX', amountSun: '1000000',
+    idempotencyKey: 'sponsor-admin-topup-0123456789',
+  }
+  const denied = await call(api, 'POST', '/api/sponsor/intent', body, token)
+  assert.equal(denied.status, 403)
+  assert.equal(denied.payload.error, 'sponsor-admin-authorization-required')
+  const accepted = await call(api, 'POST', '/api/sponsor/intent', body, token)
+  // The test request helper does not add the admin header; the route must remain closed.
+  assert.equal(accepted.status, 403)
+})
+
+test('Sponsor Admin token comparison is required for execution route too', async () => {
+  const adminToken = 'admin-token-with-at-least-thirty-two-bytes-long'
+  const { api, calls } = setup({ adminToken })
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: 'untrusted-intent', signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  }, token)
+  assert.equal(result.status, 403)
+  assert.deepEqual(calls, [])
 })
