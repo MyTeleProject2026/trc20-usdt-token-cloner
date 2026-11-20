@@ -17,5 +17,21 @@ test('Sponsor resource-derived values are initialized before effects reference t
 
 test('Sponsor workspace receives the active route from App', () => {
   assert.match(source, /function SponsorWalletManager\(\{\s*activePage\s*=\s*'sponsor'/)
-  assert.match(source, /\)\[activePage\]/)
+  for (const id of ['sponsor', 'sponsor-resources', 'sponsor-automation', 'sponsor-activity']) assert.ok(source.includes(`activePage !== "${id}"`), `${id} must render only on its own page`)
+  assert.ok(!source.includes('scrollIntoView'), 'page navigation must not depend on scrolling hidden sections')
+})
+
+test('Sponsor workspace pages are isolated and wallet-locked routes have a recovery path', () => {
+  for (const id of ['sponsor-overview', 'sponsor-resources', 'sponsor-automation', 'sponsor-activity']) {
+    assert.ok(source.includes(`id="${id}"`), `${id} page must exist`)
+  }
+  assert.match(source, /Sponsor Wallet is locked/)
+  assert.match(source, /onNavigate\('sponsor'\)/)
+})
+
+test('Sponsor workspace render errors are contained by an application error boundary', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  assert.match(app, /class SponsorWorkspaceErrorBoundary extends React\.Component/)
+  assert.match(app, /<SponsorWorkspaceErrorBoundary activePage=\{activePage\}>/)
+  assert.match(app, /Sponsor workspace page failed to render/)
 })

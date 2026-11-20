@@ -663,17 +663,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
 
   useEffect(() => { resourceAlertState.current = 'unknown' }, [wallet?.address])
 
-  useEffect(() => {
-    const sectionId = ({
-      sponsor: 'sponsor-overview',
-      'sponsor-resources': 'sponsor-resources',
-      'sponsor-automation': 'sponsor-automation',
-      'sponsor-activity': 'sponsor-activity',
-    })[activePage]
-    if (!sectionId) return
-    const frame = window.requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-    return () => window.cancelAnimationFrame(frame)
-  }, [activePage])
+
 
   return <section className="sponsor-manager">
     <CenterToast toast={toast} onClose={() => setToast(null)}/>
@@ -685,14 +675,14 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       {[['sponsor','Overview'],['sponsor-resources','Resources'],['sponsor-automation','Automation'],['sponsor-activity','Activity']].map(([id,label]) => <button key={id} type="button" className={activePage === id ? 'active' : ''} aria-current={activePage === id ? 'page' : undefined} onClick={() => onNavigate(id)}>{label}</button>)}
     </nav>
 
-    {wallet && <section className="sponsor-card">
+    {wallet && activePage === 'sponsor' && <section className="sponsor-card">
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Server-side signing, exact-intent authorization and durable operation ledger.</p></div></div>
       <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {sponsorApiStatus?.databaseReady ? 'connected' : sponsorApiStatus?.databaseConfigured ? 'configured but unavailable' : 'not configured'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Admin authorization: {sponsorApiStatus?.adminTokenRequired ? (sponsorApiStatus?.adminTokenConfigured ? 'required · valid policy' : 'required · token must be at least 32 characters') : 'not required'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Exact Sponsor message signature, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
     </section>}
 
-    {!wallet && !saved && <section className="sponsor-card">
+    {activePage === 'sponsor' && !wallet && !saved && <section className="sponsor-card">
       <div className="sponsor-card-heading"><Wallet/><div><h3>Import existing Sponsor Wallet</h3><p>No wallet creation. Credentials are processed in this browser and encrypted before local storage.</p></div></div>
       <div className="sponsor-import-tabs">{[['private-key','Private key'],['keystore','Keystore JSON'],['mnemonic','Mnemonic phrase']].map(([id,label]) => <button key={id} className={mode === id ? 'active' : ''} onClick={() => {setMode(id);setCredential('')}}>{label}</button>)}</div>
       {mode === 'keystore'
@@ -705,15 +695,16 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       <p className="sponsor-security-note"><ShieldCheck/> Never paste credentials into chat. The private key is not sent to the Tron Transfer API. Browser storage is device-specific; keep your original recovery backup safe.</p>
     </section>}
 
-    {!wallet && saved && <section className="sponsor-card sponsor-unlock-card">
+    {activePage === 'sponsor' && !wallet && saved && <section className="sponsor-card sponsor-unlock-card">
       <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Encrypted Sponsor Wallet saved</h3><p>Unlock this browser's encrypted wallet backup, or replace it by importing another account.</p></div></div>
       <label className="sponsor-field">Vault password<input type="password" value={unlockPassword} onChange={event => setUnlockPassword(event.target.value)} autoComplete="current-password"/></label>
       <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !unlockPassword} onClick={() => void unlockWallet()}><UnlockKeyhole size={16}/> {busy ? 'Unlocking…' : 'Unlock Sponsor Wallet'}</button><button className="sponsor-secondary" onClick={() => {setSaved(false);setMode('private-key')}}>Replace / import another</button></div>
       <button className="sponsor-danger-link" onClick={removeVault}>Remove encrypted local backup</button>
     </section>}
 
+    {!wallet && activePage !== 'sponsor' && <section className="sponsor-card sponsor-page-locked"><div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Wallet is locked</h3><p>Unlock the Sponsor Wallet from Overview to access its live data and existing operations.</p></div></div><button type="button" className="sponsor-primary" onClick={() => onNavigate('sponsor')}>Open Sponsor Overview</button></section>}
     {wallet && <div className="sponsor-dashboard">
-      <section id="sponsor-overview" className="sponsor-card sponsor-wallet-summary">
+      <section id="sponsor-overview" className="sponsor-card sponsor-wallet-summary" hidden={activePage !== "sponsor"}>
         <div className="sponsor-card-heading"><Wallet/><div><h3>Sponsor Wallet Overview</h3><p>{wallet.address}</p></div></div>
         <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Imported · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={() => lockWallet()}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button><button onClick={beginReplace}>Replace</button></div>
         <div className="sponsor-metric-grid">
@@ -729,7 +720,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         {lastTx && <p className="sponsor-tx-link">Last transaction: <a href={`https://tronscan.org/#/transaction/${lastTx}`} target="_blank" rel="noreferrer">{lastTx}</a></p>}
       </section>
 
-      <section id="sponsor-resources" className="sponsor-card">
+      <section id="sponsor-resources" className="sponsor-card" hidden={activePage !== "sponsor-resources"}>
         <div className="sponsor-card-heading"><ArrowDownUp/><div><h3>Resource Management</h3><p>Stake sponsor-owned TRX or delegate already-staked resources to the existing Owner Wallet.</p></div></div>
         {sponsorApiStatus?.adminTokenRequired === true && <label className="sponsor-field">Sponsor Admin authorization token<input type="password" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" spellCheck="false"/><small>Required by the Resource API for Sponsor writes. Sent only over HTTPS, held in memory, and cleared when the Sponsor wallet locks or disconnects.</small></label>}
         <div className="sponsor-resource-controls">
@@ -745,13 +736,13 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         <p className="sponsor-muted">Confirmed delegation ceiling: {snapshot ? formatAmount(resourceType === 'ENERGY' ? snapshot.maxEnergyDelegatableSun : snapshot.maxBandwidthDelegatableSun) + ' TRX equivalent' : 'Refresh to read'}.</p><p className="sponsor-warning">These buttons create real Mainnet transactions and can consume TRX fees. Staked TRX is locked under Stake 2.0 rules; delegations are limited by the sponsor's own eligible stake. Incoming delegated resources cannot be re-delegated.</p>
       </section>
 
-      <section id="sponsor-automation" className="sponsor-card">
+      <section id="sponsor-automation" className="sponsor-card" hidden={activePage !== "sponsor-automation"}>
         <div className="sponsor-card-heading"><Activity/><div><h3>Automatic Resource Engine</h3><p>Live owner-resource monitoring and sponsor capacity checks.</p></div></div>
         <div className="sponsor-resource-controls"><label className="sponsor-field">Owner Energy target (units)<input inputMode="numeric" value={energyTarget} onChange={event => setEnergyTarget(event.target.value.replace(/[^0-9]/g, '').slice(0, 15))}/><small>Default planning target only. Set this to the current deployment estimate from Owner Admin preflight.</small></label><label className="sponsor-field">Owner Bandwidth target (bytes)<input inputMode="numeric" value={bandwidthTarget} onChange={event => setBandwidthTarget(event.target.value.replace(/[^0-9]/g, '').slice(0, 15))}/></label></div><div className="sponsor-engine-grid"><div><small>OWNER TARGET</small><strong>{OWNER_ADDRESS}</strong></div><div><small>SPONSOR ENERGY STAKED</small><strong>{snapshot?.delegationReadAvailable ? formatAmount(snapshot.delegatedEnergySun) + ' TRX eq.' : 'Unavailable'}</strong></div><div><small>SPONSOR BANDWIDTH STAKED</small><strong>{snapshot?.delegationReadAvailable ? formatAmount(snapshot.delegatedBandwidthSun) + ' TRX eq.' : 'Unavailable'}</strong></div><div><small>OWNER ENERGY AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerEnergyAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>OWNER BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerBandwidthAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>ENERGY TARGET DEFICIT</small><strong>{snapshot ? ownerEnergyDeficit.toLocaleString() : '—'}</strong></div><div><small>BANDWIDTH TARGET DEFICIT</small><strong>{snapshot ? ownerBandwidthDeficit.toLocaleString() : '—'}</strong></div><div><small>RESOURCE PRECHECK</small><strong>{!energyTargetValid || !bandwidthTargetValid ? 'Invalid targets' : snapshot ? (ownerEnergyDeficit === 0 && ownerBandwidthDeficit === 0 ? 'Targets met' : 'Resource shortfall') : 'Awaiting live read'}</strong></div></div>
         <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !wallet} onClick={() => void refresh()}>Run Resource Preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('deploy')}>Open Owner Admin deployment preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('portfolio')}>Open Owner portfolio</button></div><p className="sponsor-warning">Sponsor and Owner resource snapshots refresh automatically every 60 seconds while the Sponsor wallet is unlocked. Automatic unattended signing is intentionally disabled: each stake, delegation, or TRX top-up requires an exact Sponsor signature and explicit on-screen confirmation. A provider rental or free-grant adapter is not configured by this wallet import.</p>
       </section>
 
-      <section id="sponsor-activity" className="sponsor-card">
+      <section id="sponsor-activity" className="sponsor-card" hidden={activePage !== "sponsor-activity"}>
         <div className="sponsor-card-heading"><FileKey2/><div><h3>Sponsor Activity</h3><p>Current browser session and latest observed transaction.</p></div></div>
         <div className="sponsor-activity-row"><span>Wallet connection</span><b>Unlocked locally</b></div>
         <div className="sponsor-activity-row"><span>Network</span><b>TRON Mainnet</b></div><div className="sponsor-activity-row"><span>Security events</span><b>{securityEvents.length} local events</b></div>{securityEvents.slice(0, 5).map((item, index) => <div className="sponsor-activity-row" key={item.createdAt + index}><span>{item.event} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.detail}</b></div>)}
