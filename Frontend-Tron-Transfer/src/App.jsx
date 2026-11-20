@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { TronWeb } from 'tronweb'
 import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, Blocks, Network, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
-import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
@@ -33,7 +32,6 @@ function isValidTronAddress(address) {
 export default function App() {
   const [activePage, setActivePage] = useState(() => window.location.hash === '#/sponsor' ? 'sponsor' : 'home')
   const [wallet, setWallet] = useState(null)
-  const [walletBusy, setWalletBusy] = useState(false)
   const [walletError, setWalletError] = useState('')
   const [walletNotice, setWalletNotice] = useState('')
   const [ownerAccessOpen, setOwnerAccessOpen] = useState(false)
