@@ -34,3 +34,13 @@ test('Sponsor status is explicitly non-cacheable and reports fail-closed readine
   assert.match(route, /canDeployOwnerContractNow: false/)
   assert.match(route, /Sponsor and Owner addresses must be independent/)
 })
+
+test('Stake 2.0 preflight endpoint is authenticated, read-only and fail-closed', () => {
+  assert.match(route, /router\.post\('\/sponsor\/stake\/plan'/)
+  assert.match(route, /hasValidSponsorAdminToken\(req\)/)
+  assert.match(route, /timingSafeEqual/)
+  assert.match(route, /transactionCreated: false/)
+  assert.match(route, /signed: false/)
+  assert.match(route, /broadcast: false/)
+  assert.match(route, /planSponsorStake\(/)
+})
