@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Activity, Gauge, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
 import './sponsor-console.css'
 
-const API = String(import.meta.env.VITE_RESOURCE_API_URL || '').replace(/\/$/, '')
+const API = String(import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/$/, '')
 
 function Metric({ label, value, suffix = '' }) {
   return <article className="sponsor-metric"><span>{label}</span><strong>{value ?? '—'}{suffix}</strong></article>
