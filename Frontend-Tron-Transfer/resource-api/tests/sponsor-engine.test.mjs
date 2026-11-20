@@ -186,12 +186,10 @@ test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner a
 })
 
 test('Sponsor TRX top-up fails closed above the configured Owner funding cap', async () => {
-  const engine = createSponsorTransactionEngine({
-    env: configuredEnv({ SPONSOR_MAX_OWNER_TOPUP_TRX: '0.5' }),
-    tronWebFactory: () => { throw new Error('must not initialize signer') },
-  })
-  const result = await engine.execute({ operation: 'topup', resource: 'TRX', amountSun: '600000', ownerAddress: OWNER })
+  const f = fixture({ envOverrides: { SPONSOR_MAX_OWNER_TOPUP_TRX: '0.5' } })
+  const result = await f.engine.execute({ operation: 'topup', resource: 'TRX', amountSun: '600000', ownerAddress: OWNER })
   assert.equal(result.status, 'owner-topup-disabled-or-amount-exceeds-configured-cap')
   assert.equal(result.signed, false)
   assert.equal(result.broadcast, false)
+  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
 })
