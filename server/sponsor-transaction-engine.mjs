@@ -44,7 +44,7 @@ export function createSponsorTransactionEngine({
     return { tronWeb, privateKey, sponsorAddress: derivedAddress }
   }
 
-  async function verifySolidified(txid, sponsorAddress, ownerAddress, operation) {
+  async function verifySolidified(txid, sponsorAddress, ownerAddress, operation, resource, amountSun) {
     const response = await fetchImpl(MAINNET + '/walletsolidity/gettransactioninfobyid', {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json' },
@@ -80,7 +80,11 @@ export function createSponsorTransactionEngine({
     let ownerBase58 = ''
     try { ownerBase58 = new TronWeb().address.fromHex(owner) } catch {}
     if (ownerBase58 !== sponsorAddress) return { confirmed: false, status: 'solidified-sponsor-owner-mismatch' }
-    if (value.resource !== undefined && value.resource !== (operation === 'stake' ? (value.resource === 1 ? 'ENERGY' : value.resource === 0 ? 'BANDWIDTH' : value.resource) : value.resource)) return { confirmed: false, status: 'solidified-resource-type-mismatch' }
+    const resourceCode = value.resource
+    const expectedResourceCode = resource === 'ENERGY' ? 1 : 0
+    if (resourceCode !== undefined && Number(resourceCode) !== expectedResourceCode) return { confirmed: false, status: 'solidified-resource-type-mismatch' }
+    const recordedAmount = value.balance ?? value.frozen_balance
+    if (recordedAmount !== undefined && String(recordedAmount) !== String(amountSun)) return { confirmed: false, status: 'solidified-amount-mismatch' }
     if (operation === 'delegate' && value.receiver_address) {
       let recipient = ''
       try { recipient = new TronWeb().address.fromHex(value.receiver_address) } catch {}
@@ -128,7 +132,7 @@ export function createSponsorTransactionEngine({
       if (broadcast?.result !== true) {
         return { success: false, status: 'broadcast-rejected-or-unknown', txid: signed.txID, signed: true, broadcast: false }
       }
-      const verification = await verifySolidified(signed.txID, sponsorAddress, ownerAddress, operation)
+      const verification = await verifySolidified(signed.txID, sponsorAddress, ownerAddress, operation, resource, amount.toString())
       return {
         success: verification.confirmed,
         status: verification.status,
