@@ -80,6 +80,18 @@ export default function SponsorConsole() {
     finally { setExecuting(false) }
   }
 
+  const reconcileSponsorOperation = async () => {
+    setExecuting(true); setError('')
+    try {
+      const response = await fetch(`${API}/api/tron/sponsor/transaction/${encodeURIComponent(operationKey)}`, { headers: { Accept: 'application/json', Authorization: `Bearer ${adminToken}` } })
+      const result = await response.json()
+      setOperationResult(result)
+      if (!response.ok) throw new Error(result.error || 'Transaction reconciliation is unavailable.')
+      if (result.solidified) { setAdminToken(''); setConfirmationPhrase(''); setOperationKey(globalThis.crypto?.randomUUID?.() || '') }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Transaction reconciliation failed.') }
+    finally { setExecuting(false) }
+  }
+
   const sponsor = data?.sponsor
   const resources = sponsor?.resources
   const caps = data?.capabilities
@@ -133,7 +145,7 @@ export default function SponsorConsole() {
       <label>Type exact confirmation phrase<input value={confirmationPhrase} onChange={(event) => setConfirmationPhrase(event.target.value)} autoComplete="off" required /></label>
       <p className="sponsor-warning">Required phrase: <code>CONFIRM TRON MAINNET SPONSOR TRANSACTION</code>. This can lock Sponsor TRX or delegate frozen resources. Confirm the amount and Owner address before proceeding.</p>
       <button type="submit" disabled={executing || !adminToken || !operationKey || (operation === 'stake' ? !caps?.canStake : !caps?.canDelegate)}>{executing ? 'Submitting Mainnet transaction…' : operation === 'stake' ? 'Confirm & Stake on Mainnet' : 'Confirm & Delegate to Owner'}</button>
-      {operationResult && <p className={operationResult.solidified ? 'sponsor-plan-success' : 'sponsor-error'} role="status">{operationResult.resultCode || operationResult.error || operationResult.operationStatus} · TX: {operationResult.transactionId || 'Not returned'} · Solidified: {operationResult.solidified ? 'Yes' : 'No'} · Retry allowed: {operationResult.retryAllowed ? 'Yes' : 'No'}</p>}
+      {operationResult && <><p className={operationResult.solidified ? 'sponsor-plan-success' : 'sponsor-error'} role="status">{operationResult.resultCode || operationResult.error || operationResult.operationStatus} · TX: {operationResult.transactionId || 'Not returned'} · Solidified: {operationResult.solidified ? 'Yes' : 'No'} · Retry allowed: {operationResult.retryAllowed ? 'Yes' : 'No'}</p>{operationResult.transactionId && !operationResult.solidified && <button type="button" onClick={reconcileSponsorOperation} disabled={executing || !adminToken}>{executing ? 'Checking solidified state…' : 'Reconcile Existing Transaction'}</button>}</>}
     </form>
     <div className="sponsor-actions">
       <button type="button" disabled title="Requires the reviewed server-side Stake 2.0 signer">Stake for Energy</button>
