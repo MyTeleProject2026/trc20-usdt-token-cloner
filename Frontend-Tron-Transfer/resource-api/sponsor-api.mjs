@@ -221,6 +221,9 @@ export function createSponsorResourceApi({
         engineEnabled: readiness.enabled === true,
         transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent,
         feePolicy: readiness.feePolicy,
+        stakingPolicy: readiness.stakingPolicy,
+        ownerTopupPolicy: readiness.ownerTopupPolicy,
+        adminAutomationConfigured: readiness.adminAutomationConfigured === true,
         checkedAt: new Date(now()).toISOString(),
       }, origin)
     }
