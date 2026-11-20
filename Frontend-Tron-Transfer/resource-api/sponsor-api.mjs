@@ -169,8 +169,9 @@ export function createSponsorResourceApi({
       previous.count += 1
       return previous.count <= max
     }
-    if (rateCounts.size > 2000) {
+    if (rateCounts.size >= 2000) {
       for (const [id, item] of rateCounts) if (timestamp - item.startedAt >= 60_000) rateCounts.delete(id)
+      if (rateCounts.size >= 2000) return false
     }
     rateCounts.set(bucket, { startedAt: timestamp, count: 1 })
     return true
@@ -193,6 +194,13 @@ export function createSponsorResourceApi({
     if (req.method === 'GET' && path === '/api/sponsor/status') {
       const readiness = engine.readiness()
       const dbConfigured = Boolean(env.DATABASE_URL)
+      let databaseReady = false
+      if (dbConfigured) {
+        try {
+          const db = getDatabase()
+          if (db) { await db.query('SELECT 1'); databaseReady = true }
+        } catch { databaseReady = false }
+      }
       return reply(res, 200, {
         success: true,
         network: 'TRON Mainnet',
@@ -200,9 +208,10 @@ export function createSponsorResourceApi({
         sponsorAddress: validAddress(env.SPONSOR_MAINNET_ADDRESS) ? env.SPONSOR_MAINNET_ADDRESS : null,
         sessionAuthenticationConfigured: Boolean(sessionSecret(env)),
         databaseConfigured: dbConfigured,
+        databaseReady,
         engineConfigured: readiness.configured === true,
         engineEnabled: readiness.enabled === true,
-        transactionExecutionAvailable: readiness.broadcastAvailable === true && dbConfigured && Boolean(sessionSecret(env)),
+        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)),
         feePolicy: readiness.feePolicy,
         checkedAt: new Date(now()).toISOString(),
       }, origin)
