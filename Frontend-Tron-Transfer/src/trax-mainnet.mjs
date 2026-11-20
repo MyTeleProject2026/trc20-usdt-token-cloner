@@ -1382,7 +1382,7 @@ export function assertZeroTrxBurnBudget(resourceBudget) {
   return true
 }
 
-export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
+export async function deployContractWithOwnerSigner(wallet, artifact, contractName, feeLimitSun, {
   createVerifier = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
   verifyDeployedContract = async (client, address) => client.trx.getContractInfo(address),
@@ -1613,6 +1613,8 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   return { ...verifiedDeployment, resourceBudget, payerAddress: wallet.address, signerAddress: injectedSignerAddress || wallet.address }
 }
+
+export const deployContractFromTronLink = deployContractWithOwnerSigner
 
 export async function estimateMainnetContractCallEnergy(
   tronWeb,
