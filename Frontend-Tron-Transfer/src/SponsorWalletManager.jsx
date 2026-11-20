@@ -214,8 +214,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     let cancelled = false
     const loadVerifiedHistory = async () => {
       try {
-        const token = await authenticateSponsorWallet(wallet, tronWeb)
-        const payload = await sponsorApiRequest('/api/tron/sponsorship/resource-delegations?network=mainnet&limit=100', { token })
+        const payload = await sponsorApiRequest('/api/tron/sponsorship/resource-delegations?network=mainnet&address=' + encodeURIComponent(wallet.address) + '&limit=100')
         if (cancelled || !Array.isArray(payload.delegations)) return
         for (const row of payload.delegations.filter((item) => item.sponsorAddress === wallet.address)) {
           setLastDelegation((current) => current?.transactionId === row.transactionId ? null : current)
