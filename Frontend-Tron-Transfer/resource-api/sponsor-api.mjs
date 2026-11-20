@@ -376,7 +376,7 @@ export function createSponsorResourceApi({
       try {
         await ensureSchema(db)
         const result = await db.query(
-          'SELECT idempotency_key_hash,amount_sun::text AS amount_sun,status,transaction_id FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 AND owner_address=$2 AND operation=\'delegate\' AND transaction_id=$3',
+          'SELECT idempotency_key_hash,amount_sun::text AS amount_sun,resource,status,transaction_id FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 AND owner_address=$2 AND operation=\'delegate\' AND transaction_id=$3',
           [session.address, ownerAddress, body.transactionId],
         )
         const row = result.rows?.[0]
