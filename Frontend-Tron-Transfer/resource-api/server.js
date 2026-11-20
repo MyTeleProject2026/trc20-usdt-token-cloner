@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
 import { createRuntimeObservatory } from './runtime-observatory.mjs'
+import { createSponsorResourceApi } from './sponsor-api.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
@@ -264,9 +265,10 @@ function send(res, status, payload, origin) {
   res.end(JSON.stringify(payload))
 }
 
-export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env } = {}) {
+export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorDatabase } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
+  const sponsorApi = createSponsorResourceApi({ env, allowedAddress, fetchImpl, ...(sponsorEngine ? { engine: sponsorEngine } : {}), ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}), send })
   const rateLimiters = new Map()
   let uptimeHistoryCache = { at: 0, value: null }
   let renderMetricsCache = { at: 0, value: null }
@@ -298,13 +300,14 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       res.writeHead(204, {
         'access-control-allow-origin': origin || 'null',
         'access-control-allow-methods': 'GET, POST, OPTIONS',
-        'access-control-allow-headers': 'content-type',
+        'access-control-allow-headers': 'content-type, authorization',
         'access-control-max-age': '600',
         vary: 'Origin',
       })
       return res.end()
     }
     const url = new URL(req.url || '/', 'http://localhost')
+    if (await sponsorApi.handle(req, res, url, origin)) return
     if (req.method === 'GET' && url.pathname === '/api/observatory/snapshot') {
       const ip = observatoryRateLimitIp(req)
       if (!allowRequest(ip, 'observatory-snapshot', 90)) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
