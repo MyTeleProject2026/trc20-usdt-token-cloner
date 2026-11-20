@@ -84,6 +84,12 @@ export function createSponsorTransactionEngine({
     const reserveTrx = String(env.SPONSOR_LIQUID_RESERVE_TRX || '2')
     const reserveAmountSun = decimalTrxToSun(reserveTrx)
     const reserveValid = reserveAmountSun !== null && reserveAmountSun > 0n
+    const maxStakeTrx = String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0')
+    const maxStakeSun = decimalTrxToSun(maxStakeTrx)
+    const stakingEnabled = env.SPONSOR_STAKING_ENABLED === 'true' && maxStakeSun !== null && maxStakeSun > 0n
+    const maxOwnerTopupTrx = String(env.SPONSOR_MAX_OWNER_TOPUP_TRX || maxStakeTrx)
+    const maxOwnerTopupSun = decimalTrxToSun(maxOwnerTopupTrx)
+    const ownerTopupEnabled = maxOwnerTopupSun !== null && maxOwnerTopupSun > 0n
     const policyValid = feeCapValid && reserveValid
     return {
       configured: keyShapeValid && addressShapeValid && signerMatches && policyValid,
@@ -92,6 +98,9 @@ export function createSponsorTransactionEngine({
       sponsorAddress: addressShapeValid ? sponsorAddress : null,
       databaseRequired: true,
       broadcastAvailable: enabled && keyShapeValid && addressShapeValid && signerMatches && policyValid,
+      stakingPolicy: { enabled: stakingEnabled, maxStakeTrx },
+      ownerTopupPolicy: { enabled: ownerTopupEnabled, maxTopupTrx: maxOwnerTopupTrx },
+      adminAutomationConfigured: typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32,
       feePolicy: {
         valid: policyValid,
         maxBandwidthFeeSun: String(maxFeeRaw),
@@ -162,7 +171,7 @@ export function createSponsorTransactionEngine({
     const validResource = operation === 'topup' ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
     if (!validOperation || !validResource || recipient !== ownerAddress || !ADDRESS.test(recipient || '')) return { success: false, status: 'invalid-mainnet-operation', signed: false, broadcast: false }
     const amount = positiveSun(amountSun)
-    if (!amount || amount < SUN) return { success: false, status: 'invalid-amount-sun', signed: false, broadcast: false }
+    if (!amount || (operation !== 'topup' && amount < SUN)) return { success: false, status: 'invalid-amount-sun', signed: false, broadcast: false }
     if (operation === 'stake') {
       const cap = decimalTrxToSun(String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
       if (env.SPONSOR_STAKING_ENABLED !== 'true' || cap === null || cap <= 0n || amount > cap) {
