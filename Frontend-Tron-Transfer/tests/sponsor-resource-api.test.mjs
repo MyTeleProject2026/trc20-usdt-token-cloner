@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const ui = await readFile(new URL('../src/SponsorWalletManager.jsx', import.meta.url), 'utf8')
-const api = await readFile(new URL('../../resource-api/server.js', import.meta.url), 'utf8')
-const service = await readFile(new URL('../../resource-api/sponsor-api.mjs', import.meta.url), 'utf8')
+const api = await readFile(new URL('../resource-api/server.js', import.meta.url), 'utf8')
+const service = await readFile(new URL('../resource-api/sponsor-api.mjs', import.meta.url), 'utf8')
 
 test('Sponsor Wallet no longer falls back to the separate Token Studio API', () => {
   assert.match(ui, /const RESOURCE_API =/)
