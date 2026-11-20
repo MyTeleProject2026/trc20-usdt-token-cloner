@@ -255,6 +255,24 @@ export function createSponsorResourceApi({
       }
     }
 
+    if (req.method === 'GET' && path === '/api/tron/sponsorship/resource-delegations') {
+      const address = url.searchParams.get('address')
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || 100)))
+      if (url.searchParams.get('network') !== 'mainnet' || !validAddress(address) || address !== env.SPONSOR_MAINNET_ADDRESS) {
+        return reply(res, 403, { success: false, error: 'sponsor-address-not-allowed' }, origin)
+      }
+      const db = getDatabase()
+      if (!db) return reply(res, 503, { success: false, error: 'sponsor-ledger-unavailable' }, origin)
+      try {
+        await ensureSchema(db)
+        const result = await db.query(
+          'SELECT transaction_id AS "transactionId",sponsor_address AS "sponsorAddress",owner_address AS "receiverAddress",resource AS "resourceType",amount_sun::text AS "stakeEquivalentSun",status,confirmation_block AS "blockNumber",created_at AS "recordedAt" FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 AND operation=\'delegate\' AND status=\'confirmed\' ORDER BY created_at DESC LIMIT $2',
+          [address, limit],
+        )
+        return reply(res, 200, { success: true, network: 'TRON Mainnet', delegations: result.rows || [] }, origin)
+      } catch { return reply(res, 503, { success: false, error: 'sponsor-ledger-read-failed' }, origin) }
+    }
+
     const session = verifySession(req, env, now())
     if (!session) return reply(res, 401, { success: false, error: 'sponsor-session-required' }, origin)
 
@@ -344,20 +362,6 @@ export function createSponsorResourceApi({
           [session.address, limit],
         )
         return reply(res, 200, { success: true, network: 'TRON Mainnet', operations: result.rows || [], checkedAt: new Date(now()).toISOString() }, origin)
-      } catch { return reply(res, 503, { success: false, error: 'sponsor-ledger-read-failed' }, origin) }
-    }
-
-    if (req.method === 'GET' && path === '/api/tron/sponsorship/resource-delegations') {
-      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || 100)))
-      const db = getDatabase()
-      if (!db) return reply(res, 503, { success: false, error: 'sponsor-ledger-unavailable' }, origin)
-      try {
-        await ensureSchema(db)
-        const result = await db.query(
-          'SELECT transaction_id AS "transactionId",sponsor_address AS "sponsorAddress",owner_address AS "receiverAddress",resource AS "resourceType",amount_sun::text AS "stakeEquivalentSun",status,confirmation_block AS "blockNumber",created_at AS "recordedAt" FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 AND operation=\'delegate\' AND status=\'confirmed\' ORDER BY created_at DESC LIMIT $2',
-          [session.address, limit],
-        )
-        return reply(res, 200, { success: true, delegations: result.rows || [] }, origin)
       } catch { return reply(res, 503, { success: false, error: 'sponsor-ledger-read-failed' }, origin) }
     }
 
