@@ -8,11 +8,11 @@ const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const SECRET = 'test-session-secret-with-at-least-thirty-two-bytes'
 const SIGNATURE = 'a'.repeat(130)
 
-function request(method, path, body, token) {
+function request(method, path, body, token, adminToken) {
   const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   stream.method = method
   stream.url = path
-  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}) }
+  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}) }
   stream.socket = { remoteAddress: '127.0.0.1' }
   return stream
 }
@@ -44,9 +44,9 @@ function setup({ database = null, engine = null, adminToken = '' } = {}) {
   })
   return { api, calls, env }
 }
-async function call(api, method, path, body, token) {
+async function call(api, method, path, body, token, adminToken) {
   const res = response()
-  const handled = await api.handle(request(method, path, body, token), res, new URL(path, 'http://localhost'), null)
+  const handled = await api.handle(request(method, path, body, token, adminToken), res, new URL(path, 'http://localhost'), null)
   assert.equal(handled, true)
   return res
 }
@@ -258,9 +258,8 @@ test('configured Sponsor Admin token is required as a second factor for write in
   const denied = await call(api, 'POST', '/api/sponsor/intent', body, token)
   assert.equal(denied.status, 403)
   assert.equal(denied.payload.error, 'sponsor-admin-authorization-required')
-  const accepted = await call(api, 'POST', '/api/sponsor/intent', body, token)
-  // The test request helper does not add the admin header; the route must remain closed.
-  assert.equal(accepted.status, 403)
+  const accepted = await call(api, 'POST', '/api/sponsor/intent', body, token, adminToken)
+  assert.equal(accepted.status, 201)
 })
 
 test('Sponsor Admin token comparison is required for execution route too', async () => {
