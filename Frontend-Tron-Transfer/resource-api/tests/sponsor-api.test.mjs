@@ -218,3 +218,29 @@ test('durable Sponsor idempotency prevents a second signer invocation for the sa
   assert.equal(second.payload.error, 'operation-already-recorded')
   assert.equal(executions, 1)
 })
+
+
+test('Owner TRX top-up intent is bound to the configured Owner and TRX resource', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'topup', resource: 'TRX', amountSun: '2500000',
+    idempotencyKey: 'sponsor-topup-0123456789012345',
+  }, token)
+  assert.equal(result.status, 201)
+  assert.match(result.payload.message, /Operation: topup/)
+  assert.match(result.payload.message, /Resource: TRX/)
+  assert.match(result.payload.message, /Amount \(sun\): 2500000/)
+  assert.match(result.payload.message, new RegExp(OWNER))
+})
+
+test('invalid resource combinations cannot create Sponsor intents', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'topup', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-invalid-topup-0123456789',
+  }, token)
+  assert.equal(result.status, 400)
+  assert.equal(result.payload.error, 'invalid-sponsor-operation-intent')
+})
