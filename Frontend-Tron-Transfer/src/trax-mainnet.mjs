@@ -1674,6 +1674,7 @@ export async function sendAndVerifyContractCall(
     hashRawData = sha256HexFromBytes,
     checkTransactionSigner = verifyTransactionSigner,
     checkTransactionPermission = assertTransactionPermission,
+    confirmAction = (message) => typeof window === 'undefined' || window.confirm(message),
   } = {}
 ) {
   if (!tronWeb?.isAddress?.(ownerAddress)) {
