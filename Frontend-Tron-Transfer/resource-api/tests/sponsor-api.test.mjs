@@ -193,7 +193,7 @@ test('durable Sponsor idempotency prevents a second signer invocation for the sa
     execute: async ({ onSigned }) => {
       executions += 1
       await onSigned('b'.repeat(64))
-      return { success: true, status: 'solidified-success', txid: 'b'.repeat(64), signed: true, broadcast: true, solidified: true, blockNumber: 456 },
+      return { success: true, status: 'solidified-success', txid: 'b'.repeat(64), signed: true, broadcast: true, solidified: true, blockNumber: 456 }
     },
     reconcile: async () => ({ confirmed: true, status: 'solidified-success', blockNumber: 456 }),
   }
