@@ -18,9 +18,9 @@ test('Sponsor Wallet is import-only and sends signatures, never private-key cred
   assert.ok(component.includes('/api/sponsor/session/verify'))
   assert.ok(component.includes('signMessageV2'))
   assert.ok(component.includes("authorization: 'Bearer ' + token"))
-  assert.doesNotMatch(component, /trc20-usdt-token-cloner-api\\.onrender\\.com/)
-  assert.doesNotMatch(component, /sendRawTransaction|trx\\.sign\\(/)
-  assert.doesNotMatch(component, /privateKey: wallet\\.privateKey/)
+  assert.doesNotMatch(component, /trc20-usdt-token-cloner-api\.onrender\.com/)
+  assert.doesNotMatch(component, /sendRawTransaction|trx\.sign\(/)
+  assert.doesNotMatch(component, /privateKey: wallet\.privateKey/)
   assert.equal(component.includes('privateKey: lastDelegation'), false)
 })
 
