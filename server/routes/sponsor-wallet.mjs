@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { TronWeb } from 'tronweb'
 import { timingSafeEqual } from 'node:crypto'
 import { planSponsorStake } from '../sponsor-stake-policy.mjs'
+import { createTronMainnetDelegationVerifier } from '../providers/tron-mainnet-delegation-verifier.mjs'
 
 const router = Router()
 const MAINNET = 'https://api.trongrid.io'
@@ -18,6 +19,40 @@ function hasValidSponsorAdminToken(req) {
   if (typeof expected !== 'string' || expected.length < 32 || !supplied || supplied.length !== expected.length) return false
   return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))
 }
+
+
+const delegationVerifier = createTronMainnetDelegationVerifier()
+
+// Verify a previously broadcast Sponsor delegation against SolidityNode state.
+// This endpoint never signs or broadcasts and always pins the recipient to the
+// configured Owner Wallet rather than accepting a caller-supplied recipient.
+router.post('/sponsor/delegation/verify', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized' })
+  }
+  const ownerAddress = configuredAddress(process.env.TRON_OWNER_ADDRESS || process.env.TRON_OWNER_WALLET_ADDRESS)
+  const transactionId = typeof req.body?.transactionId === 'string' ? req.body.transactionId.trim() : ''
+  const required = req.body?.required
+  if (!ownerAddress || !/^[0-9a-f]{64}$/i.test(transactionId)
+    || !required || typeof required.ENERGY !== 'string' || typeof required.BANDWIDTH !== 'string') {
+    return res.status(400).json({ success: false, error: 'invalid-delegation-verification-request' })
+  }
+  const result = await delegationVerifier.verifyDelegation({
+    ownerAddress,
+    transactionId,
+    required: { ENERGY: required.ENERGY, BANDWIDTH: required.BANDWIDTH },
+    network: 'mainnet',
+  })
+  return res.status(result.verified ? 200 : 409).json({
+    success: result.verified,
+    verification: result,
+    signed: false,
+    broadcast: false,
+    note: 'Verification reads solidified TRON Mainnet transaction, delegation and resource state. It does not create or submit transactions.',
+  })
+})
 
 // Authenticated, read-only Stake 2.0 preflight. No transaction is constructed.
 router.post('/sponsor/stake/plan', async (req, res) => {
