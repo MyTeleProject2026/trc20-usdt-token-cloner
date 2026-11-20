@@ -536,15 +536,15 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         setLastTx(transactionId)
         recordSecurityEvent(wallet.address, 'Sponsor transaction submitted by Resource API', action + ' ' + resourceType + ' · ' + transactionId)
         const operationReference = result.operationReference || idempotencyKey
-        setLastOperationReference(result.solidified ? '' : operationReference)
+        setLastOperationReference(result.solidified || !result.broadcast ? '' : operationReference)
         const event = {
           transactionId, operationReference, sponsorAddress: wallet.address, receiverAddress: target, action,
           resourceType, stakeEquivalentSun: String(amountSun),
-          status: result.solidified ? (action === 'delegate' ? 'solidified-mainnet-verified' : 'solidified-mainnet-confirmed') : 'broadcast-pending-verification',
+          status: result.solidified ? (action === 'delegate' ? 'solidified-mainnet-verified' : 'solidified-mainnet-confirmed') : result.broadcast ? 'broadcast-pending-verification' : 'signed-not-broadcast',
           blockNumber: result.confirmationBlock || null, createdAt: new Date().toISOString(),
         }
         recordActivity(event)
-        if (action === 'delegate') setLastDelegation(result.solidified ? null : event)
+        if (action === 'delegate') setLastDelegation(result.solidified || !result.broadcast ? null : event)
       }
       if (result.success && result.solidified) {
         notify('success', `${verb[0].toUpperCase() + verb.slice(1)} confirmed on Mainnet`, `Solidified transaction: ${transactionId}`)
