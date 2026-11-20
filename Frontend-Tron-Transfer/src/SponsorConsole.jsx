@@ -17,6 +17,11 @@ export default function SponsorConsole() {
   const [stakeResource, setStakeResource] = useState('ENERGY')
   const [plan, setPlan] = useState(null)
   const [planning, setPlanning] = useState(false)
+  const [delegationTxid, setDelegationTxid] = useState('')
+  const [requiredEnergy, setRequiredEnergy] = useState('0')
+  const [requiredBandwidth, setRequiredBandwidth] = useState('0')
+  const [verification, setVerification] = useState(null)
+  const [verifying, setVerifying] = useState(false)
 
   const refresh = useCallback(async () => {
     setBusy(true); setError('')
@@ -41,6 +46,17 @@ export default function SponsorConsole() {
       setPlan(result.plan)
     } catch (e) { setError(e instanceof Error ? e.message : 'Stake preflight failed.') }
     finally { setPlanning(false); setAdminToken('') }
+  }
+
+  const verifyDelegation = async (event) => {
+    event.preventDefault(); setVerifying(true); setVerification(null); setError('')
+    try {
+      const response = await fetch(`${API}/api/tron/sponsor/delegation/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ transactionId: delegationTxid.trim(), required: { ENERGY: requiredEnergy, BANDWIDTH: requiredBandwidth } }) })
+      const result = await response.json()
+      if (!response.ok || !result.verification) throw new Error(result.error || result.verification?.status || 'Delegation verification failed.')
+      setVerification(result.verification)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Delegation verification failed.') }
+    finally { setVerifying(false); setAdminToken('') }
   }
 
   const sponsor = data?.sponsor
@@ -75,6 +91,16 @@ export default function SponsorConsole() {
       <label>Resource<select value={stakeResource} onChange={(event) => setStakeResource(event.target.value)}><option value="ENERGY">Energy</option><option value="BANDWIDTH">Bandwidth</option></select></label>
       <button type="submit" disabled={planning || !adminToken}>{planning ? 'Checking Mainnet…' : 'Run Stake Preflight'}</button>
       {plan && <p className="sponsor-plan-success" role="status">Preflight passed: {plan.amountTrx} TRX for {plan.resource}. Remaining liquid balance: {(Number(plan.remainingLiquidBalanceSun) / 1000000).toFixed(6)} TRX. No transaction created, signed or broadcast.</p>}
+    </form>
+    <form className="sponsor-stake-planner" onSubmit={verifyDelegation}>
+      <h3>Verify Owner delegation on Mainnet</h3>
+      <p>Enter the Sponsor delegation transaction ID. The API checks the solidified transaction, successful receipt, Owner recipient, delegation record and current Owner resource capacity. It does not broadcast.</p>
+      <label>Admin authorization token<input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} required minLength={32} /></label>
+      <label>Delegation transaction ID<input value={delegationTxid} onChange={(event) => setDelegationTxid(event.target.value)} required minLength={64} maxLength={64} pattern="[a-fA-F0-9]{64}" /></label>
+      <label>Required Energy (units)<input inputMode="numeric" value={requiredEnergy} onChange={(event) => setRequiredEnergy(event.target.value)} required pattern="[0-9]+" /></label>
+      <label>Required Bandwidth (units)<input inputMode="numeric" value={requiredBandwidth} onChange={(event) => setRequiredBandwidth(event.target.value)} required pattern="[0-9]+" /></label>
+      <button type="submit" disabled={verifying || !adminToken}>{verifying ? 'Verifying solidified state…' : 'Verify Owner Delegation'}</button>
+      {verification && <p className={verification.verified ? 'sponsor-plan-success' : 'sponsor-error'} role="status">{verification.status} · Solidified: {verification.solidified ? 'Yes' : 'No'} · Energy: {verification.ENERGY ?? '—'} · Bandwidth: {verification.BANDWIDTH ?? '—'}</p>}
     </form>
     <div className="sponsor-actions">
       <button type="button" disabled title="Requires the reviewed server-side Stake 2.0 signer">Stake for Energy</button>
