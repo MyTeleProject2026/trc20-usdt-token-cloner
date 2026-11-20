@@ -227,7 +227,7 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
 
   const signer = wallet?.tronWeb?.trx?.signMessageV2
   if (typeof signer !== 'function') {
-    return { status: 'wallet-message-signing-unavailable', energyVerified: false, message: 'This TronLink version does not expose signMessageV2. No claim was submitted.' }
+    return { status: 'wallet-message-signing-unavailable', energyVerified: false, message: 'The local Owner signer does not expose signMessageV2. No claim was submitted.' }
   }
 
   let signature
@@ -239,11 +239,11 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
     if (code === 4001 || /rejected|declined|cancel/i.test(String(error?.message || ''))) {
       return { status: 'claim-signature-declined', energyVerified: false, message: 'The promotional message signature was declined. No TRON transaction was sent; normal deployment preflight will still run.' }
     }
-    return { status: 'claim-signature-failed', energyVerified: false, message: 'TronLink could not sign the promotional message. No TRON transaction was sent.' }
+    return { status: 'claim-signature-failed', energyVerified: false, message: 'The local Owner signer could not sign the promotional message. No TRON transaction was sent.' }
   }
   const normalizedSignature = String(signature || '').replace(/^0x/i, '')
   if (!/^[0-9a-f]{130}$/i.test(normalizedSignature)) {
-    return { status: 'invalid-wallet-signature', energyVerified: false, message: 'TronLink returned an invalid promotional message signature. No claim was submitted.' }
+    return { status: 'invalid-wallet-signature', energyVerified: false, message: 'The local Owner signer returned an invalid promotional message signature. No claim was submitted.' }
   }
 
   let redemption
@@ -891,7 +891,7 @@ export async function verifySolidifiedDeploymentTransaction(tronWeb, {
   let transactionOwner = ''
   try { transactionOwner = tronWeb.address.fromHex(String(value.owner_address || '')) } catch {}
   if (!transactionOwner || !addressesEqual(tronWeb, transactionOwner, ownerAddress)) {
-    throw new Error('Solidified deployment transaction owner does not match the authorized TronLink wallet.')
+    throw new Error('Solidified deployment transaction owner does not match the configured Owner Wallet.')
   }
   const newContract = value.new_contract || {}
   const expectedBytecode = String(artifact.bytecode).replace(/^0x/, '').toLowerCase()
@@ -1151,7 +1151,7 @@ export function verifyTransactionSigner(tronWeb, transaction, expectedAddress) {
   }
   if (!Array.isArray(signatures) || signatures.length !== 1
     || typeof signatures[0] !== 'string' || !/^[0-9a-f]{130}$/i.test(signatures[0])) {
-    throw new Error('Deployment requires exactly one valid 65-byte TronLink signature; refusing broadcast.')
+    throw new Error('Deployment requires exactly one valid 65-byte Owner Wallet signature; refusing broadcast.')
   }
   const crypto = tronWeb?.utils?.crypto
   if (typeof crypto?.ecRecover !== 'function') {
@@ -1394,6 +1394,7 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
   readPermissions = getMainnetAccountPermissionSnapshot,
   estimateEnergy = estimateMainnetDeploymentEnergy,
   expectedOwnerAddress = '',
+  confirmAction = (message) => typeof window === 'undefined' || window.confirm(message),
 } = {}) {
   // Build the unsigned deployment transaction with the SAME injected
   // TronWeb instance that will sign it. TronLink's provider can use a different
@@ -1412,16 +1413,16 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
     || walletTronWeb.defaultAddress?.hex
     || ''
   if (injectedSignerAddress && !addressesEqual(tronWeb, injectedSignerAddress, wallet.address)) {
-    throw new Error('TronLink active signing address (' + injectedSignerAddress
+    throw new Error('Owner signer active address (' + injectedSignerAddress
       + ') differs from the connected app account (' + wallet.address
-      + '). Switch TronLink to the funded configured owner account and reconnect. No signature or broadcast was attempted.')
+      + '). Unlock the configured funded Owner Wallet and retry. No signature or broadcast was attempted.')
   }
   if (typeof walletTronWeb?.trx?.sign !== 'function'
     || typeof walletTronWeb?.trx?.sendRawTransaction !== 'function'
     || !tronWeb?.utils?.transaction?.txCheck
     || !tronWeb?.utils?.crypto?.ecRecover
     || typeof tronWeb?.trx?.getSignWeight !== 'function') {
-    throw new Error('The connected TronLink provider cannot sign and broadcast Mainnet deployments, or the pinned verifier cannot validate signatures and permissions.')
+    throw new Error('The local Owner signer cannot sign and broadcast Mainnet deployments, or the pinned verifier cannot validate signatures and permissions.')
   }
   // Pace the preflight reads instead of bursting resource, permission and
   // deployment-simulation requests at the public TronGrid endpoint together.
@@ -1497,7 +1498,7 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
   if (typeof walletTxCheck === 'function') {
     try { walletTransactionIntegrity = walletTxCheck(walletTransaction) === true } catch { walletTransactionIntegrity = false }
     if (!walletTransactionIntegrity) {
-      throw new Error('The connected TronLink TronWeb validator rejects the node-issued CreateSmartContract payload before signing. No wallet prompt or broadcast was attempted. Check the wallet version and transaction serialization.')
+      throw new Error('The local Owner TronWeb signer rejects the node-issued CreateSmartContract payload before signing. No wallet prompt or broadcast was attempted. Check the wallet version and transaction serialization.')
     }
   }
   // Re-read the exact fee-paying owner account immediately before opening
@@ -1513,6 +1514,9 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
     safetyMarginBps: 12500,
   })
   assertZeroTrxBurnBudget(resourceBudget)
+  if (!confirmAction('Approve TRӾ Mainnet deployment?\n\nOwner: ' + wallet.address + '\nPredicted contract: ' + predictedAddress + '\nFee limit: ' + (Number(feeLimitSun) / 1e6) + ' TRX\nEstimated Energy: ' + resourceBudget.energyRequired + '\n\nThe platform will sign locally and broadcast only after the final resource checks.')) {
+    throw new Error('Owner cancelled the deployment confirmation. No signature or broadcast was attempted.')
+  }
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
@@ -1543,7 +1547,7 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
       energyWithSafetyMargin: resourceBudget.energyWithSafetyMargin,
       estimatedTrxShortfallSun: resourceBudget.requiredTrxSun,
     }
-    throw new Error(explainTronLinkError(error, 'TronLink signing failed') + ' Payload diagnostics: ' + JSON.stringify(diagnostic))
+    throw new Error(explainTronLinkError(error, 'Owner Wallet signing failed') + ' Payload diagnostics: ' + JSON.stringify(diagnostic))
   }
   const signatures = signed?.signature
   const hasValidSignature = Array.isArray(signatures)
@@ -1561,7 +1565,7 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
       : !hasValidSignature ? 'missing or malformed 65-byte signature'
       : String(signed.txID || '').toLowerCase() !== walletTransaction.txID.toLowerCase() ? 'transaction ID changed'
       : 'wallet changed raw_data_hex'
-    throw new Error('TronLink signing result failed cryptographic payload consistency validation (' + reason + '). Nothing was broadcast.')
+    throw new Error('Owner signer result failed cryptographic payload consistency validation (' + reason + '). Nothing was broadcast.')
   }
   // The signature is verified against the original raw_data bytes; rebuild only
   // the protocol transaction envelope so omitted Android provider fields cannot
@@ -1585,7 +1589,7 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
     })
     assertZeroTrxBurnBudget(preBroadcastBudget)
   } catch (error) {
-    throw new Error('TronLink signed the deployment, but the transaction was NOT broadcast because the final zero-TRX-burn resource recheck failed: '
+    throw new Error('Owner signer signed the deployment, but the transaction was NOT broadcast because the final zero-TRX-burn resource recheck failed: '
       + String(error?.message || error)
       + '. The signed transaction was discarded. No network fee was paid.')
   }
@@ -1677,10 +1681,10 @@ export async function sendAndVerifyContractCall(
   }
   const walletAddress = tronWeb.defaultAddress?.base58 || ''
   if (!walletAddress || !addressesEqual(tronWeb, walletAddress, ownerAddress)) {
-    throw new Error('The injected TronLink signing address does not match the configured TRӾ transaction owner. No signature or broadcast was attempted.')
+    throw new Error('The local Owner signing address does not match the configured TRӾ transaction owner. No signature or broadcast was attempted.')
   }
   if (typeof tronWeb?.trx?.sign !== 'function' || typeof tronWeb?.trx?.sendRawTransaction !== 'function') {
-    throw new Error('The connected TronLink provider cannot sign and broadcast TRON Mainnet contract calls.')
+    throw new Error('The local Owner signer cannot sign and broadcast TRON Mainnet contract calls.')
   }
   const methodInstance = tokenContract?.methodInstances?.[methodName]
   const contractAddress = tokenContract?.address
@@ -1704,7 +1708,7 @@ export async function sendAndVerifyContractCall(
   }
   const injectedSigner = tronWeb.defaultAddress?.base58 || tronWeb.defaultAddress?.hex || ''
   if (!addressesEqual(tronWeb, injectedSigner, ownerAddress)) {
-    throw new Error('The active TronLink signer no longer matches the connected transaction owner.')
+    throw new Error('The active Owner signer no longer matches the connected transaction owner.')
   }
 
   // Build the node-issued unsigned transaction for the same ABI function and arguments.
@@ -1791,20 +1795,23 @@ export async function sendAndVerifyContractCall(
     })
   }
 
-  // Re-read resource quotas immediately before the wallet signature request.
+  // Re-read resource quotas immediately before the local Owner signature request.
   const initialBudget = await calculateBudget()
   assertZeroTrxBurnBudget(initialBudget)
+  if (!confirmAction('Approve TRӾ Mainnet ' + methodName + '?\n\nOwner: ' + ownerAddress + '\nContract: ' + contractAddress + '\nFee limit: ' + (feeLimit / 1e6) + ' TRX\nEstimated Energy: ' + energyEstimate.energyUsed + '\n\nThe platform will sign locally and broadcast only after the final resource checks.')) {
+    throw new Error('Owner cancelled the transaction confirmation. No signature or broadcast was attempted.')
+  }
 
   const walletTxCheck = tronWeb?.utils?.transaction?.txCheck
   if (typeof walletTxCheck !== 'function' || walletTxCheck(unsigned) !== true) {
-    throw new Error('TronLink transaction integrity validation is unavailable or rejected the unsigned TRӾ ' + methodName + ' payload. No signature or broadcast was attempted.')
+    throw new Error('Owner signer transaction integrity validation is unavailable or rejected the unsigned TRӾ ' + methodName + ' payload. No signature or broadcast was attempted.')
   }
 
   let signed
   try {
     signed = await signTransaction(unsigned)
   } catch (error) {
-    throw new Error(formatTronLinkError(error, 'TronLink TRӾ ' + methodName + ' signing failed') + ' Nothing was broadcast.')
+    throw new Error(formatTronLinkError(error, 'Owner Wallet TRӾ ' + methodName + ' signing failed') + ' Nothing was broadcast.')
   }
   const signatures = signed?.signature
   const signatureValid = Array.isArray(signatures) && signatures.length === 1
@@ -1812,7 +1819,7 @@ export async function sendAndVerifyContractCall(
   const rawDataMatches = signed?.raw_data_hex == null
     || (typeof signed.raw_data_hex === 'string' && signed.raw_data_hex.toLowerCase() === unsigned.raw_data_hex.toLowerCase())
   if (!signed || !signatureValid || String(signed.txID || '').toLowerCase() !== unsigned.txID.toLowerCase() || !rawDataMatches) {
-    throw new Error('TronLink signing result changed or omitted the expected TRӾ ' + methodName + ' transaction payload. Nothing was broadcast.')
+    throw new Error('Owner signer result changed or omitted the expected TRӾ ' + methodName + ' transaction payload. Nothing was broadcast.')
   }
   const signedTransaction = { ...unsigned, signature: [...signatures] }
   checkTransactionIntegrity(tronWeb, signedTransaction, 'Signed TRӾ ' + methodName + ' transaction')
@@ -1855,7 +1862,7 @@ export async function sendNativeTrxFromTronLink(wallet, toAddress, amountSun) {
   if (amount <= 0n || amount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Invalid TRX funding amount.')
   const unsigned = await tronWeb.transactionBuilder.sendTrx(toAddress, Number(amount), wallet.address)
   const signed = await tronWeb.trx.sign(unsigned)
-  if (!signed?.signature?.length) throw new Error('TronLink did not sign the native TRX funding transaction.')
+  if (!signed?.signature?.length) throw new Error('The Owner Wallet did not sign the native TRX funding transaction.')
   const broadcast = await tronWeb.trx.sendRawTransaction(signed)
   if (broadcast?.result !== true) throw new Error('TRON Mainnet rejected the TRX funding transfer.')
   const receipt = await waitForSolidifiedReceipt(tronWeb, unsigned.txID)
