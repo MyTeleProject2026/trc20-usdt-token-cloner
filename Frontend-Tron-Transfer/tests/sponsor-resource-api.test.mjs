@@ -19,6 +19,8 @@ test('Sponsor transaction actions authenticate and authorize exact intents throu
   assert.match(ui, /\/api\/sponsor\/intent/)
   assert.match(ui, /\/api\/sponsor\/operations/)
   assert.match(ui, /signMessageV2/)
+  assert.match(ui, /reconcileLastSponsorOperation/)
+  assert.match(ui, /Reconcile last Sponsor operation/)
   assert.match(ui, /authorization: 'Bearer ' \+ token/)
   assert.doesNotMatch(ui, /trx\.sendRawTransaction/)
   assert.doesNotMatch(ui, /trx\.sign\(unsigned/)
