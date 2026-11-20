@@ -67,8 +67,8 @@ test('TRӾ metadata checks and price labels match the requested token identity',
 test('Owner and Sponsor wallet workspaces have separate navigation contexts', async () => {
   const app = await read('../src/App.jsx')
   const mobile = await read('../src/MobileNavBar.jsx')
-  assert.ok(app.includes("const sponsorWorkspace = activePage === 'sponsor'"))
-  assert.ok(app.includes("NAV_ITEMS.filter(item => item.id === 'sponsor')"))
+  assert.ok(app.includes("const sponsorWorkspace = activePage.startsWith('sponsor')"))
+  assert.ok(app.includes("NAV_ITEMS.filter(item => item.id.startsWith('sponsor'))"))
   assert.ok(app.includes('Owner workspace') && app.includes('Sponsor workspace'))
   assert.ok(app.includes('workspace={sponsorWorkspace ? "sponsor" : "owner"}'))
   assert.ok(mobile.includes('trax-mobile-nav-sponsor'))
