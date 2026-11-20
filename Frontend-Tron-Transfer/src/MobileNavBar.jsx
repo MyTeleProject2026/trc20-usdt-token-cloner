@@ -51,9 +51,14 @@ export default function MobileNavBar({ items, activePage, onNavigate, workspace 
     setMoreOpen(false)
   }
 
-  if (workspace === 'sponsor') return <nav className="trax-mobile-nav trax-mobile-nav-sponsor" aria-label="Sponsor wallet navigation">
-    <button className="active" aria-current="page" type="button"><ShieldCheck size={19}/><span>Sponsor wallet</span></button>
-    <button type="button" onClick={() => onNavigate('home')}><Wallet size={19}/><span>Owner workspace</span></button>
+  if (workspace === 'sponsor') return <nav className="trax-mobile-nav trax-mobile-nav-sponsor" aria-label="Sponsor workspace navigation">
+    {items.map(item => {
+      const Icon = item.icon
+      return <button key={item.id} className={activePage === item.id ? 'active' : ''} aria-current={activePage === item.id ? 'page' : undefined} type="button" onClick={() => onNavigate(item.id)}>
+        <Icon size={18}/><span>{item.shortLabel || item.label}</span>
+      </button>
+    })}
+    <button type="button" onClick={() => onNavigate('home')}><Wallet size={18}/><span>Owner</span></button>
   </nav>
 
   return <>
