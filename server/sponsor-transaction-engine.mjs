@@ -83,10 +83,11 @@ export function createSponsorTransactionEngine({
     if (ownerBase58 !== sponsorAddress) return { confirmed: false, status: 'solidified-sponsor-owner-mismatch' }
     const resourceCode = value.resource
     const expectedResourceCode = resource === 'ENERGY' ? 1 : 0
-    if (resourceCode !== undefined && Number(resourceCode) !== expectedResourceCode) return { confirmed: false, status: 'solidified-resource-type-mismatch' }
-    const recordedAmount = value.balance ?? value.frozen_balance
-    if (recordedAmount !== undefined && String(recordedAmount) !== String(amountSun)) return { confirmed: false, status: 'solidified-amount-mismatch' }
-    if (operation === 'delegate' && value.receiver_address) {
+    if (resourceCode === undefined || Number(resourceCode) !== expectedResourceCode) return { confirmed: false, status: 'solidified-resource-type-mismatch' }
+    const recordedAmount = operation === 'stake' ? value.frozen_balance : value.balance
+    if (recordedAmount === undefined || String(recordedAmount) !== String(amountSun)) return { confirmed: false, status: 'solidified-amount-mismatch' }
+    if (operation === 'delegate') {
+      if (typeof value.receiver_address !== 'string') return { confirmed: false, status: 'solidified-recipient-missing' }
       let recipient = ''
       try { recipient = new TronWeb().address.fromHex(value.receiver_address) } catch {}
       if (recipient !== ownerAddress) return { confirmed: false, status: 'solidified-recipient-mismatch' }
