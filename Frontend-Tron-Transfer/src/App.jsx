@@ -86,7 +86,7 @@ export default function App() {
   const visibleNavItems = sponsorWorkspace ? NAV_ITEMS.filter(item => item.id === 'sponsor') : NAV_ITEMS.filter(item => item.id !== 'sponsor')
   const page = NAV_ITEMS.find(item => item.id === activePage) || NAV_ITEMS[0]
   return <div className="trax-admin-shell">
-    <TRAXSidebar items={visibleNavItems} activePage={activePage} onNavigate={setActivePage} wallet={wallet} onConnect={connectWallet} onLock={lockWallet}/>
+    <TRAXSidebar items={visibleNavItems} activePage={activePage} onNavigate={setActivePage} wallet={wallet} onConnect={connectWallet} onLock={lockWallet} workspace={sponsorWorkspace ? "sponsor" : "owner"}/>
     <div className="trax-admin-main">
       <header className="trax-admin-topbar">
         <div className="trax-topbar-title">
