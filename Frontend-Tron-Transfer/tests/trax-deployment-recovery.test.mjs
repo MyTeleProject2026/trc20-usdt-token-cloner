@@ -137,7 +137,7 @@ test('rejects a solidified deployment transaction signed by another owner', asyn
     verifySolidifiedDeploymentTransaction(makeClient(), {
       txID, ownerAddress: owner, artifact: { bytecode: runtime, abi: [] },
     }, { fetchSolidifiedTransaction: async () => solidifiedCreateTransaction({ txOwner: 'TOtherOwner' }) }),
-    /does not match the authorized TronLink wallet/
+    /does not match the configured Owner Wallet/
   )
 })
 
