@@ -35,12 +35,12 @@ The TRӾ deployment preflight uses the same one-source coverage rule and blocks 
 
 ## Deployment
 
-This service is designed for a Render Web Service with root directory `Frontend-Tron-Transfer/resource-api`, Node runtime, `npm run check` build command, and `npm start` start command. It binds to `0.0.0.0:$PORT`. It needs no wallet key or private key. RPC API keys are infrastructure credentials only; they do not grant transaction-signing permission.
+This service is designed for the existing Render Web Service with root directory `Frontend-Tron-Transfer/resource-api`, Node runtime, `npm test && npm run check` build command, and `npm start` start command. It binds to `0.0.0.0:$PORT`. When Sponsor writes are enabled, only the independent Sponsor private key is read by the backend as a Render secret. The Owner private key is never configured on this service and Owner-originated transactions must be approved in TronLink. RPC API keys are infrastructure credentials only; they do not grant transaction-signing permission.
 
 ## Important limits
 
 - TRON resource reads use Tatum Mainnet when configured, with TronGrid fallback. Both providers expose chain state; neither grants resources merely because an API key is configured.
-- The service is read-only. It cannot create Energy, delegate resources, sign, or broadcast transactions.
+- Public chain/resource reads are read-only. The authenticated Sponsor API can sign and broadcast only explicitly authorized Sponsor stake, delegation, and capped native TRX top-up transactions; it cannot sign Owner transactions.
 - TRON has no protocol free Energy quota. Free Bandwidth is reported from the live account-resource response.
 - Exact smart-contract deployment Energy is not inferred from an arbitrary fee cap. A deployment-specific simulation or the exact node estimate is required.
 - Free Energy faucet claims are not automated here. The published TronRental faucet requires a support-issued access code and account registration; it is a promotional manual claim, not an unauthenticated server API. Its published 131,000 Energy claim is not asserted to cover contract deployment.
