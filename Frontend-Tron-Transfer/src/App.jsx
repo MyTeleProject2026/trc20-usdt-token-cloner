@@ -8,7 +8,10 @@ import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 
 const NAV_ITEMS = [
-  { id: 'sponsor', label: 'TRON TRANSFER SPONSOR', shortLabel: 'Sponsor', description: 'Imported sponsor wallet · live resources and verified delegation', icon: ShieldCheck },
+  { id: 'sponsor', label: 'Sponsor overview', shortLabel: 'Overview', description: 'Independent Sponsor wallet · live capacity and execution readiness', icon: ShieldCheck },
+  { id: 'sponsor-resources', label: 'Resource markets', shortLabel: 'Resources', description: 'Energy, Bandwidth, staking and delegation controls', icon: Activity },
+  { id: 'sponsor-automation', label: 'Automation & limits', shortLabel: 'Automation', description: 'Owner resource targets, preflight and guarded automation', icon: Network },
+  { id: 'sponsor-activity', label: 'Activity & audit', shortLabel: 'Activity', description: 'Sponsor operations, wallet transactions and verification history', icon: History },
   { id: 'home', label: 'AETHERIA MCP Mesh', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
   { id: 'portfolio', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
   { id: 'deploy', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
@@ -82,8 +85,8 @@ export default function App() {
     }
   }, [wallet])
 
-  const sponsorWorkspace = activePage === 'sponsor'
-  const visibleNavItems = sponsorWorkspace ? NAV_ITEMS.filter(item => item.id === 'sponsor') : NAV_ITEMS.filter(item => item.id !== 'sponsor')
+  const sponsorWorkspace = activePage.startsWith('sponsor')
+  const visibleNavItems = sponsorWorkspace ? NAV_ITEMS.filter(item => item.id.startsWith('sponsor')) : NAV_ITEMS.filter(item => !item.id.startsWith('sponsor'))
   const page = NAV_ITEMS.find(item => item.id === activePage) || NAV_ITEMS[0]
   return <div className="trax-admin-shell">
     <TRAXSidebar items={visibleNavItems} activePage={activePage} onNavigate={setActivePage} wallet={wallet} onConnect={connectWallet} onLock={lockWallet} workspace={sponsorWorkspace ? "sponsor" : "owner"}/>
@@ -105,7 +108,7 @@ export default function App() {
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        {activePage === 'sponsor' ? <SponsorWalletManager onNavigate={setActivePage}/> : activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+        {sponsorWorkspace ? <SponsorWalletManager activePage={activePage} onNavigate={setActivePage}/> : activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
       </main>
       {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
     <footer className="trax-admin-footer">TRON TRANSFER · INDEPENDENT OWNER SIGNING · TRON MAINNET</footer>
