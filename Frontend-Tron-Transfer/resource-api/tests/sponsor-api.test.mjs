@@ -152,3 +152,69 @@ test('expired or reused intent cannot be executed twice', async () => {
   assert.equal(replay.status, 409)
   assert.deepEqual(calls, [])
 })
+
+test('durable Sponsor idempotency prevents a second signer invocation for the same exact intent', async () => {
+  const rows = new Map()
+  const database = {
+    async query(sql, params = []) {
+      if (sql.startsWith('CREATE TABLE') || sql.startsWith('CREATE INDEX')) return { rowCount: 0, rows: [] }
+      if (sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')) {
+        const [keyHash, requestHash, operation, resource, amountSun, sponsorAddress, ownerAddress] = params
+        if (rows.has(keyHash)) return { rowCount: 0, rows: [] }
+        rows.set(keyHash, { idempotency_key_hash: keyHash, request_hash: requestHash, operation, resource, amount_sun: amountSun, sponsor_address: sponsorAddress, owner_address: ownerAddress, status: 'reserved', transaction_id: null })
+        return { rowCount: 1, rows: [{ id: 1 }] }
+      }
+      if (sql.startsWith('SELECT request_hash,status,transaction_id,result_code,confirmation_block')) {
+        const row = rows.get(params[0])
+        return { rowCount: row ? 1 : 0, rows: row ? [row] : [] }
+      }
+      if (sql.startsWith('UPDATE public.tron_transfer_sponsor_operations SET status=\\'broadcast-unknown\\'')) {
+        const row = rows.get(params[0])
+        if (!row || row.status !== 'reserved') return { rowCount: 0, rows: [] }
+        row.status = 'broadcast-unknown'
+        row.transaction_id = params[1]
+        return { rowCount: 1, rows: [{ id: 1 }] }
+      }
+      if (sql.startsWith('UPDATE public.tron_transfer_sponsor_operations SET status=$2')) {
+        const row = rows.get(params[0])
+        if (!row) return { rowCount: 0, rows: [] }
+        row.status = params[1]
+        row.transaction_id = params[2] || row.transaction_id
+        row.result_code = params[3]
+        row.confirmation_block = params[4]
+        return { rowCount: 1, rows: [] }
+      }
+      throw new Error('unexpected fake database query: ' + sql)
+    },
+  }
+  let executions = 0
+  const engine = {
+    readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
+    execute: async ({ onSigned }) => {
+      executions += 1
+      await onSigned('b'.repeat(64))
+      return { success: true, status: 'solidified-success', txid: 'b'.repeat(64), signed: true, broadcast: true, solidified: true, blockNumber: 456 },
+    },
+    reconcile: async () => ({ confirmed: true, status: 'solidified-success', blockNumber: 456 }),
+  }
+  const { api } = setup({ database, engine })
+  const token = await authenticated(api)
+  const idempotencyKey = 'sponsor-idempotency-012345678901'
+  const createIntent = () => call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '127852400', idempotencyKey,
+  }, token)
+  const firstIntent = await createIntent()
+  const first = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: firstIntent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  }, token)
+  assert.equal(first.status, 200)
+  assert.equal(first.payload.operationStatus, 'confirmed')
+  assert.equal(first.payload.transactionId, 'b'.repeat(64))
+  const secondIntent = await createIntent()
+  const second = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: secondIntent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  }, token)
+  assert.equal(second.status, 409)
+  assert.equal(second.payload.error, 'operation-already-recorded')
+  assert.equal(executions, 1)
+})
