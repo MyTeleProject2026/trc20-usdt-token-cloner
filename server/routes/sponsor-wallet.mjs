@@ -40,10 +40,41 @@ router.get('/sponsor/status', async (_req, res) => {
     }
   }
 
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+
+  const balanceTrx = Number(account?.trx || 0)
+  const reserveTrx = Number(process.env.SPONSOR_LIQUID_RESERVE_TRX || 2)
+  const maxAutomaticStakeTrx = Number(process.env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || 10)
+  const reserveConfigured = Number.isFinite(reserveTrx) && reserveTrx >= 0
+  const maxStakeConfigured = Number.isFinite(maxAutomaticStakeTrx) && maxAutomaticStakeTrx >= 1
+  const spendableTrx = Math.max(0, balanceTrx - (reserveConfigured ? reserveTrx : 2))
+  const identityReady = Boolean(sponsorAddress && ownerAddress && sponsorAddress !== ownerAddress)
+
   return res.json({
     success: true,
     network: 'TRON Mainnet',
     mode: 'read-only-until-signer-and-admin-auth-are-configured',
+    readiness: {
+      sponsorOwnerIdentityVerified: identityReady,
+      sponsorBalanceRead: Boolean(account),
+      resourcesRead: Boolean(resources),
+      spendableTrxAfterReserve: Number(spendableTrx.toFixed(6)),
+      canStakeNow: false,
+      canDelegateNow: false,
+      canDeployOwnerContractNow: false,
+      blockers: [
+        ...(!sponsorAddress ? ['Sponsor Mainnet address is not configured.'] : []),
+        ...(!ownerAddress ? ['Owner Mainnet address is not configured.'] : []),
+        ...(sponsorAddress && ownerAddress && sponsorAddress === ownerAddress ? ['Sponsor and Owner addresses must be independent.'] : []),
+        ...(!account ? ['Sponsor Mainnet balance could not be verified.'] : []),
+        ...(!resources ? ['Sponsor resource capacity could not be verified.'] : []),
+        ...(!privateKeyConfigured ? ['Server-side Sponsor signer is not configured.'] : []),
+        ...(!adminAuthConfigured ? ['Sponsor administrator authorization is not configured.'] : []),
+        ...(!stakingEnabled ? ['Sponsor staking engine is not explicitly enabled.'] : []),
+        ...(!reserveConfigured || !maxStakeConfigured ? ['Sponsor spending policy configuration is invalid.'] : []),
+      ],
+    },
     sponsor: { configured: Boolean(sponsorAddress), account, resources, readError },
     owner: { configured: Boolean(ownerAddress), address: ownerAddress || null },
     capabilities: {
@@ -56,8 +87,9 @@ router.get('/sponsor/status', async (_req, res) => {
     },
     limits: {
       minimumStakeTrx: 1,
-      maximumAutomaticStakeTrx: Number(process.env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || 10),
-      protectedLiquidReserveTrx: Number(process.env.SPONSOR_LIQUID_RESERVE_TRX || 2),
+      maximumAutomaticStakeTrx: maxStakeConfigured ? maxAutomaticStakeTrx : 10,
+      protectedLiquidReserveTrx: reserveConfigured ? reserveTrx : 2,
+      currentlySpendableAfterReserveTrx: Number(spendableTrx.toFixed(6)),
       automaticUnstakeEnabled: false,
     },
   })
