@@ -76,7 +76,8 @@ export function createSponsorTransactionEngine({
     const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
     const feeCapValid = maxFeeRaw === '0' || positiveSun(String(maxFeeRaw)) !== null
     const reserveTrx = String(env.SPONSOR_LIQUID_RESERVE_TRX || '2')
-    const reserveValid = decimalTrxToSun(reserveTrx) !== null
+    const reserveAmountSun = decimalTrxToSun(reserveTrx)
+    const reserveValid = reserveAmountSun !== null && reserveAmountSun > 0n
     const policyValid = feeCapValid && reserveValid
     return {
       configured: keyShapeValid && addressShapeValid && signerMatches && policyValid,
