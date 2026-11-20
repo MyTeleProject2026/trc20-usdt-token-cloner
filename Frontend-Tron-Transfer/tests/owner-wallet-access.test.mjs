@@ -10,7 +10,7 @@ const vault = await readFile(new URL('../src/owner-wallet-vault.mjs', import.met
 test('Owner Admin connects to its independent local encrypted Owner Wallet instead of an injected DApp wallet', () => {
   assert.ok(app.includes("import OwnerWalletAccess from './OwnerWalletAccess.jsx'"))
   assert.ok(app.includes('<OwnerWalletAccess onUnlock={acceptOwnerWallet}'))
-  assert.ok(app.includes('encrypted-local-owner-vault'))
+  assert.ok(access.includes('encrypted-local-owner-vault'))
   assert.doesNotMatch(app, /discoverTronLinkProvider|requestTronLinkConnection/)
   assert.ok(access.includes('Import and unlock Owner Wallet'))
   assert.ok(access.includes('V3 Keystore JSON'))
