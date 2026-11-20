@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, Coins, Gauge, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import { Activity, Gauge, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import './sponsor-console.css'
 
 const API = String(import.meta.env.VITE_RESOURCE_API_URL || '').replace(/\/$/, '')
 
