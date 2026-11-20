@@ -71,7 +71,7 @@ export default function SponsorConsole() {
       <h3>Stake 2.0 policy preflight</h3>
       <p>Validate a proposed Sponsor stake against a fresh Mainnet balance, the 2 TRX protected reserve and the configured automatic stake ceiling. This does not create or sign a transaction.</p>
       <label>Admin authorization token<input type="password" autoComplete="off" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} required minLength={32} placeholder="Enter your server-configured Sponsor admin token" /></label>
-      <label>Stake amount (TRX)<input inputMode="decimal" value={stakeAmount} onChange={(event) => setStakeAmount(event.target.value)} required pattern="[0-9]+(\\.[0-9]{1,6})?" /></label>
+      <label>Stake amount (TRX)<input inputMode="decimal" value={stakeAmount} onChange={(event) => setStakeAmount(event.target.value)} required pattern="[0-9]+(\.[0-9]{1,6})?" /></label>
       <label>Resource<select value={stakeResource} onChange={(event) => setStakeResource(event.target.value)}><option value="ENERGY">Energy</option><option value="BANDWIDTH">Bandwidth</option></select></label>
       <button type="submit" disabled={planning || !adminToken}>{planning ? 'Checking Mainnet…' : 'Run Stake Preflight'}</button>
       {plan && <p className="sponsor-plan-success" role="status">Preflight passed: {plan.amountTrx} TRX for {plan.resource}. Remaining liquid balance: {(Number(plan.remainingLiquidBalanceSun) / 1000000).toFixed(6)} TRX. No transaction created, signed or broadcast.</p>}
