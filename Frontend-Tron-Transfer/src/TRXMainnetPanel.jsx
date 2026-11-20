@@ -188,7 +188,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setPromoClaimStatus(promo)
     if (promo?.message) setNotice(promo.message)
     // One-click flow: run a fresh read-only estimate immediately, then let
-    // deployContractFromTronLink repeat resource/permission checks before the
+    // deployContractWithOwnerSigner repeat resource/permission checks before the
     // local signing, after signing, and immediately before broadcast.
     setDeploymentReadiness(null)
     setStep('Checking Mainnet Energy, Bandwidth, owner permission and zero-TRX fallback')
@@ -211,7 +211,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       bandwidthBytes: deployment.estimatedBandwidthBytes,
     })
     setStep('Preflight passed · preparing the locally signed Owner deployment')
-    const result = await deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, { expectedOwnerAddress: EXPECTED_OWNER_ADDRESS })
+    const result = await deployContractWithOwnerSigner(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, { expectedOwnerAddress: EXPECTED_OWNER_ADDRESS })
     setTokenAddress(result.address)
     setLastTx(result.txID)
     setNotice('TRӾ deployment is confirmed on solidified TRON Mainnet. The deployed bytecode, owner and token metadata were verified. No public zero-cost Energy-and-Bandwidth grant provider is currently authorized for this owner; deployment proceeded only because the live owner resources covered the full cost with zero TRX fallback.')
