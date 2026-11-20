@@ -232,6 +232,7 @@ export function createSponsorResourceApi({
         stakingPolicy: readiness.stakingPolicy,
         ownerTopupPolicy: readiness.ownerTopupPolicy,
         adminTokenRequired: adminTokenRequired(env),
+        adminTokenConfigured: adminTokenRequired(env) && env.SPONSOR_ADMIN_TOKEN.length >= 32,
         checkedAt: new Date(now()).toISOString(),
       }, origin)
     }
