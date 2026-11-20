@@ -25,6 +25,8 @@ test('derives an existing owner account from a TRON mnemonic', async () => {
   assert.equal(account.network, 'mainnet')
   assert.equal(TronWeb.isAddress(account.address), true)
   assert.equal(account.privateKey.length, 64)
+  const spaced = await deriveOwnerAccount({ mode: 'mnemonic', value: '  ' + MNEMONIC.replaceAll(' ', '   ') + '  ' })
+  assert.equal(spaced.address, account.address)
 })
 
 test('encrypts Owner Wallet locally, preserves address integrity and rejects wrong password', async () => {
