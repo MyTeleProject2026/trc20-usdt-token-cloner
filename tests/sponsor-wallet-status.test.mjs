@@ -44,3 +44,16 @@ test('Stake 2.0 preflight endpoint is authenticated, read-only and fail-closed',
   assert.match(route, /broadcast: false/)
   assert.match(route, /planSponsorStake\(/)
 })
+
+test('Sponsor delegation verification endpoint pins the configured Owner and is admin-authenticated', () => {
+  assert.match(route, /router\.post\('\/sponsor\/delegation\/verify'/)
+  assert.match(route, /hasValidSponsorAdminToken\(req\)/)
+  assert.match(route, /createTronMainnetDelegationVerifier/)
+  assert.match(route, /ownerAddress,\s*transactionId/)
+  assert.match(route, /signed: false/)
+  assert.match(route, /broadcast: false/)
+})
+
+test('Sponsor bearer authorization parser accepts standard Bearer whitespace', () => {
+  assert.match(route, /replace\(\/\^Bearer\\s\+\/i, ''\)/)
+})
