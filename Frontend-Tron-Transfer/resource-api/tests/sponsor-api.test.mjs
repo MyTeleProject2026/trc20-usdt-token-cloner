@@ -168,7 +168,7 @@ test('durable Sponsor idempotency prevents a second signer invocation for the sa
         const row = rows.get(params[0])
         return { rowCount: row ? 1 : 0, rows: row ? [row] : [] }
       }
-      if (sql.startsWith('UPDATE public.tron_transfer_sponsor_operations SET status=\\'broadcast-unknown\\'')) {
+      if (sql.startsWith("UPDATE public.tron_transfer_sponsor_operations SET status='broadcast-unknown'")) {
         const row = rows.get(params[0])
         if (!row || row.status !== 'reserved') return { rowCount: 0, rows: [] }
         row.status = 'broadcast-unknown'
