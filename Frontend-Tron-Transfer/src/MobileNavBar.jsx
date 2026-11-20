@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, Grid2X2, X } from 'lucide-react'
+import { ChevronRight, Grid2X2, ShieldCheck, Wallet, X } from 'lucide-react'
 
 const primaryIds = ['home', 'issuance', 'credits', 'transfers']
 
-export default function MobileNavBar({ items, activePage, onNavigate }) {
+export default function MobileNavBar({ items, activePage, onNavigate, workspace = 'owner' }) {
   const [moreOpen, setMoreOpen] = useState(false)
   const moreButtonRef = useRef(null)
   const sheetRef = useRef(null)
@@ -50,6 +50,16 @@ export default function MobileNavBar({ items, activePage, onNavigate }) {
     onNavigate(id)
     setMoreOpen(false)
   }
+
+  if (workspace === 'sponsor') return <nav className="trax-mobile-nav trax-mobile-nav-sponsor" aria-label="Sponsor workspace navigation">
+    {items.map(item => {
+      const Icon = item.icon
+      return <button key={item.id} className={activePage === item.id ? 'active' : ''} aria-current={activePage === item.id ? 'page' : undefined} type="button" onClick={() => onNavigate(item.id)}>
+        <Icon size={18}/><span>{item.shortLabel || item.label}</span>
+      </button>
+    })}
+    <button type="button" onClick={() => onNavigate('home')}><Wallet size={18}/><span>Owner</span></button>
+  </nav>
 
   return <>
     {moreOpen && <>

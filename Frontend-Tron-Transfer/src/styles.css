@@ -2171,3 +2171,18 @@ td { color: #d2e1f5; }
 
 @keyframes trax-page-enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 .trax-workspace > .trax-actions, .trax-workspace > .trax-addresses { animation: trax-page-enter .22s ease-out both; }
+
+
+/* Separate Owner and Sponsor workspaces with adaptive shell sizing. */
+.trax-workspace-switch{display:inline-flex;align-items:center;gap:4px;padding:4px;border:1px solid rgba(143,164,192,.2);border-radius:12px;background:rgba(3,11,21,.58)}
+.trax-workspace-switch button{min-height:34px;padding:0 12px;border:1px solid transparent;border-radius:9px;background:transparent;color:#8fa4c0;font-size:10px;font-weight:800;white-space:nowrap}
+.trax-workspace-switch button.active{border-color:rgba(217,182,111,.28);background:rgba(217,182,111,.14);color:#f3dfb5}
+.trax-workspace-switch button.active.sponsor{border-color:rgba(72,211,157,.28);background:rgba(40,154,112,.16);color:#a9efd0}
+.trax-mobile-nav-sponsor{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+.trax-admin-content>*{min-width:0;max-width:100%}
+.trax-admin-content :is(input,select,textarea){max-width:100%;min-width:0}
+.trax-admin-content :is(table,.table-wrap){max-width:100%;overflow-x:auto}
+@media(max-width:1100px){.trax-admin-shell{grid-template-columns:220px minmax(0,1fr)}.trax-sidebar{width:220px}.trax-topbar-actions{gap:7px}.trax-workspace-switch button{padding-inline:9px}}
+@media(max-width:900px) and (min-width:721px){.trax-admin-shell{grid-template-columns:76px minmax(0,1fr)}.trax-sidebar{width:76px;padding-inline:9px}.trax-sidebar .trax-sidebar-brand div,.trax-sidebar .trax-sidebar-label,.trax-sidebar .trax-sidebar-network b,.trax-sidebar .trax-sidebar-network small,.trax-sidebar .trax-sidebar-wallet,.trax-sidebar nav button span,.trax-sidebar .trax-sidebar-toggle span{display:none}.trax-sidebar .trax-sidebar-network,.trax-sidebar nav button{justify-content:center;padding-inline:0}.trax-topbar-actions{flex-wrap:wrap}}
+@media(max-width:720px){.trax-workspace-switch{width:100%;display:grid;grid-template-columns:1fr 1fr}.trax-workspace-switch button{min-width:0;padding-inline:6px;font-size:9px}.trax-topbar-actions{align-items:stretch}.trax-topbar-actions>.trax-mainnet-badge{align-self:center}.trax-admin-content{overflow-x:clip}.trax-mobile-nav-sponsor button{min-height:54px}}
+@media(max-width:380px){.trax-kicker{font-size:7px;letter-spacing:.11em}.trax-topbar-title h1{font-size:19px}.trax-mainnet-badge{padding-inline:8px;font-size:7px}}

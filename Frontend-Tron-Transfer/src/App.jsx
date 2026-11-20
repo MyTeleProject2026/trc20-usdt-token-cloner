@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ArrowLeftRight, ArrowDownToLine, Blocks, Network, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeftRight, ArrowDownToLine, Blocks, Network, Coins, History, Layers3, PauseCircle, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import TRAXSidebar from './TRAXSidebar.jsx'
 import MobileNavBar from './MobileNavBar.jsx'
@@ -8,7 +8,10 @@ import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 
 const NAV_ITEMS = [
-  { id: 'sponsor', label: 'TRON TRANSFER SPONSOR', shortLabel: 'Sponsor', description: 'Imported sponsor wallet · live resources and verified delegation', icon: ShieldCheck },
+  { id: 'sponsor', label: 'Sponsor overview', shortLabel: 'Overview', description: 'Independent Sponsor wallet · live capacity and execution readiness', icon: ShieldCheck },
+  { id: 'sponsor-resources', label: 'Resource markets', shortLabel: 'Resources', description: 'Energy, Bandwidth, staking and delegation controls', icon: Activity },
+  { id: 'sponsor-automation', label: 'Automation & limits', shortLabel: 'Automation', description: 'Owner resource targets, preflight and guarded automation', icon: Network },
+  { id: 'sponsor-activity', label: 'Activity & audit', shortLabel: 'Activity', description: 'Sponsor operations, wallet transactions and verification history', icon: History },
   { id: 'home', label: 'AETHERIA MCP Mesh', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
   { id: 'portfolio', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
   { id: 'deploy', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
@@ -82,9 +85,11 @@ export default function App() {
     }
   }, [wallet])
 
+  const sponsorWorkspace = activePage.startsWith('sponsor')
+  const visibleNavItems = sponsorWorkspace ? NAV_ITEMS.filter(item => item.id.startsWith('sponsor')) : NAV_ITEMS.filter(item => !item.id.startsWith('sponsor'))
   const page = NAV_ITEMS.find(item => item.id === activePage) || NAV_ITEMS[0]
   return <div className="trax-admin-shell">
-    <TRAXSidebar items={NAV_ITEMS} activePage={activePage} onNavigate={setActivePage} wallet={wallet} onConnect={connectWallet} onLock={lockWallet}/>
+    <TRAXSidebar items={visibleNavItems} activePage={activePage} onNavigate={setActivePage} wallet={wallet} onConnect={connectWallet} onLock={lockWallet} workspace={sponsorWorkspace ? "sponsor" : "owner"}/>
     <div className="trax-admin-main">
       <header className="trax-admin-topbar">
         <div className="trax-topbar-title">
@@ -93,17 +98,21 @@ export default function App() {
           <p>{page.description}</p>
         </div>
         <div className="trax-topbar-actions">
+          <div className="trax-workspace-switch" role="group" aria-label="Wallet workspace">
+            <button type="button" className={!sponsorWorkspace ? 'active' : ''} aria-pressed={!sponsorWorkspace} onClick={() => setActivePage('home')}>Owner workspace</button>
+            <button type="button" className={sponsorWorkspace ? 'active sponsor' : ''} aria-pressed={sponsorWorkspace} onClick={() => setActivePage('sponsor')}>Sponsor workspace</button>
+          </div>
           <span className="trax-mainnet-badge"><i/> TRON MAINNET</span>
-          {wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Unlock Owner Wallet</button>}
+          {!sponsorWorkspace && (wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Unlock Owner Wallet</button>)}
         </div>
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        {activePage === 'sponsor' ? <SponsorWalletManager onNavigate={setActivePage}/> : activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+        {sponsorWorkspace ? <SponsorWalletManager activePage={activePage} onNavigate={setActivePage}/> : activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
       </main>
       {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
     <footer className="trax-admin-footer">TRON TRANSFER · INDEPENDENT OWNER SIGNING · TRON MAINNET</footer>
     </div>
-    <MobileNavBar items={NAV_ITEMS} activePage={activePage} onNavigate={setActivePage}/>
+    <MobileNavBar items={visibleNavItems} activePage={activePage} onNavigate={setActivePage} workspace={sponsorWorkspace ? "sponsor" : "owner"}/>
   </div>
 }
