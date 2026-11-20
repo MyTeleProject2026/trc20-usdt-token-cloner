@@ -1,4 +1,5 @@
 import { TronWeb } from 'tronweb'
+import { createTronMainnetDelegationVerifier } from './providers/tron-mainnet-delegation-verifier.mjs'
 
 const MAINNET = 'https://api.trongrid.io'
 const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -139,9 +140,19 @@ export function createSponsorTransactionEngine({
         return { success: false, status: 'broadcast-rejected-or-unknown', txid: signed.txID, signed: true, broadcast: false }
       }
       const verification = await verifySolidified(signed.txID, sponsorAddress, ownerAddress, operation, resource, amount.toString())
+      let delegationVerified = false
+      if (verification.confirmed && operation === 'delegate') {
+        const delegationCheck = await createTronMainnetDelegationVerifier({ fetchImpl }).verifyDelegation({
+          ownerAddress,
+          transactionId: signed.txID,
+          required: { ENERGY: '0', BANDWIDTH: '0' },
+          network: 'mainnet',
+        })
+        delegationVerified = delegationCheck.verified === true
+      }
       return {
-        success: verification.confirmed,
-        status: verification.status,
+        success: verification.confirmed && (operation !== 'delegate' || delegationVerified),
+        status: operation === 'delegate' && verification.confirmed && !delegationVerified ? 'delegation-record-or-owner-resources-not-yet-verified' : verification.status,
         txid: signed.txID,
         blockNumber: verification.blockNumber ?? null,
         sponsorAddress,
@@ -152,6 +163,7 @@ export function createSponsorTransactionEngine({
         signed: true,
         broadcast: true,
         solidified: verification.confirmed,
+        delegationVerified,
         checkedAt: new Date(now()).toISOString(),
       }
     } catch (error) {
