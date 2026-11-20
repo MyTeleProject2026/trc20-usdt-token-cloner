@@ -30,6 +30,7 @@ export default function SponsorConsole() {
   const sponsor = data?.sponsor
   const resources = sponsor?.resources
   const caps = data?.capabilities
+  const readiness = data?.readiness
 
   return <section className="sponsor-console" aria-labelledby="sponsor-title">
     <div className="sponsor-console-heading">
@@ -39,6 +40,7 @@ export default function SponsorConsole() {
     {error && <p className="sponsor-error" role="alert">{error}</p>}
     <div className="sponsor-metrics">
       <Metric label="Sponsor TRX balance" value={sponsor?.account?.trx?.toFixed(6)} suffix=" TRX"/>
+      <Metric label="Spendable after reserve" value={readiness?.spendableTrxAfterReserve?.toFixed(6)} suffix=" TRX"/>
       <Metric label="Energy available" value={resources ? Math.max(0, resources.energyLimit - resources.energyUsed).toLocaleString() : null}/>
       <Metric label="Free Bandwidth" value={resources ? Math.max(0, resources.freeNetLimit - resources.freeNetUsed).toLocaleString() : null}/>
       <Metric label="Staked Bandwidth" value={resources ? Math.max(0, resources.netLimit - resources.netUsed).toLocaleString() : null}/>
@@ -48,6 +50,7 @@ export default function SponsorConsole() {
       <article><h3><Gauge size={17}/> Stake 2.0 limits</h3><p>Protocol minimum: <strong>{data?.limits?.minimumStakeTrx ?? 1} TRX per operation</strong></p><p>Automatic stake ceiling: <strong>{data?.limits?.maximumAutomaticStakeTrx ?? 10} TRX</strong></p><p>Protected liquid reserve: <strong>{data?.limits?.protectedLiquidReserveTrx ?? 2} TRX</strong></p><p>Automatic unstaking: <strong>Disabled</strong></p></article>
       <article><h3><ShieldCheck size={17}/> Signing readiness</h3><p>Server signer: <strong>{caps?.serverSignerConfigured ? 'Configured' : 'Not configured'}</strong></p><p>Admin authorization: <strong>{caps?.adminAuthorizationConfigured ? 'Configured' : 'Not configured'}</strong></p><p>Transaction engine: <strong>{caps?.stakingEnabled ? 'Configured · activation gated' : 'Disabled'}</strong></p><p className="sponsor-warning">{caps?.reason || 'Readiness is being checked.'}</p></article>
     </div>
+    <article className="sponsor-readiness"><h3>Mainnet readiness checks</h3><p>Independent Sponsor / Owner identities: <strong>{readiness?.sponsorOwnerIdentityVerified ? 'Verified' : 'Not verified'}</strong></p><p>Stake operation: <strong>Disabled pending signer review</strong></p><p>Owner contract deployment: <strong>Not authorized by Sponsor status</strong></p>{readiness?.blockers?.length > 0 && <ul>{readiness.blockers.map((item) => <li key={item}>{item}</li>)}</ul>}</article>
     <div className="sponsor-actions">
       <button type="button" disabled title="Requires the reviewed server-side Stake 2.0 signer">Stake for Energy</button>
       <button type="button" disabled title="Requires the reviewed server-side Stake 2.0 signer">Stake for Bandwidth</button>
