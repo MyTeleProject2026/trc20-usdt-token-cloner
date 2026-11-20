@@ -22,7 +22,7 @@ test('Tatum Mainnet RPC is preferred and its API key stays server-side', async t
   const secret = 'test-tatum-mainnet-key'
   const calls = []
   const server = createServer({
-    env: { TATUM_API_KEY: secret },
+    env: { TATUM_API_KEY: secret, TATUM_TRON_NETWORK: 'mainnet', TATUM_TRON_RPC_URL: 'https://tron-mainnet.gateway.tatum.io/jsonrpc' },
     fetchImpl: async (url, options = {}) => {
       calls.push({ url, options })
       return new Response(JSON.stringify(resourceResponse(url)), {

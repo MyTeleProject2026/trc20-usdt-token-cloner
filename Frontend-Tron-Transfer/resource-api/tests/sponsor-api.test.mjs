@@ -8,20 +8,21 @@ const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const SECRET = 'test-session-secret-with-at-least-thirty-two-bytes'
 const SIGNATURE = 'a'.repeat(130)
 
-function request(method, path, body, token) {
+function request(method, path, body, token, adminToken) {
   const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   stream.method = method
   stream.url = path
-  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}) }
+  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}) }
   stream.socket = { remoteAddress: '127.0.0.1' }
   return stream
 }
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null } = {}) {
+function setup({ database = null, engine = null, adminToken = '' } = {}) {
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
+    ...(adminToken ? { SPONSOR_ADMIN_TOKEN: adminToken } : {}),
     SPONSOR_MAINNET_ADDRESS: SPONSOR,
     TRON_OWNER_ADDRESS: OWNER,
     SPONSOR_TRANSACTION_ENGINE_ENABLED: 'false',
@@ -43,9 +44,9 @@ function setup({ database = null, engine = null } = {}) {
   })
   return { api, calls, env }
 }
-async function call(api, method, path, body, token) {
+async function call(api, method, path, body, token, adminToken) {
   const res = response()
-  const handled = await api.handle(request(method, path, body, token), res, new URL(path, 'http://localhost'), null)
+  const handled = await api.handle(request(method, path, body, token, adminToken), res, new URL(path, 'http://localhost'), null)
   assert.equal(handled, true)
   return res
 }
@@ -217,4 +218,57 @@ test('durable Sponsor idempotency prevents a second signer invocation for the sa
   assert.equal(second.status, 409)
   assert.equal(second.payload.error, 'operation-already-recorded')
   assert.equal(executions, 1)
+})
+
+
+test('Owner TRX top-up intent is bound to the configured Owner and TRX resource', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'topup', resource: 'TRX', amountSun: '2500000',
+    idempotencyKey: 'sponsor-topup-0123456789012345',
+  }, token)
+  assert.equal(result.status, 201)
+  assert.match(result.payload.message, /Operation: topup/)
+  assert.match(result.payload.message, /Resource: TRX/)
+  assert.match(result.payload.message, /Amount \(sun\): 2500000/)
+  assert.match(result.payload.message, new RegExp(OWNER))
+})
+
+test('invalid resource combinations cannot create Sponsor intents', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'topup', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-invalid-topup-0123456789',
+  }, token)
+  assert.equal(result.status, 400)
+  assert.equal(result.payload.error, 'invalid-sponsor-operation-intent')
+})
+
+
+test('configured Sponsor Admin token is required as a second factor for write intents', async () => {
+  const adminToken = 'admin-token-with-at-least-thirty-two-bytes-long'
+  const { api } = setup({ adminToken })
+  const token = await authenticated(api)
+  const body = {
+    operation: 'topup', resource: 'TRX', amountSun: '1000000',
+    idempotencyKey: 'sponsor-admin-topup-0123456789',
+  }
+  const denied = await call(api, 'POST', '/api/sponsor/intent', body, token)
+  assert.equal(denied.status, 403)
+  assert.equal(denied.payload.error, 'sponsor-admin-authorization-required')
+  const accepted = await call(api, 'POST', '/api/sponsor/intent', body, token, adminToken)
+  assert.equal(accepted.status, 201)
+})
+
+test('Sponsor Admin token comparison is required for execution route too', async () => {
+  const adminToken = 'admin-token-with-at-least-thirty-two-bytes-long'
+  const { api, calls } = setup({ adminToken })
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: 'untrusted-intent', signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  }, token)
+  assert.equal(result.status, 403)
+  assert.deepEqual(calls, [])
 })

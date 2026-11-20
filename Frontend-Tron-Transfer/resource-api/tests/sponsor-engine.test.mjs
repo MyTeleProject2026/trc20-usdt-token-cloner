@@ -20,6 +20,8 @@ function configuredEnv(overrides = {}) {
     SPONSOR_MAINNET_BROADCAST_ENABLED: 'true',
     SPONSOR_LIQUID_RESERVE_TRX: '2',
     SPONSOR_MAX_TX_FEE_SUN: '0',
+    SPONSOR_STAKING_ENABLED: 'true',
+    SPONSOR_MAX_AUTOMATIC_STAKE_TRX: '10',
     ...overrides,
   }
 }
@@ -114,4 +116,80 @@ test('transaction ID persistence callback is mandatory before any broadcast', as
   const result = await f.engine.execute({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
   assert.equal(result.broadcast, false)
   assert.equal(f.counts().broadcastCount, 0)
+})
+
+
+test('configured stake cap blocks an amount above SPONSOR_MAX_AUTOMATIC_STAKE_TRX', async () => {
+  const f = fixture()
+  const result = await f.engine.execute({
+    operation: 'stake', resource: 'ENERGY', amountSun: '11000000', ownerAddress: OWNER,
+    onSigned: async () => assert.fail('stake above configured cap must not be signed'),
+  })
+  assert.equal(result.status, 'staking-disabled-or-amount-exceeds-configured-cap')
+  assert.equal(f.counts().signedCount, 0)
+  assert.equal(f.counts().broadcastCount, 0)
+})
+
+test('SPONSOR_STAKING_ENABLED=false blocks Stake 2.0 even when broadcast flags are true', async () => {
+  const f = fixture({ envOverrides: { SPONSOR_STAKING_ENABLED: 'false' } })
+  const result = await f.engine.execute({
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
+    onSigned: async () => assert.fail('disabled staking must not be signed'),
+  })
+  assert.equal(result.status, 'staking-disabled-or-amount-exceeds-configured-cap')
+  assert.equal(f.counts().signedCount, 0)
+})
+
+test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner and verifies solidified Mainnet state', async () => {
+  const transfer = {
+    txID: TXID,
+    raw_data_hex: '02'.repeat(10),
+    raw_data: {
+      expiration: Date.now() + 60_000,
+      contract: [{ type: 'TransferContract', parameter: { value: { owner_address: sponsorHex, to_address: ownerHex, amount: '1000000' } } }],
+    },
+  }
+  let persisted = false
+  let broadcasts = 0
+  const fakeTronWeb = {
+    address: { fromPrivateKey: () => SPONSOR, fromHex: value => value === ownerHex ? OWNER : SPONSOR },
+    transactionBuilder: { sendTrx: async (to, amount, from) => {
+      assert.equal(to, OWNER); assert.equal(amount, '1000000'); assert.equal(from, SPONSOR); return transfer
+    } },
+    trx: {
+      getBalance: async () => 10_000_000n,
+      getAccountResources: async () => ({ freeNetLimit: 600, freeNetUsed: 0, NetLimit: 0, NetUsed: 0 }),
+      getChainParameters: async () => [{ key: 'getTransactionFee', value: 1000 }],
+      sign: async tx => ({ ...tx, signature: ['signature'] }),
+      sendRawTransaction: async () => { assert.equal(persisted, true); broadcasts++; return { result: true } },
+    },
+  }
+  const fetchImpl = async url => ({
+    ok: true,
+    json: async () => url.endsWith('gettransactioninfobyid')
+      ? { id: TXID, blockNumber: 789, receipt: { result: 'SUCCESS' } }
+      : transfer,
+  })
+  const engine = createSponsorTransactionEngine({
+    env: configuredEnv(),
+    tronWebFactory: () => fakeTronWeb,
+    fetchImpl,
+  })
+  const result = await engine.execute({
+    operation: 'topup', resource: 'TRX', amountSun: '1000000', ownerAddress: OWNER,
+    onSigned: async txid => { assert.equal(txid, TXID); persisted = true },
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.equal(result.blockNumber, 789)
+  assert.equal(broadcasts, 1)
+})
+
+test('Sponsor TRX top-up fails closed above the configured Owner funding cap', async () => {
+  const f = fixture({ envOverrides: { SPONSOR_MAX_OWNER_TOPUP_TRX: '0.5' } })
+  const result = await f.engine.execute({ operation: 'topup', resource: 'TRX', amountSun: '600000', ownerAddress: OWNER })
+  assert.equal(result.status, 'owner-topup-disabled-or-amount-exceeds-configured-cap')
+  assert.equal(result.signed, false)
+  assert.equal(result.broadcast, false)
+  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
 })

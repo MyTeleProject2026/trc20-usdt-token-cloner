@@ -75,8 +75,8 @@ async function ensureSchema(db) {
       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       idempotency_key_hash CHAR(64) NOT NULL UNIQUE,
       request_hash CHAR(64) NOT NULL,
-      operation TEXT NOT NULL CHECK (operation IN ('stake','delegate')),
-      resource TEXT NOT NULL CHECK (resource IN ('ENERGY','BANDWIDTH')),
+      operation TEXT NOT NULL CHECK (operation IN ('stake','delegate','topup')),
+      resource TEXT NOT NULL CHECK (resource IN ('ENERGY','BANDWIDTH','TRX')),
       amount_sun NUMERIC(21,0) NOT NULL CHECK (amount_sun > 0),
       sponsor_address TEXT NOT NULL,
       owner_address TEXT NOT NULL,
@@ -87,6 +87,10 @@ async function ensureSchema(db) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_operation_check;
+    ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_operation_check CHECK (operation IN ('stake','delegate','topup'));
+    ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_resource_check;
+    ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_resource_check CHECK (resource IN ('ENERGY','BANDWIDTH','TRX'));
     CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_operations_sponsor_created
       ON public.tron_transfer_sponsor_operations (sponsor_address, created_at DESC);
   `).catch(error => { schemaPromise = null; throw error })
@@ -95,6 +99,14 @@ async function ensureSchema(db) {
 function sessionSecret(env) {
   return typeof env.SPONSOR_SESSION_SECRET === 'string' && Buffer.byteLength(env.SPONSOR_SESSION_SECRET) >= 32
     ? env.SPONSOR_SESSION_SECRET : null
+}
+function adminTokenRequired(env) {
+  return typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length > 0
+}
+function verifyAdminToken(req, env) {
+  if (!adminTokenRequired(env)) return true
+  const expected = env.SPONSOR_ADMIN_TOKEN
+  return expected.length >= 32 && equalText(req.headers?.['x-sponsor-admin-token'], expected)
 }
 function issueSession(address, env, now = Date.now()) {
   const secret = sessionSecret(env)
@@ -217,6 +229,10 @@ export function createSponsorResourceApi({
         engineEnabled: readiness.enabled === true,
         transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent,
         feePolicy: readiness.feePolicy,
+        stakingPolicy: readiness.stakingPolicy,
+        ownerTopupPolicy: readiness.ownerTopupPolicy,
+        adminTokenRequired: adminTokenRequired(env),
+        adminTokenConfigured: adminTokenRequired(env) && env.SPONSOR_ADMIN_TOKEN.length >= 32,
         checkedAt: new Date(now()).toISOString(),
       }, origin)
     }
@@ -277,11 +293,14 @@ export function createSponsorResourceApi({
     if (!session) return reply(res, 401, { success: false, error: 'sponsor-session-required' }, origin)
 
     if (req.method === 'POST' && path === '/api/sponsor/intent') {
+      if (!verifyAdminToken(req, env)) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!rateLimit(req, 'intent', 10)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
       const { operation, resource, amountSun, idempotencyKey } = body
-      if (!['stake', 'delegate'].includes(operation) || !['ENERGY', 'BANDWIDTH'].includes(resource)
+      const validOperation = ['stake', 'delegate', 'topup'].includes(operation)
+      const validResource = operation === 'topup' ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
+      if (!validOperation || !validResource
         || !positiveSun(amountSun) || !IDEMPOTENCY.test(String(idempotencyKey || ''))) {
         return reply(res, 400, { success: false, error: 'invalid-sponsor-operation-intent' }, origin)
       }
@@ -293,6 +312,7 @@ export function createSponsorResourceApi({
     }
 
     if (req.method === 'POST' && path === '/api/sponsor/operations') {
+      if (!verifyAdminToken(req, env)) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!rateLimit(req, 'execute', 3)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
