@@ -12,7 +12,7 @@ test('TRӾ workspace exposes dedicated owner-admin pages and one Mainnet deploym
   const sidebar = await read('../src/TRAXSidebar.jsx')
   assert.ok(panel.includes("const DEFAULT_FEE_CAP = '150'"))
   assert.ok(panel.includes('const deployToken'))
-  assert.ok(panel.includes('deployContractFromTronLink(wallet, TRAX_TOKEN_ARTIFACT'))
+  assert.ok(panel.includes('deployContractWithOwnerSigner(wallet, TRAX_TOKEN_ARTIFACT'))
   assert.ok(panel.includes('Restricted1TRAX'))
   assert.ok(panel.includes('Preflight & deploy TRӾ'))
   assert.ok(panel.includes('Check deployment readiness'))
@@ -56,7 +56,7 @@ test('TRӾ frontend uses Mainnet deployment gates and validates the signer befor
 
 test('Mainnet deployment signs a canonical FullNode transaction, not a locally encoded wallet-builder payload', async () => {
   const client = await read('../src/trax-mainnet.mjs')
-  const start = client.indexOf('export async function deployContractFromTronLink')
+  const start = client.indexOf('export async function deployContractWithOwnerSigner')
   const end = client.indexOf('\nexport async function ', start + 40)
   const deployment = client.slice(start, end > start ? end : undefined)
   assert.ok(deployment.includes('createMainnetDeploymentTransaction(tronWeb, options, wallet.address)'))
