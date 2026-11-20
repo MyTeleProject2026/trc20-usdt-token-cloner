@@ -123,38 +123,6 @@ function createIdempotencyKey() {
   return Array.from(globalThis.crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
-function addressMatches(tronWeb, actual, expected) {
-  if (actual === expected) return true
-  if (typeof actual !== 'string' || !actual.trim()) return false
-  try {
-    const actualText = actual.trim().replace(/^0x/i, '')
-    const actualBase58 = /^41[0-9a-f]{40}$/i.test(actualText) ? tronWeb.address.fromHex(actualText) : actual
-    return actualBase58 === expected
-  } catch { return false }
-}
-
-function validateUnsignedResourceTransaction(tronWeb, transaction, { action, sponsorAddress, receiverAddress, resourceType, amountSun }) {
-  const contracts = transaction?.raw_data?.contract
-  const expectedType = action === 'stake' ? 'FreezeBalanceV2Contract' : 'DelegateResourceContract'
-  if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== expectedType) {
-    throw new Error('The node returned an unexpected transaction contract. No signature was requested.')
-  }
-  const value = contracts[0]?.parameter?.value
-  const owner = value?.owner_address ?? value?.ownerAddress
-  if (!value || !addressMatches(tronWeb, owner, sponsorAddress)) throw new Error('The unsigned transaction owner does not match the imported Sponsor Wallet.')
-  const rawResource = value.resource ?? value.resourceType
-  const normalizedResource = typeof rawResource === 'number' ? (rawResource === 1 ? 'ENERGY' : rawResource === 0 ? 'BANDWIDTH' : '') : String(rawResource || '').toUpperCase()
-  if (normalizedResource !== resourceType) throw new Error('The unsigned transaction resource type does not match the selected resource.')
-  const rawAmount = action === 'stake' ? value.frozen_balance ?? value.frozenBalance : value.balance
-  if (String(rawAmount ?? '') !== String(amountSun)) throw new Error('The unsigned transaction amount does not match the confirmed amount.')
-  if (action === 'delegate') {
-    if (!addressMatches(tronWeb, value.receiver_address ?? value.receiverAddress, receiverAddress)) throw new Error('The unsigned delegation receiver does not match the configured Owner Wallet.')
-    if (value.lock === true || value.lock === 1 || ['true', '1'].includes(String(value.lock).toLowerCase())) throw new Error('Locked resource delegation is not permitted.')
-  }
-  const expiration = Number(transaction?.raw_data?.expiration)
-  if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 2_000 || expiration > Date.now() + 10 * 60 * 1000) throw new Error('The unsigned transaction expiration is missing or outside the allowed 10-minute window.')
-  if (!/^[0-9a-f]{64}$/i.test(String(transaction?.txID || '')) || !/^(?:[0-9a-f]{2})+$/i.test(String(transaction?.raw_data_hex || ''))) throw new Error('The unsigned transaction has no valid transaction ID or raw bytes.')
-}
 function CenterToast({ toast, onClose }) {
   if (!toast) return null
   return <div className="sponsor-toast-backdrop" role="presentation">
@@ -190,6 +158,7 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   const [lastDelegation, setLastDelegation] = useState(null)
   const [activity, setActivity] = useState([])
   const [securityEvents, setSecurityEvents] = useState([])
+  const [sponsorApiStatus, setSponsorApiStatus] = useState(null)
   const toastTimer = useRef(null)
   const resourceAlertState = useRef('unknown')
 
@@ -257,6 +226,21 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   }, [wallet?.address, tronWeb, recordActivity])
 
   useEffect(() => { setSaved(hasSavedSponsorWallet()) }, [])
+
+  useEffect(() => {
+    let active = true
+    const loadStatus = async () => {
+      try {
+        const status = await sponsorApiRequest('/api/sponsor/status')
+        if (active) setSponsorApiStatus(status)
+      } catch (error) {
+        if (active) setSponsorApiStatus({ success: false, error: String(error?.message || 'Sponsor Resource API unavailable') })
+      }
+    }
+    void loadStatus()
+    const timer = window.setInterval(() => { void loadStatus() }, 30_000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
 
   const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
@@ -633,6 +617,13 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       <div><span className="sponsor-eyebrow">INTEGRATED WALLET · TRON MAINNET</span><h2>TRON TRANSFER SPONSOR</h2><p>Independent sponsor account · Energy and Bandwidth management for the existing Owner Wallet.</p></div>
       <span className="sponsor-network-pill"><i/> TRON MAINNET</span>
     </header>
+
+    {wallet && <section className="sponsor-card">
+      <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Server-side signing, exact-intent authorization and durable operation ledger.</p></div></div>
+      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {sponsorApiStatus?.databaseConfigured ? 'configured' : 'not configured'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'}</p>
+      {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
+      {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Exact Sponsor message signature, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
+    </section>}
 
     {!wallet && !saved && <section className="sponsor-card">
       <div className="sponsor-card-heading"><Wallet/><div><h3>Import existing Sponsor Wallet</h3><p>No wallet creation. Credentials are processed in this browser and encrypted before local storage.</p></div></div>
