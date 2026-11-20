@@ -104,6 +104,9 @@ export function createSponsorTransactionEngine({
     const amount = positiveSun(amountSun)
     if (!amount || amount < SUN) return { success: false, status: 'invalid-amount-sun', signed: false, broadcast: false }
     let signer
+    let signedCreated = false
+    let broadcastAttempted = false
+    let attemptedTxid = null
     try {
       signer = loadSigner()
       if (signer.sponsorAddress === ownerAddress) return { success: false, status: 'sponsor-owner-wallets-must-be-independent', signed: false, broadcast: false }
@@ -126,8 +129,11 @@ export function createSponsorTransactionEngine({
         : await tronWeb.transactionBuilder.delegateResource(amount.toString(), ownerAddress, resource, false, 0, sponsorAddress)
       if (!transaction?.txID || !transaction?.raw_data_hex) return { success: false, status: 'unsigned-transaction-invalid', signed: false, broadcast: false }
       const signed = await tronWeb.trx.sign(transaction, privateKey)
+      signedCreated = Boolean(signed?.signature?.length)
+      attemptedTxid = signed?.txID || transaction.txID
       if (!signed?.signature?.length || signed.txID !== transaction.txID) return { success: false, status: 'signed-transaction-integrity-failed', signed: false, broadcast: false }
       // Never persist or return the signed transaction or signature.
+      broadcastAttempted = true
       const broadcast = await tronWeb.trx.sendRawTransaction(signed)
       if (broadcast?.result !== true) {
         return { success: false, status: 'broadcast-rejected-or-unknown', txid: signed.txID, signed: true, broadcast: false }
@@ -149,7 +155,7 @@ export function createSponsorTransactionEngine({
         checkedAt: new Date(now()).toISOString(),
       }
     } catch (error) {
-      return { success: false, status: safeErrorCode(error), signed: false, broadcast: false }
+      return { success: false, status: broadcastAttempted ? 'broadcast-outcome-unknown' : safeErrorCode(error), txid: attemptedTxid, signed: signedCreated, broadcast: broadcastAttempted, solidified: false }
     } finally {
       signer = null
     }
