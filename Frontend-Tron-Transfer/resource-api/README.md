@@ -1,6 +1,6 @@
 # TRON Transfer resource API
 
-Read-only Mainnet resource monitor for the TRON Transfer frontend.
+Mainnet resource monitor and guarded Sponsor transaction service for the TRON Transfer frontend. Public chain/resource endpoints remain read-only; Sponsor write operations require a signed wallet session, a separate exact-intent signature, durable PostgreSQL idempotency, and explicit server-side execution flags.
 
 ## Endpoints
 
@@ -46,3 +46,28 @@ This service is designed for a Render Web Service with root directory `Frontend-
 - Free Energy faucet claims are not automated here. The published TronRental faucet requires a support-issued access code and account registration; it is a promotional manual claim, not an unauthenticated server API. Its published 131,000 Energy claim is not asserted to cover contract deployment.
 
 The API accepts only GET requests for resource reads, validates TRON Base58 address syntax, limits request rates, caches snapshots briefly, and restricts browser CORS to the TRON Transfer frontend and local Vite development.
+
+## Sponsor API and transaction controls
+
+The resource API owns Sponsor operations; the frontend must not fall back to the separate Token Studio API.
+
+- `GET /api/sponsor/status` — reports non-secret Sponsor configuration and whether execution is available.
+- `POST /api/sponsor/session/challenge` and `POST /api/sponsor/session/verify` — authenticate the configured independent Sponsor wallet with a one-time signed message. The returned bearer session is short-lived and held by the client only.
+- `POST /api/sponsor/intent` — creates a five-minute exact-intent message bound to Mainnet, Sponsor, Owner recipient, operation, resource, amount and idempotency key.
+- `POST /api/sponsor/operations` — requires the Sponsor's signature over that exact intent and the explicit confirmation phrase before the server-side signer can act.
+- `GET /api/sponsor/operations` and `GET /api/sponsor/operations/:idempotencyKey` — read the durable Sponsor operation ledger and reconcile ambiguous broadcasts.
+- `GET /api/tron/sponsorship/resource-delegations` and `POST /api/tron/sponsorship/resource-delegations/verify-wallet` — authenticated, ledger-backed delegation history and independent Mainnet verification.
+
+Required server-side configuration:
+
+- `DATABASE_URL` — durable PostgreSQL ledger; execution fails closed without it.
+- `SPONSOR_SESSION_SECRET` — at least 32 bytes for signed short-lived sessions.
+- `SPONSOR_MAINNET_ADDRESS` and `SPONSOR_MAINNET_PRIVATE_KEY` — the independent Sponsor signer; the derived address must match exactly. The private key is read only by the backend and is never returned or logged.
+- `TRON_OWNER_ADDRESS` — the existing Owner recipient; must differ from the Sponsor address.
+- `SPONSOR_TRANSACTION_ENGINE_ENABLED=true` and `SPONSOR_MAINNET_BROADCAST_ENABLED=true` — both are required to enable execution. Both default to disabled.
+- `SPONSOR_LIQUID_RESERVE_TRX` — protected liquid TRX reserve; defaults to 2 TRX.
+- `SPONSOR_MAX_TX_FEE_SUN` — maximum permitted Bandwidth-shortfall fee in SUN; defaults to zero, so an uncovered transaction is blocked.
+
+The transaction engine validates the exact Stake 2.0 contract, Sponsor signer, Owner recipient, resource, amount and expiration; checks Sponsor balance/reserve and one-source Bandwidth coverage; persists the transaction ID before broadcast; and only reports a delegation verified after a successful solidified Mainnet receipt and matching on-chain delegation state. An ambiguous broadcast is never automatically retried. No Owner wallet key is accepted by this API.
+
+The Sponsor engine remains unavailable until its server-side credentials and database are configured. Adding the code does not create Energy, Bandwidth, TRX, or a provider grant, and does not authorize a TRӾ deployment.
