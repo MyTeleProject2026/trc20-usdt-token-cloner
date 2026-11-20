@@ -9,7 +9,6 @@ import './sponsor-wallet.css'
 const OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const SUN = 1_000_000
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const RESOURCE_API = (import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 const ACTIVITY_KEY = 'tron-transfer.sponsor-activity.v1'
 const SECURITY_KEY = 'tron-transfer.sponsor-security-events.v1'
@@ -98,6 +97,32 @@ async function readResourceSnapshot(address, tronWeb) {
     }
   }
 }
+
+async function sponsorApiRequest(path, { method = 'GET', token, body } = {}) {
+  const response = await fetch(RESOURCE_API + path, {
+    method, cache: 'no-store',
+    headers: { accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(payload.message || payload.error || ('Sponsor Resource API returned HTTP ' + response.status))
+  return payload
+}
+async function authenticateSponsorWallet(wallet, tronWeb) {
+  const challenge = await sponsorApiRequest('/api/sponsor/session/challenge', { method: 'POST', body: { address: wallet.address } })
+  if (challenge.address !== wallet.address || challenge.network !== 'TRON Mainnet' || typeof challenge.message !== 'string') throw new Error('Sponsor API returned an invalid wallet-authentication challenge.')
+  if (typeof tronWeb.trx.signMessageV2 !== 'function') throw new Error('This TronWeb build does not support version-2 message signing.')
+  const signature = await tronWeb.trx.signMessageV2(challenge.message, wallet.privateKey)
+  const verified = await sponsorApiRequest('/api/sponsor/session/verify', { method: 'POST', body: { address: wallet.address, nonce: challenge.nonce, signature } })
+  if (verified.address !== wallet.address || typeof verified.token !== 'string') throw new Error('Sponsor session verification returned an invalid session.')
+  return verified.token
+}
+function createIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  if (!globalThis.crypto?.getRandomValues) throw new Error('Secure random idempotency keys are unavailable in this browser.')
+  return Array.from(globalThis.crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 function addressMatches(tronWeb, actual, expected) {
   if (actual === expected) return true
   if (typeof actual !== 'string' || !actual.trim()) return false
@@ -214,23 +239,22 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
   }, [wallet?.address])
 
   useEffect(() => {
-    if (!wallet?.address || !API_BASE) return undefined
+    if (!wallet?.address || !tronWeb) return undefined
     let cancelled = false
     const loadVerifiedHistory = async () => {
       try {
-        const response = await fetch(API_BASE + '/api/tron/sponsorship/resource-delegations?network=mainnet&limit=100', { cache: 'no-store' })
-        if (!response.ok) return
-        const payload = await response.json()
+        const token = await authenticateSponsorWallet(wallet, tronWeb)
+        const payload = await sponsorApiRequest('/api/tron/sponsorship/resource-delegations?network=mainnet&limit=100', { token })
         if (cancelled || !Array.isArray(payload.delegations)) return
         for (const row of payload.delegations.filter((item) => item.sponsorAddress === wallet.address)) {
           setLastDelegation((current) => current?.transactionId === row.transactionId ? null : current)
           recordActivity({ transactionId: row.transactionId, sponsorAddress: row.sponsorAddress, receiverAddress: row.receiverAddress, resourceType: row.resourceType, stakeEquivalentSun: row.stakeEquivalentSun, action: 'delegate', status: 'solidified-mainnet-verified', blockNumber: row.blockNumber, createdAt: row.recordedAt || new Date().toISOString() })
         }
-      } catch { /* The local audit history remains available if the API is offline. */ }
+      } catch { /* Local audit history remains available when the Sponsor Resource API is not configured. */ }
     }
     void loadVerifiedHistory()
     return () => { cancelled = true }
-  }, [wallet?.address, recordActivity])
+  }, [wallet?.address, tronWeb, recordActivity])
 
   useEffect(() => { setSaved(hasSavedSponsorWallet()) }, [])
 
@@ -488,10 +512,12 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     try { amountSun = parseTrx(amount) } catch (error) { notify('error', 'Invalid resource amount', error.message); return }
     if (amountSun < SUN) { notify('error', 'Minimum Stake 2.0 amount', 'Use at least 1 TRX for staking or resource delegation.'); return }
     const available = BigInt(snapshot?.trxSun || '0')
-    if (available < BigInt(amountSun) + 1_000_000n) { notify('error', 'Insufficient TRX reserve', 'Keep at least 1 TRX available for network fees. The requested amount cannot consume the full Sponsor Wallet balance.'); return }
+    if (action === 'stake' && available < BigInt(amountSun) + 2_000_000n) {
+      notify('error', 'Insufficient protected TRX reserve', 'The Sponsor Wallet must retain the configured liquid reserve in addition to the requested stake.'); return
+    }
     if (action === 'delegate') {
       const maxDelegatable = BigInt(resourceType === 'ENERGY' ? snapshot?.maxEnergyDelegatableSun || '0' : snapshot?.maxBandwidthDelegatableSun || '0')
-      if (BigInt(amountSun) > maxDelegatable) { notify('error', 'Insufficient delegatable stake', 'The requested resource amount exceeds the sponsor wallet\'s confirmed Stake 2.0 delegation ceiling. Stake TRX for this resource first or reduce the amount.'); return }
+      if (BigInt(amountSun) > maxDelegatable) { notify('error', 'Insufficient delegatable stake', 'The requested resource amount exceeds the Sponsor Wallet\'s confirmed Stake 2.0 delegation ceiling.'); return }
     }
     const verb = action === 'stake' ? 'stake' : 'delegate'
     const target = action === 'stake' ? wallet.address : OWNER_ADDRESS
@@ -500,56 +526,81 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
       : `Delegate ${amount} TRX-equivalent of ${resourceType} from Sponsor Wallet ${wallet.address} to Owner Wallet ${OWNER_ADDRESS}?`
     if (!window.confirm(`${prompt}
 
-This is a real TRON Mainnet transaction. Network fees may consume TRX. Continue?`)) return
+This request is sent to the authenticated TRON Transfer Resource API. The backend enforces the configured fee cap and reserve, signs only the exact intent authorized by this Sponsor Wallet, and records the transaction ID before broadcast. Continue?`)) return
     setBusy(true)
     try {
-      const unsigned = action === 'stake'
-        ? await tronWeb.transactionBuilder.freezeBalanceV2(amountSun, resourceType, target)
-        : await tronWeb.transactionBuilder.delegateResource(amountSun, target, resourceType, wallet.address, false, 0)
-      validateUnsignedResourceTransaction(tronWeb, unsigned, { action, sponsorAddress: wallet.address, receiverAddress: OWNER_ADDRESS, resourceType, amountSun })
-      const signed = await tronWeb.trx.sign(unsigned, wallet.privateKey)
-      if (!signed?.signature?.length || signed.txID !== unsigned.txID) throw new Error('Signed transaction identity validation failed. Nothing was broadcast.')
-      const result = await tronWeb.trx.sendRawTransaction(signed)
-      if (result?.result !== true) throw new Error(result?.message ? String(result.message) : 'The TRON node rejected the transaction broadcast.')
-      const transactionId = String(result.txid || signed.txID)
-      setLastTx(transactionId)
-      recordSecurityEvent(wallet.address, 'Resource transaction broadcast', action + ' ' + resourceType + ' · ' + transactionId)
-      const event = { transactionId, sponsorAddress: wallet.address, receiverAddress: target, action, resourceType, stakeEquivalentSun: String(amountSun), status: 'broadcast-pending-verification', createdAt: new Date().toISOString() }
-      recordActivity(event)
-      if (action === 'delegate') setLastDelegation(event)
-      notify('success', `${verb[0].toUpperCase() + verb.slice(1)} transaction broadcast`, `Transaction ID: ${transactionId}. Use Verify Mainnet delegation after the transaction is solidified.`)
+      const token = await authenticateSponsorWallet(wallet, tronWeb)
+      const idempotencyKey = createIdempotencyKey()
+      const intent = await sponsorApiRequest('/api/sponsor/intent', {
+        method: 'POST', token,
+        body: { operation: action, resource: resourceType, amountSun: String(amountSun), idempotencyKey },
+      })
+      if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
+      const signature = await tronWeb.trx.signMessageV2(intent.message, wallet.privateKey)
+      const result = await sponsorApiRequest('/api/sponsor/operations', {
+        method: 'POST', token,
+        body: { intentId: intent.intentId, signature, confirmPhrase: intent.confirmationPhrase },
+      })
+      const transactionId = typeof result.transactionId === 'string' ? result.transactionId : ''
+      if (transactionId) {
+        setLastTx(transactionId)
+        recordSecurityEvent(wallet.address, 'Sponsor transaction submitted by Resource API', action + ' ' + resourceType + ' · ' + transactionId)
+        const event = {
+          transactionId, sponsorAddress: wallet.address, receiverAddress: target, action,
+          resourceType, stakeEquivalentSun: String(amountSun),
+          status: result.solidified ? 'solidified-mainnet-verified' : 'broadcast-pending-verification',
+          blockNumber: result.confirmationBlock || null, createdAt: new Date().toISOString(),
+        }
+        recordActivity(event)
+        if (action === 'delegate' && !result.solidified) setLastDelegation(event)
+      }
+      if (result.success && result.solidified) {
+        notify('success', `${verb[0].toUpperCase() + verb.slice(1)} confirmed on Mainnet`, `Solidified transaction: ${transactionId}`)
+      } else if (result.broadcast || result.operationStatus === 'broadcast-unknown') {
+        if (action === 'delegate') setLastDelegation({
+          transactionId, sponsorAddress: wallet.address, receiverAddress: OWNER_ADDRESS,
+          action, resourceType, stakeEquivalentSun: String(amountSun),
+          status: 'broadcast-pending-verification', createdAt: new Date().toISOString(),
+        })
+        notify('info', 'Sponsor transaction awaiting solidification', `Transaction ID: ${transactionId || 'pending reconciliation'}. Do not submit it again; reconcile the existing operation.`)
+      } else {
+        throw new Error(result.resultCode || result.error || 'Sponsor transaction was not broadcast.')
+      }
       await refresh({ quiet: true })
     } catch (error) {
-      notify('error', 'Resource transaction failed', error instanceof Error ? error.message : 'The transaction was not completed.')
+      notify('error', 'Sponsor Resource API operation failed', error instanceof Error ? error.message : 'The Sponsor transaction was not completed.')
     } finally {
       setBusy(false)
     }
   }
 
   async function verifyLastDelegation() {
-    if (!lastDelegation || busy) return
-    if (!API_BASE) { notify('error', 'Verification API unavailable', 'Configure VITE_API_BASE_URL for the Tron Transfer backend before requesting independent solidified verification.'); return }
+    if (!lastDelegation || !wallet || !tronWeb || busy) return
     setBusy(true)
     try {
-      const response = await fetch(API_BASE + '/api/tron/sponsorship/resource-delegations/verify-wallet', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ network: 'mainnet', transactionId: lastDelegation.transactionId, sponsorAddress: lastDelegation.sponsorAddress, receiverAddress: lastDelegation.receiverAddress, resourceType: lastDelegation.resourceType, stakeEquivalentSun: lastDelegation.stakeEquivalentSun }),
+      const token = await authenticateSponsorWallet(wallet, tronWeb)
+      const payload = await sponsorApiRequest('/api/tron/sponsorship/resource-delegations/verify-wallet', {
+        method: 'POST', token,
+        body: {
+          network: 'mainnet', transactionId: lastDelegation.transactionId,
+          sponsorAddress: lastDelegation.sponsorAddress, receiverAddress: lastDelegation.receiverAddress,
+          resourceType: lastDelegation.resourceType, stakeEquivalentSun: lastDelegation.stakeEquivalentSun,
+        },
       })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload.verified !== true || payload.persistence?.persisted !== true) {
-        const detail = payload.message || payload.verification?.reason || payload.error || ('Verification service returned HTTP ' + response.status + '.')
+      if (payload.verified !== true || payload.persistence?.persisted !== true) {
+        const detail = payload.message || payload.resultCode || payload.error || 'The delegation is not yet confirmed in solidified Mainnet state.'
         recordActivity({ ...lastDelegation, status: 'verification-pending', verificationMessage: detail })
-        notify('error', 'Mainnet verification not complete', detail)
+        notify('info', 'Mainnet verification pending', detail)
         return
       }
-      const verified = { ...lastDelegation, status: 'solidified-mainnet-verified', blockNumber: payload.verification.blockNumber, verifiedAt: payload.verification.checkedAt }
+      const verified = { ...lastDelegation, status: 'solidified-mainnet-verified', blockNumber: payload.blockNumber, verifiedAt: new Date().toISOString() }
       recordActivity(verified)
-      recordSecurityEvent(wallet.address, 'Delegation verified', 'Solidified Mainnet block ' + payload.verification.blockNumber + ' verified by backend.')
+      recordSecurityEvent(wallet.address, 'Delegation verified', 'Solidified Mainnet block ' + payload.blockNumber + ' verified by the Tron Transfer Resource API.')
       setLastDelegation(null)
-      notify('success', 'Delegation independently verified', 'Solidified Mainnet block ' + payload.verification.blockNumber + '; verified record persisted in the project audit ledger.')
+      notify('success', 'Delegation independently verified', 'Solidified Mainnet block ' + payload.blockNumber + '; verified record persisted in the Sponsor ledger.')
       await refresh({ quiet: true })
     } catch (error) {
-      notify('error', 'Mainnet verification unavailable', error instanceof Error ? error.message : 'Could not reach the verification service.')
+      notify('error', 'Mainnet verification unavailable', error instanceof Error ? error.message : 'Could not reach the Sponsor Resource API.')
     } finally { setBusy(false) }
   }
 
