@@ -157,7 +157,7 @@ test('durable Sponsor idempotency prevents a second signer invocation for the sa
   const rows = new Map()
   const database = {
     async query(sql, params = []) {
-      if (sql.startsWith('CREATE TABLE') || sql.startsWith('CREATE INDEX')) return { rowCount: 0, rows: [] }
+      if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX')) return { rowCount: 0, rows: [] }
       if (sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')) {
         const [keyHash, requestHash, operation, resource, amountSun, sponsorAddress, ownerAddress] = params
         if (rows.has(keyHash)) return { rowCount: 0, rows: [] }
