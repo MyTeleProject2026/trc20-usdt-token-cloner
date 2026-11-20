@@ -83,3 +83,20 @@ test('workspace layout has responsive desktop, tablet and mobile breakpoints', a
   assert.ok(css.includes('@media(max-width:720px)'))
   assert.ok(css.includes('trax-mobile-nav-sponsor'))
 })
+
+
+test('Sponsor workspace exposes independent Overview, Resources, Automation and Activity sections', async () => {
+  const app = await read('../src/App.jsx')
+  const sponsor = await read('../src/SponsorWalletManager.jsx')
+  const mobile = await read('../src/MobileNavBar.jsx')
+  const css = await read('../src/sponsor-wallet.css')
+  for (const id of ['sponsor','sponsor-resources','sponsor-automation','sponsor-activity']) {
+    assert.ok(app.includes("id: '" + id + "'"), 'missing Sponsor workspace route: ' + id)
+  }
+  assert.ok(app.includes("activePage.startsWith('sponsor')"))
+  assert.ok(app.includes('<SponsorWalletManager activePage={activePage}'))
+  for (const id of ['sponsor-overview','sponsor-resources','sponsor-automation','sponsor-activity']) assert.ok(sponsor.includes('id="' + id + '"'))
+  assert.ok(sponsor.includes('Sponsor platform sections'))
+  assert.ok(mobile.includes('Sponsor workspace navigation') && mobile.includes('items.map'))
+  assert.ok(css.includes('.sponsor-product-tabs') && css.includes('@media(max-width:720px)'))
+})
