@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises'
 const component = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorWalletManager.jsx', import.meta.url), 'utf8')
 const vault = await readFile(new URL('../Frontend-Tron-Transfer/src/sponsor-wallet-vault.mjs', import.meta.url), 'utf8')
 
-test('Sponsor Wallet is import-only and never sends credentials to the API', () => {
+test('Sponsor Wallet is import-only and sends signatures, never private-key credentials, to the Resource API', () => {
   assert.ok(component.includes('Import existing Sponsor Wallet'))
   assert.ok(component.includes("['private-key','Private key']"))
   assert.ok(component.includes("['keystore','Keystore JSON']"))
@@ -13,17 +13,28 @@ test('Sponsor Wallet is import-only and never sends credentials to the API', () 
   assert.doesNotMatch(component, /createWallet|Create Wallet/i)
   assert.ok(vault.includes('AES-GCM'))
   assert.ok(vault.includes('PBKDF2'))
-  assert.ok(component.includes("body: JSON.stringify({ network: 'mainnet'"))
+  assert.ok(component.includes('const RESOURCE_API ='))
+  assert.ok(component.includes('/api/sponsor/session/challenge'))
+  assert.ok(component.includes('/api/sponsor/session/verify'))
+  assert.ok(component.includes('signMessageV2'))
+  assert.ok(component.includes("authorization: 'Bearer ' + token"))
+  assert.doesNotMatch(component, /trc20-usdt-token-cloner-api\\.onrender\\.com/)
+  assert.doesNotMatch(component, /sendRawTransaction|trx\\.sign\\(/)
+  assert.doesNotMatch(component, /privateKey: wallet\\.privateKey/)
   assert.equal(component.includes('privateKey: lastDelegation'), false)
 })
 
-test('Sponsor Wallet verifies exact unsigned Mainnet transactions before signing', () => {
-  assert.ok(component.includes('validateUnsignedResourceTransaction(tronWeb, unsigned'))
-  assert.ok(component.includes('FreezeBalanceV2Contract'))
-  assert.ok(component.includes('DelegateResourceContract'))
-  assert.ok(component.includes('The unsigned delegation receiver does not match'))
-  assert.ok(component.includes('transaction expiration is missing'))
-  assert.ok(component.includes('signed.txID !== unsigned.txID'))
+test('Sponsor Wallet authorizes exact Mainnet intents and delegates signing to the Resource API', () => {
+  assert.ok(component.includes('/api/sponsor/intent'))
+  assert.ok(component.includes('/api/sponsor/operations'))
+  assert.ok(component.includes('createIdempotencyKey'))
+  assert.ok(component.includes('Authorize this exact Sponsor operation with a signed message'))
+  assert.ok(component.includes('confirmPhrase: intent.confirmationPhrase'))
+  assert.ok(component.includes('operationReference'))
+  assert.ok(component.includes('reconcileLastSponsorOperation'))
+  assert.ok(component.includes('transactionExecutionAvailable !== true'))
+  assert.ok(component.includes('protectedReserveTrx'))
+  assert.ok(component.includes('maxBandwidthFeeSun'))
   assert.ok(component.includes('function estimateStakeSun'))
   assert.ok(component.includes('Run Resource Preflight'))
   assert.ok(component.includes('TARGETS_KEY'))
@@ -42,7 +53,6 @@ test('Sponsor Wallet verifies exact unsigned Mainnet transactions before signing
   assert.ok(component.includes('Official USDT transfers'))
   assert.ok(component.includes('function formatTokenUnits'))
   assert.ok(component.includes('formatTokenUnits(item.value, 6)'))
-  assert.ok(component.includes('function estimateStakeSun'))
 })
 
 test('Sponsor activity supports persistent local pending records and solidified backend verification', () => {
