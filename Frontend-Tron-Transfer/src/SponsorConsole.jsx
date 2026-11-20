@@ -40,7 +40,7 @@ export default function SponsorConsole() {
       if (!response.ok || !result.success) throw new Error(result.error || result.plan?.status || 'Stake preflight failed.')
       setPlan(result.plan)
     } catch (e) { setError(e instanceof Error ? e.message : 'Stake preflight failed.') }
-    finally { setPlanning(false) }
+    finally { setPlanning(false); setAdminToken('') }
   }
 
   const sponsor = data?.sponsor
