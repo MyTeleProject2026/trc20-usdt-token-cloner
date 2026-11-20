@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, normalizeDeploymentEnergyEstimate, isMainnetEnergyEstimateUnavailable } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, normalizeDeploymentEnergyEstimate, isMainnetEnergyEstimateUnavailable, deployContractFromTronLink } from '../src/trax-mainnet.mjs'
+import { MAINNET_ACTION_CONTROLS_KEY, MAINNET_ACTION_DEFAULTS } from '../src/mainnet-action-controls.mjs'
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
@@ -225,4 +226,22 @@ test('deployment budget applies a 25 percent Energy margin and keeps Bandwidth s
   assert.equal(budget.availableBandwidth, '2000')
   assert.equal(budget.bandwidthShortfall, '0')
   assert.equal(budget.requiredTrxSun, '0')
+})
+
+test('deployment execution switch blocks direct deployment before wallet access', async () => {
+  const previous = globalThis.localStorage
+  const values = new Map([[MAINNET_ACTION_CONTROLS_KEY, JSON.stringify({ ...MAINNET_ACTION_DEFAULTS, deploymentExecution: false })]])
+  globalThis.localStorage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+  }
+  try {
+    await assert.rejects(
+      deployContractFromTronLink(null, {}, 'TRӾ', 150000000),
+      /disabled in Owner Settings \(deploymentExecution\)/,
+    )
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage
+    else globalThis.localStorage = previous
+  }
 })

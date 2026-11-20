@@ -6,6 +6,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
 import nativeTronRoutes from './routes/native-tron.mjs'
+import sponsorWalletRoutes from './routes/sponsor-wallet.mjs'
+import { createSponsorTransactionRouter } from './routes/sponsor-transactions.mjs'
 import freeDelegationResourcesRoutes from './routes/free-delegation-resources.mjs'
 import resourceClaimsRoutes from './routes/resource-claims.mjs'
 import tenergyPromoRoutes from './routes/tenergy-promo.mjs'
@@ -140,6 +142,8 @@ app.get('/api/readiness', async (_req, res) => {
 app.use('/api', tatumRoutes)
 app.use('/api/tron', trc20VerificationRoutes)
 app.use('/api/tron', nativeTronRoutes)
+app.use('/api/tron', sponsorWalletRoutes)
+app.use('/api/tron', createSponsorTransactionRouter())
 app.use('/api/tron', freeDelegationResourcesRoutes)
 app.use('/api/tron', resourceClaimsRoutes)
 app.use('/api/tron', tenergyPromoRoutes)
