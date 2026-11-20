@@ -304,12 +304,6 @@ export default function SponsorWalletManager({ onNavigate = () => {} }) {
     }
   }, [wallet, tronWeb, notify])
 
-  useEffect(() => {
-    if (!wallet?.address || busy) return undefined
-    const timer = window.setInterval(() => { void refresh({ quiet: true }) }, 60_000)
-    return () => window.clearInterval(timer)
-  }, [wallet?.address, busy, refresh])
-
   useEffect(() => { if (wallet) void refresh() }, [wallet, refresh])
 
   useEffect(() => {
