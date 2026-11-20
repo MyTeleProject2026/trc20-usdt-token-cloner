@@ -100,7 +100,6 @@ export function createSponsorTransactionEngine({
       broadcastAvailable: enabled && keyShapeValid && addressShapeValid && signerMatches && policyValid,
       stakingPolicy: { enabled: stakingEnabled, maxStakeTrx },
       ownerTopupPolicy: { enabled: ownerTopupEnabled, maxTopupTrx: maxOwnerTopupTrx },
-      adminAutomationConfigured: typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32,
       feePolicy: {
         valid: policyValid,
         maxBandwidthFeeSun: String(maxFeeRaw),
