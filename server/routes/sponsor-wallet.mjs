@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import { TronWeb } from 'tronweb'
+import { timingSafeEqual } from 'node:crypto'
+import { planSponsorStake } from '../sponsor-stake-policy.mjs'
 
 const router = Router()
 const MAINNET = 'https://api.trongrid.io'
@@ -8,6 +10,54 @@ const SUN = 1_000_000
 function configuredAddress(value) {
   return typeof value === 'string' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value) ? value : ''
 }
+
+
+function hasValidSponsorAdminToken(req) {
+  const expected = process.env.SPONSOR_ADMIN_TOKEN
+  const supplied = req.get?.('authorization')?.replace(/^Bearer\\s+/i, '') || ''
+  if (typeof expected !== 'string' || expected.length < 32 || !supplied || supplied.length !== expected.length) return false
+  return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))
+}
+
+// Authenticated, read-only Stake 2.0 preflight. No transaction is constructed.
+router.post('/sponsor/stake/plan', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', transactionCreated: false, signed: false, broadcast: false })
+  }
+  const sponsorAddress = configuredAddress(process.env.SPONSOR_MAINNET_ADDRESS)
+  const ownerAddress = configuredAddress(process.env.TRON_OWNER_ADDRESS || process.env.TRON_OWNER_WALLET_ADDRESS)
+  if (!sponsorAddress || !ownerAddress || sponsorAddress === ownerAddress) {
+    return res.status(503).json({ success: false, error: 'sponsor-wallet-identities-not-configured', transactionCreated: false })
+  }
+  if (typeof req.body?.amountTrx !== 'string' || typeof req.body?.resource !== 'string') {
+    return res.status(400).json({ success: false, error: 'invalid-stake-plan-request', transactionCreated: false })
+  }
+  try {
+    const tronWeb = new TronWeb({ fullHost: MAINNET, headers: process.env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': process.env.TRONGRID_API_KEY } : {} })
+    const balanceSun = await tronWeb.trx.getBalance(sponsorAddress)
+    const plan = planSponsorStake({
+      amountTrx: req.body.amountTrx,
+      resource: req.body.resource,
+      sponsorBalanceSun: String(balanceSun),
+      sponsorAddress,
+      ownerAddress,
+      protectedReserveTrx: process.env.SPONSOR_LIQUID_RESERVE_TRX || '2',
+      maximumAutomaticStakeTrx: process.env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '10',
+    })
+    return res.status(plan.ready ? 200 : 422).json({
+      success: plan.ready,
+      plan,
+      transactionCreated: false,
+      signed: false,
+      broadcast: false,
+      note: 'This endpoint performs a fresh Mainnet balance read and local policy validation only. It never creates, signs, or broadcasts a Stake 2.0 transaction.',
+    })
+  } catch {
+    return res.status(502).json({ success: false, error: 'sponsor-mainnet-balance-read-failed', transactionCreated: false, signed: false, broadcast: false })
+  }
+})
 
 router.get('/sponsor/status', async (_req, res) => {
   const sponsorAddress = configuredAddress(process.env.SPONSOR_MAINNET_ADDRESS)
