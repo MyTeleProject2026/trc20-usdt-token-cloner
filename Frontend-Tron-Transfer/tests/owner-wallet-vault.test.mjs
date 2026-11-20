@@ -77,7 +77,7 @@ test('local Owner signer signs a synthetic transaction offline without broadcast
   const tronWeb = createOwnerTronWeb(account.privateKey)
   let broadcastCalls = 0
   tronWeb.trx.sendRawTransaction = async () => { broadcastCalls += 1; throw new Error('Broadcast must not run in this test.') }
-  const unsigned = { txID: 'a'.repeat(64), raw_data_hex: '0a00', raw_data: { contract: [] } }
+  const unsigned = { txID: 'a'.repeat(64), raw_data_hex: '0a00', raw_data: { contract: [{ type: 'TransferContract', parameter: { value: { owner_address: account.address, to_address: account.address, amount: 1 } } }] } }
   const signed = await tronWeb.trx.sign(unsigned, account.privateKey)
   assert.equal(signed.txID, unsigned.txID)
   assert.equal(Array.isArray(signed.signature), true)
