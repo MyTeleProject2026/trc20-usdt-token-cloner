@@ -10,11 +10,11 @@ const issueForm = await readFile(new URL('../.github/ISSUE_TEMPLATE/individual-s
 test('legacy sponsor portal routes into the existing internal Sponsor workspace without external wallet access', () => {
   assert.match(portal, /TRON TRANSFER Sponsor workspace/)
   assert.match(portal, /Open Sponsor workspace/)
-  assert.match(portal, /href="\\/#\\/sponsor"/)
+  assert.ok(portal.includes('href="/#/sponsor"'))
   assert.match(portal, /encrypted Sponsor Wallet vault/)
   assert.match(portal, /does not require TronLink or another injected wallet provider/i)
   assert.match(portal, /No individual Sponsor is claimed approved or funded/i)
-  assert.doesNotMatch(portal, /discoverTronLinkProvider|requestTronLinkConnection|window\\.tronLink/)
+  assert.doesNotMatch(portal, /discoverTronLinkProvider|requestTronLinkConnection|window\.tronLink/)
   assert.doesNotMatch(portal, /<input|<textarea|type="password"|name="(?:privateKey|seedPhrase|password|walletAddress)"/i)
 })
 
