@@ -119,19 +119,19 @@ jobs:
                         ? 'blocked'
                         : flags.transactionExecutionAvailable ? 'ready' : 'execution-disabled';
                       validPayload = response.ok && parsed?.success === true;
+                      const databaseStatus = String(parsed?.databaseStatus || 'unknown').slice(0, 32);
                       detail = validPayload
-                        ? 'Sponsor status reachable · readiness=' + readiness
-                          + ' · databaseReady=' + flags.databaseReady
-                          + ' · ledgerDurabilityVerified=' + flags.ledgerDurabilityVerified
-                          + ' · writesPaused=' + flags.sponsorWritesPaused
-                          + ' · adminTokenRequired=' + flags.adminTokenRequired
-                          + ' · ownerMatch=' + flags.ownerAddressMatches
-                          + ' · sponsorIndependent=' + flags.sponsorIndependent
-                          + ' · sessionConfigured=' + flags.sessionAuthenticationConfigured
-                          + ' · adminTokenConfigured=' + flags.adminTokenConfigured
-                          + ' · engineConfigured=' + flags.engineConfigured
-                          + ' · engineEnabled=' + flags.engineEnabled
-                          + ' · executionAvailable=' + flags.transactionExecutionAvailable
+                        ? 'Sponsor readiness=' + readiness
+                          + ' · db=' + databaseStatus
+                          + ' · dbReady=' + flags.databaseReady
+                          + ' · durable=' + flags.ledgerDurabilityVerified
+                          + ' · paused=' + flags.sponsorWritesPaused
+                          + ' · owner=' + flags.ownerAddressMatches
+                          + ' · independent=' + flags.sponsorIndependent
+                          + ' · session=' + flags.sessionAuthenticationConfigured
+                          + ' · admin=' + flags.adminTokenConfigured
+                          + ' · engine=' + flags.engineConfigured + '/' + flags.engineEnabled
+                          + ' · execute=' + flags.transactionExecutionAvailable
                         : 'Sponsor status endpoint returned an invalid readiness payload';
                     } else if (target.name === 'uptime-history') {
                       const count = Array.isArray(parsed?.runs) ? parsed.runs.length : 0;
