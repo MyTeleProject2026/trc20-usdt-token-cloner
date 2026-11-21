@@ -8,12 +8,12 @@ import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 
 class SponsorWorkspaceErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { hasError: false } }
-  static getDerivedStateFromError() { return { hasError: true } }
+  constructor(props) { super(props); this.state = { hasError: false, message: '' } }
+  static getDerivedStateFromError(error) { return { hasError: true, message: String(error?.message || 'Unknown render error').slice(0, 240) } }
   componentDidCatch(error, info) { console.error('Sponsor workspace render failure', error, info?.componentStack) }
-  componentDidUpdate(previousProps) { if (previousProps.activePage !== this.props.activePage && this.state.hasError) this.setState({ hasError: false }) }
+  componentDidUpdate(previousProps) { if (previousProps.activePage !== this.props.activePage && this.state.hasError) this.setState({ hasError: false, message: '' }) }
   render() {
-    if (this.state.hasError) return <section className="sponsor-card sponsor-render-error" role="alert"><div className="sponsor-card-heading"><AlertTriangle/><div><h3>Sponsor workspace page failed to render</h3><p>The failure was contained so it cannot blank the entire application. No transaction was submitted.</p></div></div><button type="button" className="sponsor-secondary" onClick={() => this.setState({ hasError: false })}>Retry this page</button></section>
+    if (this.state.hasError) return <section className="sponsor-card sponsor-render-error" role="alert"><div className="sponsor-card-heading"><AlertTriangle/><div><h3>Sponsor workspace page failed to render</h3><p>This page failed safely. No transaction was submitted.</p><p className="sponsor-muted">Render diagnostic: <code>{this.state.message}</code></p></div></div><button type="button" className="sponsor-secondary" onClick={() => this.setState({ hasError: false, message: '' })}>Retry this page</button></section>
     return this.props.children
   }
 }
