@@ -1,0 +1,114 @@
+import pg from 'pg'
+
+const { Pool } = pg
+const sourceUrl = process.env.SOURCE_DATABASE_URL
+const targetUrl = process.env.TARGET_DATABASE_URL
+
+if (!sourceUrl || !targetUrl) {
+  throw new Error('Set SOURCE_DATABASE_URL and TARGET_DATABASE_URL; values are never printed.')
+}
+
+function identity(value) {
+  const url = new URL(value)
+  return [url.hostname, url.port || '5432', url.pathname, url.username].join('|')
+}
+if (identity(sourceUrl) === identity(targetUrl)) {
+  throw new Error('Source and target database identities are the same; refusing migration.')
+}
+
+const source = new Pool({ connectionString: sourceUrl, max: 1, connectionTimeoutMillis: 8000 })
+const target = new Pool({ connectionString: targetUrl, max: 1, connectionTimeoutMillis: 8000 })
+
+const columns = [
+  'id', 'idempotency_key_hash', 'request_hash', 'operation', 'resource',
+  'amount_sun', 'sponsor_address', 'owner_address', 'status', 'transaction_id',
+  'result_code', 'confirmation_block', 'created_at', 'updated_at',
+]
+const table = 'public.tron_transfer_sponsor_operations'
+
+async function main() {
+  const sourceClient = await source.connect()
+  const targetClient = await target.connect()
+  try {
+    await sourceClient.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    const sourceCheck = await sourceClient.query(
+      "SELECT to_regclass('public.tron_transfer_sponsor_operations') AS table_name"
+    )
+    if (!sourceCheck.rows[0]?.table_name) throw new Error('Source Sponsor ledger table does not exist.')
+
+    const rows = await sourceClient.query(`SELECT ${columns.join(', ')} FROM ${table} ORDER BY id ASC`)
+    const sourceCount = rows.rowCount
+
+    await targetClient.query('BEGIN')
+    await targetClient.query(`
+      CREATE TABLE IF NOT EXISTS ${table} (
+        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        idempotency_key_hash CHAR(64) NOT NULL UNIQUE,
+        request_hash CHAR(64) NOT NULL,
+        operation TEXT NOT NULL CHECK (operation IN ('stake','delegate','undelegate','unstake','withdraw','topup')),
+        resource TEXT NOT NULL CHECK (resource IN ('ENERGY','BANDWIDTH','TRX')),
+        amount_sun NUMERIC(21,0) NOT NULL CHECK (amount_sun > 0),
+        sponsor_address TEXT NOT NULL,
+        owner_address TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('reserved','signed-not-broadcast','broadcast-unknown','confirmed','failed')),
+        transaction_id CHAR(64),
+        result_code TEXT,
+        confirmation_block BIGINT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_operations_sponsor_created
+        ON ${table} (sponsor_address, created_at DESC);
+    `)
+
+    const existing = await targetClient.query(`SELECT count(*)::bigint AS count FROM ${table}`)
+    if (BigInt(existing.rows[0].count) !== 0n) {
+      throw new Error('Target Sponsor ledger is not empty. Refusing to merge or overwrite existing operations.')
+    }
+
+    for (const row of rows.rows) {
+      const placeholders = columns.map((_, index) => '$' + (index + 1)).join(', ')
+      await targetClient.query(
+        `INSERT INTO ${table} (${columns.join(', ')}) OVERRIDING SYSTEM VALUE VALUES (${placeholders})`,
+        columns.map(column => row[column])
+      )
+    }
+
+    await targetClient.query(`
+      SELECT setval(
+        pg_get_serial_sequence('${table}', 'id'),
+        COALESCE((SELECT MAX(id) FROM ${table}), 1),
+        EXISTS (SELECT 1 FROM ${table})
+      )
+    `)
+    const targetCount = await targetClient.query(`SELECT count(*)::bigint AS count FROM ${table}`)
+    if (BigInt(targetCount.rows[0].count) !== BigInt(sourceCount)) {
+      throw new Error('Source and target row counts differ; rolling back target migration.')
+    }
+
+    await targetClient.query('COMMIT')
+    await sourceClient.query('COMMIT')
+    process.stdout.write(JSON.stringify({
+      success: true,
+      copiedRows: sourceCount,
+      verifiedRows: Number(targetCount.rows[0].count),
+      note: 'No database URLs, passwords, wallet keys, or row contents were printed.',
+    }) + '\\n')
+  } catch (error) {
+    await targetClient.query('ROLLBACK').catch(() => {})
+    await sourceClient.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    sourceClient.release()
+    targetClient.release()
+  }
+}
+
+try {
+  await main()
+} catch (error) {
+  process.stderr.write('Sponsor ledger migration failed: ' + String(error?.message || 'unknown error') + '\\n')
+  process.exitCode = 1
+} finally {
+  await Promise.all([source.end(), target.end()])
+}
