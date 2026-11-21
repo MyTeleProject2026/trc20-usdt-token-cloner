@@ -251,7 +251,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     if (!wallet || !tronWeb) return
     setBusy(true)
     try {
-      const [resources, account, usdtContract, ownerResources, maxEnergyDelegation, maxBandwidthDelegation, txHistory] = await Promise.all([
+      const [resources, account, usdtContract, ownerResources, maxEnergyDelegation, maxBandwidthDelegation, txHistory, withdrawable, unfreezeSlots] = await Promise.all([
         readResourceSnapshot(wallet.address, tronWeb),
         tronWeb.trx.getAccount(wallet.address),
         tronWeb.contract().at(USDT_CONTRACT),
@@ -259,6 +259,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
         typeof tronWeb.trx.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'ENERGY', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
         typeof tronWeb.trx.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'BANDWIDTH', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
         readRecentTransactions(wallet.address),
+        typeof tronWeb.trx.getCanWithdrawUnfreezeAmount === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanWithdrawUnfreezeAmount(wallet.address, Date.now(), { confirmed: true })).catch(() => ({ amount: '0' })) : Promise.resolve({ amount: '0' }),
+        typeof tronWeb.trx.getAvailableUnfreezeCount === 'function' ? Promise.resolve().then(() => tronWeb.trx.getAvailableUnfreezeCount(wallet.address, { confirmed: true })).catch(() => ({ count: 0 })) : Promise.resolve({ count: 0 }),
       ])
       setWalletTransactions(Array.isArray(txHistory?.data) ? txHistory.data : [])
       setWalletTransactionsAvailable(txHistory?.available === true)
@@ -270,6 +272,10 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
       const delegatedEnergySun = rows.reduce((sum, row) => sum + BigInt(row.frozen_balance_for_energy || 0), 0n)
       const delegatedBandwidthSun = rows.reduce((sum, row) => sum + BigInt(row.frozen_balance_for_bandwidth || 0), 0n)
+      const frozenRows = Array.isArray(account?.frozenV2) ? account.frozenV2 : []
+      const frozenEnergySun = frozenRows.filter(row => row.type === 'ENERGY').reduce((sum, row) => sum + BigInt(String(row.amount || '0')), 0n)
+      const frozenBandwidthSun = frozenRows.filter(row => (row.type || 'BANDWIDTH') === 'BANDWIDTH').reduce((sum, row) => sum + BigInt(String(row.amount || '0')), 0n)
+      const pendingUnfreezeSun = (Array.isArray(account?.unfrozenV2) ? account.unfrozenV2 : []).reduce((sum, row) => sum + BigInt(String(row.unfreeze_amount || '0')), 0n)
       setSnapshot({
         trxSun: String(resources.balanceSun),
         usdt: String(usdtRaw),
@@ -285,6 +291,11 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
         delegationReadAvailable,
         delegatedEnergySun: delegatedEnergySun.toString(),
         delegatedBandwidthSun: delegatedBandwidthSun.toString(),
+        frozenEnergySun: frozenEnergySun.toString(),
+        frozenBandwidthSun: frozenBandwidthSun.toString(),
+        pendingUnfreezeSun: pendingUnfreezeSun.toString(),
+        withdrawableSun: String(withdrawable?.amount || '0'),
+        availableUnfreezeCount: Number(unfreezeSlots?.count || 0),
         ownerEnergyAvailable: ownerResources.energy.available,
         ownerBandwidthAvailable: ownerResources.bandwidth.maxSingleTransactionAvailable,
         maxEnergyDelegatableSun: String(maxEnergyDelegation?.max_size || '0'),
