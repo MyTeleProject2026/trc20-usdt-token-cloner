@@ -321,8 +321,8 @@ test('Sponsor writes fail closed until ledger durability, backup and restore are
   const status = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(status.payload.ledgerDurabilityVerified, true)
 
-  const { api: unverifiedApi } = setup()
-  unverifiedApi.env.SPONSOR_LEDGER_DURABLE = 'false'
+  const { api: unverifiedApi, env: unverifiedEnv } = setup()
+  unverifiedEnv.SPONSOR_LEDGER_DURABLE = 'false'
   const unverifiedToken = await authenticated(unverifiedApi)
   const unverifiedStatus = await call(unverifiedApi, 'GET', '/api/sponsor/status')
   assert.equal(unverifiedStatus.payload.ledgerDurabilityVerified, false)
