@@ -237,7 +237,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [wallet?.address])
 
   useEffect(() => {
-    if (!wallet?.address || !tronWeb) return undefined
+    if (!workspaceActive || !wallet?.address || !tronWeb) return undefined
     let cancelled = false
     const loadVerifiedHistory = async () => {
       try {
@@ -251,11 +251,12 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     }
     void loadVerifiedHistory()
     return () => { cancelled = true }
-  }, [wallet?.address, tronWeb, recordActivity])
+  }, [wallet?.address, tronWeb, recordActivity, workspaceActive])
 
   useEffect(() => { if (!wallet) setAdminToken('') }, [wallet])
 
   useEffect(() => {
+    if (!workspaceActive) return undefined
     let active = true
     const loadStatus = async () => {
       try {
@@ -268,7 +269,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     void loadStatus()
     const timer = window.setInterval(() => { void loadStatus() }, 30_000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [])
+  }, [workspaceActive])
 
   const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
