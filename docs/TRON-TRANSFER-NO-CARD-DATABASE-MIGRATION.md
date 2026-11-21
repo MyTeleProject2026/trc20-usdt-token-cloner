@@ -110,7 +110,11 @@ It also creates the target maintenance-control row in the paused state. It does 
 In Render Dashboard, open the existing service:
 `https://dashboard.render.com/web/srv-dbrjpq56e07s73bueevg`
 
-Set the server-side `DATABASE_URL` to the Neon direct URL and `DATABASE_URL_POOLED` to the Neon pooled URL. The Resource API now prefers `DATABASE_URL_POOLED` for its runtime connection and falls back to `DATABASE_URL` if no pooled URL is configured. Do not add either value as a `VITE_*` variable. Keep Sponsor transaction execution flags disabled.
+For the current Resource API configuration, set the server-side variables:
+- `SPONSOR_DATABASE_URL` = Neon direct URL.
+- `SPONSOR_DATABASE_URL_POOLED` = Neon pooled URL.
+
+These Sponsor-specific variables take precedence over the legacy shared variables. The API selects `SPONSOR_DATABASE_URL_POOLED` first, then `SPONSOR_DATABASE_URL`, then `DATABASE_URL_POOLED`, then `DATABASE_URL`. The previously documented setup using `DATABASE_URL` (Neon direct) and `DATABASE_URL_POOLED` (Neon pooled) remains supported when neither Sponsor-specific variable is set. Remove or correct any stale Sponsor-specific URL, because it overrides the shared Neon configuration. Do not add either value as a `VITE_*` variable. Keep Sponsor transaction execution flags disabled.
 
 After the service redeploys, check:
 - `GET /health` returns healthy Mainnet service status;

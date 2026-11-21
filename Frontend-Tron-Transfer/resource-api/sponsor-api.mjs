@@ -61,10 +61,50 @@ async function readBody(req, maxBytes = 16_384) {
     return value
   } catch { throw Object.assign(new Error('invalid-json'), { status: 400 }) }
 }
+const SPONSOR_DATABASE_URL_KEYS = [
+  'SPONSOR_DATABASE_URL_POOLED',
+  'SPONSOR_DATABASE_URL',
+  'DATABASE_URL_POOLED',
+  'DATABASE_URL',
+]
+
+export function sponsorDatabaseConnectionInfo(env = process.env) {
+  const sourceVariable = SPONSOR_DATABASE_URL_KEYS.find(key =>
+    typeof env[key] === 'string' && env[key].trim().length > 0
+  ) || null
+  if (!sourceVariable) {
+    return { configured: false, sourceVariable: null, provider: 'not-configured', connectionMode: 'unknown' }
+  }
+
+  const connectionString = env[sourceVariable].trim()
+  let hostname = ''
+  try {
+    hostname = new URL(connectionString).hostname.toLowerCase()
+  } catch {
+    return {
+      configured: true,
+      sourceVariable,
+      provider: 'unrecognized',
+      connectionMode: sourceVariable.endsWith('_POOLED') ? 'pooled' : 'direct',
+    }
+  }
+
+  const provider = hostname.endsWith('.neon.tech')
+    ? 'neon'
+    : hostname.endsWith('.render.com') || hostname.includes('render')
+      ? 'render-postgres'
+      : 'external-postgres'
+  return {
+    configured: true,
+    sourceVariable,
+    provider,
+    connectionMode: sourceVariable.endsWith('_POOLED') ? 'pooled' : 'direct',
+  }
+}
+
 export function sponsorDatabaseConnectionString(env = process.env) {
-  // Neon pooled URLs are preferred for the always-on Resource API. Keep the
-  // direct DATABASE_URL for schema changes and one-off migration utilities.
-  return env.SPONSOR_DATABASE_URL_POOLED || env.SPONSOR_DATABASE_URL || env.DATABASE_URL_POOLED || env.DATABASE_URL || null
+  const info = sponsorDatabaseConnectionInfo(env)
+  return info.configured ? env[info.sourceVariable] : null
 }
 
 function getPool(env) {
@@ -248,7 +288,8 @@ export function createSponsorResourceApi({
 
     if (req.method === 'GET' && path === '/api/sponsor/status') {
       const readiness = engine.readiness()
-      const dbConfigured = Boolean(sponsorDatabaseConnectionString(env))
+      const databaseConnection = sponsorDatabaseConnectionInfo(env)
+      const dbConfigured = databaseConnection.configured
       const ownerAddressMatches = readiness.ownerAddress === ownerAddress
       const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
       const adminRequired = adminTokenRequired(env)
@@ -292,6 +333,7 @@ export function createSponsorResourceApi({
         sponsorAddress: validAddress(env.SPONSOR_MAINNET_ADDRESS) ? env.SPONSOR_MAINNET_ADDRESS : null,
         sessionAuthenticationConfigured: Boolean(sessionSecret(env)),
         databaseConfigured: dbConfigured,
+        databaseConnection,
         databaseReady,
         databaseStatus,
         sponsorWritesPaused,

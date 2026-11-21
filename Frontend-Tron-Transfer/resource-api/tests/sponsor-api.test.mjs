@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
-import { createSponsorResourceApi, sponsorDatabaseConnectionString } from '../sponsor-api.mjs'
+import { createSponsorResourceApi, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString } from '../sponsor-api.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -64,6 +64,52 @@ async function authenticated(api) {
   assert.equal(verified.status, 200)
   return verified.payload.token
 }
+
+test('Sponsor database status identifies the selected URL source and provider without exposing connection details', async () => {
+  const env = {
+    SPONSOR_DATABASE_URL_POOLED: 'postgres://neon_user:neon_secret@ep-example-pooler.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require',
+    SPONSOR_DATABASE_URL: 'postgres://neon_user:neon_secret@ep-example.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require',
+    DATABASE_URL_POOLED: 'postgres://legacy:secret@old-neon-pooler.example/sponsor',
+  }
+  assert.deepEqual(sponsorDatabaseConnectionInfo(env), {
+    configured: true,
+    sourceVariable: 'SPONSOR_DATABASE_URL_POOLED',
+    provider: 'neon',
+    connectionMode: 'pooled',
+  })
+  assert.equal(sponsorDatabaseConnectionString(env), env.SPONSOR_DATABASE_URL_POOLED)
+
+  const direct = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://user:password@db.render.com/sponsor' })
+  assert.deepEqual(direct, {
+    configured: true,
+    sourceVariable: 'DATABASE_URL',
+    provider: 'render-postgres',
+    connectionMode: 'direct',
+  })
+  assert.deepEqual(sponsorDatabaseConnectionInfo({}), {
+    configured: false,
+    sourceVariable: null,
+    provider: 'not-configured',
+    connectionMode: 'unknown',
+  })
+})
+
+test('Sponsor status reports selected database source but never returns hostnames or credentials', async () => {
+  const secretUrl = 'postgres://neon_user:neon_secret@ep-private.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const { api } = setup({ databaseUrl: secretUrl })
+  const result = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.payload.databaseConnection, {
+    configured: true,
+    sourceVariable: 'DATABASE_URL',
+    provider: 'neon',
+    connectionMode: 'direct',
+  })
+  const serialized = JSON.stringify(result.payload)
+  assert.equal(serialized.includes('neon_secret'), false)
+  assert.equal(serialized.includes('ep-private'), false)
+  assert.equal(serialized.includes('neon.tech'), false)
+})
 
 test('Sponsor-specific database URLs take precedence over shared application URLs', () => {
   assert.equal(
