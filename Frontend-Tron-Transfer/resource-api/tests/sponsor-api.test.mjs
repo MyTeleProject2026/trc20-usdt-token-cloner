@@ -7,6 +7,7 @@ const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const SECRET = 'test-session-secret-with-at-least-thirty-two-bytes'
 const SIGNATURE = 'a'.repeat(130)
+const TEST_ADMIN_TOKEN = 'test-admin-token-with-at-least-thirty-two-bytes'
 
 function request(method, path, body, token, adminToken) {
   const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
@@ -19,7 +20,7 @@ function request(method, path, body, token, adminToken) {
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, adminToken = '', databaseUrl = '' } = {}) {
+function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '' } = {}) {
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
     ...(adminToken ? { SPONSOR_ADMIN_TOKEN: adminToken } : {}),
@@ -45,7 +46,7 @@ function setup({ database = null, engine = null, adminToken = '', databaseUrl = 
   })
   return { api, calls, env }
 }
-async function call(api, method, path, body, token, adminToken) {
+async function call(api, method, path, body, token, adminToken = TEST_ADMIN_TOKEN) {
   const res = response()
   const handled = await api.handle(request(method, path, body, token, adminToken), res, new URL(path, 'http://localhost'), null)
   assert.equal(handled, true)
@@ -303,11 +304,27 @@ test('configured Sponsor Admin token is required as a second factor for write in
     operation: 'topup', resource: 'TRX', amountSun: '1000000',
     idempotencyKey: 'sponsor-admin-topup-0123456789',
   }
-  const denied = await call(api, 'POST', '/api/sponsor/intent', body, token)
+  const denied = await call(api, 'POST', '/api/sponsor/intent', body, token, null)
   assert.equal(denied.status, 403)
   assert.equal(denied.payload.error, 'sponsor-admin-authorization-required')
   const accepted = await call(api, 'POST', '/api/sponsor/intent', body, token, adminToken)
   assert.equal(accepted.status, 201)
+})
+
+
+test('missing Sponsor Admin token configuration fails closed for every write', async () => {
+  const { api } = setup({ adminToken: '' })
+  const status = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(status.payload.adminTokenRequired, true)
+  assert.equal(status.payload.adminTokenConfigured, false)
+  assert.equal(status.payload.transactionExecutionAvailable, false)
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-missing-admin-factor-012345',
+  }, token, null)
+  assert.equal(result.status, 403)
+  assert.equal(result.payload.error, 'sponsor-admin-authorization-required')
 })
 
 test('Sponsor Admin token comparison is required for execution route too', async () => {
