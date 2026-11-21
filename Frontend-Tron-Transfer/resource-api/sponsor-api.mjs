@@ -130,6 +130,12 @@ function verifyAdminToken(req, env) {
   return typeof expected === 'string' && expected.length >= 32
     && equalText(req.headers?.['x-sponsor-admin-token'], expected)
 }
+
+function sponsorLedgerDurabilityVerified(env) {
+  return env.SPONSOR_LEDGER_DURABLE === 'true'
+    && env.SPONSOR_LEDGER_BACKUP_VERIFIED === 'true'
+    && env.SPONSOR_LEDGER_RESTORE_TESTED === 'true'
+}
 function issueSession(address, env, now = Date.now()) {
   const secret = sessionSecret(env)
   if (!secret) throw new Error('sponsor-session-secret-not-configured')
@@ -232,6 +238,7 @@ export function createSponsorResourceApi({
       const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
       const adminRequired = adminTokenRequired(env)
       const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32
+      const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
       let databaseReady = false
       let sponsorWritesPaused = false
       if (dbConfigured) {
@@ -254,11 +261,12 @@ export function createSponsorResourceApi({
         databaseConfigured: dbConfigured,
         databaseReady,
         sponsorWritesPaused,
+        ledgerDurabilityVerified,
         ownerAddressMatches,
         sponsorIndependent,
         engineConfigured: readiness.configured === true,
         engineEnabled: readiness.enabled === true,
-        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured,
+        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
         feePolicy: readiness.feePolicy,
         stakingPolicy: readiness.stakingPolicy,
         ownerTopupPolicy: readiness.ownerTopupPolicy,
@@ -325,6 +333,7 @@ export function createSponsorResourceApi({
 
     if (req.method === 'POST' && path === '/api/sponsor/intent') {
       if (!verifyAdminToken(req, env)) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!rateLimit(req, 'intent', 10)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
@@ -344,6 +353,7 @@ export function createSponsorResourceApi({
 
     if (req.method === 'POST' && path === '/api/sponsor/operations') {
       if (!verifyAdminToken(req, env)) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!rateLimit(req, 'execute', 3)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
