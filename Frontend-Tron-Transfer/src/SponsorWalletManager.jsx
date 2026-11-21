@@ -174,10 +174,13 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
 
   useEffect(() => {
-    if (!workspaceActive) return
-    setEnergyTarget(readSavedTarget('energy', '1278524'))
-    setBandwidthTarget(readSavedTarget('bandwidth', '1000'))
-  }, [workspaceActive])
+    const reloadTargets = () => {
+      setEnergyTarget(readSavedTarget('energy', '1278524'))
+      setBandwidthTarget(readSavedTarget('bandwidth', '1000'))
+    }
+    window.addEventListener('tron-transfer:sponsor-targets-updated', reloadTargets)
+    return () => window.removeEventListener('tron-transfer:sponsor-targets-updated', reloadTargets)
+  }, [])
 
   useEffect(() => { try { localStorage.setItem(TARGETS_KEY, JSON.stringify({ energy: energyTarget, bandwidth: bandwidthTarget })) } catch { /* targets are a local preference */ } }, [energyTarget, bandwidthTarget])
 
