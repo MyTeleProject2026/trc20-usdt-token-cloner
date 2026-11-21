@@ -193,3 +193,141 @@ test('Sponsor TRX top-up fails closed above the configured Owner funding cap', a
   assert.equal(result.broadcast, false)
   assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
 })
+
+
+function lifecycleFixture({ operation, amountSun, resource = 'ENERGY', transactionValue, account = {}, delegatedRows = [], withdrawable = '0', includeWithdrawAmount = true, builderName }) {
+  let signed = 0
+  let broadcast = 0
+  let persisted = false
+  const type = {
+    undelegate: 'UnDelegateResourceContract',
+    unstake: 'UnfreezeBalanceV2Contract',
+    withdraw: 'WithdrawExpireUnfreezeContract',
+  }[operation]
+  const transaction = {
+    txID: TXID,
+    raw_data_hex: '03'.repeat(12),
+    raw_data: {
+      expiration: Date.now() + 60_000,
+      contract: [{ type, parameter: { value: transactionValue } }],
+    },
+  }
+  const fakeTronWeb = {
+    address: {
+      fromPrivateKey: () => SPONSOR,
+      fromHex: value => value === ownerHex ? OWNER : SPONSOR,
+    },
+    transactionBuilder: {
+      [builderName]: async (...args) => {
+        if (operation === 'undelegate') assert.deepEqual(args.slice(0, 4), [amountSun, OWNER, resource, SPONSOR])
+        if (operation === 'unstake') assert.deepEqual(args.slice(0, 3), [amountSun, resource, SPONSOR])
+        if (operation === 'withdraw') assert.deepEqual(args.slice(0, 1), [SPONSOR])
+        return transaction
+      },
+    },
+    trx: {
+      getBalance: async () => 10_000_000n,
+      getAccountResources: async () => ({ freeNetLimit: 600, freeNetUsed: 0, NetLimit: 0, NetUsed: 0 }),
+      getChainParameters: async () => [{ key: 'getTransactionFee', value: 1000 }],
+      getDelegatedResourceV2: async () => delegatedRows,
+      getAccount: async () => account,
+      getAvailableUnfreezeCount: async () => ({ count: 32 }),
+      getCanWithdrawUnfreezeAmount: async () => ({ amount: withdrawable }),
+      sign: async tx => { signed += 1; return { ...tx, signature: ['signature'] } },
+      sendRawTransaction: async () => { assert.equal(persisted, true); broadcast += 1; return { result: true } },
+    },
+  }
+  const fetchImpl = async url => ({
+    ok: true,
+    json: async () => url.endsWith('gettransactioninfobyid')
+      ? { id: TXID, blockNumber: 456, receipt: { result: 'SUCCESS' }, ...(operation === 'withdraw' && includeWithdrawAmount ? { withdraw_expire_amount: amountSun } : {}) }
+      : { txID: TXID, raw_data: transaction.raw_data },
+  })
+  const engine = createSponsorTransactionEngine({ env: configuredEnv(), tronWebFactory: () => fakeTronWeb, fetchImpl })
+  return {
+    engine,
+    counts: () => ({ signed, broadcast }),
+    execute: () => engine.execute({
+      operation, resource: operation === 'withdraw' ? 'TRX' : resource, amountSun, ownerAddress: OWNER,
+      onSigned: async txid => { assert.equal(txid, TXID); persisted = true },
+    }),
+  }
+}
+
+test('undelegate reclaims only the requested confirmed Owner delegation', async () => {
+  const amountSun = '1000000'
+  const f = lifecycleFixture({
+    operation: 'undelegate', amountSun, resource: 'ENERGY', builderName: 'undelegateResource',
+    transactionValue: { owner_address: sponsorHex, receiver_address: ownerHex, resource: 1, balance: amountSun },
+    delegatedRows: [{ frozen_balance_for_energy: '2000000' }],
+  })
+  const result = await f.execute()
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.equal(result.blockNumber, 456)
+  assert.deepEqual(f.counts(), { signed: 1, broadcast: 1 })
+})
+
+test('unstake rejects amounts still delegated to the Owner before signing', async () => {
+  const amountSun = '4000000'
+  const f = lifecycleFixture({
+    operation: 'unstake', amountSun, resource: 'ENERGY', builderName: 'unfreezeBalanceV2',
+    transactionValue: { owner_address: sponsorHex, resource: 1, unfreeze_balance: amountSun },
+    account: { frozenV2: [{ type: 'ENERGY', amount: '5000000' }] },
+    delegatedRows: [{ frozen_balance_for_energy: '2000000' }],
+  })
+  const result = await f.execute()
+  assert.equal(result.status, 'unstake-exceeds-unlocked-self-stake')
+  assert.deepEqual(f.counts(), { signed: 0, broadcast: 0 })
+})
+
+test('unstake initiates the Stake 2.0 delay only for un-delegated self-stake', async () => {
+  const amountSun = '3000000'
+  const f = lifecycleFixture({
+    operation: 'unstake', amountSun, resource: 'ENERGY', builderName: 'unfreezeBalanceV2',
+    transactionValue: { owner_address: sponsorHex, resource: 1, unfreeze_balance: amountSun },
+    account: { frozenV2: [{ type: 'ENERGY', amount: '5000000' }] },
+    delegatedRows: [{ frozen_balance_for_energy: '2000000' }],
+  })
+  const result = await f.execute()
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.deepEqual(f.counts(), { signed: 1, broadcast: 1 })
+})
+
+test('withdraw requires the exact currently withdrawable matured unfreeze amount', async () => {
+  const amountSun = '2000000'
+  const f = lifecycleFixture({
+    operation: 'withdraw', amountSun, builderName: 'withdrawExpireUnfreeze',
+    transactionValue: { owner_address: sponsorHex }, withdrawable: amountSun,
+  })
+  const result = await f.execute()
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.deepEqual(f.counts(), { signed: 1, broadcast: 1 })
+})
+
+
+test('withdraw is not marked confirmed when the solidified receipt omits the actual withdrawal amount', async () => {
+  const amountSun = '2000000'
+  const f = lifecycleFixture({
+    operation: 'withdraw', amountSun, builderName: 'withdrawExpireUnfreeze',
+    transactionValue: { owner_address: sponsorHex }, withdrawable: amountSun,
+    includeWithdrawAmount: false,
+  })
+  const result = await f.execute()
+  assert.equal(result.success, false)
+  assert.equal(result.solidified, false)
+  assert.equal(result.status, 'solidified-withdraw-amount-unavailable')
+  assert.deepEqual(f.counts(), { signed: 1, broadcast: 1 })
+})
+
+test('withdraw blocks when the matured amount changed after the user reviewed it', async () => {
+  const f = lifecycleFixture({
+    operation: 'withdraw', amountSun: '2000000', builderName: 'withdrawExpireUnfreeze',
+    transactionValue: { owner_address: sponsorHex }, withdrawable: '3000000',
+  })
+  const result = await f.execute()
+  assert.equal(result.status, 'withdraw-amount-changed-refresh-and-retry')
+  assert.deepEqual(f.counts(), { signed: 0, broadcast: 0 })
+})

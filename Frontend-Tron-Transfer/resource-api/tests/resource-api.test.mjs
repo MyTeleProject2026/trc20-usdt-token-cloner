@@ -358,3 +358,43 @@ test('confirmed Sponsor Wallet transaction history rejects invalid addresses and
   assert.equal((await fetch(base + '/v1/transactions/not-a-wallet')).status, 400)
   assert.equal((await fetch(base + '/v1/transactions/TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp?limit=100')).status, 400)
 })
+
+test('Sponsor admin-token header is permitted by the Resource API CORS preflight', async (t) => {
+  const { createServer } = await import('../server.js')
+  const server = createServer()
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  const origin = 'https://tron-transfer.onrender.com'
+  const response = await fetch(base + '/api/sponsor/intent', {
+    method: 'OPTIONS',
+    headers: {
+      origin,
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'authorization, content-type, x-sponsor-admin-token',
+    },
+  })
+  assert.equal(response.status, 204)
+  assert.equal(response.headers.get('access-control-allow-origin'), origin)
+  assert.equal(response.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS')
+  const allowedHeaders = response.headers.get('access-control-allow-headers').toLowerCase().split(',').map(value => value.trim())
+  assert.ok(allowedHeaders.includes('authorization'))
+  assert.ok(allowedHeaders.includes('content-type'))
+  assert.ok(allowedHeaders.includes('x-sponsor-admin-token'))
+})
+
+test('Resource API CORS preflight still rejects an unapproved browser origin', async (t) => {
+  const { createServer } = await import('../server.js')
+  const server = createServer()
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/sponsor/intent', {
+    method: 'OPTIONS',
+    headers: {
+      origin: 'https://attacker.example',
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'authorization, content-type, x-sponsor-admin-token',
+    },
+  })
+  assert.equal(response.status, 403)
+})

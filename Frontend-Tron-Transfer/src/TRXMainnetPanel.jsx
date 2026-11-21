@@ -14,6 +14,18 @@ const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const DEFAULT_RECIPIENT = ''
 const DEFAULT_FEE_CAP = '150'
 
+const SPONSOR_TARGETS_KEY = 'tron-transfer.sponsor-resource-targets.v1'
+
+function saveSponsorResourceTargets(deployment) {
+  const energy = String(deployment?.energyWithSafetyMargin || deployment?.energyRequired || '')
+  const bandwidth = String(deployment?.estimatedBandwidthBytes || '')
+  if (!/^[1-9][0-9]{0,14}$/.test(energy) || !/^[1-9][0-9]{0,14}$/.test(bandwidth)) return
+  try {
+    localStorage.setItem(SPONSOR_TARGETS_KEY, JSON.stringify({ energy, bandwidth }))
+    window.dispatchEvent(new Event('tron-transfer:sponsor-targets-updated'))
+  } catch {}
+}
+
 function makeReference() {
   const bytes = new Uint8Array(32)
   window.crypto.getRandomValues(bytes)
@@ -143,6 +155,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       feeLimitSun: feeCapSun,
     }])
     const deployment = result.deployments?.[0]
+    saveSponsorResourceTargets(deployment)
     if (!result.conservative || !deployment?.energyEstimateAvailable || result.requiredTrxSun !== '0') {
       throw new Error('Deployment readiness is not established. Energy estimation, complete resource coverage, or zero-TRX fallback could not be verified. No wallet prompt, signature, or broadcast was attempted.')
     }
@@ -198,6 +211,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       feeLimitSun: feeCapSun,
     }])
     const deployment = preflight.deployments?.[0]
+    saveSponsorResourceTargets(deployment)
     if (!preflight.conservative || !deployment?.energyEstimateAvailable || preflight.requiredTrxSun !== '0') {
       throw new Error('Deployment is blocked: exact Energy estimation, complete Bandwidth coverage, owner permission, or zero-TRX fallback could not be verified. No signature or broadcast was attempted.')
     }
@@ -367,7 +381,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
     {!walletReady ? <div className="trax-connect"><p>{connectedAddress ? 'Connected account does not match the configured contract owner (' + EXPECTED_OWNER_ADDRESS + '). Import or unlock the configured Owner Wallet.' : 'Unlock the configured Owner Wallet on TRON Mainnet to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Unlock Owner Wallet</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
 
-    {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/>{error}</div>}
+    {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/><div>{error}{typeof onNavigate === 'function' && /resource|energy|bandwidth|zero.TRX|deployment readiness/i.test(error) && <p><button type="button" className="outline-button" onClick={() => onNavigate('sponsor-automation')}>Open Sponsor resource provisioning</button></p>}</div></div>}
     {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
     {step && <div className="trax-progress" role="status"><RefreshCw size={15} className="trax-spin"/>{step}</div>}
 

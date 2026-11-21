@@ -1060,9 +1060,9 @@ export function formatTronLinkError(error, stage = 'TRON operation failed') {
     }
   }
   if (!raw) raw = 'Unknown wallet or provider error'
-  if (/Confirmation declined by user|User rejected|code.?4001/i.test(raw)) return stage + ': transaction was declined in TronLink. No retry was attempted. Details: ' + raw
-  if (/Invalid transaction provided/i.test(raw)) return stage + ': TronLink rejected the unsigned deployment transaction as invalid. Check the transaction payload and wallet/network connection. Details: ' + raw
-  if (/User has not unlocked wallet/i.test(raw)) return stage + ': unlock TronLink and reconnect before trying again. Details: ' + raw
+  if (/Confirmation declined by user|User rejected|code.?4001/i.test(raw)) return stage + ': Owner Wallet transaction was declined in the application. No retry was attempted. Details: ' + raw
+  if (/Invalid transaction provided/i.test(raw)) return stage + ': The local Owner signer rejected the unsigned deployment transaction as invalid. Check the transaction payload and TRON Mainnet connection. Details: ' + raw
+  if (/User has not unlocked wallet/i.test(raw)) return stage + ': unlock the Owner Wallet in TRON Transfer before trying again. Details: ' + raw
   return stage + ': ' + raw
 }
 
@@ -1461,7 +1461,7 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
   try { transactionOwner = ownerHex ? tronWeb.address.fromHex(ownerHex) : '' } catch {}
   if (createContract?.type !== 'CreateSmartContract' || !transactionOwner
     || !addressesEqual(tronWeb, transactionOwner, wallet.address)) {
-    throw new Error('Deployment transaction owner does not match the connected TronLink account. Reconnect the intended account and retry. No signature or broadcast was attempted.')
+    throw new Error('Deployment transaction owner does not match the configured Owner Wallet. Unlock the intended Owner Wallet and retry. No signature or broadcast was attempted.')
   }
   const predictedAddress = predictMainnetContractAddress(tronWeb, wallet.address, unsigned.txID)
   if (Number(unsigned.raw_data?.fee_limit) !== Number(feeLimitSun)) {
@@ -1469,7 +1469,7 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
   }
   let resourceBudget
   if (!energyEstimate) {
-    throw new Error('Deployment Energy simulation is unavailable on the selected TRON Mainnet node. The app will not ask TronLink to sign or broadcast an unpriced deployment. Switch to a Mainnet node that supports wallet/estimateenergy, then retry. No signature or broadcast was attempted.')
+    throw new Error('Deployment Energy simulation is unavailable on the selected TRON Mainnet node. The app will not ask the local Owner signer to sign or broadcast an unpriced deployment. Switch to a Mainnet node that supports wallet/estimateenergy, then retry. No signature or broadcast was attempted.')
   }
   resourceBudget = calculateDeploymentResourceBudget({
     energyRequired: energyEstimate.energyUsed,
@@ -1835,7 +1835,7 @@ export async function sendAndVerifyContractCall(
     finalBudget = await calculateBudget()
     assertZeroTrxBurnBudget(finalBudget)
   } catch (error) {
-    throw new Error('TronLink signed TRӾ ' + methodName + ', but it was NOT broadcast because the final zero-TRX-burn resource check failed. The signed transaction was discarded; no network fee was paid. '
+    throw new Error('The local Owner signer signed TRӾ ' + methodName + ', but it was NOT broadcast because the final zero-TRX-burn resource check failed. The signed transaction was discarded; no network fee was paid. '
       + String(error?.message || error))
   }
 

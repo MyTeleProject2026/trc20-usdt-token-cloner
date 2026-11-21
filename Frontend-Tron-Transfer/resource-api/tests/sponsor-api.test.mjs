@@ -19,12 +19,13 @@ function request(method, path, body, token, adminToken) {
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, adminToken = '' } = {}) {
+function setup({ database = null, engine = null, adminToken = '', databaseUrl = '' } = {}) {
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
     ...(adminToken ? { SPONSOR_ADMIN_TOKEN: adminToken } : {}),
     SPONSOR_MAINNET_ADDRESS: SPONSOR,
     TRON_OWNER_ADDRESS: OWNER,
+    ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
     SPONSOR_TRANSACTION_ENGINE_ENABLED: 'false',
     SPONSOR_MAINNET_BROADCAST_ENABLED: 'false',
   }
@@ -68,6 +69,23 @@ test('Sponsor status exposes readiness but never secret values', async () => {
   assert.equal(result.payload.sponsorAddress, SPONSOR)
   assert.equal(result.payload.transactionExecutionAvailable, false)
   assert.equal(JSON.stringify(result.payload).includes(SECRET), false)
+})
+
+
+test('invalid configured Sponsor Admin token keeps write execution unavailable', async () => {
+  const database = { query: async () => ({ rowCount: 0, rows: [] }) }
+  const engine = {
+    readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, feePolicy: {} }),
+    execute: async () => assert.fail('execution must remain disabled'),
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine, adminToken: 'too-short' })
+  const result = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.adminTokenRequired, true)
+  assert.equal(result.payload.adminTokenConfigured, false)
+  assert.equal(result.payload.databaseReady, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
 })
 
 test('session challenge is bound to configured independent Sponsor wallet', async () => {
@@ -271,4 +289,35 @@ test('Sponsor Admin token comparison is required for execution route too', async
   }, token)
   assert.equal(result.status, 403)
   assert.deepEqual(calls, [])
+})
+
+
+test('Stake 2.0 reclaim and withdrawal intents are accepted with exact resource bindings', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  const cases = [
+    ['undelegate', 'ENERGY'],
+    ['unstake', 'BANDWIDTH'],
+    ['withdraw', 'TRX'],
+  ]
+  for (const [operation, resource] of cases) {
+    const result = await call(api, 'POST', '/api/sponsor/intent', {
+      operation, resource, amountSun: '1000000',
+      idempotencyKey: 'sponsor-' + operation + '-0123456789',
+    }, token)
+    assert.equal(result.status, 201, operation + ' intent should be accepted')
+    assert.match(result.payload.message, new RegExp('Operation: ' + operation))
+    assert.match(result.payload.message, new RegExp('Resource: ' + resource))
+  }
+})
+
+test('Stake 2.0 reclaim intents reject invalid resource combinations', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'undelegate', resource: 'TRX', amountSun: '1000000',
+    idempotencyKey: 'sponsor-undelegate-invalid-012345',
+  }, token)
+  assert.equal(result.status, 400)
+  assert.equal(result.payload.error, 'invalid-sponsor-operation-intent')
 })

@@ -34,21 +34,27 @@ function resourceCode(value) {
 }
 function assertTransaction(transaction, { tronWeb, operation, resource, amountSun, sponsorAddress, ownerAddress }) {
   const contracts = transaction?.raw_data?.contract
-  const expectedType = operation === 'stake' ? 'FreezeBalanceV2Contract'
-    : operation === 'delegate' ? 'DelegateResourceContract' : 'TransferContract'
+  const expectedType = ({
+    stake: 'FreezeBalanceV2Contract', delegate: 'DelegateResourceContract',
+    undelegate: 'UnDelegateResourceContract', unstake: 'UnfreezeBalanceV2Contract',
+    withdraw: 'WithdrawExpireUnfreezeContract', topup: 'TransferContract',
+  })[operation]
   if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== expectedType) throw new Error('unsigned-transaction-contract-mismatch')
   const value = contracts[0]?.parameter?.value || {}
   if (addressFromHex(tronWeb, value.owner_address) !== sponsorAddress) throw new Error('unsigned-transaction-sponsor-mismatch')
   if (operation === 'topup') {
     if (addressFromHex(tronWeb, value.to_address) !== ownerAddress) throw new Error('unsigned-transaction-recipient-mismatch')
     if (String(value.amount ?? '') !== amountSun) throw new Error('unsigned-transaction-amount-mismatch')
+  } else if (operation === 'withdraw') {
+    // WithdrawExpireUnfreezeContract withdraws all currently matured unfreeze value.
   } else {
     if (resourceCode(value.resource) !== RESOURCE_CODE[resource]) throw new Error('unsigned-transaction-resource-mismatch')
-    const amount = operation === 'stake' ? value.frozen_balance : value.balance
+    const amount = operation === 'stake' ? value.frozen_balance
+      : operation === 'unstake' ? value.unfreeze_balance : value.balance
     if (String(amount ?? '') !== amountSun) throw new Error('unsigned-transaction-amount-mismatch')
-    if (operation === 'delegate') {
+    if (operation === 'delegate' || operation === 'undelegate') {
       if (addressFromHex(tronWeb, value.receiver_address) !== ownerAddress) throw new Error('unsigned-transaction-recipient-mismatch')
-      if (value.lock === true || value.lock === 1 || ['true', '1'].includes(String(value.lock).toLowerCase())) throw new Error('locked-delegation-not-allowed')
+      if (operation === 'delegate' && (value.lock === true || value.lock === 1 || ['true', '1'].includes(String(value.lock).toLowerCase()))) throw new Error('locked-delegation-not-allowed')
     }
   }
   const expiration = Number(transaction?.raw_data?.expiration)
@@ -126,8 +132,11 @@ export function createSponsorTransactionEngine({
     const tx = await post('/walletsolidity/gettransactionbyid', { value: transactionId })
     if (String(tx?.txID || '').toLowerCase() !== transactionId.toLowerCase()) return { confirmed: false, status: 'solidified-transaction-id-mismatch' }
     const contracts = tx.raw_data?.contract
-    const expectedType = operation === 'stake' ? 'FreezeBalanceV2Contract'
-      : operation === 'delegate' ? 'DelegateResourceContract' : 'TransferContract'
+    const expectedType = ({
+      stake: 'FreezeBalanceV2Contract', delegate: 'DelegateResourceContract',
+      undelegate: 'UnDelegateResourceContract', unstake: 'UnfreezeBalanceV2Contract',
+      withdraw: 'WithdrawExpireUnfreezeContract', topup: 'TransferContract',
+    })[operation]
     if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== expectedType) return { confirmed: false, status: 'solidified-operation-type-mismatch' }
     const value = contracts[0]?.parameter?.value || {}
     const verifier = new TronWeb({ fullHost: MAINNET })
@@ -137,24 +146,42 @@ export function createSponsorTransactionEngine({
       if (String(value.amount ?? '') !== String(amountSun)) return { confirmed: false, status: 'solidified-amount-mismatch' }
       return { confirmed: true, status: 'solidified-success', blockNumber: info.blockNumber }
     }
+    if (operation === 'withdraw') {
+      // The solidified receipt must report the actual Stake 2.0 withdrawal.
+      // An absent field is not proof of a successful amount transfer.
+      const withdrawn = info.withdraw_expire_amount
+      if (withdrawn === undefined || withdrawn === null) {
+        return { confirmed: false, status: 'solidified-withdraw-amount-unavailable', blockNumber: info.blockNumber }
+      }
+      if (typeof withdrawn === 'number' && !Number.isSafeInteger(withdrawn)) {
+        return { confirmed: false, status: 'solidified-withdraw-amount-unsafe-precision', blockNumber: info.blockNumber }
+      }
+      if (!/^(?:0|[1-9][0-9]*)$/.test(String(withdrawn)) || String(withdrawn) !== String(amountSun)) {
+        return { confirmed: false, status: 'solidified-withdraw-amount-mismatch', blockNumber: info.blockNumber }
+      }
+      return { confirmed: true, status: 'solidified-success', blockNumber: info.blockNumber }
+    }
     if (resourceCode(value.resource) !== RESOURCE_CODE[resource]) return { confirmed: false, status: 'solidified-resource-mismatch' }
-    const recordedAmount = operation === 'stake' ? value.frozen_balance : value.balance
+    const recordedAmount = operation === 'stake' ? value.frozen_balance
+      : operation === 'unstake' ? value.unfreeze_balance : value.balance
     if (String(recordedAmount ?? '') !== String(amountSun)) return { confirmed: false, status: 'solidified-amount-mismatch' }
-    if (operation === 'delegate') {
+    if (operation === 'delegate' || operation === 'undelegate') {
       if (addressFromHex(verifier, value.receiver_address) !== recipient) return { confirmed: false, status: 'solidified-recipient-mismatch' }
-      if (value.lock === true || value.lock === 1 || ['true', '1'].includes(String(value.lock).toLowerCase())) return { confirmed: false, status: 'solidified-locked-delegation' }
-      const delegated = await post('/walletsolidity/getdelegatedresourcev2', { fromAddress: sponsorAddress, toAddress: recipient, visible: true })
-      const rows = Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : []
-      const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
-      const actual = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
-      if (actual < BigInt(amountSun)) return { confirmed: false, status: 'delegation-state-not-yet-visible', blockNumber: info.blockNumber }
+      if (operation === 'delegate' && (value.lock === true || value.lock === 1 || ['true', '1'].includes(String(value.lock).toLowerCase()))) return { confirmed: false, status: 'solidified-locked-delegation' }
+      if (operation === 'delegate') {
+        const delegated = await post('/walletsolidity/getdelegatedresourcev2', { fromAddress: sponsorAddress, toAddress: recipient, visible: true })
+        const rows = Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : []
+        const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
+        const actual = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
+        if (actual < BigInt(amountSun)) return { confirmed: false, status: 'delegation-state-not-yet-visible', blockNumber: info.blockNumber }
+      }
     }
     return { confirmed: true, status: 'solidified-success', blockNumber: info.blockNumber }
   }
 
   async function reconcile({ transactionId, operation, amountSun, resource, sponsorAddress, ownerAddress: recipient } = {}) {
-    const validOperation = ['stake', 'delegate', 'topup'].includes(operation)
-    const validResource = operation === 'topup' ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
+    const validOperation = ['stake', 'delegate', 'undelegate', 'unstake', 'withdraw', 'topup'].includes(operation)
+    const validResource = ['topup', 'withdraw'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
     if (!TXID.test(transactionId || '') || !validOperation || !validResource || !positiveSun(amountSun)
       || sponsorAddress !== env.SPONSOR_MAINNET_ADDRESS || recipient !== ownerAddress || !ADDRESS.test(recipient || '')) {
       return { confirmed: false, status: 'invalid-reconciliation-request' }
@@ -166,11 +193,11 @@ export function createSponsorTransactionEngine({
   async function execute({ operation, resource, amountSun, ownerAddress: recipient, onSigned } = {}) {
     const state = readiness()
     if (!state.broadcastAvailable) return { success: false, status: 'sponsor-engine-disabled-or-unconfigured', signed: false, broadcast: false }
-    const validOperation = ['stake', 'delegate', 'topup'].includes(operation)
-    const validResource = operation === 'topup' ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
+    const validOperation = ['stake', 'delegate', 'undelegate', 'unstake', 'withdraw', 'topup'].includes(operation)
+    const validResource = ['topup', 'withdraw'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
     if (!validOperation || !validResource || recipient !== ownerAddress || !ADDRESS.test(recipient || '')) return { success: false, status: 'invalid-mainnet-operation', signed: false, broadcast: false }
     const amount = positiveSun(amountSun)
-    if (!amount || (operation !== 'topup' && amount < SUN)) return { success: false, status: 'invalid-amount-sun', signed: false, broadcast: false }
+    if (!amount || (['stake', 'delegate', 'undelegate', 'unstake'].includes(operation) && amount < SUN)) return { success: false, status: 'invalid-amount-sun', signed: false, broadcast: false }
     if (operation === 'stake') {
       const cap = decimalTrxToSun(String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
       if (env.SPONSOR_STAKING_ENABLED !== 'true' || cap === null || cap <= 0n || amount > cap) {
@@ -195,19 +222,55 @@ export function createSponsorTransactionEngine({
       const maxFee = maxFeeRaw === '0' ? 0n : positiveSun(String(maxFeeRaw))
       if (reserve === null || maxFee === null) throw new Error('invalid-sponsor-fee-policy')
       const balance = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
-      if (operation === 'stake' && balance < amount + reserve) return { success: false, status: 'insufficient-balance-after-reserve', signed: false, broadcast: false }
-      if (operation === 'topup' && balance < amount + reserve) return { success: false, status: 'insufficient-balance-after-reserve', signed: false, broadcast: false }
-      if (operation === 'delegate' && balance < reserve) return { success: false, status: 'insufficient-fee-reserve', signed: false, broadcast: false }
+      if ((operation === 'stake' || operation === 'topup') && balance < amount + reserve) return { success: false, status: 'insufficient-balance-after-reserve', signed: false, broadcast: false }
+      if (!['stake', 'topup'].includes(operation) && balance < reserve) return { success: false, status: 'insufficient-fee-reserve', signed: false, broadcast: false }
       if (operation === 'delegate') {
         const maximumResult = await tronWeb.trx.getCanDelegatedMaxSize(sponsorAddress, resource, { confirmed: true })
         const maximum = BigInt(String(maximumResult?.max_size ?? maximumResult ?? '0'))
         if (maximum < amount) return { success: false, status: 'insufficient-frozen-resource-capacity', signed: false, broadcast: false }
       }
+      if (operation === 'undelegate') {
+        const resourceReader = tronWeb.trx.raw || tronWeb.trx
+        const delegated = await resourceReader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true })
+        const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
+        const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
+        const current = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
+        if (current < amount) return { success: false, status: 'undelegation-exceeds-current-owner-delegation', signed: false, broadcast: false }
+      }
+      if (operation === 'unstake') {
+        const resourceReader = tronWeb.trx.raw || tronWeb.trx
+        const [account, delegated, slots] = await Promise.all([
+          resourceReader.getAccount(sponsorAddress, { confirmed: true }),
+          resourceReader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true }),
+          resourceReader.getAvailableUnfreezeCount(sponsorAddress, { confirmed: true }),
+        ])
+        const frozen = Array.isArray(account?.frozenV2) ? account.frozenV2 : []
+        const type = resource === 'ENERGY' ? 'ENERGY' : 'BANDWIDTH'
+        const selfStaked = frozen.filter(row => (row.type || 'BANDWIDTH') === type).reduce((sum, row) => sum + BigInt(String(row.amount || '0')), 0n)
+        const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
+        const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
+        const delegatedAmount = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
+        const availableToUnstake = selfStaked > delegatedAmount ? selfStaked - delegatedAmount : 0n
+        if (Number(slots?.count ?? 0) <= 0) return { success: false, status: 'no-available-unstake-slots', signed: false, broadcast: false }
+        if (availableToUnstake < amount) return { success: false, status: 'unstake-exceeds-unlocked-self-stake', signed: false, broadcast: false }
+      }
+      if (operation === 'withdraw') {
+        const resourceReader = tronWeb.trx.raw || tronWeb.trx
+        const withdrawable = await resourceReader.getCanWithdrawUnfreezeAmount(sponsorAddress, now(), { confirmed: true })
+        const actual = BigInt(String(withdrawable?.amount ?? withdrawable ?? '0'))
+        if (actual <= 0n || actual !== amount) return { success: false, status: 'withdraw-amount-changed-refresh-and-retry', signed: false, broadcast: false }
+      }
       const transaction = operation === 'stake'
         ? await tronWeb.transactionBuilder.freezeBalanceV2(amount.toString(), resource, sponsorAddress)
         : operation === 'delegate'
           ? await tronWeb.transactionBuilder.delegateResource(amount.toString(), recipient, resource, false, 0, sponsorAddress)
-          : await tronWeb.transactionBuilder.sendTrx(recipient, amount.toString(), sponsorAddress)
+          : operation === 'undelegate'
+            ? await tronWeb.transactionBuilder.undelegateResource(amount.toString(), recipient, resource, sponsorAddress)
+            : operation === 'unstake'
+              ? await tronWeb.transactionBuilder.unfreezeBalanceV2(amount.toString(), resource, sponsorAddress)
+              : operation === 'withdraw'
+                ? await tronWeb.transactionBuilder.withdrawExpireUnfreeze(sponsorAddress)
+                : await tronWeb.transactionBuilder.sendTrx(recipient, amount.toString(), sponsorAddress)
       assertTransaction(transaction, { tronWeb, operation, resource, amountSun: amount.toString(), sponsorAddress, ownerAddress: recipient })
       const accountResources = await tronWeb.trx.getAccountResources(sponsorAddress)
       const freeBandwidth = Math.max(0, Number(accountResources.freeNetLimit || 0) - Number(accountResources.freeNetUsed || 0))

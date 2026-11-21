@@ -75,7 +75,7 @@ async function ensureSchema(db) {
       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       idempotency_key_hash CHAR(64) NOT NULL UNIQUE,
       request_hash CHAR(64) NOT NULL,
-      operation TEXT NOT NULL CHECK (operation IN ('stake','delegate','topup')),
+      operation TEXT NOT NULL CHECK (operation IN ('stake','delegate','undelegate','unstake','withdraw','topup')),
       resource TEXT NOT NULL CHECK (resource IN ('ENERGY','BANDWIDTH','TRX')),
       amount_sun NUMERIC(21,0) NOT NULL CHECK (amount_sun > 0),
       sponsor_address TEXT NOT NULL,
@@ -88,7 +88,7 @@ async function ensureSchema(db) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_operation_check;
-    ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_operation_check CHECK (operation IN ('stake','delegate','topup'));
+    ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_operation_check CHECK (operation IN ('stake','delegate','undelegate','unstake','withdraw','topup'));
     ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_resource_check;
     ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_resource_check CHECK (resource IN ('ENERGY','BANDWIDTH','TRX'));
     CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_operations_sponsor_created
@@ -208,6 +208,8 @@ export function createSponsorResourceApi({
       const dbConfigured = Boolean(env.DATABASE_URL)
       const ownerAddressMatches = readiness.ownerAddress === ownerAddress
       const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
+      const adminRequired = adminTokenRequired(env)
+      const adminConfigured = !adminRequired || env.SPONSOR_ADMIN_TOKEN.length >= 32
       let databaseReady = false
       if (dbConfigured) {
         try {
@@ -227,12 +229,12 @@ export function createSponsorResourceApi({
         sponsorIndependent,
         engineConfigured: readiness.configured === true,
         engineEnabled: readiness.enabled === true,
-        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent,
+        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured,
         feePolicy: readiness.feePolicy,
         stakingPolicy: readiness.stakingPolicy,
         ownerTopupPolicy: readiness.ownerTopupPolicy,
-        adminTokenRequired: adminTokenRequired(env),
-        adminTokenConfigured: adminTokenRequired(env) && env.SPONSOR_ADMIN_TOKEN.length >= 32,
+        adminTokenRequired: adminRequired,
+        adminTokenConfigured: adminConfigured,
         checkedAt: new Date(now()).toISOString(),
       }, origin)
     }
@@ -298,8 +300,8 @@ export function createSponsorResourceApi({
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
       const { operation, resource, amountSun, idempotencyKey } = body
-      const validOperation = ['stake', 'delegate', 'topup'].includes(operation)
-      const validResource = operation === 'topup' ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
+      const validOperation = ['stake', 'delegate', 'undelegate', 'unstake', 'withdraw', 'topup'].includes(operation)
+      const validResource = ['topup', 'withdraw'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
       if (!validOperation || !validResource
         || !positiveSun(amountSun) || !IDEMPOTENCY.test(String(idempotencyKey || ''))) {
         return reply(res, 400, { success: false, error: 'invalid-sponsor-operation-intent' }, origin)
