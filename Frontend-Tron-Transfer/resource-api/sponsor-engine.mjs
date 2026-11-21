@@ -237,8 +237,7 @@ export function createSponsorTransactionEngine({
         const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
         const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
         const delegatedAmount = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
-        const pending = Array.isArray(account?.unfrozenV2) ? account.unfrozenV2.filter(row => (row.type || 'BANDWIDTH') === type).reduce((sum, row) => sum + BigInt(String(row.unfreeze_amount || '0')), 0n) : 0n
-        const availableToUnstake = selfStaked > delegatedAmount + pending ? selfStaked - delegatedAmount - pending : 0n
+        const availableToUnstake = selfStaked > delegatedAmount ? selfStaked - delegatedAmount : 0n
         if (Number(slots?.count ?? 0) <= 0) return { success: false, status: 'no-available-unstake-slots', signed: false, broadcast: false }
         if (availableToUnstake < amount) return { success: false, status: 'unstake-exceeds-unlocked-self-stake', signed: false, broadcast: false }
       }
