@@ -147,6 +147,7 @@ test('Sponsor status exposes readiness but never secret values', async () => {
   assert.equal(result.payload.transactionExecutionAvailable, false)
   assert.equal(result.payload.databaseReady, false)
   assert.equal(result.payload.databaseStatus, 'not-configured')
+  assert.equal(result.payload.sponsorWritesPaused, true)
   assert.equal(JSON.stringify(result.payload).includes(SECRET), false)
 })
 
@@ -166,6 +167,8 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
   assert.equal(result.payload.databaseConfigured, true)
   assert.equal(result.payload.databaseReady, false)
   assert.equal(result.payload.databaseStatus, 'schema-missing')
+  assert.equal(result.payload.sponsorWritesPaused, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
   assert.equal(calls.length, 1)
   assert.equal(calls[0].trimStart().startsWith('CREATE'), false)
 })
@@ -182,6 +185,8 @@ test('Sponsor status classifies database connection failures without exposing er
   assert.equal(result.payload.databaseConfigured, true)
   assert.equal(result.payload.databaseReady, false)
   assert.equal(result.payload.databaseStatus, 'connection-refused')
+  assert.equal(result.payload.sponsorWritesPaused, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
   assert.equal(JSON.stringify(result.payload).includes('private-db-host.example'), false)
 })
 
