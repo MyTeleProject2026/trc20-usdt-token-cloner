@@ -77,7 +77,13 @@ test('Sponsor status exposes readiness but never secret values', async () => {
 
 
 test('invalid configured Sponsor Admin token keeps write execution unavailable', async () => {
-  const database = { query: async () => ({ rowCount: 0, rows: [] }) }
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+      throw new Error('status endpoint must not mutate the Sponsor ledger schema')
+    },
+  }
   const engine = {
     readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, feePolicy: {} }),
     execute: async () => assert.fail('execution must remain disabled'),
@@ -165,6 +171,7 @@ test('valid signed intent still fails closed when durable idempotency storage is
 test('durable Sponsor maintenance pause blocks a valid signed operation before reservation or signing', async () => {
   const database = {
     async query(sql) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
       if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX') || sql === 'BEGIN' || sql === 'ROLLBACK' || sql === 'COMMIT' || sql === 'SELECT 1') return { rowCount: 0, rows: [] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       throw new Error('unexpected fake database query: ' + sql)
