@@ -64,7 +64,7 @@ async function readBody(req, maxBytes = 16_384) {
 export function sponsorDatabaseConnectionString(env = process.env) {
   // Neon pooled URLs are preferred for the always-on Resource API. Keep the
   // direct DATABASE_URL for schema changes and one-off migration utilities.
-  return env.DATABASE_URL_POOLED || env.DATABASE_URL || null
+  return env.SPONSOR_DATABASE_URL_POOLED || env.SPONSOR_DATABASE_URL || env.DATABASE_URL_POOLED || env.DATABASE_URL || null
 }
 
 function getPool(env) {

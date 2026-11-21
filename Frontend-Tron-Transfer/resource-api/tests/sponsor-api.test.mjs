@@ -65,6 +65,33 @@ async function authenticated(api) {
   return verified.payload.token
 }
 
+test('Sponsor-specific database URLs take precedence over shared application URLs', () => {
+  assert.equal(
+    sponsorDatabaseConnectionString({
+      SPONSOR_DATABASE_URL_POOLED: 'postgres://sponsor-pooled',
+      SPONSOR_DATABASE_URL: 'postgres://sponsor-direct',
+      DATABASE_URL_POOLED: 'postgres://shared-pooled',
+      DATABASE_URL: 'postgres://shared-direct',
+    }),
+    'postgres://sponsor-pooled',
+  )
+  assert.equal(
+    sponsorDatabaseConnectionString({
+      SPONSOR_DATABASE_URL: 'postgres://sponsor-direct',
+      DATABASE_URL_POOLED: 'postgres://shared-pooled',
+      DATABASE_URL: 'postgres://shared-direct',
+    }),
+    'postgres://sponsor-direct',
+  )
+  assert.equal(
+    sponsorDatabaseConnectionString({
+      DATABASE_URL_POOLED: 'postgres://shared-pooled',
+      DATABASE_URL: 'postgres://shared-direct',
+    }),
+    'postgres://shared-pooled',
+  )
+})
+
 test('Sponsor status exposes readiness but never secret values', async () => {
   const { api } = setup()
   const result = await call(api, 'GET', '/api/sponsor/status')
