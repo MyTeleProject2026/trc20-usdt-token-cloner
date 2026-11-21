@@ -332,6 +332,7 @@ export function createSponsorResourceApi({
         sponsorAddress: validAddress(env.SPONSOR_MAINNET_ADDRESS) ? env.SPONSOR_MAINNET_ADDRESS : null,
         sessionAuthenticationConfigured: Boolean(sessionSecret(env)),
         databaseConfigured: dbConfigured,
+        databaseConnection,
         databaseReady,
         databaseStatus,
         sponsorWritesPaused,
