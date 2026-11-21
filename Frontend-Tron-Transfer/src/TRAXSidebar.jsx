@@ -6,11 +6,11 @@ export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onC
   return <aside className={collapsed ? 'trax-sidebar collapsed' : 'trax-sidebar'}>
     <div className="trax-sidebar-brand">
       <img src="https://thesvg.org/icons/tron/default.svg" alt="TRON icon" />
-      {!collapsed && <div><b>TRON TRANSFER</b><small>OWNER CONTROL · MAINNET</small></div>}
+      {!collapsed && <div><b>TRON TRANSFER</b><small>{workspace === 'sponsor' ? 'SPONSOR TREASURY · MAINNET' : 'OWNER CONTROL · MAINNET'}</small></div>}
     </div>
     <div className="trax-sidebar-network"><span className="trax-live-dot"/>{!collapsed && <><b>TRON Mainnet</b><small>{workspace === 'sponsor' ? 'Sponsor account workspace' : 'Owner account workspace'}</small></>}</div>
-    <div className="trax-sidebar-label">{!collapsed && 'WORKSPACE'}</div>
-    <nav id="trax-desktop-workspace-nav" aria-label="Desktop workspace navigation">
+    <div className="trax-sidebar-label">{!collapsed && (workspace === 'sponsor' ? 'SPONSOR WORKSPACE' : 'OWNER WORKSPACE')}</div>
+    <nav id="trax-desktop-workspace-nav" aria-label={workspace === 'sponsor' ? 'Sponsor workspace pages' : 'Owner workspace pages'}>
       {items.map(item => {
         const Icon = item.icon
         return <button key={item.id} title={collapsed ? item.label : undefined} className={activePage === item.id ? 'active' : ''} aria-current={activePage === item.id ? 'page' : undefined} onClick={() => onNavigate(item.id)}>
