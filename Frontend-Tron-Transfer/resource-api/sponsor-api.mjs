@@ -240,11 +240,14 @@ export function createSponsorResourceApi({
       const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32
       const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
       let databaseReady = false
+      let databaseStatus = dbConfigured ? 'unchecked' : 'not-configured'
       let sponsorWritesPaused = false
       if (dbConfigured) {
         try {
           const db = getDatabase()
-          if (db) {
+          if (!db) {
+            databaseStatus = 'pool-unavailable'
+          } else {
             // Status checks must never create or migrate production tables.
             // Confirm the expected schema and control row using read-only queries.
             const schema = await db.query(`
@@ -253,14 +256,19 @@ export function createSponsorResourceApi({
                 to_regclass('public.tron_transfer_sponsor_control') AS control_table
             `)
             if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table) {
-              throw new Error('sponsor-ledger-schema-not-ready')
+              databaseStatus = 'schema-missing'
+            } else {
+              const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
+              if (!control.rows?.length) {
+                databaseStatus = 'control-row-missing'
+              } else {
+                sponsorWritesPaused = control.rows[0].writes_paused === true
+                databaseReady = true
+                databaseStatus = 'ready'
+              }
             }
-            const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
-            if (!control.rows?.length) throw new Error('sponsor-ledger-control-row-missing')
-            sponsorWritesPaused = control.rows[0].writes_paused === true
-            databaseReady = true
           }
-        } catch { databaseReady = false }
+        } catch { databaseStatus = 'query-failed' }
       }
       return reply(res, 200, {
         success: true,
@@ -270,6 +278,7 @@ export function createSponsorResourceApi({
         sessionAuthenticationConfigured: Boolean(sessionSecret(env)),
         databaseConfigured: dbConfigured,
         databaseReady,
+        databaseStatus,
         sponsorWritesPaused,
         ledgerDurabilityVerified,
         ownerAddressMatches,
