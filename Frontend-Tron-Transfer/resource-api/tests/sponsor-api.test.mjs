@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
-import { createSponsorResourceApi } from '../sponsor-api.mjs'
+import { createSponsorResourceApi, sponsorDatabaseConnectionString } from '../sponsor-api.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -320,4 +320,12 @@ test('Stake 2.0 reclaim intents reject invalid resource combinations', async () 
   }, token)
   assert.equal(result.status, 400)
   assert.equal(result.payload.error, 'invalid-sponsor-operation-intent')
+})
+
+test('Sponsor Resource API prefers the Neon pooled URL and retains direct URL as fallback', () => {
+  const direct = 'postgresql://direct-user:direct-secret@direct.example.test/db?sslmode=require'
+  const pooled = 'postgresql://pooled-user:pooled-secret@pooler.example.test/db?sslmode=require'
+  assert.equal(sponsorDatabaseConnectionString({ DATABASE_URL: direct, DATABASE_URL_POOLED: pooled }), pooled)
+  assert.equal(sponsorDatabaseConnectionString({ DATABASE_URL: direct }), direct)
+  assert.equal(sponsorDatabaseConnectionString({}), null)
 })
