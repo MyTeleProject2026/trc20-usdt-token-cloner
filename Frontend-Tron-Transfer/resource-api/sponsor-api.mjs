@@ -184,6 +184,21 @@ function intentMessage(value) {
   ].join('\n')
 }
 
+function classifySponsorDatabaseError(error) {
+  const code = String(error?.code || '')
+  if (code === 'ECONNREFUSED') return 'connection-refused'
+  if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') return 'connection-timeout'
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'database-host-unresolved'
+  if (code === 'EHOSTUNREACH' || code === 'ENETUNREACH') return 'database-host-unreachable'
+  if (code === 'ECONNRESET') return 'connection-reset'
+  if (code === '28P01' || code === '28000') return 'authentication-failed'
+  if (code === '3D000') return 'database-not-found'
+  if (code === '42501') return 'permission-denied'
+  if (code === '57P03') return 'database-unavailable'
+  if (code.startsWith('08')) return 'connection-failed'
+  return 'query-failed'
+}
+
 export function createSponsorResourceApi({
   env = process.env,
   allowedAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
@@ -268,7 +283,7 @@ export function createSponsorResourceApi({
               }
             }
           }
-        } catch { databaseStatus = 'query-failed' }
+        } catch (error) { databaseStatus = classifySponsorDatabaseError(error) }
       }
       return reply(res, 200, {
         success: true,

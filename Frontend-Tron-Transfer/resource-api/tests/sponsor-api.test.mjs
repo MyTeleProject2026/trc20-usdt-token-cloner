@@ -97,6 +97,21 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
   assert.equal(calls[0].trimStart().startsWith('CREATE'), false)
 })
 
+test('Sponsor status classifies database connection failures without exposing error details', async () => {
+  const database = {
+    async query() {
+      throw Object.assign(new Error('connection to private-db-host.example failed'), { code: 'ECONNREFUSED' })
+    },
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const result = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.databaseConfigured, true)
+  assert.equal(result.payload.databaseReady, false)
+  assert.equal(result.payload.databaseStatus, 'connection-refused')
+  assert.equal(JSON.stringify(result.payload).includes('private-db-host.example'), false)
+})
+
 test('invalid configured Sponsor Admin token keeps write execution unavailable', async () => {
   const database = {
     async query(sql) {
