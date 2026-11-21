@@ -20,7 +20,10 @@ function saveSponsorResourceTargets(deployment) {
   const energy = String(deployment?.energyWithSafetyMargin || deployment?.energyRequired || '')
   const bandwidth = String(deployment?.estimatedBandwidthBytes || '')
   if (!/^[1-9][0-9]{0,14}$/.test(energy) || !/^[1-9][0-9]{0,14}$/.test(bandwidth)) return
-  try { localStorage.setItem(SPONSOR_TARGETS_KEY, JSON.stringify({ energy, bandwidth })) } catch {}
+  try {
+    localStorage.setItem(SPONSOR_TARGETS_KEY, JSON.stringify({ energy, bandwidth }))
+    window.dispatchEvent(new Event('tron-transfer:sponsor-targets-updated'))
+  } catch {}
 }
 
 function makeReference() {
