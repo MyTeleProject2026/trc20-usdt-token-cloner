@@ -579,6 +579,69 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     }
   }
 
+  async function runResourceAutomation(resource) {
+    if (!wallet || !tronWeb || busy) return
+    if (!snapshot?.checkedAt) { notify('info', 'Live resource snapshot required', 'Refresh Sponsor and Owner Mainnet resources before provisioning.'); return }
+    const checkedAt = Date.parse(snapshot.checkedAt)
+    if (!Number.isFinite(checkedAt) || Date.now() - checkedAt > 90_000) {
+      await refresh({ quiet: true })
+      notify('info', 'Resource snapshot refreshed', 'Review the new live snapshot, then run the provisioning check again. No transaction was sent.')
+      return
+    }
+    if (sponsorApiStatus?.transactionExecutionAvailable !== true) {
+      notify('error', 'Sponsor execution is not ready', 'The server signer, database ledger, session authentication and Mainnet execution gates must all be ready. No transaction was sent.')
+      return
+    }
+    if (sponsorApiStatus?.adminTokenRequired === true && adminToken.length < 32) {
+      notify('error', 'Owner Admin authorization required', 'Enter the configured Sponsor Admin token before provisioning. No transaction was sent.')
+      return
+    }
+    try {
+      const protectedReserveSun = parseTrx(String(sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'))
+      const maxStakeSun = parseTrx(String(sponsorApiStatus?.stakingPolicy?.maxStakeTrx || '0'))
+      const target = resource === 'ENERGY' ? energyTarget : bandwidthTarget
+      const ownerAvailable = resource === 'ENERGY' ? snapshot.ownerEnergyAvailable : snapshot.ownerBandwidthAvailable
+      const maxDelegatableSun = resource === 'ENERGY' ? snapshot.maxEnergyDelegatableSun : snapshot.maxBandwidthDelegatableSun
+      const plan = planSponsorResourceProvisioning({
+        resource,
+        target,
+        ownerAvailable: String(Math.max(0, Math.floor(Number(ownerAvailable || 0)))),
+        maxDelegatableSun: String(maxDelegatableSun || '0'),
+        sponsorBalanceSun: String(snapshot.trxSun || '0'),
+        protectedReserveSun: String(protectedReserveSun),
+        network: {
+          totalEnergyLimit: snapshot.totalEnergyLimit,
+          totalEnergyWeight: snapshot.totalEnergyWeight,
+          totalNetLimit: snapshot.totalNetLimit,
+          totalNetWeight: snapshot.totalNetWeight,
+        },
+        stakingEnabled: sponsorApiStatus?.stakingPolicy?.enabled === true,
+        maxStakeSun: String(maxStakeSun),
+      })
+      if (plan.reason === 'target-met') {
+        notify('success', resource + ' target already met', 'The latest live Owner resource snapshot meets the configured target. No transaction is needed.')
+        return
+      }
+      if (!plan.ready || !plan.action || !plan.amountSun) {
+        notify('error', 'Resource provisioning blocked', plan.message || ('No safe ' + resource + ' action is available: ' + plan.reason + '. No transaction was sent.'))
+        return
+      }
+      const amountTrx = formatSunAsTrx(plan.amountSun)
+      const explanation = plan.action === 'stake'
+        ? 'This is the incremental Stake 2.0 amount after accounting for current Sponsor delegation capacity. After solidification, refresh live resources and run the check again before delegating.'
+        : 'Existing confirmed Sponsor stake can cover the estimated resource deficit. This will delegate the calculated amount to the Owner Wallet.'
+      if (!window.confirm('Provision Owner ' + resource + ' target?\n\nNext action: ' + plan.action.toUpperCase() + ' ' + amountTrx + ' TRX-equivalent.\nEstimated resource deficit: ' + Number(plan.deficit).toLocaleString() + '.\n\n' + explanation + '\n\nThis still requires the separate exact-intent Sponsor signature and confirmation.')) return
+      const confirmed = await submitResourceTransaction(plan.action, { amount: amountTrx, resource })
+      if (confirmed && plan.action === 'stake') {
+        notify('info', 'Stake confirmed — delegation is next', 'The stake transaction is solidified. Run the provisioning check again after the refreshed Mainnet resource snapshot; the app will not assume the new capacity before verifying it.')
+      } else if (confirmed && plan.action === 'delegate') {
+        notify('success', 'Owner resource delegation confirmed', 'The Sponsor delegation is solidified. Refresh Owner resource state before starting deployment or another contract write.')
+      }
+    } catch (error) {
+      notify('error', 'Resource planning failed closed', error instanceof Error ? error.message : 'Could not prepare a safe Mainnet resource action.')
+    }
+  }
+
   async function reconcileLastSponsorOperation() {
     if (!wallet || !tronWeb || !lastOperationReference || busy) return
     const local = activity.find((item) => item.operationReference === lastOperationReference)
@@ -741,9 +804,9 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       </section>
 
       <section id="sponsor-automation" className="sponsor-card" hidden={activePage !== "sponsor-automation"}>
-        <div className="sponsor-card-heading"><Activity/><div><h3>Automatic Resource Engine</h3><p>Live owner-resource monitoring and sponsor capacity checks.</p></div></div>
+        <div className="sponsor-card-heading"><Activity/><div><h3>Guided Resource Provisioning</h3><p>Live Owner resource targets with guarded Sponsor stake-or-delegate planning.</p></div></div>
         <div className="sponsor-resource-controls"><label className="sponsor-field">Owner Energy target (units)<input inputMode="numeric" value={energyTarget} onChange={event => setEnergyTarget(event.target.value.replace(/[^0-9]/g, '').slice(0, 15))}/><small>Default planning target only. Set this to the current deployment estimate from Owner Admin preflight.</small></label><label className="sponsor-field">Owner Bandwidth target (bytes)<input inputMode="numeric" value={bandwidthTarget} onChange={event => setBandwidthTarget(event.target.value.replace(/[^0-9]/g, '').slice(0, 15))}/></label></div><div className="sponsor-engine-grid"><div><small>OWNER TARGET</small><strong>{OWNER_ADDRESS}</strong></div><div><small>SPONSOR ENERGY STAKED</small><strong>{snapshot?.delegationReadAvailable ? formatAmount(snapshot.delegatedEnergySun) + ' TRX eq.' : 'Unavailable'}</strong></div><div><small>SPONSOR BANDWIDTH STAKED</small><strong>{snapshot?.delegationReadAvailable ? formatAmount(snapshot.delegatedBandwidthSun) + ' TRX eq.' : 'Unavailable'}</strong></div><div><small>OWNER ENERGY AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerEnergyAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>OWNER BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerBandwidthAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>ENERGY TARGET DEFICIT</small><strong>{snapshot ? ownerEnergyDeficit.toLocaleString() : '—'}</strong></div><div><small>BANDWIDTH TARGET DEFICIT</small><strong>{snapshot ? ownerBandwidthDeficit.toLocaleString() : '—'}</strong></div><div><small>RESOURCE PRECHECK</small><strong>{!energyTargetValid || !bandwidthTargetValid ? 'Invalid targets' : snapshot ? (ownerEnergyDeficit === 0 && ownerBandwidthDeficit === 0 ? 'Targets met' : 'Resource shortfall') : 'Awaiting live read'}</strong></div></div>
-        <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !wallet} onClick={() => void refresh()}>Run Resource Preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('deploy')}>Open Owner Admin deployment preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('portfolio')}>Open Owner portfolio</button></div><p className="sponsor-warning">Sponsor and Owner resource snapshots refresh automatically every 60 seconds while the Sponsor wallet is unlocked. Automatic unattended signing is intentionally disabled: each stake, delegation, or TRX top-up requires an exact Sponsor signature and explicit on-screen confirmation. A provider rental or free-grant adapter is not configured by this wallet import.</p>
+        <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !wallet || !snapshot || !energyTargetValid || !sponsorApiStatus?.transactionExecutionAvailable} onClick={() => void runResourceAutomation('ENERGY')}>Provision Owner Energy target</button><button className="sponsor-primary" disabled={busy || !wallet || !snapshot || !bandwidthTargetValid || !sponsorApiStatus?.transactionExecutionAvailable} onClick={() => void runResourceAutomation('BANDWIDTH')}>Provision Owner Bandwidth target</button><button className="sponsor-secondary" disabled={busy || !wallet} onClick={() => void refresh()}>Run Resource Preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('deploy')}>Open Owner Admin deployment preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('portfolio')}>Open Owner portfolio</button></div><p className="sponsor-warning">Sponsor and Owner resource snapshots refresh automatically every 60 seconds while the Sponsor wallet is unlocked. The planner chooses only the next safe stake or delegation action from a fresh Mainnet snapshot. Every action still requires an exact Sponsor message signature and explicit on-screen confirmation; after staking, it requires a new live resource read before delegation. A provider rental or free-grant adapter is not configured by this wallet import.</p>
       </section>
 
       <section id="sponsor-activity" className="sponsor-card" hidden={activePage !== "sponsor-activity"}>
