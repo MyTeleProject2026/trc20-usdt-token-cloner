@@ -10,7 +10,8 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
   const mobile = await read('../src/MobileNavBar.jsx')
   const ids = ['home','portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']
   for (const id of ids) assert.ok(app.includes("id: '" + id + "'"), 'missing page route: ' + id)
-  assert.ok(sidebar.includes('Desktop workspace navigation'))
+  assert.ok(sidebar.includes('trax-desktop-workspace-nav'))
+  assert.ok(sidebar.includes('Owner workspace pages') && sidebar.includes('Sponsor workspace pages'))
   assert.ok(sidebar.includes('collapsed'))
   assert.ok(sidebar.includes('Expand sidebar'))
   assert.ok(sidebar.includes('Collapse sidebar'))
