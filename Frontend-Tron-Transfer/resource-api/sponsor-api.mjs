@@ -100,9 +100,22 @@ async function ensureSchema(db) {
     ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_resource_check CHECK (resource IN ('ENERGY','BANDWIDTH','TRX'));
     CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_operations_sponsor_created
       ON public.tron_transfer_sponsor_operations (sponsor_address, created_at DESC);
+    CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_control (
+      id SMALLINT PRIMARY KEY CHECK (id = 1),
+      writes_paused BOOLEAN NOT NULL DEFAULT FALSE,
+      pause_reason TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    INSERT INTO public.tron_transfer_sponsor_control (id, writes_paused, pause_reason)
+      VALUES (1, FALSE, NULL) ON CONFLICT (id) DO NOTHING;
   `).catch(error => { schemaPromise = null; throw error })
   await schemaPromise
 }
+async function readSponsorWritesPaused(db) {
+  const result = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
+  return result.rows?.[0]?.writes_paused === true
+}
+
 function sessionSecret(env) {
   return typeof env.SPONSOR_SESSION_SECRET === 'string' && Buffer.byteLength(env.SPONSOR_SESSION_SECRET) >= 32
     ? env.SPONSOR_SESSION_SECRET : null
@@ -218,10 +231,16 @@ export function createSponsorResourceApi({
       const adminRequired = adminTokenRequired(env)
       const adminConfigured = !adminRequired || env.SPONSOR_ADMIN_TOKEN.length >= 32
       let databaseReady = false
+      let sponsorWritesPaused = false
       if (dbConfigured) {
         try {
           const db = getDatabase()
-          if (db) { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true }
+          if (db) {
+            await ensureSchema(db)
+            await db.query('SELECT 1')
+            sponsorWritesPaused = await readSponsorWritesPaused(db)
+            databaseReady = true
+          }
         } catch { databaseReady = false }
       }
       return reply(res, 200, {
@@ -232,11 +251,12 @@ export function createSponsorResourceApi({
         sessionAuthenticationConfigured: Boolean(sessionSecret(env)),
         databaseConfigured: dbConfigured,
         databaseReady,
+        sponsorWritesPaused,
         ownerAddressMatches,
         sponsorIndependent,
         engineConfigured: readiness.configured === true,
         engineEnabled: readiness.enabled === true,
-        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured,
+        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured,
         feePolicy: readiness.feePolicy,
         stakingPolicy: readiness.stakingPolicy,
         ownerTopupPolicy: readiness.ownerTopupPolicy,
@@ -340,18 +360,34 @@ export function createSponsorResourceApi({
       if (!db) return reply(res, 503, { success: false, error: 'durable-idempotency-storage-required', retryAllowed: false }, origin)
       const keyHash = sha(intent.idempotencyKey)
       const requestHash = sha(JSON.stringify({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: session.address, ownerAddress }))
+      let reservationClient
+      let reservationTransactionOpen = false
       try {
         await ensureSchema(db)
-        const reserved = await db.query(
+        reservationClient = typeof db.connect === 'function' ? await db.connect() : db
+        await reservationClient.query('BEGIN')
+        reservationTransactionOpen = true
+        const pause = await reservationClient.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1 FOR SHARE')
+        if (pause.rows?.[0]?.writes_paused === true) {
+          await reservationClient.query('ROLLBACK')
+          reservationTransactionOpen = false
+          return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
+        }
+        const reserved = await reservationClient.query(
           'INSERT INTO public.tron_transfer_sponsor_operations (idempotency_key_hash,request_hash,operation,resource,amount_sun,sponsor_address,owner_address,status) VALUES ($1,$2,$3,$4,$5,$6,$7,\'reserved\') ON CONFLICT (idempotency_key_hash) DO NOTHING RETURNING id',
           [keyHash, requestHash, intent.operation, intent.resource, intent.amountSun, session.address, ownerAddress],
         )
         if (!reserved.rowCount) {
+          await reservationClient.query('ROLLBACK')
+          reservationTransactionOpen = false
           const prior = await db.query('SELECT request_hash,status,transaction_id,result_code,confirmation_block FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1', [keyHash])
           const row = prior.rows?.[0]
           if (!row || row.request_hash !== requestHash) return reply(res, 409, { success: false, error: 'idempotency-key-reused-with-different-intent', retryAllowed: false }, origin)
           return reply(res, 409, { success: false, error: 'operation-already-recorded', operationReference: intent.idempotencyKey, operationStatus: row.status, transactionId: row.transaction_id, resultCode: row.result_code, confirmationBlock: row.confirmation_block, retryAllowed: false }, origin)
         }
+        await reservationClient.query('COMMIT')
+        reservationTransactionOpen = false
+        if (reservationClient !== db) { reservationClient.release(); reservationClient = null }
         const result = await engine.execute({
           operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, ownerAddress,
           onSigned: async transactionId => {
@@ -376,7 +412,10 @@ export function createSponsorResourceApi({
           solidified: result.solidified === true, retryAllowed: false,
         }, origin)
       } catch {
+        if (reservationClient && reservationTransactionOpen) await reservationClient.query('ROLLBACK').catch(() => {})
         return reply(res, 503, { success: false, error: 'sponsor-operation-storage-or-execution-failed', retryAllowed: false }, origin)
+      } finally {
+        if (reservationClient && reservationClient !== db) reservationClient.release()
       }
     }
 
