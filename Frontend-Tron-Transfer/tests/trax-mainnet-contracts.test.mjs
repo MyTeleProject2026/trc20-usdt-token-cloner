@@ -328,11 +328,18 @@ const PROMO_OWNER_HEX = '41' + '11'.repeat(20)
 function promoWallet(signMessageV2 = async () => 'ab'.repeat(65)) {
   return {
     address: PROMO_OWNER,
+    provider: null,
+    signerType: 'encrypted-local-owner-vault',
     tronWeb: {
       fullNode: { host: 'https://api.trongrid.io' },
+      defaultAddress: { base58: PROMO_OWNER },
       isAddress: address => address === PROMO_OWNER,
       address: { toHex: address => address === PROMO_OWNER ? PROMO_OWNER_HEX : '' },
-      trx: { signMessageV2 },
+      trx: {
+        signMessageV2,
+        sign: async transaction => transaction,
+        sendRawTransaction: async () => { throw new Error('broadcast not expected in promo tests') },
+      },
     },
   }
 }
