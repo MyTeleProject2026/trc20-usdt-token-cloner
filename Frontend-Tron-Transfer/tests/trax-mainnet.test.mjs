@@ -1,6 +1,34 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, normalizeDeploymentEnergyEstimate, isMainnetEnergyEstimateUnavailable } from '../src/trax-mainnet.mjs'
+import { TronWeb } from 'tronweb'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, normalizeDeploymentEnergyEstimate, isMainnetEnergyEstimateUnavailable } from '../src/trax-mainnet.mjs'
+
+test('Owner Mainnet authorization accepts only the encrypted local Owner signer', () => {
+  const tronWeb = new TronWeb({
+    fullHost: 'https://api.trongrid.io',
+    privateKey: '0000000000000000000000000000000000000000000000000000000000000001',
+  })
+  const wallet = {
+    address: tronWeb.defaultAddress.base58,
+    tronWeb,
+    provider: null,
+    signerType: 'encrypted-local-owner-vault',
+  }
+  assert.equal(assertMainnetWallet(wallet), tronWeb)
+  assert.throws(
+    () => assertMainnetWallet({ ...wallet, provider: { request() {} } }),
+    /External wallet providers are not supported/,
+  )
+  assert.throws(
+    () => assertMainnetWallet({ ...wallet, signerType: 'injected-wallet' }),
+    /External wallet providers are not supported/,
+  )
+  assert.throws(
+    () => assertMainnetWallet({ ...wallet, address: 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL' }),
+    /signer address does not match/,
+  )
+})
+
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
