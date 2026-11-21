@@ -208,6 +208,8 @@ export function createSponsorResourceApi({
       const dbConfigured = Boolean(env.DATABASE_URL)
       const ownerAddressMatches = readiness.ownerAddress === ownerAddress
       const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
+      const adminRequired = adminTokenRequired(env)
+      const adminConfigured = !adminRequired || env.SPONSOR_ADMIN_TOKEN.length >= 32
       let databaseReady = false
       if (dbConfigured) {
         try {
@@ -227,12 +229,12 @@ export function createSponsorResourceApi({
         sponsorIndependent,
         engineConfigured: readiness.configured === true,
         engineEnabled: readiness.enabled === true,
-        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent,
+        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured,
         feePolicy: readiness.feePolicy,
         stakingPolicy: readiness.stakingPolicy,
         ownerTopupPolicy: readiness.ownerTopupPolicy,
-        adminTokenRequired: adminTokenRequired(env),
-        adminTokenConfigured: adminTokenRequired(env) && env.SPONSOR_ADMIN_TOKEN.length >= 32,
+        adminTokenRequired: adminRequired,
+        adminTokenConfigured: adminConfigured,
         checkedAt: new Date(now()).toISOString(),
       }, origin)
     }
