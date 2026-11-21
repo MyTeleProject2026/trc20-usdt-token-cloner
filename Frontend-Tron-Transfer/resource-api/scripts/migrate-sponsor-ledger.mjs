@@ -44,10 +44,15 @@ function rowDigest(rows) {
 }
 
 async function main() {
-  const sourceClient = await source.connect()
-  const targetClient = await target.connect()
+  let sourceClient
+  let targetClient
+  let sourceTransactionOpen = false
+  let targetTransactionOpen = false
   try {
+    sourceClient = await source.connect()
+    targetClient = await target.connect()
     await sourceClient.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    sourceTransactionOpen = true
     const sourceCheck = await sourceClient.query(
       "SELECT to_regclass('public.tron_transfer_sponsor_operations') AS table_name"
     )
@@ -64,6 +69,7 @@ async function main() {
     const sourceDigest = rowDigest(rows.rows)
 
     await targetClient.query('BEGIN')
+    targetTransactionOpen = true
     await targetClient.query(`
       CREATE TABLE IF NOT EXISTS ${table} (
         id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -115,7 +121,9 @@ async function main() {
     }
 
     await targetClient.query('COMMIT')
+    targetTransactionOpen = false
     await sourceClient.query('COMMIT')
+    sourceTransactionOpen = false
     process.stdout.write(JSON.stringify({
       success: true,
       copiedRows: sourceCount,
@@ -124,12 +132,12 @@ async function main() {
       note: 'No database URLs, passwords, wallet keys, or row contents were printed.',
     }) + '\n')
   } catch (error) {
-    await targetClient.query('ROLLBACK').catch(() => {})
-    await sourceClient.query('ROLLBACK').catch(() => {})
+    if (targetClient && targetTransactionOpen) await targetClient.query('ROLLBACK').catch(() => {})
+    if (sourceClient && sourceTransactionOpen) await sourceClient.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
-    sourceClient.release()
-    targetClient.release()
+    sourceClient?.release()
+    targetClient?.release()
   }
 }
 
