@@ -598,7 +598,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     }
     try {
       const protectedReserveSun = parseTrx(String(sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'))
-      const maxStakeSun = parseTrx(String(sponsorApiStatus?.stakingPolicy?.maxStakeTrx || '0'))
+      const maxStakeSun = sponsorApiStatus?.stakingPolicy?.enabled === true ? parseTrx(String(sponsorApiStatus.stakingPolicy.maxStakeTrx)) : 0
       const target = resource === 'ENERGY' ? energyTarget : bandwidthTarget
       const ownerAvailable = resource === 'ENERGY' ? snapshot.ownerEnergyAvailable : snapshot.ownerBandwidthAvailable
       const maxDelegatableSun = resource === 'ENERGY' ? snapshot.maxEnergyDelegatableSun : snapshot.maxBandwidthDelegatableSun
