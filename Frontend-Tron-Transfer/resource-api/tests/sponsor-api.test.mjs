@@ -186,7 +186,7 @@ test('Sponsor ledger bootstrap requires admin authorization and leaves writes pa
     },
   }
   const { api } = setup({ database, databaseUrl: 'postgres://configured' })
-  const denied = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, null)
+  const denied = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, '')
   assert.equal(denied.status, 401)
   assert.equal(schemaCreated, false)
 
