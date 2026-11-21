@@ -65,7 +65,8 @@ export function planSponsorResourceProvisioning({
     }
   }
 
-  const additionalStake = requiredStake - delegatable
+  const calculatedAdditionalStake = requiredStake - delegatable
+  const additionalStake = calculatedAdditionalStake < SUN ? SUN : calculatedAdditionalStake
   if (stakingEnabled !== true) return {
     ready: false, action: null, resource, deficit: deficit.toString(),
     estimatedStakeSun: requiredStake.toString(), reason: 'staking-disabled-or-existing-capacity-insufficient',
