@@ -15,6 +15,22 @@ const ACTIVITY_KEY = 'tron-transfer.sponsor-activity.v1'
 const SECURITY_KEY = 'tron-transfer.sponsor-security-events.v1'
 const TARGETS_KEY = 'tron-transfer.sponsor-resource-targets.v1'
 
+function formatSponsorDatabaseStatus(status, payload) {
+  const labels = {
+    ready: 'connected',
+    'not-configured': 'not configured',
+    'pool-unavailable': 'connection pool unavailable',
+    'schema-missing': 'ledger schema missing',
+    'control-row-missing': 'ledger control row missing',
+    'query-failed': 'database query failed',
+    unchecked: 'checking',
+  }
+  if (typeof status === 'string' && labels[status]) return labels[status]
+  if (payload?.databaseReady === true) return 'connected'
+  if (payload?.databaseConfigured === true) return 'configured but unavailable'
+  return 'not configured'
+}
+
 function formatAmount(value, digits = 6) {
   const amount = Number(value || 0) / SUN
   return Number.isFinite(amount) ? amount.toLocaleString(undefined, { maximumFractionDigits: digits }) : '—'
@@ -773,7 +789,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
 
     {wallet && activePage === 'sponsor' && <section className="sponsor-card">
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Server-side signing, exact-intent authorization and durable operation ledger.</p></div></div>
-      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {sponsorApiStatus?.databaseReady ? 'connected' : sponsorApiStatus?.databaseConfigured ? 'configured but unavailable' : 'not configured'} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Admin authorization: {sponsorApiStatus?.adminTokenRequired ? (sponsorApiStatus?.adminTokenConfigured ? 'required · valid policy' : 'required · token must be at least 32 characters') : 'not required'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
+      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Admin authorization: {sponsorApiStatus?.adminTokenRequired ? (sponsorApiStatus?.adminTokenConfigured ? 'required · valid policy' : 'required · token must be at least 32 characters') : 'not required'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Exact Sponsor message signature, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
     </section>}
