@@ -120,13 +120,15 @@ function sessionSecret(env) {
   return typeof env.SPONSOR_SESSION_SECRET === 'string' && Buffer.byteLength(env.SPONSOR_SESSION_SECRET) >= 32
     ? env.SPONSOR_SESSION_SECRET : null
 }
-function adminTokenRequired(env) {
-  return typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length > 0
+function adminTokenRequired() {
+  // Sponsor writes always require the independent Owner Admin second factor.
+  // Missing configuration must fail closed, not silently disable the factor.
+  return true
 }
 function verifyAdminToken(req, env) {
-  if (!adminTokenRequired(env)) return true
   const expected = env.SPONSOR_ADMIN_TOKEN
-  return expected.length >= 32 && equalText(req.headers?.['x-sponsor-admin-token'], expected)
+  return typeof expected === 'string' && expected.length >= 32
+    && equalText(req.headers?.['x-sponsor-admin-token'], expected)
 }
 function issueSession(address, env, now = Date.now()) {
   const secret = sessionSecret(env)
@@ -229,7 +231,7 @@ export function createSponsorResourceApi({
       const ownerAddressMatches = readiness.ownerAddress === ownerAddress
       const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
       const adminRequired = adminTokenRequired(env)
-      const adminConfigured = !adminRequired || env.SPONSOR_ADMIN_TOKEN.length >= 32
+      const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32
       let databaseReady = false
       let sponsorWritesPaused = false
       if (dbConfigured) {
