@@ -315,7 +315,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       res.writeHead(204, {
         'access-control-allow-origin': origin || 'null',
         'access-control-allow-methods': 'GET, POST, OPTIONS',
-        'access-control-allow-headers': 'content-type, authorization',
+        'access-control-allow-headers': 'content-type, authorization, x-sponsor-admin-token',
         'access-control-max-age': '600',
         vary: 'Origin',
       })
