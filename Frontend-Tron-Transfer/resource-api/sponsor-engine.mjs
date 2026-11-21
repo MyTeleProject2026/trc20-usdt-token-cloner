@@ -147,7 +147,18 @@ export function createSponsorTransactionEngine({
       return { confirmed: true, status: 'solidified-success', blockNumber: info.blockNumber }
     }
     if (operation === 'withdraw') {
-      if (info.withdraw_expire_amount !== undefined && String(info.withdraw_expire_amount) !== String(amountSun)) return { confirmed: false, status: 'solidified-withdraw-amount-mismatch' }
+      // The solidified receipt must report the actual Stake 2.0 withdrawal.
+      // An absent field is not proof of a successful amount transfer.
+      const withdrawn = info.withdraw_expire_amount
+      if (withdrawn === undefined || withdrawn === null) {
+        return { confirmed: false, status: 'solidified-withdraw-amount-unavailable', blockNumber: info.blockNumber }
+      }
+      if (typeof withdrawn === 'number' && !Number.isSafeInteger(withdrawn)) {
+        return { confirmed: false, status: 'solidified-withdraw-amount-unsafe-precision', blockNumber: info.blockNumber }
+      }
+      if (!/^(?:0|[1-9][0-9]*)$/.test(String(withdrawn)) || String(withdrawn) !== String(amountSun)) {
+        return { confirmed: false, status: 'solidified-withdraw-amount-mismatch', blockNumber: info.blockNumber }
+      }
       return { confirmed: true, status: 'solidified-success', blockNumber: info.blockNumber }
     }
     if (resourceCode(value.resource) !== RESOURCE_CODE[resource]) return { confirmed: false, status: 'solidified-resource-mismatch' }
