@@ -38,12 +38,33 @@ const NAV_ITEMS = [
 ]
 
 
+function pageFromLocation() {
+  const candidate = window.location.hash.replace(/^#\\/?/, '')
+  return NAV_ITEMS.some(item => item.id === candidate) ? candidate : 'home'
+}
+
 export default function App() {
-  const [activePage, setActivePage] = useState(() => window.location.hash === '#/sponsor' ? 'sponsor' : 'home')
+  const [activePage, setActivePage] = useState(pageFromLocation)
   const [wallet, setWallet] = useState(null)
   const [walletError, setWalletError] = useState('')
   const [walletNotice, setWalletNotice] = useState('')
   const [ownerAccessOpen, setOwnerAccessOpen] = useState(false)
+
+  // Keep each workspace/page addressable and make browser Back/Forward work.
+  useEffect(() => {
+    const syncFromLocation = () => setActivePage(pageFromLocation())
+    window.addEventListener('popstate', syncFromLocation)
+    window.addEventListener('hashchange', syncFromLocation)
+    return () => {
+      window.removeEventListener('popstate', syncFromLocation)
+      window.removeEventListener('hashchange', syncFromLocation)
+    }
+  }, [])
+
+  useEffect(() => {
+    const nextHash = '#/' + activePage
+    if (window.location.hash !== nextHash) window.history.pushState({ tronTransferPage: activePage }, '', nextHash)
+  }, [activePage])
 
   function connectWallet() {
     setWalletError('')
@@ -110,14 +131,14 @@ export default function App() {
         </div>
         <div className="trax-topbar-actions">
           <div className="trax-workspace-switch" role="group" aria-label="Wallet workspace">
-            <button type="button" className={!sponsorWorkspace ? 'active' : ''} aria-pressed={!sponsorWorkspace} onClick={() => setActivePage('home')}>Owner workspace</button>
-            <button type="button" className={sponsorWorkspace ? 'active sponsor' : ''} aria-pressed={sponsorWorkspace} onClick={() => setActivePage('sponsor')}>Sponsor workspace</button>
+            <button type="button" className={!sponsorWorkspace ? 'active' : ''} aria-current={!sponsorWorkspace ? 'page' : undefined} aria-pressed={!sponsorWorkspace} onClick={() => setActivePage('home')}>Owner workspace</button>
+            <button type="button" className={sponsorWorkspace ? 'active sponsor' : ''} aria-current={sponsorWorkspace ? 'page' : undefined} aria-pressed={sponsorWorkspace} onClick={() => setActivePage('sponsor')}>Sponsor workspace</button>
           </div>
           <span className="trax-mainnet-badge"><i/> TRON MAINNET <b>·</b> {sponsorWorkspace ? "SPONSOR" : "OWNER"}</span>
           {!sponsorWorkspace && (wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Unlock Owner Wallet</button>)}
         </div>
       </header>
-      <main className="trax-admin-content">
+      <main id="trax-workspace-main" className="trax-admin-content" tabIndex={-1}>
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
         <div hidden={!sponsorWorkspace} aria-hidden={!sponsorWorkspace}>
           <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace}/></SponsorWorkspaceErrorBoundary>
