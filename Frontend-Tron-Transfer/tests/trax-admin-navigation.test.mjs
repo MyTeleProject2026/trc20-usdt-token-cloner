@@ -10,7 +10,8 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
   const mobile = await read('../src/MobileNavBar.jsx')
   const ids = ['home','portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']
   for (const id of ids) assert.ok(app.includes("id: '" + id + "'"), 'missing page route: ' + id)
-  assert.ok(sidebar.includes('Desktop workspace navigation'))
+  assert.ok(sidebar.includes('trax-desktop-workspace-nav'))
+  assert.ok(sidebar.includes('Owner workspace pages') && sidebar.includes('Sponsor workspace pages'))
   assert.ok(sidebar.includes('collapsed'))
   assert.ok(sidebar.includes('Expand sidebar'))
   assert.ok(sidebar.includes('Collapse sidebar'))
@@ -117,4 +118,23 @@ test('premium workspace layer preserves reduced motion and mobile Sponsor tabs',
   assert.ok(css.includes('@media(max-width:720px)'))
   assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'))
   assert.ok(css.includes('.sponsor-product-tabs button.active'))
+})
+
+
+test('workspace routes are deep-linkable and browser history restores the selected page', async () => {
+  const app = await read('../src/App.jsx')
+  assert.ok(app.includes('function pageFromLocation()'))
+  assert.ok(app.includes('const candidate = window.location.hash.replace('))
+  assert.ok(app.includes("window.addEventListener('popstate', syncFromLocation)"))
+  assert.ok(app.includes("window.addEventListener('hashchange', syncFromLocation)"))
+  assert.ok(app.includes("window.history.pushState({ tronTransferPage: activePage }, '', nextHash)"))
+  assert.ok(app.includes('id="trax-workspace-main"'))
+})
+
+test('desktop sidebar clearly identifies the active workspace context', async () => {
+  const sidebar = await read('../src/TRAXSidebar.jsx')
+  assert.ok(sidebar.includes('SPONSOR TREASURY · MAINNET'))
+  assert.ok(sidebar.includes('OWNER CONTROL · MAINNET'))
+  assert.ok(sidebar.includes('Sponsor workspace pages'))
+  assert.ok(sidebar.includes('Owner workspace pages'))
 })
