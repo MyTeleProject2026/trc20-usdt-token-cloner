@@ -92,4 +92,4 @@ The production database must have an independently verified backup and a tested 
 
 ## No-card database continuity
 
-If Render paid billing is unavailable, see [`docs/TRON-TRANSFER-NO-CARD-DATABASE-MIGRATION.md`](../../../docs/TRON-TRANSFER-NO-CARD-DATABASE-MIGRATION.md) for the guarded migration path to an external PostgreSQL provider and the included `npm run migrate:sponsor-ledger` utility. A no-card free database is an interim continuity option only; keep Sponsor signing and broadcast disabled until durable backup, restore, availability, and Mainnet readiness requirements are independently met.
+If Render paid billing is unavailable, see [`docs/TRON-TRANSFER-NO-CARD-DATABASE-MIGRATION.md`](../../docs/TRON-TRANSFER-NO-CARD-DATABASE-MIGRATION.md) for the guarded migration path to an external PostgreSQL provider and the included `npm run migrate:sponsor-ledger` utility. A no-card free database is an interim continuity option only; keep Sponsor signing and broadcast disabled until durable backup, restore, availability, and Mainnet readiness requirements are independently met.
