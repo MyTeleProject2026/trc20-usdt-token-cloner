@@ -353,6 +353,37 @@ export function createSponsorResourceApi({
       }, origin)
     }
 
+    if (req.method === 'POST' && path === '/api/sponsor/ledger/bootstrap') {
+      if (!verifyAdminToken(req, env)) return reply(res, 401, { success: false, error: 'admin-authorization-required' }, origin)
+      if (!sponsorDatabaseConnectionInfo(env).configured) {
+        return reply(res, 503, { success: false, error: 'sponsor-ledger-database-not-configured' }, origin)
+      }
+      const db = getDatabase()
+      if (!db) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-unavailable' }, origin)
+      try {
+        // Idempotently create only the ledger schema. This never imports source
+        // rows, changes an existing pause state, or authorizes a transaction.
+        await ensureSchema(db)
+        const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
+        if (!control.rows?.length) {
+          return reply(res, 503, { success: false, error: 'sponsor-ledger-control-row-missing', sponsorWritesPaused: true }, origin)
+        }
+        const sponsorWritesPaused = control.rows[0].writes_paused === true
+        return reply(res, sponsorWritesPaused ? 200 : 409, {
+          success: sponsorWritesPaused,
+          schemaInitialized: true,
+          databaseReady: sponsorWritesPaused,
+          sponsorWritesPaused,
+          transactionExecutionAvailable: false,
+          message: sponsorWritesPaused
+            ? 'Ledger schema initialized; source reconciliation, durability verification, and explicit cutover remain required.'
+            : 'Ledger schema exists but writes are not paused. No pause state was changed; pause writes before migration.',
+        }, origin)
+      } catch (error) {
+        return reply(res, 503, { success: false, error: classifySponsorDatabaseError(error), sponsorWritesPaused: true }, origin)
+      }
+    }
+
     if (req.method === 'POST' && path === '/api/sponsor/session/challenge') {
       if (!rateLimit(req, 'session-challenge', 8)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
