@@ -298,8 +298,8 @@ export function createSponsorResourceApi({
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
       const { operation, resource, amountSun, idempotencyKey } = body
-      const validOperation = ['stake', 'delegate', 'topup'].includes(operation)
-      const validResource = operation === 'topup' ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
+      const validOperation = ['stake', 'delegate', 'undelegate', 'unstake', 'withdraw', 'topup'].includes(operation)
+      const validResource = ['topup', 'withdraw'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
       if (!validOperation || !validResource
         || !positiveSun(amountSun) || !IDEMPOTENCY.test(String(idempotencyKey || ''))) {
         return reply(res, 400, { success: false, error: 'invalid-sponsor-operation-intent' }, origin)
