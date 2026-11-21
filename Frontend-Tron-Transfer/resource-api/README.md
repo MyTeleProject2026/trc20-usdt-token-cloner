@@ -88,3 +88,13 @@ Complete these checks against the existing Render services before enabling Spons
 6. **Mainnet safety:** keep the existing TRӾ contract source and artifact unchanged. Contract deployment, token administration, and Sponsor transactions each require their own explicit authorization and live preflight; CI success is not authorization to broadcast.
 
 The production database must have an independently verified backup and a tested recovery path. Never put database URLs, private keys, session secrets, Admin tokens, or RPC API keys in frontend build variables, source control, logs, or public status responses.
+
+
+## No-card database continuity
+
+If Render paid billing is unavailable, see [`docs/TRON-TRANSFER-NO-CARD-DATABASE-MIGRATION.md`](../../docs/TRON-TRANSFER-NO-CARD-DATABASE-MIGRATION.md) for the guarded migration path to an external PostgreSQL provider and the included `npm run migrate:sponsor-ledger` utility. A no-card free database is an interim continuity option only; keep Sponsor signing and broadcast disabled until durable backup, restore, availability, and Mainnet readiness requirements are independently met.
+
+
+### Neon connection URLs
+
+For Neon, configure server-side `DATABASE_URL` with the direct connection string and `DATABASE_URL_POOLED` with the pooled connection string. The Sponsor Resource API prefers `DATABASE_URL_POOLED` for normal runtime queries and falls back to `DATABASE_URL`. Use the direct URL as `TARGET_DATABASE_URL` for the one-off ledger migration. Never expose either URL through a `VITE_*` frontend variable or commit it to Git.

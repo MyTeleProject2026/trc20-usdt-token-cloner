@@ -61,10 +61,17 @@ async function readBody(req, maxBytes = 16_384) {
     return value
   } catch { throw Object.assign(new Error('invalid-json'), { status: 400 }) }
 }
+export function sponsorDatabaseConnectionString(env = process.env) {
+  // Neon pooled URLs are preferred for the always-on Resource API. Keep the
+  // direct DATABASE_URL for schema changes and one-off migration utilities.
+  return env.DATABASE_URL_POOLED || env.DATABASE_URL || null
+}
+
 function getPool(env) {
-  if (!env.DATABASE_URL) return null
+  const connectionString = sponsorDatabaseConnectionString(env)
+  if (!connectionString) return null
   if (!pool) {
-    pool = new Pool({ connectionString: env.DATABASE_URL, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30_000, max: 3 })
+    pool = new Pool({ connectionString, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30_000, max: 3 })
     pool.on('error', error => process.stderr.write('Sponsor ledger database error: ' + String(error?.code || 'unknown') + '\n'))
   }
   return pool
@@ -205,7 +212,7 @@ export function createSponsorResourceApi({
 
     if (req.method === 'GET' && path === '/api/sponsor/status') {
       const readiness = engine.readiness()
-      const dbConfigured = Boolean(env.DATABASE_URL)
+      const dbConfigured = Boolean(sponsorDatabaseConnectionString(env))
       const ownerAddressMatches = readiness.ownerAddress === ownerAddress
       const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
       const adminRequired = adminTokenRequired(env)
