@@ -464,7 +464,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   function logoutWallet() {
     recordSecurityEvent(wallet?.address, 'Sponsor Wallet logged out', 'Active session cleared; encrypted vault retained for reconnect.')
     setWallet(null)
-    setSaved(false)
+    setSaved(hasSavedSponsorWallet())
     setSnapshot(null)
       setWalletTransactions([])
     setWalletTransactionsAvailable(false)
