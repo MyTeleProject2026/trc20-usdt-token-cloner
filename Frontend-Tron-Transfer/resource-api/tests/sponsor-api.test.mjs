@@ -72,9 +72,30 @@ test('Sponsor status exposes readiness but never secret values', async () => {
   assert.equal(result.payload.network, 'TRON Mainnet')
   assert.equal(result.payload.sponsorAddress, SPONSOR)
   assert.equal(result.payload.transactionExecutionAvailable, false)
+  assert.equal(result.payload.databaseReady, false)
+  assert.equal(result.payload.databaseStatus, 'not-configured')
   assert.equal(JSON.stringify(result.payload).includes(SECRET), false)
 })
 
+
+test('Sponsor status reports a missing ledger schema without attempting DDL', async () => {
+  const calls = []
+  const database = {
+    async query(sql) {
+      calls.push(sql)
+      assert.match(sql, /to_regclass/)
+      return { rowCount: 1, rows: [{ operations_table: null, control_table: null }] }
+    },
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const result = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.databaseConfigured, true)
+  assert.equal(result.payload.databaseReady, false)
+  assert.equal(result.payload.databaseStatus, 'schema-missing')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].trimStart().startsWith('CREATE'), false)
+})
 
 test('invalid configured Sponsor Admin token keeps write execution unavailable', async () => {
   const database = {
@@ -95,6 +116,7 @@ test('invalid configured Sponsor Admin token keeps write execution unavailable',
   assert.equal(result.payload.adminTokenRequired, true)
   assert.equal(result.payload.adminTokenConfigured, false)
   assert.equal(result.payload.databaseReady, true)
+  assert.equal(result.payload.databaseStatus, 'ready')
   assert.equal(result.payload.transactionExecutionAvailable, false)
 })
 
@@ -185,6 +207,7 @@ test('durable Sponsor maintenance pause blocks a valid signed operation before r
   const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
   const status = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(status.payload.sponsorWritesPaused, true)
+  assert.equal(status.payload.databaseStatus, 'ready')
   assert.equal(status.payload.transactionExecutionAvailable, false)
   const token = await authenticated(api)
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
