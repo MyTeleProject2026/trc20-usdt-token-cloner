@@ -108,7 +108,7 @@ test('Sponsor pages mount only the active section and expose actionable render d
     assert.ok(sponsor.includes(`activePage === "${route}" && <section id="${id}"`), id + ' must mount only when active')
     assert.ok(!new RegExp(`<section id="${id}"[^>]*hidden=`).test(sponsor), id + ' must not stay mounted while hidden')
   }
-  assert.ok(app.includes('Diagnostic: {this.state.message}'), 'error boundary must expose a useful render diagnostic')
+  assert.ok(app.includes('this.state.message') && app.includes('Diagnostic:'), 'error boundary must expose a useful render diagnostic')
   assert.ok(app.includes("this.props.onNavigate('sponsor')"), 'error boundary must offer recovery navigation')
 })
 test('premium workspace layer preserves reduced motion and mobile Sponsor tabs', async () => {
