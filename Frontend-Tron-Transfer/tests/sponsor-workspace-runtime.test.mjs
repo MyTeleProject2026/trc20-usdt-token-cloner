@@ -17,7 +17,8 @@ test('Sponsor resource-derived values are initialized before effects reference t
 
 test('Sponsor workspace receives the active route from App', () => {
   assert.match(source, /function SponsorWalletManager\(\{\s*activePage\s*=\s*'sponsor'/)
-  for (const id of ['sponsor', 'sponsor-resources', 'sponsor-automation', 'sponsor-activity']) assert.ok(source.includes(`activePage !== "${id}"`), `${id} must render only on its own page`)
+  for (const id of ['sponsor', 'sponsor-resources', 'sponsor-automation', 'sponsor-activity']) assert.ok(source.includes(`activePage === "${id}" && <section`) || source.includes(`activePage === '${id}' &&`), `${id} must be conditionally mounted only on its own page`)
+  assert.ok(!/id="sponsor-(?:overview|resources|automation|activity)"[^>]*hidden=/.test(source), 'inactive Sponsor page sections must not remain mounted with the hidden attribute')
   assert.ok(!source.includes('scrollIntoView'), 'page navigation must not depend on scrolling hidden sections')
 })
 
