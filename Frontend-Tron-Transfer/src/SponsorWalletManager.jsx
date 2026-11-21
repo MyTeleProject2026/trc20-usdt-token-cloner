@@ -134,7 +134,7 @@ function CenterToast({ toast, onClose }) {
   </div>
 }
 
-export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {} }) {
+export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {}, workspaceActive = true }) {
   const [wallet, setWallet] = useState(null)
   const [saved, setSaved] = useState(false)
   const [replacing, setReplacing] = useState(false)
@@ -304,13 +304,13 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     }
   }, [wallet, tronWeb, notify])
 
-  useEffect(() => { if (wallet) void refresh() }, [wallet, refresh])
+  useEffect(() => { if (wallet && workspaceActive) void refresh() }, [wallet, workspaceActive, refresh])
 
   useEffect(() => {
-    if (!wallet) return undefined
+    if (!wallet || !workspaceActive) return undefined
     const timer = window.setInterval(() => { void refresh({ quiet: true }) }, 60_000)
     return () => window.clearInterval(timer)
-  }, [wallet, refresh])
+  }, [wallet, workspaceActive, refresh])
 
   async function importWallet() {
     setBusy(true)
