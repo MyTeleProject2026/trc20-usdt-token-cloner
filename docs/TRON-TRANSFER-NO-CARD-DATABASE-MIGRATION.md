@@ -52,7 +52,8 @@ a Neon database has been created.
 
 ### 2. Protect the existing ledger
 
-1. In Render Dashboard, open the existing database:
+1. Deploy the Resource API version that enforces the durable `tron_transfer_sponsor_control` write gate before running the migration. Its Sponsor status endpoint must report `sponsorWritesPaused` and make `transactionExecutionAvailable=false` when the gate is active.
+2. In Render Dashboard, open the existing database:
    `https://dashboard.render.com/d/dpg-dbvu3c142hec73856ogg-a`
 2. Do not delete, suspend, or replace it.
 3. Disable Sponsor transaction writes by keeping both
@@ -83,7 +84,7 @@ TARGET_DATABASE_URL='(Neon direct URL with TLS)' \
 npm run migrate:sponsor-ledger
 ```
 
-Run the command with `SPONSOR_WRITES_PAUSED=true` only after Sponsor writes and broadcasts are disabled and all in-flight operations are reconciled. The utility refuses to start without this gate. Run this from an environment that can reach both database endpoints. The existing
+The utility first creates/sets `public.tron_transfer_sponsor_control.writes_paused=true` on the source database and commits that pause before opening its read-only snapshot. The Resource API takes a shared row lock while reserving each operation, so the pause waits for active reservations and prevents new ones. The source remains paused after the copy. The target is created paused too. If the migration fails, keep the source paused until you have explicitly reviewed and safely restored service. Run this from an environment that can reach both database endpoints. The existing
 Render database currently has an empty external IP allowlist, so a local computer
 cannot connect until an authorized temporary IP allowlist entry is configured in
 Render. Prefer a controlled migration runner in the same Render region; do not open
@@ -102,9 +103,7 @@ The utility:
 - prints counts only, never credentials or row contents;
 - rolls back on failure.
 
-It does not copy other application tables because this Sponsor ledger currently uses
-only `public.tron_transfer_sponsor_operations`. Recheck that assumption before running
-against a newer schema.
+It also creates the target maintenance-control row in the paused state. It does not copy other application tables because this Sponsor ledger currently uses only `public.tron_transfer_sponsor_operations` plus the one-row `public.tron_transfer_sponsor_control` gate. Recheck that assumption before running against a newer schema.
 
 ### 4. Point the existing Resource API at the destination
 
@@ -115,13 +114,20 @@ Set the server-side `DATABASE_URL` to the Neon direct URL and `DATABASE_URL_POOL
 
 After the service redeploys, check:
 - `GET /health` returns healthy Mainnet service status;
-- `GET /api/sponsor/status` reports `databaseConfigured=true` and
-  `databaseReady=true`;
+- `GET /api/sponsor/status` reports `databaseConfigured=true`,
+  `databaseReady=true`, and `sponsorWritesPaused=true` until cutover is approved;
 - the existing Sponsor operation count matches the migration output;
 - a read-only Sponsor operation-history request succeeds.
 
-If any check fails, restore the previous `DATABASE_URL` value and redeploy. Keep the
-source Render database untouched until rollback is no longer needed.
+ If any check fails, restore the previous `DATABASE_URL` and `DATABASE_URL_POOLED` values and redeploy. Keep the source Render database paused and untouched until rollback is no longer needed. After the target is verified, explicitly unpause only the target using an authorized database session:
+
+```sql
+UPDATE public.tron_transfer_sponsor_control
+SET writes_paused = FALSE, pause_reason = NULL, updated_at = now()
+WHERE id = 1;
+```
+
+Do this only after the Resource API points at the target, counts/checksum match, the backup is verified, and the Sponsor transaction execution/broadcast environment flags remain off until separately approved.
 
 ### 5. Production security gate
 
