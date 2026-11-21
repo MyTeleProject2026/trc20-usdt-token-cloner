@@ -303,7 +303,7 @@ test('predicted TRON contract address matches TronWeb genContractAddress algorit
   assert.deepEqual(inputs, [txID + ownerHex])
 })
 
-test('TronLink structured provider errors are rendered as useful diagnostics, not [object Object]', () => {
+test('structured provider errors are rendered as useful diagnostics, not [object Object]', () => {
   const error = new Error('provider request failed')
   Object.assign(error, { code: 3038, slug: 'promo_not_eligible', message: 'This address did not receive the promo token from us', field: null, retryable: false })
   const rendered = formatTronLinkError(error, 'Energy claim')
@@ -313,7 +313,7 @@ test('TronLink structured provider errors are rendered as useful diagnostics, no
   assert.doesNotMatch(rendered, /\\[object Object\\]/)
 })
 
-test('TronLink nested HTTP errors preserve provider response details', () => {
+test('nested HTTP errors preserve provider response details', () => {
   const error = new Error('Request failed with status code 429')
   error.response = { status: 429, data: { Error: 'request rate exceeded', code: 429 } }
   const rendered = formatTronLinkError(error, 'Deployment preflight')
