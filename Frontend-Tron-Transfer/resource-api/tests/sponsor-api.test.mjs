@@ -158,6 +158,34 @@ test('valid signed intent still fails closed when durable idempotency storage is
   assert.deepEqual(calls, [])
 })
 
+test('durable Sponsor maintenance pause blocks a valid signed operation before reservation or signing', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX') || sql === 'BEGIN' || sql === 'ROLLBACK' || sql === 'COMMIT' || sql === 'SELECT 1') return { rowCount: 0, rows: [] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      throw new Error('unexpected fake database query: ' + sql)
+    },
+  }
+  const engine = {
+    readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
+    execute: async () => assert.fail('paused Sponsor engine must never sign or broadcast'),
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const status = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(status.payload.sponsorWritesPaused, true)
+  assert.equal(status.payload.transactionExecutionAvailable, false)
+  const token = await authenticated(api)
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-pause-0123456789012345',
+  }, token)
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: intent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  }, token)
+  assert.equal(result.status, 423)
+  assert.equal(result.payload.error, 'sponsor-writes-paused-for-maintenance')
+})
+
 test('expired or reused intent cannot be executed twice', async () => {
   const { api, calls } = setup()
   const token = await authenticated(api)
@@ -176,7 +204,9 @@ test('durable Sponsor idempotency prevents a second signer invocation for the sa
   const rows = new Map()
   const database = {
     async query(sql, params = []) {
-      if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX')) return { rowCount: 0, rows: [] }
+      if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX')
+        || ['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rowCount: 0, rows: [] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       if (sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')) {
         const [keyHash, requestHash, operation, resource, amountSun, sponsorAddress, ownerAddress] = params
         if (rows.has(keyHash)) return { rowCount: 0, rows: [] }
