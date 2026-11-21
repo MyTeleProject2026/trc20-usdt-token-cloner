@@ -118,3 +118,22 @@ test('premium workspace layer preserves reduced motion and mobile Sponsor tabs',
   assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'))
   assert.ok(css.includes('.sponsor-product-tabs button.active'))
 })
+
+
+test('workspace routes are deep-linkable and browser history restores the selected page', async () => {
+  const app = await read('../src/App.jsx')
+  assert.ok(app.includes('function pageFromLocation()'))
+  assert.ok(app.includes("window.location.hash.replace(/^#\\\\/?/, '')"))
+  assert.ok(app.includes("window.addEventListener('popstate', syncFromLocation)"))
+  assert.ok(app.includes("window.addEventListener('hashchange', syncFromLocation)"))
+  assert.ok(app.includes("window.history.pushState({ tronTransferPage: activePage }, '', nextHash)"))
+  assert.ok(app.includes('id="trax-workspace-main"'))
+})
+
+test('desktop sidebar clearly identifies the active workspace context', async () => {
+  const sidebar = await read('../src/TRAXSidebar.jsx')
+  assert.ok(sidebar.includes('SPONSOR TREASURY · MAINNET'))
+  assert.ok(sidebar.includes('OWNER CONTROL · MAINNET'))
+  assert.ok(sidebar.includes('Sponsor workspace pages'))
+  assert.ok(sidebar.includes('Owner workspace pages'))
+})
