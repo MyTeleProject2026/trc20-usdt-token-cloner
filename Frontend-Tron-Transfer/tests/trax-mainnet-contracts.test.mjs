@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { assertZeroTrxBurnBudget, calculateDeploymentResourceBudget, buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatTronLinkError, isMainnetEnergyEstimateUnavailable, claimTenergyPromoForDeployment, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
+import { assertZeroTrxBurnBudget, calculateDeploymentResourceBudget, buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatOwnerWalletError, isMainnetEnergyEstimateUnavailable, claimTenergyPromoForDeployment, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -306,7 +306,7 @@ test('predicted TRON contract address matches TronWeb genContractAddress algorit
 test('structured provider errors are rendered as useful diagnostics, not [object Object]', () => {
   const error = new Error('provider request failed')
   Object.assign(error, { code: 3038, slug: 'promo_not_eligible', message: 'This address did not receive the promo token from us', field: null, retryable: false })
-  const rendered = formatTronLinkError(error, 'Energy claim')
+  const rendered = formatOwnerWalletError(error, 'Energy claim')
   assert.match(rendered, /3038/)
   assert.match(rendered, /promo_not_eligible/)
   assert.match(rendered, /did not receive the promo token/)
@@ -316,7 +316,7 @@ test('structured provider errors are rendered as useful diagnostics, not [object
 test('nested HTTP errors preserve provider response details', () => {
   const error = new Error('Request failed with status code 429')
   error.response = { status: 429, data: { Error: 'request rate exceeded', code: 429 } }
-  const rendered = formatTronLinkError(error, 'Deployment preflight')
+  const rendered = formatOwnerWalletError(error, 'Deployment preflight')
   assert.match(rendered, /request rate exceeded/)
   assert.match(rendered, /429/)
 })
