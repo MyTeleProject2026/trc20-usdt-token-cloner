@@ -195,7 +195,7 @@ test('Sponsor TRX top-up fails closed above the configured Owner funding cap', a
 })
 
 
-function lifecycleFixture({ operation, amountSun, resource = 'ENERGY', transactionValue, account = {}, delegatedRows = [], withdrawable = '0', builderName }) {
+function lifecycleFixture({ operation, amountSun, resource = 'ENERGY', transactionValue, account = {}, delegatedRows = [], withdrawable = '0', includeWithdrawAmount = true, builderName }) {
   let signed = 0
   let broadcast = 0
   let persisted = false
@@ -240,7 +240,7 @@ function lifecycleFixture({ operation, amountSun, resource = 'ENERGY', transacti
   const fetchImpl = async url => ({
     ok: true,
     json: async () => url.endsWith('gettransactioninfobyid')
-      ? { id: TXID, blockNumber: 456, receipt: { result: 'SUCCESS' }, ...(operation === 'withdraw' ? { withdraw_expire_amount: amountSun } : {}) }
+      ? { id: TXID, blockNumber: 456, receipt: { result: 'SUCCESS' }, ...(operation === 'withdraw' && includeWithdrawAmount ? { withdraw_expire_amount: amountSun } : {}) }
       : { txID: TXID, raw_data: transaction.raw_data },
   })
   const engine = createSponsorTransactionEngine({ env: configuredEnv(), tronWebFactory: () => fakeTronWeb, fetchImpl })
@@ -304,6 +304,21 @@ test('withdraw requires the exact currently withdrawable matured unfreeze amount
   const result = await f.execute()
   assert.equal(result.success, true)
   assert.equal(result.solidified, true)
+  assert.deepEqual(f.counts(), { signed: 1, broadcast: 1 })
+})
+
+
+test('withdraw is not marked confirmed when the solidified receipt omits the actual withdrawal amount', async () => {
+  const amountSun = '2000000'
+  const f = lifecycleFixture({
+    operation: 'withdraw', amountSun, builderName: 'withdrawExpireUnfreeze',
+    transactionValue: { owner_address: sponsorHex }, withdrawable: amountSun,
+    includeWithdrawAmount: false,
+  })
+  const result = await f.execute()
+  assert.equal(result.success, false)
+  assert.equal(result.solidified, false)
+  assert.equal(result.status, 'solidified-withdraw-amount-unavailable')
   assert.deepEqual(f.counts(), { signed: 1, broadcast: 1 })
 })
 
