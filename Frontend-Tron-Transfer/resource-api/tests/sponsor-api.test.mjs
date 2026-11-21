@@ -172,6 +172,9 @@ test('durable Sponsor maintenance pause blocks a valid signed operation before r
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
   const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const status = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(status.payload.sponsorWritesPaused, true)
+  assert.equal(status.payload.transactionExecutionAvailable, false)
   const token = await authenticated(api)
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-pause-0123456789012345',
