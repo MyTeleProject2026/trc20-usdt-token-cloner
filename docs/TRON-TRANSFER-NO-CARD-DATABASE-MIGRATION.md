@@ -87,6 +87,8 @@ cannot connect until an authorized temporary IP allowlist entry is configured in
 Render. Prefer a controlled migration runner in the same Render region; do not open
 the database to `0.0.0.0/0`.
 
+Set `SPONSOR_WRITES_PAUSED=true` only after both Sponsor transaction writes and Mainnet broadcasts are disabled. The utility refuses to run without this explicit gate and rejects any source ledger containing `reserved`, `signed-not-broadcast`, or `broadcast-unknown` operations. It verifies both row counts and a SHA-256 digest over every migrated ledger field before committing.
+
 The utility:
 - refuses to run when source and target identities match;
 - requires the source Sponsor ledger table to exist;
