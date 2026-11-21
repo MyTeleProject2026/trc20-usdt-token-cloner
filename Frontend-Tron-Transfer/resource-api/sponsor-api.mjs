@@ -276,6 +276,7 @@ export function createSponsorResourceApi({
   async function handle(req, res, url, origin) {
     const path = url.pathname
     const isRoute = path === '/api/sponsor/status'
+      || path === '/api/sponsor/ledger/bootstrap'
       || path === '/api/sponsor/session/challenge'
       || path === '/api/sponsor/session/verify'
       || path === '/api/sponsor/intent'
