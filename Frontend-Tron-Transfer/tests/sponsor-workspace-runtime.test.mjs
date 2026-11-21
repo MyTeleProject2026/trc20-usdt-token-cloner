@@ -19,6 +19,8 @@ test('Sponsor workspace receives the active route from App', () => {
   assert.match(source, /function SponsorWalletManager\(\{\s*activePage\s*=\s*'sponsor'/)
   for (const [id, route] of [['sponsor-overview', 'sponsor'], ['sponsor-resources', 'sponsor-resources'], ['sponsor-automation', 'sponsor-automation'], ['sponsor-activity', 'sponsor-activity']]) assert.ok(source.includes(`activePage === "${route}" && <section id="${id}"`), `${id} must mount only on its own page`)
   assert.ok(!source.includes('scrollIntoView'), 'page navigation must not depend on scrolling hidden sections')
+  assert.ok(source.includes('if (!workspaceActive) return undefined'), 'Sponsor API status polling must pause outside its workspace')
+  assert.ok(source.includes('recordActivity, workspaceActive'), 'Sponsor history polling must pause outside its workspace')
 })
 
 test('Sponsor workspace pages are isolated and wallet-locked routes have a recovery path', () => {
