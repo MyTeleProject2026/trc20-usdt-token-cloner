@@ -39,7 +39,7 @@ const NAV_ITEMS = [
 
 
 function pageFromLocation() {
-  const candidate = window.location.hash.replace(/^#\\/?/, '')
+  const candidate = window.location.hash.replace(/^#\/?/, '')
   return NAV_ITEMS.some(item => item.id === candidate) ? candidate : 'home'
 }
 
