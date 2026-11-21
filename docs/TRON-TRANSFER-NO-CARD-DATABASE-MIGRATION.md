@@ -47,8 +47,7 @@ a Neon database has been created.
 1. Create a Neon account using its free signup flow (no card).
 2. Create a PostgreSQL project. Prefer a region near Singapore if available, to reduce
    cross-region latency from the existing Render Resource API.
-3. Copy the pooled connection string for the production branch. Keep the TLS parameter
-   supplied by Neon (normally `sslmode=require`).
+3. Copy both the direct and pooled connection strings. Use the direct endpoint for one-off migration and schema administration; use the pooled endpoint for normal Resource API runtime queries. Keep Neon's TLS parameters (normally `sslmode=require`).
 4. Store it securely. Never paste the URL into chat, GitHub, frontend variables, or logs.
 
 ### 2. Protect the existing ledger
@@ -78,12 +77,13 @@ Run from `Frontend-Tron-Transfer/resource-api`:
 
 ```sh
 npm ci
+SPONSOR_WRITES_PAUSED=true \
 SOURCE_DATABASE_URL='(existing Render internal URL)' \
-TARGET_DATABASE_URL='(Neon pooled URL with TLS)' \
+TARGET_DATABASE_URL='(Neon direct URL with TLS)' \
 npm run migrate:sponsor-ledger
 ```
 
-Run this from an environment that can reach both database endpoints. The existing
+Run the command with `SPONSOR_WRITES_PAUSED=true` only after Sponsor writes and broadcasts are disabled and all in-flight operations are reconciled. The utility refuses to start without this gate. Run this from an environment that can reach both database endpoints. The existing
 Render database currently has an empty external IP allowlist, so a local computer
 cannot connect until an authorized temporary IP allowlist entry is configured in
 Render. Prefer a controlled migration runner in the same Render region; do not open
