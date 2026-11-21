@@ -173,6 +173,12 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
 
+  useEffect(() => {
+    if (!workspaceActive) return
+    setEnergyTarget(readSavedTarget('energy', '1278524'))
+    setBandwidthTarget(readSavedTarget('bandwidth', '1000'))
+  }, [workspaceActive])
+
   useEffect(() => { try { localStorage.setItem(TARGETS_KEY, JSON.stringify({ energy: energyTarget, bandwidth: bandwidthTarget })) } catch { /* targets are a local preference */ } }, [energyTarget, bandwidthTarget])
 
   const recordSecurityEvent = useCallback((address, event, detail) => {
