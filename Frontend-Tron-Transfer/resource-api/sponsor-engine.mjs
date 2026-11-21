@@ -219,17 +219,19 @@ export function createSponsorTransactionEngine({
         if (maximum < amount) return { success: false, status: 'insufficient-frozen-resource-capacity', signed: false, broadcast: false }
       }
       if (operation === 'undelegate') {
-        const delegated = await tronWeb.trx.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true })
+        const resourceReader = tronWeb.trx.raw || tronWeb.trx
+        const delegated = await resourceReader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true })
         const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
         const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
         const current = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
         if (current < amount) return { success: false, status: 'undelegation-exceeds-current-owner-delegation', signed: false, broadcast: false }
       }
       if (operation === 'unstake') {
+        const resourceReader = tronWeb.trx.raw || tronWeb.trx
         const [account, delegated, slots] = await Promise.all([
-          tronWeb.trx.getAccount(sponsorAddress, { confirmed: true }),
-          tronWeb.trx.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true }),
-          tronWeb.trx.getAvailableUnfreezeCount(sponsorAddress, { confirmed: true }),
+          resourceReader.getAccount(sponsorAddress, { confirmed: true }),
+          resourceReader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true }),
+          resourceReader.getAvailableUnfreezeCount(sponsorAddress, { confirmed: true }),
         ])
         const frozen = Array.isArray(account?.frozenV2) ? account.frozenV2 : []
         const type = resource === 'ENERGY' ? 'ENERGY' : 'BANDWIDTH'
@@ -242,7 +244,8 @@ export function createSponsorTransactionEngine({
         if (availableToUnstake < amount) return { success: false, status: 'unstake-exceeds-unlocked-self-stake', signed: false, broadcast: false }
       }
       if (operation === 'withdraw') {
-        const withdrawable = await tronWeb.trx.getCanWithdrawUnfreezeAmount(sponsorAddress, now(), { confirmed: true })
+        const resourceReader = tronWeb.trx.raw || tronWeb.trx
+        const withdrawable = await resourceReader.getCanWithdrawUnfreezeAmount(sponsorAddress, now(), { confirmed: true })
         const actual = BigInt(String(withdrawable?.amount ?? withdrawable ?? '0'))
         if (actual <= 0n || actual !== amount) return { success: false, status: 'withdraw-amount-changed-refresh-and-retry', signed: false, broadcast: false }
       }
