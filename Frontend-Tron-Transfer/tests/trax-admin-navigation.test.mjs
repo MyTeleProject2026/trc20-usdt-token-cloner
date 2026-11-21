@@ -100,3 +100,21 @@ test('Sponsor workspace exposes independent Overview, Resources, Automation and 
   assert.ok(mobile.includes('Sponsor workspace navigation') && mobile.includes('items.map'))
   assert.ok(css.includes('.sponsor-product-tabs') && css.includes('@media(max-width:720px)'))
 })
+
+test('Sponsor pages mount only the active section and expose actionable render diagnostics', async () => {
+  const sponsor = await read('../src/SponsorWalletManager.jsx')
+  const app = await read('../src/App.jsx')
+  for (const [id, route] of [['sponsor-overview','sponsor'],['sponsor-resources','sponsor-resources'],['sponsor-automation','sponsor-automation'],['sponsor-activity','sponsor-activity']]) {
+    assert.ok(sponsor.includes(`activePage === "${route}" && <section id="${id}"`), id + ' must mount only when active')
+    assert.ok(!new RegExp(`<section id="${id}"[^>]*hidden=`).test(sponsor), id + ' must not stay mounted while hidden')
+  }
+  assert.ok(app.includes('Diagnostic: {this.state.message}'), 'error boundary must expose a useful render diagnostic')
+  assert.ok(app.includes("this.props.onNavigate('sponsor')"), 'error boundary must offer recovery navigation')
+})
+test('premium workspace layer preserves reduced motion and mobile Sponsor tabs', async () => {
+  const css = await read('../src/styles.css')
+  assert.ok(css.includes('TRON TRANSFER Signature Edition'))
+  assert.ok(css.includes('@media(max-width:720px)'))
+  assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'))
+  assert.ok(css.includes('.sponsor-product-tabs button.active'))
+})
