@@ -106,20 +106,25 @@ jobs:
                       const readinessGates = [
                         flags.databaseConfigured,
                         flags.databaseReady,
+                        !flags.sponsorWritesPaused,
                         flags.ledgerDurabilityVerified,
                         flags.ownerAddressMatches,
                         flags.sponsorIndependent,
                         flags.sessionAuthenticationConfigured,
                         flags.engineConfigured,
+                        flags.adminTokenRequired,
                         flags.adminTokenConfigured,
                       ];
-                      const readiness = readinessGates.every(Boolean) ? 'ready' : 'blocked';
+                      const readiness = !readinessGates.every(Boolean)
+                        ? 'blocked'
+                        : flags.transactionExecutionAvailable ? 'ready' : 'execution-disabled';
                       validPayload = response.ok && parsed?.success === true;
                       detail = validPayload
                         ? 'Sponsor status reachable · readiness=' + readiness
                           + ' · databaseReady=' + flags.databaseReady
                           + ' · ledgerDurabilityVerified=' + flags.ledgerDurabilityVerified
                           + ' · writesPaused=' + flags.sponsorWritesPaused
+                          + ' · adminTokenRequired=' + flags.adminTokenRequired
                           + ' · ownerMatch=' + flags.ownerAddressMatches
                           + ' · sponsorIndependent=' + flags.sponsorIndependent
                           + ' · sessionConfigured=' + flags.sessionAuthenticationConfigured
