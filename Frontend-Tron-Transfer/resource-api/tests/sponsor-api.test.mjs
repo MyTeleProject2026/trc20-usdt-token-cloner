@@ -272,3 +272,34 @@ test('Sponsor Admin token comparison is required for execution route too', async
   assert.equal(result.status, 403)
   assert.deepEqual(calls, [])
 })
+
+
+test('Stake 2.0 reclaim and withdrawal intents are accepted with exact resource bindings', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  const cases = [
+    ['undelegate', 'ENERGY'],
+    ['unstake', 'BANDWIDTH'],
+    ['withdraw', 'TRX'],
+  ]
+  for (const [operation, resource] of cases) {
+    const result = await call(api, 'POST', '/api/sponsor/intent', {
+      operation, resource, amountSun: '1000000',
+      idempotencyKey: 'sponsor-' + operation + '-0123456789',
+    }, token)
+    assert.equal(result.status, 201, operation + ' intent should be accepted')
+    assert.match(result.payload.message, new RegExp('Operation: ' + operation))
+    assert.match(result.payload.message, new RegExp('Resource: ' + resource))
+  }
+})
+
+test('Stake 2.0 reclaim intents reject invalid resource combinations', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'undelegate', resource: 'TRX', amountSun: '1000000',
+    idempotencyKey: 'sponsor-undelegate-invalid-012345',
+  }, token)
+  assert.equal(result.status, 400)
+  assert.equal(result.payload.error, 'invalid-sponsor-operation-intent')
+})
