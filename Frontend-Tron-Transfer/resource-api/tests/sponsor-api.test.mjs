@@ -173,6 +173,32 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
   assert.equal(calls[0].trimStart().startsWith('CREATE'), false)
 })
 
+test('Sponsor ledger bootstrap requires admin authorization and leaves writes paused', async () => {
+  let schemaCreated = false
+  const database = {
+    async query(sql) {
+      if (sql.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_operations')) {
+        schemaCreated = true
+        return { rowCount: 0, rows: [] }
+      }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      throw new Error('unexpected bootstrap query')
+    },
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const denied = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, null)
+  assert.equal(denied.status, 401)
+  assert.equal(schemaCreated, false)
+
+  const initialized = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, TEST_ADMIN_TOKEN)
+  assert.equal(initialized.status, 200)
+  assert.equal(initialized.payload.schemaInitialized, true)
+  assert.equal(initialized.payload.databaseReady, true)
+  assert.equal(initialized.payload.sponsorWritesPaused, true)
+  assert.equal(initialized.payload.transactionExecutionAvailable, false)
+  assert.equal(schemaCreated, true)
+})
+
 test('Sponsor status fails closed when the ledger control row is missing', async () => {
   const database = {
     async query(sql) {
