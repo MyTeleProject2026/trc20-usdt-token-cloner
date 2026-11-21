@@ -322,18 +322,32 @@ test('Sponsor writes fail closed until ledger durability, backup and restore are
   assert.equal(status.payload.ledgerDurabilityVerified, true)
 
   const { api: unverifiedApi, env: unverifiedEnv } = setup()
-  unverifiedEnv.SPONSOR_LEDGER_DURABLE = 'false'
   const unverifiedToken = await authenticated(unverifiedApi)
+  const prepared = await call(unverifiedApi, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-unverified-ledger-0123456789',
+  }, unverifiedToken)
+  assert.equal(prepared.status, 201)
+
+  unverifiedEnv.SPONSOR_LEDGER_DURABLE = 'false'
   const unverifiedStatus = await call(unverifiedApi, 'GET', '/api/sponsor/status')
   assert.equal(unverifiedStatus.payload.ledgerDurabilityVerified, false)
   assert.equal(unverifiedStatus.payload.transactionExecutionAvailable, false)
 
   const intent = await call(unverifiedApi, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
-    idempotencyKey: 'sponsor-unverified-ledger-0123456789',
+    idempotencyKey: 'sponsor-unverified-ledger-second-012345',
   }, unverifiedToken)
   assert.equal(intent.status, 503)
   assert.equal(intent.payload.error, 'sponsor-ledger-durability-not-verified')
+
+  const execution = await call(unverifiedApi, 'POST', '/api/sponsor/operations', {
+    intentId: prepared.payload.intentId,
+    signature: SIGNATURE,
+    confirmPhrase: prepared.payload.confirmationPhrase,
+  }, unverifiedToken)
+  assert.equal(execution.status, 503)
+  assert.equal(execution.payload.error, 'sponsor-ledger-durability-not-verified')
 })
 
 test('missing Sponsor Admin token configuration fails closed for every write', async () => {
