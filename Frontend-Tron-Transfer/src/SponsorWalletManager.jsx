@@ -516,7 +516,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     const selectedResource = options.resource || resourceType
     let amountSun
     try { amountSun = parseTrx(selectedAmount) } catch (error) { notify('error', 'Invalid resource amount', error.message); return false }
-    if (action !== 'topup' && amountSun < SUN) { notify('error', 'Minimum resource amount', 'Use at least 1 TRX for staking or resource delegation.'); return }
+    if (['stake', 'delegate', 'undelegate', 'unstake'].includes(action) && amountSun < SUN) { notify('error', 'Minimum resource amount', 'Use at least 1 TRX for staking or resource delegation.'); return }
     const available = BigInt(snapshot?.trxSun || '0')
     let protectedReserveSun
     try { protectedReserveSun = BigInt(parseTrx(String(sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'))) }
