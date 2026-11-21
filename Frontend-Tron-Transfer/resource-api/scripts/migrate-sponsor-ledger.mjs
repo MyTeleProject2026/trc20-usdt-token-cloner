@@ -51,8 +51,32 @@ async function main() {
   try {
     sourceClient = await source.connect()
     targetClient = await target.connect()
+
+    // Pause the live source API durably before taking the read-only snapshot.
+    // The API locks this singleton row while reserving an operation, so this
+    // update waits for any in-progress reservation and blocks subsequent writes.
+    await sourceClient.query(`
+      CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_control (
+        id SMALLINT PRIMARY KEY CHECK (id = 1),
+        writes_paused BOOLEAN NOT NULL DEFAULT FALSE,
+        pause_reason TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      INSERT INTO public.tron_transfer_sponsor_control (id, writes_paused, pause_reason)
+        VALUES (1, TRUE, 'sponsor-ledger-migration')
+      ON CONFLICT (id) DO UPDATE SET
+        writes_paused = TRUE,
+        pause_reason = 'sponsor-ledger-migration',
+        updated_at = now();
+    `)
+
     await sourceClient.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
     sourceTransactionOpen = true
+    const pauseCheck = await sourceClient.query(
+      'SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1'
+    )
+    if (pauseCheck.rows?.[0]?.writes_paused !== true) throw new Error('Source Sponsor ledger write pause could not be verified.')
+
     const sourceCheck = await sourceClient.query(
       "SELECT to_regclass('public.tron_transfer_sponsor_operations') AS table_name"
     )
@@ -89,6 +113,18 @@ async function main() {
       );
       CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_operations_sponsor_created
         ON ${table} (sponsor_address, created_at DESC);
+      CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_control (
+        id SMALLINT PRIMARY KEY CHECK (id = 1),
+        writes_paused BOOLEAN NOT NULL DEFAULT TRUE,
+        pause_reason TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      INSERT INTO public.tron_transfer_sponsor_control (id, writes_paused, pause_reason)
+        VALUES (1, TRUE, 'post-migration-verification')
+      ON CONFLICT (id) DO UPDATE SET
+        writes_paused = TRUE,
+        pause_reason = 'post-migration-verification',
+        updated_at = now();
     `)
 
     const existing = await targetClient.query(`SELECT count(*)::bigint AS count FROM ${table}`)
@@ -129,7 +165,9 @@ async function main() {
       copiedRows: sourceCount,
       verifiedRows: targetCount,
       checksumVerified: true,
-      note: 'No database URLs, passwords, wallet keys, or row contents were printed.',
+      sourceWritesPaused: true,
+      targetWritesPaused: true,
+      note: 'Both databases remain write-paused. Unpause the verified target only after cutover checks; no database URLs, passwords, wallet keys, or row contents were printed.',
     }) + '\n')
   } catch (error) {
     if (targetClient && targetTransactionOpen) await targetClient.query('ROLLBACK').catch(() => {})
