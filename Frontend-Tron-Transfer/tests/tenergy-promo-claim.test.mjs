@@ -9,12 +9,19 @@ function wallet(address = owner) {
   let signCalls = 0
   return {
     address,
+    provider: null,
+    signerType: 'encrypted-local-owner-vault',
     get signCalls() { return signCalls },
     tronWeb: {
       fullNode: { host: 'https://api.trongrid.io' },
+      defaultAddress: { base58: address },
       isAddress: value => typeof value === 'string' && value.startsWith('T'),
       address: { toHex: value => value },
-      trx: { async signMessageV2() { signCalls += 1; return 'a'.repeat(130) } },
+      trx: {
+        async signMessageV2() { signCalls += 1; return 'a'.repeat(130) },
+        async sign(transaction) { return transaction },
+        async sendRawTransaction() { throw new Error('broadcast not expected in promo tests') },
+      },
     },
   }
 }
