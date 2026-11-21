@@ -186,7 +186,7 @@ export function createSponsorTransactionEngine({
     const validResource = ['topup', 'withdraw'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
     if (!validOperation || !validResource || recipient !== ownerAddress || !ADDRESS.test(recipient || '')) return { success: false, status: 'invalid-mainnet-operation', signed: false, broadcast: false }
     const amount = positiveSun(amountSun)
-    if (!amount || (operation !== 'topup' && amount < SUN)) return { success: false, status: 'invalid-amount-sun', signed: false, broadcast: false }
+    if (!amount || (['stake', 'delegate', 'undelegate', 'unstake'].includes(operation) && amount < SUN)) return { success: false, status: 'invalid-amount-sun', signed: false, broadcast: false }
     if (operation === 'stake') {
       const cap = decimalTrxToSun(String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
       if (env.SPONSOR_STAKING_ENABLED !== 'true' || cap === null || cap <= 0n || amount > cap) {
