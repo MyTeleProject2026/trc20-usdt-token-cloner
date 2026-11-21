@@ -245,9 +245,19 @@ export function createSponsorResourceApi({
         try {
           const db = getDatabase()
           if (db) {
-            await ensureSchema(db)
-            await db.query('SELECT 1')
-            sponsorWritesPaused = await readSponsorWritesPaused(db)
+            // Status checks must never create or migrate production tables.
+            // Confirm the expected schema and control row using read-only queries.
+            const schema = await db.query(`
+              SELECT
+                to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
+                to_regclass('public.tron_transfer_sponsor_control') AS control_table
+            `)
+            if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table) {
+              throw new Error('sponsor-ledger-schema-not-ready')
+            }
+            const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
+            if (!control.rows?.length) throw new Error('sponsor-ledger-control-row-missing')
+            sponsorWritesPaused = control.rows[0].writes_paused === true
             databaseReady = true
           }
         } catch { databaseReady = false }

@@ -32,6 +32,7 @@ jobs:
           const targets = [
             { name: 'owner-admin-frontend', url: 'https://tron-transfer.onrender.com/', expectJson: false },
             { name: 'resource-api-health', url: 'https://tron-transfer-resource-api.onrender.com/health', expectJson: true, expectedNetwork: 'TRON Mainnet' },
+            { name: 'sponsor-readiness', url: 'https://tron-transfer-resource-api.onrender.com/api/sponsor/status', expectJson: true },
             { name: 'runtime-observatory', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/snapshot', expectJson: true },
             { name: 'uptime-history', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/uptime-history', expectJson: true },
             { name: 'render-metrics', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/render-metrics', expectJson: true },
@@ -87,7 +88,52 @@ jobs:
                         p95LatencyMs: Number(parsed.requests.p95LatencyMs) || 0,
                       };
                     }
-                    if (target.name === 'uptime-history') {
+                    if (target.name === 'sponsor-readiness') {
+                      const flags = {
+                        databaseConfigured: parsed?.databaseConfigured === true,
+                        databaseReady: parsed?.databaseReady === true,
+                        sponsorWritesPaused: parsed?.sponsorWritesPaused === true,
+                        ledgerDurabilityVerified: parsed?.ledgerDurabilityVerified === true,
+                        ownerAddressMatches: parsed?.ownerAddressMatches === true,
+                        sponsorIndependent: parsed?.sponsorIndependent === true,
+                        sessionAuthenticationConfigured: parsed?.sessionAuthenticationConfigured === true,
+                        engineConfigured: parsed?.engineConfigured === true,
+                        engineEnabled: parsed?.engineEnabled === true,
+                        adminTokenRequired: parsed?.adminTokenRequired === true,
+                        adminTokenConfigured: parsed?.adminTokenConfigured === true,
+                        transactionExecutionAvailable: parsed?.transactionExecutionAvailable === true,
+                      };
+                      const readinessGates = [
+                        flags.databaseConfigured,
+                        flags.databaseReady,
+                        !flags.sponsorWritesPaused,
+                        flags.ledgerDurabilityVerified,
+                        flags.ownerAddressMatches,
+                        flags.sponsorIndependent,
+                        flags.sessionAuthenticationConfigured,
+                        flags.engineConfigured,
+                        flags.adminTokenRequired,
+                        flags.adminTokenConfigured,
+                      ];
+                      const readiness = !readinessGates.every(Boolean)
+                        ? 'blocked'
+                        : flags.transactionExecutionAvailable ? 'ready' : 'execution-disabled';
+                      validPayload = response.ok && parsed?.success === true;
+                      detail = validPayload
+                        ? 'Sponsor status reachable · readiness=' + readiness
+                          + ' · databaseReady=' + flags.databaseReady
+                          + ' · ledgerDurabilityVerified=' + flags.ledgerDurabilityVerified
+                          + ' · writesPaused=' + flags.sponsorWritesPaused
+                          + ' · adminTokenRequired=' + flags.adminTokenRequired
+                          + ' · ownerMatch=' + flags.ownerAddressMatches
+                          + ' · sponsorIndependent=' + flags.sponsorIndependent
+                          + ' · sessionConfigured=' + flags.sessionAuthenticationConfigured
+                          + ' · adminTokenConfigured=' + flags.adminTokenConfigured
+                          + ' · engineConfigured=' + flags.engineConfigured
+                          + ' · engineEnabled=' + flags.engineEnabled
+                          + ' · executionAvailable=' + flags.transactionExecutionAvailable
+                        : 'Sponsor status endpoint returned an invalid readiness payload';
+                    } else if (target.name === 'uptime-history') {
                       const count = Array.isArray(parsed?.runs) ? parsed.runs.length : 0;
                       validPayload = response.ok && parsed?.success === true && count > 0;
                       detail = validPayload ? 'Git-backed history served · ' + count + ' archived runs' : 'history endpoint returned no valid archived records';
