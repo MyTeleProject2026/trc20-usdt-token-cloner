@@ -136,7 +136,7 @@ function CenterToast({ toast, onClose }) {
 
 export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {}, workspaceActive = true }) {
   const [wallet, setWallet] = useState(null)
-  const [saved, setSaved] = useState(false)
+  const [saved, setSaved] = useState(() => hasSavedSponsorWallet())
   const [replacing, setReplacing] = useState(false)
   const [mode, setMode] = useState('private-key')
   const [credential, setCredential] = useState('')
@@ -227,7 +227,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     return () => { cancelled = true }
   }, [wallet?.address, tronWeb, recordActivity])
 
-  useEffect(() => { setSaved(hasSavedSponsorWallet()) }, [])
   useEffect(() => { if (!wallet) setAdminToken('') }, [wallet])
 
   useEffect(() => {
