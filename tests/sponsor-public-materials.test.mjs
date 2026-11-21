@@ -7,18 +7,15 @@ const brief = await readFile(new URL('../docs/SPONSOR_BRIEF.md', import.meta.url
 const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
 const issueForm = await readFile(new URL('../.github/ISSUE_TEMPLATE/individual-sponsor-inquiry.yml', import.meta.url), 'utf8')
 
-test('public sponsor portal explains sponsor custody, target capacity and non-production status', () => {
-  assert.match(portal, /NO DEPOSIT TO THE PROJECT/)
-  assert.match(portal, /\$5,000–\$10,000 equivalent/)
-  assert.match(portal, /not a request to deposit or transfer funds to the project operator/i)
-  assert.match(portal, /does not require TronLink or another injected wallet provider/i)
+test('legacy sponsor portal routes into the existing internal Sponsor workspace without external wallet access', () => {
+  assert.match(portal, /TRON TRANSFER Sponsor workspace/)
   assert.match(portal, /Open Sponsor workspace/)
-  assert.match(portal, /encrypted local Sponsor Wallet vault/)
+  assert.ok(portal.includes('href="/#/sponsor"'))
+  assert.match(portal, /encrypted Sponsor Wallet vault/)
+  assert.match(portal, /does not require TronLink or another injected wallet provider/i)
+  assert.match(portal, /No individual Sponsor is claimed approved or funded/i)
   assert.doesNotMatch(portal, /discoverTronLinkProvider|requestTronLinkConnection|window\.tronLink/)
-  assert.match(portal, /not merged or verified as deployed to production/i)
-  assert.match(portal, /no individual sponsor is currently confirmed approved and funded/i)
-  assert.match(portal, /Do not share seed phrases, private keys, passwords, OTPs/i)
-  assert.match(portal, /SPONSOR_BRIEF\.md/)
+  assert.doesNotMatch(portal, /<input|<textarea|type="password"|name="(?:privateKey|seedPhrase|password|walletAddress)"/i)
 })
 
 test('sponsor brief distinguishes development support from payout capacity and never promises returns', () => {
@@ -38,13 +35,13 @@ test('repository landing page links the sponsor brief and accurately labels the 
   assert.match(readme, /\$5,000–\$10,000 equivalent in sponsor-controlled/i)
 })
 
-test('public sponsor inquiry form avoids collecting sensitive wallet and identity data', () => {
+test('public sponsor inquiry materials remain separate from the internal wallet workspace', () => {
   assert.match(readme, /public, non-sensitive individual sponsor inquiry/i)
-  assert.match(portal, /public sponsor inquiry form/i)
   assert.match(issueForm, /This issue is public/i)
   assert.match(issueForm, /Do not post wallet addresses/i)
   assert.match(issueForm, /keeps control of their own wallet/i)
   assert.match(issueForm, /no funds should be sent to the project operator/i)
   assert.match(issueForm, /not a sponsor acceptance, funding commitment, payout authorization/i)
-  assert.doesNotMatch(issueForm, /^\s+id: (?:wallet_address|email|phone|legal_name|seed_phrase|private_key)$/m)
+  assert.doesNotMatch(issueForm, /^\\s+id: (?:wallet_address|email|phone|legal_name|seed_phrase|private_key)$/m)
+  assert.doesNotMatch(portal, /public sponsor inquiry form/i)
 })
