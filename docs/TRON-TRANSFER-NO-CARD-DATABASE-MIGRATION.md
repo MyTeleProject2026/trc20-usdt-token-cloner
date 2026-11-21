@@ -70,7 +70,9 @@ The Resource API repository includes:
 
 It requires the existing Node dependencies and two environment variables:
 - `SOURCE_DATABASE_URL`: existing Render Postgres connection URL.
-- `TARGET_DATABASE_URL`: Neon destination connection URL.
+- `TARGET_DATABASE_URL`: Neon **direct** connection URL (the non-pooled hostname), for the migration process.
+- `DATABASE_URL`: Neon direct connection URL, retained for schema administration and fallback.
+- `DATABASE_URL_POOLED`: Neon pooled connection URL, preferred by the always-on Resource API for normal application queries.
 
 Run from `Frontend-Tron-Transfer/resource-api`:
 
@@ -109,8 +111,7 @@ against a newer schema.
 In Render Dashboard, open the existing service:
 `https://dashboard.render.com/web/srv-dbrjpq56e07s73bueevg`
 
-Update only the server-side `DATABASE_URL` secret to the Neon pooled URL. Do not add
-it as a `VITE_*` variable. Keep Sponsor transaction execution flags disabled.
+Set the server-side `DATABASE_URL` to the Neon direct URL and `DATABASE_URL_POOLED` to the Neon pooled URL. The Resource API now prefers `DATABASE_URL_POOLED` for its runtime connection and falls back to `DATABASE_URL` if no pooled URL is configured. Do not add either value as a `VITE_*` variable. Keep Sponsor transaction execution flags disabled.
 
 After the service redeploys, check:
 - `GET /health` returns healthy Mainnet service status;
