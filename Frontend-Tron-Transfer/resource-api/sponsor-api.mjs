@@ -142,12 +142,12 @@ async function ensureSchema(db) {
       ON public.tron_transfer_sponsor_operations (sponsor_address, created_at DESC);
     CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_control (
       id SMALLINT PRIMARY KEY CHECK (id = 1),
-      writes_paused BOOLEAN NOT NULL DEFAULT FALSE,
+      writes_paused BOOLEAN NOT NULL DEFAULT TRUE,
       pause_reason TEXT,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     INSERT INTO public.tron_transfer_sponsor_control (id, writes_paused, pause_reason)
-      VALUES (1, FALSE, NULL) ON CONFLICT (id) DO NOTHING;
+      VALUES (1, TRUE, 'schema-bootstrap-requires-explicit-cutover') ON CONFLICT (id) DO NOTHING;
   `).catch(error => { schemaPromise = null; throw error })
   await schemaPromise
 }
@@ -297,7 +297,8 @@ export function createSponsorResourceApi({
       const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
       let databaseReady = false
       let databaseStatus = dbConfigured ? 'unchecked' : 'not-configured'
-      let sponsorWritesPaused = false
+      // Unknown or unreadable write-control state must always be treated as paused.
+      let sponsorWritesPaused = true
       if (dbConfigured) {
         try {
           const db = getDatabase()
