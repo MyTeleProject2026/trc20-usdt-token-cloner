@@ -17,7 +17,7 @@ test('Sponsor resource-derived values are initialized before effects reference t
 
 test('Sponsor workspace receives the active route from App', () => {
   assert.match(source, /function SponsorWalletManager\(\{\s*activePage\s*=\s*'sponsor'/)
-  for (const id of ['sponsor', 'sponsor-resources', 'sponsor-automation', 'sponsor-activity']) assert.ok(source.includes(`activePage !== "${id}"`), `${id} must render only on its own page`)
+  for (const [id, route] of [['sponsor-overview', 'sponsor'], ['sponsor-resources', 'sponsor-resources'], ['sponsor-automation', 'sponsor-automation'], ['sponsor-activity', 'sponsor-activity']]) assert.ok(source.includes(`activePage === "${route}" && <section id="${id}"`), `${id} must mount only on its own page`)
   assert.ok(!source.includes('scrollIntoView'), 'page navigation must not depend on scrolling hidden sections')
 })
 
@@ -33,5 +33,5 @@ test('Sponsor workspace render errors are contained by an application error boun
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
   assert.match(app, /class SponsorWorkspaceErrorBoundary extends React\.Component/)
   assert.match(app, /<SponsorWorkspaceErrorBoundary activePage=\{activePage\}>/)
-  assert.match(app, /Sponsor workspace page failed to render/)
+  assert.match(app, /This Sponsor page could not be displayed/)
 })
