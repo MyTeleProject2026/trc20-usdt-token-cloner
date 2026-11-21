@@ -16,7 +16,8 @@ function estimateStakeSun(resource, deficit, network) {
   const numerator = deficit * weight * SUN * 115n
   const denominator = limit * 100n
   const estimate = (numerator + denominator - 1n) / denominator
-  return estimate > 0n && estimate <= MAX_SAFE ? estimate : null
+  const minimumStake = estimate < SUN ? SUN : estimate
+  return minimumStake > 0n && minimumStake <= MAX_SAFE ? minimumStake : null
 }
 
 /**
