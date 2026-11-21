@@ -251,23 +251,24 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     if (!wallet || !tronWeb) return
     setBusy(true)
     try {
+      const resourceReader = tronWeb.trx.raw || tronWeb.trx
       const [resources, account, usdtContract, ownerResources, maxEnergyDelegation, maxBandwidthDelegation, txHistory, withdrawable, unfreezeSlots] = await Promise.all([
         readResourceSnapshot(wallet.address, tronWeb),
-        tronWeb.trx.getAccount(wallet.address),
+        resourceReader.getAccount(wallet.address, { confirmed: true }),
         tronWeb.contract().at(USDT_CONTRACT),
         readResourceSnapshot(OWNER_ADDRESS, tronWeb),
-        typeof tronWeb.trx.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'ENERGY', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
-        typeof tronWeb.trx.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanDelegatedMaxSize(wallet.address, 'BANDWIDTH', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
+        typeof resourceReader.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => resourceReader.getCanDelegatedMaxSize(wallet.address, 'ENERGY', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
+        typeof resourceReader.getCanDelegatedMaxSize === 'function' ? Promise.resolve().then(() => resourceReader.getCanDelegatedMaxSize(wallet.address, 'BANDWIDTH', { confirmed: true })).catch(() => ({ max_size: '0' })) : Promise.resolve({ max_size: '0' }),
         readRecentTransactions(wallet.address),
-        typeof tronWeb.trx.getCanWithdrawUnfreezeAmount === 'function' ? Promise.resolve().then(() => tronWeb.trx.getCanWithdrawUnfreezeAmount(wallet.address, Date.now(), { confirmed: true })).catch(() => ({ amount: '0' })) : Promise.resolve({ amount: '0' }),
-        typeof tronWeb.trx.getAvailableUnfreezeCount === 'function' ? Promise.resolve().then(() => tronWeb.trx.getAvailableUnfreezeCount(wallet.address, { confirmed: true })).catch(() => ({ count: 0 })) : Promise.resolve({ count: 0 }),
+        typeof resourceReader.getCanWithdrawUnfreezeAmount === 'function' ? Promise.resolve().then(() => resourceReader.getCanWithdrawUnfreezeAmount(wallet.address, Date.now(), { confirmed: true })).catch(() => ({ amount: '0' })) : Promise.resolve({ amount: '0' }),
+        typeof resourceReader.getAvailableUnfreezeCount === 'function' ? Promise.resolve().then(() => resourceReader.getAvailableUnfreezeCount(wallet.address, { confirmed: true })).catch(() => ({ count: 0 })) : Promise.resolve({ count: 0 }),
       ])
       setWalletTransactions(Array.isArray(txHistory?.data) ? txHistory.data : [])
       setWalletTransactionsAvailable(txHistory?.available === true)
       setWalletTokenTransfers(Array.isArray(txHistory?.tokenTransfers) ? txHistory.tokenTransfers : [])
       setWalletTokenTransfersAvailable(txHistory?.tokenTransfersAvailable === true)
       const usdtRaw = await usdtContract.balanceOf(wallet.address).call()
-      const delegated = typeof tronWeb.trx.getDelegatedResourceV2 === 'function' ? await Promise.resolve().then(() => tronWeb.trx.getDelegatedResourceV2(wallet.address, OWNER_ADDRESS, { confirmed: true })).catch(() => null) : null
+      const delegated = typeof resourceReader.getDelegatedResourceV2 === 'function' ? await Promise.resolve().then(() => resourceReader.getDelegatedResourceV2(wallet.address, OWNER_ADDRESS, { confirmed: true })).catch(() => null) : null
       const delegationReadAvailable = Array.isArray(delegated) || Array.isArray(delegated?.delegatedResource)
       const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
       const delegatedEnergySun = rows.reduce((sum, row) => sum + BigInt(row.frozen_balance_for_energy || 0), 0n)
