@@ -173,6 +173,30 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
   assert.equal(calls[0].trimStart().startsWith('CREATE'), false)
 })
 
+test('Sponsor status fails closed when the ledger control row is missing', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) {
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+      }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 0, rows: [] }
+      throw new Error('status endpoint must remain read-only')
+    },
+  }
+  const engine = {
+    readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, feePolicy: {} }),
+    execute: async () => assert.fail('missing control row must never enable execution'),
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const result = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.databaseReady, false)
+  assert.equal(result.payload.databaseStatus, 'control-row-missing')
+  assert.equal(result.payload.sponsorWritesPaused, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
+})
+
 test('Sponsor status classifies database connection failures without exposing error details', async () => {
   const database = {
     async query() {
