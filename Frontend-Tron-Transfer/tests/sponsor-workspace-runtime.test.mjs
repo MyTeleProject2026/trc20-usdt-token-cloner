@@ -32,6 +32,6 @@ test('Sponsor workspace pages are isolated and wallet-locked routes have a recov
 test('Sponsor workspace render errors are contained by an application error boundary', async () => {
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
   assert.match(app, /class SponsorWorkspaceErrorBoundary extends React\.Component/)
-  assert.match(app, /<SponsorWorkspaceErrorBoundary activePage=\\{activePage\\} onNavigate=\\{setActivePage\\}>/)
+  assert.ok(app.includes('<SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>'))
   assert.match(app, /This Sponsor page could not be displayed/)
 })
