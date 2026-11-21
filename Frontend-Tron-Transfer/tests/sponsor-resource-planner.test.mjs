@@ -36,9 +36,16 @@ test('plans only the incremental stake when existing Sponsor delegation capacity
   const plan = planSponsorResourceProvisioning(base({ maxDelegatableSun: '500000' }))
   assert.equal(plan.ready, true)
   assert.equal(plan.action, 'stake')
-  assert.equal(plan.amountSun, '650000')
+  assert.equal(plan.amountSun, '1000000')
   assert.equal(plan.estimatedStakeSun, '1150000')
   assert.equal(plan.requiresFreshReadBeforeDelegation, true)
+})
+
+test('rounds incremental staking up to the Sponsor engine one-TRX minimum', () => {
+  const plan = planSponsorResourceProvisioning(base({ maxDelegatableSun: '1100000' }))
+  assert.equal(plan.ready, true)
+  assert.equal(plan.action, 'stake')
+  assert.equal(plan.amountSun, '1000000')
 })
 
 test('blocks staking when the Sponsor balance would consume the protected reserve', () => {
