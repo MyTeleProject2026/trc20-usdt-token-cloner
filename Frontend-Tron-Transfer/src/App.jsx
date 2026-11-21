@@ -8,12 +8,12 @@ import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 
 class SponsorWorkspaceErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { hasError: false } }
-  static getDerivedStateFromError() { return { hasError: true } }
+  constructor(props) { super(props); this.state = { hasError: false, message: '' } }
+  static getDerivedStateFromError(error) { return { hasError: true, message: String(error?.message || 'Unknown render error').slice(0, 240) } }
   componentDidCatch(error, info) { console.error('Sponsor workspace render failure', error, info?.componentStack) }
-  componentDidUpdate(previousProps) { if (previousProps.activePage !== this.props.activePage && this.state.hasError) this.setState({ hasError: false }) }
+  componentDidUpdate(previousProps) { if (previousProps.activePage !== this.props.activePage && this.state.hasError) this.setState({ hasError: false, message: '' }) }
   render() {
-    if (this.state.hasError) return <section className="sponsor-card sponsor-render-error" role="alert"><div className="sponsor-card-heading"><AlertTriangle/><div><h3>Sponsor workspace page failed to render</h3><p>The failure was contained so it cannot blank the entire application. No transaction was submitted.</p></div></div><button type="button" className="sponsor-secondary" onClick={() => this.setState({ hasError: false })}>Retry this page</button></section>
+    if (this.state.hasError) return <section className="sponsor-card sponsor-render-error" role="alert"><div className="sponsor-card-heading"><AlertTriangle/><div><h3>This Sponsor page could not be displayed</h3><p>The error is isolated to this page. No transaction was submitted.</p><p className="sponsor-muted">Diagnostic: <code>{this.state.message}</code></p></div></div><div className="sponsor-actions"><button type="button" className="sponsor-primary" onClick={() => this.setState({ hasError: false, message: '' })}>Retry this page</button><button type="button" className="sponsor-secondary" onClick={() => this.props.onNavigate('sponsor')}>Return to Sponsor overview</button></div></section>
     return this.props.children
   }
 }
@@ -113,14 +113,14 @@ export default function App() {
             <button type="button" className={!sponsorWorkspace ? 'active' : ''} aria-pressed={!sponsorWorkspace} onClick={() => setActivePage('home')}>Owner workspace</button>
             <button type="button" className={sponsorWorkspace ? 'active sponsor' : ''} aria-pressed={sponsorWorkspace} onClick={() => setActivePage('sponsor')}>Sponsor workspace</button>
           </div>
-          <span className="trax-mainnet-badge"><i/> TRON MAINNET</span>
+          <span className="trax-mainnet-badge"><i/> TRON MAINNET <b>·</b> {sponsorWorkspace ? "SPONSOR" : "OWNER"}</span>
           {!sponsorWorkspace && (wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Unlock Owner Wallet</button>)}
         </div>
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
         <div hidden={!sponsorWorkspace} aria-hidden={!sponsorWorkspace}>
-          <SponsorWorkspaceErrorBoundary activePage={activePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace}/></SponsorWorkspaceErrorBoundary>
+          <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace}/></SponsorWorkspaceErrorBoundary>
         </div>
         <div hidden={sponsorWorkspace} aria-hidden={sponsorWorkspace}>
           {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
