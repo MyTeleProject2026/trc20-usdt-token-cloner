@@ -511,7 +511,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     if (!wallet || !tronWeb || busy) return
     if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The Resource API requires a verified server signer, durable PostgreSQL ledger, session secret and both explicit Mainnet execution flags. No transaction was sent.'); return }
     if (sponsorApiStatus?.adminTokenRequired === true && adminToken.length < 32) { notify('error', 'Owner Admin authorization required', 'Enter the configured Sponsor Admin token. It is held in memory only and is not saved to browser storage.'); return }
-    const selectedAmount = options.amount || amount
+    const selectedAmount = options.amount || (action === 'withdraw' ? formatSunAsTrx(snapshot?.withdrawableSun || '0') : amount)
     const selectedResource = options.resource || resourceType
     let amountSun
     try { amountSun = parseTrx(selectedAmount) } catch (error) { notify('error', 'Invalid resource amount', error.message); return false }
@@ -528,13 +528,19 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       const maxDelegatable = BigInt(selectedResource === 'ENERGY' ? snapshot?.maxEnergyDelegatableSun || '0' : snapshot?.maxBandwidthDelegatableSun || '0')
       if (BigInt(amountSun) > maxDelegatable) { notify('error', 'Insufficient delegatable stake', 'The requested resource amount exceeds the Sponsor Wallet\'s confirmed Stake 2.0 delegation ceiling.'); return }
     }
-    const verb = action === 'stake' ? 'stake' : action === 'topup' ? 'top up' : 'delegate'
-    const target = action === 'stake' ? wallet.address : OWNER_ADDRESS
+    const verb = ({ stake: 'stake', topup: 'top up', delegate: 'delegate', undelegate: 'reclaim delegation', unstake: 'initiate unstaking', withdraw: 'withdraw matured TRX' })[action] || action
+    const target = ['stake', 'unstake', 'withdraw'].includes(action) ? wallet.address : OWNER_ADDRESS
     const prompt = action === 'stake'
       ? `Stake ${selectedAmount} TRX for ${selectedResource} in Sponsor Wallet ${wallet.address}?`
       : action === 'topup'
         ? `Send ${selectedAmount} TRX from Sponsor Wallet ${wallet.address} to the existing Owner Wallet ${OWNER_ADDRESS}? This is a real Mainnet TRX transfer.`
-        : `Delegate ${selectedAmount} TRX-equivalent of ${selectedResource} from Sponsor Wallet ${wallet.address} to Owner Wallet ${OWNER_ADDRESS}?`
+        : action === 'delegate'
+          ? `Delegate ${selectedAmount} TRX-equivalent of ${selectedResource} from Sponsor Wallet ${wallet.address} to Owner Wallet ${OWNER_ADDRESS}?`
+          : action === 'undelegate'
+            ? `Reclaim ${selectedAmount} TRX-equivalent of ${selectedResource} delegation from Owner Wallet ${OWNER_ADDRESS} to Sponsor Wallet ${wallet.address}?`
+            : action === 'unstake'
+              ? `Initiate Stake 2.0 unfreezing of ${selectedAmount} TRX for ${selectedResource} in Sponsor Wallet ${wallet.address}? The TRX will remain locked for the current Mainnet unfreeze delay (normally 14 days) before it can be withdrawn.`
+              : `Withdraw all currently matured Stake 2.0 TRX (${selectedAmount}) to Sponsor Wallet ${wallet.address}?`
     if (!window.confirm(`${prompt}
 
 This request is sent to the authenticated TRON Transfer Resource API. The backend enforces the configured fee cap and reserve, signs only the exact intent authorized by this Sponsor Wallet, and records the transaction ID before broadcast. Continue?`)) return
@@ -544,7 +550,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       const idempotencyKey = createIdempotencyKey()
       const intent = await sponsorApiRequest('/api/sponsor/intent', {
         method: 'POST', token, adminToken,
-        body: { operation: action, resource: action === 'topup' ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
+        body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
       if (!window.confirm('Authorize this exact Sponsor operation with a signed message?\n\n' + intent.message + '\n\nThis is an off-chain authorization message, not a TRON transaction.')) return
@@ -556,12 +562,12 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       const transactionId = typeof result.transactionId === 'string' ? result.transactionId : ''
       if (transactionId) {
         setLastTx(transactionId)
-        recordSecurityEvent(wallet.address, 'Sponsor transaction submitted by Resource API', action + ' ' + (action === 'topup' ? 'TRX' : selectedResource) + ' · ' + transactionId)
+        recordSecurityEvent(wallet.address, 'Sponsor transaction submitted by Resource API', action + ' ' + (['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource) + ' · ' + transactionId)
         const operationReference = result.operationReference || idempotencyKey
         setLastOperationReference(result.solidified || !result.broadcast ? '' : operationReference)
         const event = {
           transactionId, operationReference, sponsorAddress: wallet.address, receiverAddress: target, action,
-          resourceType: action === 'topup' ? 'TRX' : selectedResource, stakeEquivalentSun: String(amountSun),
+          resourceType: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, stakeEquivalentSun: String(amountSun),
           status: result.solidified ? (action === 'delegate' ? 'solidified-mainnet-verified' : 'solidified-mainnet-confirmed') : result.broadcast ? 'broadcast-pending-verification' : 'signed-not-broadcast',
           blockNumber: result.confirmationBlock || null, createdAt: new Date().toISOString(),
         }
