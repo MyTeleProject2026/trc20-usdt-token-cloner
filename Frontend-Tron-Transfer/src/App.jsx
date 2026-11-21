@@ -119,7 +119,12 @@ export default function App() {
       </header>
       <main className="trax-admin-content">
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        {sponsorWorkspace ? <SponsorWorkspaceErrorBoundary activePage={activePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage}/></SponsorWorkspaceErrorBoundary> : activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+        <div hidden={!sponsorWorkspace} aria-hidden={!sponsorWorkspace}>
+          <SponsorWorkspaceErrorBoundary activePage={activePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace}/></SponsorWorkspaceErrorBoundary>
+        </div>
+        <div hidden={sponsorWorkspace} aria-hidden={sponsorWorkspace}>
+          {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+        </div>
       </main>
       {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
     <footer className="trax-admin-footer">TRON TRANSFER · INDEPENDENT OWNER SIGNING · TRON MAINNET</footer>
