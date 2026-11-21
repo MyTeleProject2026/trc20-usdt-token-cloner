@@ -273,6 +273,25 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
+  const bootstrapSponsorLedger = useCallback(async () => {
+    if (!wallet?.address) return
+    if (adminToken.length < 32) {
+      notify('error', 'Owner Admin authorization required', 'Enter the configured Sponsor Admin token. It is held in memory only and is never stored in browser storage.')
+      return
+    }
+    setBusy(true)
+    try {
+      const result = await sponsorApiRequest('/api/sponsor/ledger/bootstrap', {
+        method: 'POST', adminToken, body: { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' },
+      })
+      const status = await sponsorApiRequest('/api/sponsor/status')
+      setSponsorApiStatus(status)
+      notify(result.success ? 'success' : 'error', result.success ? 'Sponsor ledger schema initialized' : 'Sponsor ledger bootstrap not ready', result.message || 'The ledger remains write-paused. Migration, backup/restore verification and explicit cutover are still required.')
+    } catch (error) {
+      notify('error', 'Sponsor ledger bootstrap failed', String(error?.message || 'The Resource API could not initialize the schema.'))
+    } finally { setBusy(false) }
+  }, [wallet?.address, adminToken, notify])
+
   const refresh = useCallback(async ({ quiet = false } = {}) => {
     if (!wallet || !tronWeb) return
     setBusy(true)
@@ -793,6 +812,11 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Admin authorization: {sponsorApiStatus?.adminTokenRequired ? (sponsorApiStatus?.adminTokenConfigured ? 'required · valid policy' : 'required · token must be at least 32 characters') : 'not required'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Exact Sponsor message signature, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
+      {wallet && ['schema-missing', 'control-row-missing'].includes(sponsorApiStatus?.databaseStatus) && <div className="sponsor-ledger-bootstrap">
+        <label className="sponsor-field">Sponsor Admin authorization token<input type="password" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" spellCheck="false"/><small>Used only for this authenticated schema-bootstrap request. Held in memory and cleared when the Sponsor wallet locks.</small></label>
+        <button type="button" className="sponsor-secondary" disabled={busy || adminToken.length < 32} onClick={() => void bootstrapSponsorLedger()}>{busy ? 'Checking database…' : 'Initialize paused Sponsor ledger schema'}</button>
+        <p className="sponsor-warning">This creates the missing ledger tables only. It does not migrate historical records, enable writes, sign transactions or broadcast to Mainnet.</p>
+      </div>}
     </section>}
 
     {activePage === 'sponsor' && !wallet && !saved && <section className="sponsor-card">
