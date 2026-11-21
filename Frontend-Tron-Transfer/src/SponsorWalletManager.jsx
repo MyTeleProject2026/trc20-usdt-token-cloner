@@ -237,7 +237,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [wallet?.address])
 
   useEffect(() => {
-    if (!wallet?.address || !tronWeb) return undefined
+    if (!workspaceActive || !wallet?.address || !tronWeb) return undefined
     let cancelled = false
     const loadVerifiedHistory = async () => {
       try {
@@ -251,11 +251,12 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     }
     void loadVerifiedHistory()
     return () => { cancelled = true }
-  }, [wallet?.address, tronWeb, recordActivity])
+  }, [wallet?.address, tronWeb, recordActivity, workspaceActive])
 
   useEffect(() => { if (!wallet) setAdminToken('') }, [wallet])
 
   useEffect(() => {
+    if (!workspaceActive) return undefined
     let active = true
     const loadStatus = async () => {
       try {
@@ -268,7 +269,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     void loadStatus()
     const timer = window.setInterval(() => { void loadStatus() }, 30_000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [])
+  }, [workspaceActive])
 
   const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
@@ -781,7 +782,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     <CenterToast toast={toast} onClose={() => setToast(null)}/>
     <header className="sponsor-manager-header">
       <div><span className="sponsor-eyebrow">PRIVATE SPONSOR CONSOLE · TRON MAINNET</span><h2>TRON TRANSFER SPONSOR</h2><p>Independent treasury workspace for resource capacity, owner funding, delegation and transaction audit.</p></div>
-      <span className="sponsor-network-pill"><i/> MAINNET CONNECTED</span>
+      <span className="sponsor-network-pill"><i/> TRON MAINNET · LIVE DATA CHECK</span>
     </header>
     <nav className="sponsor-product-tabs" aria-label="Sponsor platform sections">
       {[['sponsor','Overview'],['sponsor-resources','Resources'],['sponsor-automation','Automation'],['sponsor-activity','Activity']].map(([id,label]) => <button key={id} type="button" className={activePage === id ? 'active' : ''} aria-current={activePage === id ? 'page' : undefined} onClick={() => onNavigate(id)}>{label}</button>)}
@@ -816,7 +817,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
 
     {!wallet && activePage !== 'sponsor' && <section className="sponsor-card sponsor-page-locked"><div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Wallet is locked</h3><p>Unlock the Sponsor Wallet from Overview to access its live data and existing operations.</p></div></div><button type="button" className="sponsor-primary" onClick={() => onNavigate('sponsor')}>Open Sponsor Overview</button></section>}
     {wallet && <div className="sponsor-dashboard">
-      <section id="sponsor-overview" className="sponsor-card sponsor-wallet-summary" hidden={activePage !== "sponsor"}>
+      {activePage === "sponsor" && <section id="sponsor-overview" className="sponsor-card sponsor-wallet-summary">
         <div className="sponsor-card-heading"><Wallet/><div><h3>Sponsor Wallet Overview</h3><p>{wallet.address}</p></div></div>
         <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Imported · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={() => lockWallet()}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button><button onClick={beginReplace}>Replace</button></div>
         <div className="sponsor-metric-grid">
@@ -830,9 +831,9 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         {snapshot?.resourceReadSource && <p className="sponsor-muted">Resource data source: {snapshot.resourceReadSource === 'resource-api' ? 'TRON Transfer Resource API' : 'Direct TronWeb fallback'}{snapshot.resourceRpcProviders ? ' · ' + Object.values(snapshot.resourceRpcProviders).join(' / ') : ''}</p>}
         {snapshot?.checkedAt && <p className="sponsor-muted">Last live check: {new Date(snapshot.checkedAt).toLocaleString()}</p>}
         {lastTx && <p className="sponsor-tx-link">Last transaction: <a href={`https://tronscan.org/#/transaction/${lastTx}`} target="_blank" rel="noreferrer">{lastTx}</a></p>}
-      </section>
+      </section>}
 
-      <section id="sponsor-resources" className="sponsor-card" hidden={activePage !== "sponsor-resources"}>
+      {activePage === "sponsor-resources" && <section id="sponsor-resources" className="sponsor-card">
         <div className="sponsor-card-heading"><ArrowDownUp/><div><h3>Resource &amp; Stake 2.0 Management</h3><p>Stake, delegate, reclaim, initiate unstaking, and withdraw matured Sponsor TRX.</p></div></div>
         {sponsorApiStatus?.adminTokenRequired === true && <label className="sponsor-field">Sponsor Admin authorization token<input type="password" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" spellCheck="false"/><small>Required by the Resource API for Sponsor writes. Sent only over HTTPS, held in memory, and cleared when the Sponsor wallet locks or disconnects.</small></label>}
         <div className="sponsor-resource-controls">
@@ -847,20 +848,20 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         <div className="sponsor-actions"><button className="sponsor-secondary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true || sponsorApiStatus?.stakingPolicy?.enabled !== true} onClick={() => void submitResourceTransaction('stake')}>Stake TRX for {resourceType} · max {sponsorApiStatus?.stakingPolicy?.maxStakeTrx || '0'} TRX</button><button className="sponsor-primary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true} onClick={() => void submitResourceTransaction('delegate')}>Delegate {resourceType} to Owner</button><button className="sponsor-secondary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true} onClick={() => void submitResourceTransaction('undelegate')}>Reclaim {resourceType} delegation from Owner</button><button className="sponsor-secondary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true} onClick={() => void submitResourceTransaction('unstake')}>Initiate {resourceType} unstake · delay applies</button><button className="sponsor-secondary" disabled={busy || !snapshot || !/^[1-9][0-9]*$/.test(String(snapshot?.withdrawableSun || '0')) || sponsorApiStatus?.transactionExecutionAvailable !== true} onClick={() => void submitResourceTransaction('withdraw')}>Withdraw matured TRX · {snapshot ? formatAmount(snapshot.withdrawableSun) : '—'} TRX</button><button className="sponsor-secondary" disabled={busy || !snapshot || sponsorApiStatus?.transactionExecutionAvailable !== true || sponsorApiStatus?.ownerTopupPolicy?.enabled !== true} onClick={() => void submitResourceTransaction('topup')}>Send TRX to Owner · max {sponsorApiStatus?.ownerTopupPolicy?.maxTopupTrx || 'disabled'} TRX</button><button className="sponsor-secondary" disabled={busy || !lastOperationReference} onClick={() => void reconcileLastSponsorOperation()}>Reconcile last Sponsor operation</button><button className="sponsor-secondary" disabled={busy || !lastDelegation} onClick={() => void verifyLastDelegation()}>Verify Mainnet delegation</button><button className="sponsor-secondary" disabled title="No authorized Mainnet resource-rental provider is configured">Acquire Energy / Bandwidth · Provider unavailable</button></div>
         <p className="sponsor-muted">Pending unfreeze schedule: {snapshot?.pendingUnfreezes?.length ? snapshot.pendingUnfreezes.map((item, index) => <span key={item.resourceType + '-' + item.expiresAt + '-' + index}>{item.resourceType} · {formatSunAsTrx(item.amountSun)} TRX · withdrawable after {item.expiresAt ? new Date(item.expiresAt).toLocaleString() : 'date unavailable'}{index < snapshot.pendingUnfreezes.length - 1 ? ' · ' : ''}</span>) : 'No pending unfreeze requests.'}</p>
         <p className="sponsor-muted">Confirmed delegation ceiling: {snapshot ? formatAmount(resourceType === 'ENERGY' ? snapshot.maxEnergyDelegatableSun : snapshot.maxBandwidthDelegatableSun) + ' TRX equivalent' : 'Refresh to read'} · Self-staked Energy: {snapshot ? formatAmount(snapshot.frozenEnergySun) : '—'} TRX · Self-staked Bandwidth: {snapshot ? formatAmount(snapshot.frozenBandwidthSun) : '—'} TRX · Pending unfreeze: {snapshot ? formatAmount(snapshot.pendingUnfreezeSun) : '—'} TRX · Matured and withdrawable: {snapshot ? formatAmount(snapshot.withdrawableSun) : '—'} TRX · Available unfreeze slots: {snapshot?.availableUnfreezeCount ?? '—'}.</p><p className="sponsor-warning">Unstaking first starts the Stake 2.0 unfreeze delay (currently 14 days on Mainnet); it does not return liquid TRX immediately. Undelegate resources from the Owner before unstaking the corresponding stake. Withdraw is enabled only for the exact currently matured amount. Every operation is checked again by the server against confirmed Mainnet state before signing.</p>
-      </section>
+      </section>}
 
-      <section id="sponsor-automation" className="sponsor-card" hidden={activePage !== "sponsor-automation"}>
+      {activePage === "sponsor-automation" && <section id="sponsor-automation" className="sponsor-card">
         <div className="sponsor-card-heading"><Activity/><div><h3>Guided Resource Provisioning</h3><p>Live Owner resource targets with guarded Sponsor stake-or-delegate planning.</p></div></div>
         <div className="sponsor-resource-controls"><label className="sponsor-field">Owner Energy target (units)<input inputMode="numeric" value={energyTarget} onChange={event => setEnergyTarget(event.target.value.replace(/[^0-9]/g, '').slice(0, 15))}/><small>Default planning target only. Set this to the current deployment estimate from Owner Admin preflight.</small></label><label className="sponsor-field">Owner Bandwidth target (bytes)<input inputMode="numeric" value={bandwidthTarget} onChange={event => setBandwidthTarget(event.target.value.replace(/[^0-9]/g, '').slice(0, 15))}/></label></div><div className="sponsor-engine-grid"><div><small>OWNER TARGET</small><strong>{OWNER_ADDRESS}</strong></div><div><small>SPONSOR ENERGY STAKED</small><strong>{snapshot?.delegationReadAvailable ? formatAmount(snapshot.delegatedEnergySun) + ' TRX eq.' : 'Unavailable'}</strong></div><div><small>SPONSOR BANDWIDTH STAKED</small><strong>{snapshot?.delegationReadAvailable ? formatAmount(snapshot.delegatedBandwidthSun) + ' TRX eq.' : 'Unavailable'}</strong></div><div><small>OWNER ENERGY AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerEnergyAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>OWNER BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerBandwidthAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>ENERGY TARGET DEFICIT</small><strong>{snapshot ? ownerEnergyDeficit.toLocaleString() : '—'}</strong></div><div><small>BANDWIDTH TARGET DEFICIT</small><strong>{snapshot ? ownerBandwidthDeficit.toLocaleString() : '—'}</strong></div><div><small>RESOURCE PRECHECK</small><strong>{!energyTargetValid || !bandwidthTargetValid ? 'Invalid targets' : snapshot ? (ownerEnergyDeficit === 0 && ownerBandwidthDeficit === 0 ? 'Targets met' : 'Resource shortfall') : 'Awaiting live read'}</strong></div></div>
         <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !wallet || !snapshot || !energyTargetValid || !sponsorApiStatus?.transactionExecutionAvailable} onClick={() => void runResourceAutomation('ENERGY')}>Provision Owner Energy target</button><button className="sponsor-primary" disabled={busy || !wallet || !snapshot || !bandwidthTargetValid || !sponsorApiStatus?.transactionExecutionAvailable} onClick={() => void runResourceAutomation('BANDWIDTH')}>Provision Owner Bandwidth target</button><button className="sponsor-secondary" disabled={busy || !wallet} onClick={() => void refresh()}>Run Resource Preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('deploy')}>Open Owner Admin deployment preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('portfolio')}>Open Owner portfolio</button></div><p className="sponsor-warning">Sponsor and Owner resource snapshots refresh automatically every 60 seconds while the Sponsor wallet is unlocked. The planner chooses only the next safe stake or delegation action from a fresh Mainnet snapshot. Every action still requires an exact Sponsor message signature and explicit on-screen confirmation; after staking, it requires a new live resource read before delegation. A provider rental or free-grant adapter is not configured by this wallet import.</p>
-      </section>
+      </section>}
 
-      <section id="sponsor-activity" className="sponsor-card" hidden={activePage !== "sponsor-activity"}>
+      {activePage === "sponsor-activity" && <section id="sponsor-activity" className="sponsor-card">
         <div className="sponsor-card-heading"><FileKey2/><div><h3>Sponsor Activity</h3><p>Current browser session and latest observed transaction.</p></div></div>
         <div className="sponsor-activity-row"><span>Wallet connection</span><b>Unlocked locally</b></div>
         <div className="sponsor-activity-row"><span>Network</span><b>TRON Mainnet</b></div><div className="sponsor-activity-row"><span>Security events</span><b>{securityEvents.length} local events</b></div>{securityEvents.slice(0, 5).map((item, index) => <div className="sponsor-activity-row" key={item.createdAt + index}><span>{item.event} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.detail}</b></div>)}
         <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => String(item.status || '').startsWith('solidified-mainnet-')).length} independently verified</b></div><div className="sponsor-activity-row"><span>Recent wallet transactions</span><b>{walletTransactionsAvailable ? walletTransactions.length + ' confirmed chain records' : 'History unavailable'}</b></div>{walletTransactions.slice(0, 8).map((item) => { const txid = item.txID || item.txid; const type = item.raw_data?.contract?.[0]?.type || 'TRON transaction'; const result = item.ret?.[0]?.contractRet || 'CONFIRMED'; return <div className="sponsor-activity-row" key={txid}><span>{type} · {item.block_timestamp ? new Date(item.block_timestamp).toLocaleString() : 'Confirmed on-chain'}</span><b>{result} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}<div className="sponsor-activity-row"><span>Official USDT transfers</span><b>{walletTokenTransfersAvailable ? walletTokenTransfers.length + ' confirmed transfers' : 'History unavailable'}</b></div>{walletTokenTransfers.slice(0, 8).map((item) => { const txid = item.transaction_id; const sent = item.from === wallet.address; const amount = formatTokenUnits(item.value, 6); return <div className="sponsor-activity-row" key={txid}><span>{sent ? 'Sent' : 'Received'} {amount} USDT · {new Date(item.block_timestamp || 0).toLocaleString()}</span><b>{sent ? 'To ' + item.to : 'From ' + item.from} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : item.action === 'topup' ? 'TRX top-up' : item.action === 'undelegate' ? 'Reclaim delegation' : item.action === 'unstake' ? 'Unstake request' : item.action === 'withdraw' ? 'Matured withdrawal' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'solidified-mainnet-confirmed' ? 'Confirmed · block ' + (item.blockNumber || '—') : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
-      </section>
+      </section>}
     </div>}
     
   </section>
