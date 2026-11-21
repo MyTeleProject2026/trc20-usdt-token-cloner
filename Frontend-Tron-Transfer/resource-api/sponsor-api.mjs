@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import pg from 'pg'
+import { isIP } from 'node:net'
 import { TronWeb } from 'tronweb'
 import { createSponsorTransactionEngine } from './sponsor-engine.mjs'
 
@@ -16,6 +17,16 @@ let pool
 let schemaPromise
 
 function sha(value) { return createHash('sha256').update(value).digest('hex') }
+// Render public requests arrive through Cloudflare, which overwrites CF-Connecting-IP.
+// Use that validated single-address header for per-client budgets; never trust
+// caller-controlled X-Forwarded-For. Fall back to the TCP peer when unavailable.
+function sponsorClientIp(req) {
+  const cloudflareIp = typeof req.headers?.['cf-connecting-ip'] === 'string'
+    ? req.headers['cf-connecting-ip'].trim()
+    : ''
+  if (isIP(cloudflareIp)) return cloudflareIp
+  return req.socket?.remoteAddress || 'unknown'
+}
 function equalText(a, b) {
   const left = Buffer.from(String(a || ''))
   const right = Buffer.from(String(b || ''))
@@ -216,7 +227,7 @@ export function createSponsorResourceApi({
   const ownerAddress = allowedAddress
   const rateCounts = new Map()
   function rateLimit(req, key, max = 12) {
-    const ip = String(req.socket?.remoteAddress || 'unknown').slice(0, 80)
+    const ip = String(sponsorClientIp(req)).slice(0, 80)
     const bucket = key + ':' + ip
     const timestamp = now()
     const previous = rateCounts.get(bucket)
