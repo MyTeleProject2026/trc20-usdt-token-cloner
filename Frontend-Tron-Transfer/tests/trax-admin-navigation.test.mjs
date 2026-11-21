@@ -123,7 +123,7 @@ test('premium workspace layer preserves reduced motion and mobile Sponsor tabs',
 test('workspace routes are deep-linkable and browser history restores the selected page', async () => {
   const app = await read('../src/App.jsx')
   assert.ok(app.includes('function pageFromLocation()'))
-  assert.ok(app.includes("window.location.hash.replace(/^#\\\\/?/, '')"))
+  assert.ok(app.includes('const candidate = window.location.hash.replace('))
   assert.ok(app.includes("window.addEventListener('popstate', syncFromLocation)"))
   assert.ok(app.includes("window.addEventListener('hashchange', syncFromLocation)"))
   assert.ok(app.includes("window.history.pushState({ tronTransferPage: activePage }, '', nextHash)"))
