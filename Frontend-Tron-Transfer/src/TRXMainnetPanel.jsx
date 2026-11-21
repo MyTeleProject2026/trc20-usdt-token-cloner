@@ -14,6 +14,15 @@ const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const DEFAULT_RECIPIENT = ''
 const DEFAULT_FEE_CAP = '150'
 
+const SPONSOR_TARGETS_KEY = 'tron-transfer.sponsor-resource-targets.v1'
+
+function saveSponsorResourceTargets(deployment) {
+  const energy = String(deployment?.energyWithSafetyMargin || deployment?.energyRequired || '')
+  const bandwidth = String(deployment?.estimatedBandwidthBytes || '')
+  if (!/^[1-9][0-9]{0,14}$/.test(energy) || !/^[1-9][0-9]{0,14}$/.test(bandwidth)) return
+  try { localStorage.setItem(SPONSOR_TARGETS_KEY, JSON.stringify({ energy, bandwidth })) } catch {}
+}
+
 function makeReference() {
   const bytes = new Uint8Array(32)
   window.crypto.getRandomValues(bytes)
@@ -143,6 +152,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       feeLimitSun: feeCapSun,
     }])
     const deployment = result.deployments?.[0]
+    saveSponsorResourceTargets(deployment)
     if (!result.conservative || !deployment?.energyEstimateAvailable || result.requiredTrxSun !== '0') {
       throw new Error('Deployment readiness is not established. Energy estimation, complete resource coverage, or zero-TRX fallback could not be verified. No wallet prompt, signature, or broadcast was attempted.')
     }
@@ -198,6 +208,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       feeLimitSun: feeCapSun,
     }])
     const deployment = preflight.deployments?.[0]
+    saveSponsorResourceTargets(deployment)
     if (!preflight.conservative || !deployment?.energyEstimateAvailable || preflight.requiredTrxSun !== '0') {
       throw new Error('Deployment is blocked: exact Energy estimation, complete Bandwidth coverage, owner permission, or zero-TRX fallback could not be verified. No signature or broadcast was attempted.')
     }
