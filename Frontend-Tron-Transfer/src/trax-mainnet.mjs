@@ -336,10 +336,20 @@ export async function verifyTRAXTokenContract(tronWeb, address) {
 
 export function assertMainnetWallet(wallet) {
   if (!wallet?.tronWeb || !wallet?.address) throw new Error('Unlock the configured Owner Wallet first.')
+  if (wallet.signerType !== 'encrypted-local-owner-vault' || wallet.provider !== null) {
+    throw new Error('TRON TRANSFER requires its encrypted local Owner Wallet signer. External wallet providers are not supported.')
+  }
   let host = ''
   try { host = new URL(String(wallet.tronWeb.fullNode?.host || '')).hostname.toLowerCase() } catch {}
   if (host !== 'api.trongrid.io') throw new Error('Wrong network. The local Owner Wallet signer must use TRON Mainnet.')
   if (!wallet.tronWeb.isAddress(wallet.address)) throw new Error('Owner Wallet returned an invalid TRON address.')
+  const signerAddress = wallet.tronWeb.defaultAddress?.base58 || wallet.tronWeb.defaultAddress?.hex || ''
+  if (!signerAddress || !addressesEqual(wallet.tronWeb, signerAddress, wallet.address)) {
+    throw new Error('The encrypted local Owner signer address does not match the saved Owner account.')
+  }
+  if (typeof wallet.tronWeb.trx?.sign !== 'function' || typeof wallet.tronWeb.trx?.sendRawTransaction !== 'function') {
+    throw new Error('The encrypted local Owner Wallet cannot sign and broadcast TRON Mainnet transactions.')
+  }
   return wallet.tronWeb
 }
 
@@ -1006,7 +1016,7 @@ export function decodeTronBroadcastFailure(tronWeb, broadcast, txID) {
   return 'TRON Mainnet rejected deployment broadcast: ' + String(detail) + '.' + tx
 }
 
-export function formatTronLinkError(error, stage = 'TRON operation failed') {
+export function formatOwnerWalletError(error, stage = 'TRON operation failed') {
   // Preserve enumerable and non-enumerable provider fields. Axios/TronLink
   // frequently wrap JSON details inside Error instances whose JSON.stringify()
   // output is empty and whose .message alone loses provider code/status values.
@@ -1066,7 +1076,7 @@ export function formatTronLinkError(error, stage = 'TRON operation failed') {
   return stage + ': ' + raw
 }
 
-function explainTronLinkError(error, stage) {
+function explainOwnerWalletError(error, stage) {
   return formatTronLinkError(error, stage)
 }
 
@@ -1396,24 +1406,21 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
   expectedOwnerAddress = '',
   confirmAction = (message) => typeof window === 'undefined' || window.confirm(message),
 } = {}) {
-  // Build the unsigned deployment transaction with the SAME injected
-  // TronWeb instance that will sign it. TronLink's provider can use a different
-  // TronWeb/protobuf version than the app's pinned verifier; constructing with
-  // the app copy and handing it to the wallet copy can make the wallet reject
-  // CreateSmartContract as "Invalid transaction provided" before its prompt.
-  // The separate pinned client remains read-only and independently verifies
-  // raw_data, txID, signatures, permissions, receipts and deployed bytecode.
+  // Build, sign and broadcast through the same encrypted local Owner Wallet
+  // TronWeb instance. The separate pinned client remains read-only and
+  // independently verifies raw_data, txID, signatures, permissions, receipts
+  // and deployed bytecode. No injected provider or external wallet is consulted.
   const walletTronWeb = assertMainnetWallet(wallet)
   const tronWeb = createVerifier()
   if (expectedOwnerAddress && !addressesEqual(tronWeb, wallet.address, expectedOwnerAddress)) {
     throw new Error('Configured TRӾ owner does not match the connected funded Mainnet account. Expected '
       + expectedOwnerAddress + '; connected ' + wallet.address + '. No wallet prompt or broadcast was attempted.')
   }
-  const injectedSignerAddress = walletTronWeb.defaultAddress?.base58
+  const localSignerAddress = walletTronWeb.defaultAddress?.base58
     || walletTronWeb.defaultAddress?.hex
     || ''
-  if (injectedSignerAddress && !addressesEqual(tronWeb, injectedSignerAddress, wallet.address)) {
-    throw new Error('Owner signer active address (' + injectedSignerAddress
+  if (localSignerAddress && !addressesEqual(tronWeb, localSignerAddress, wallet.address)) {
+    throw new Error('Owner signer active address (' + localSignerAddress
       + ') differs from the connected app account (' + wallet.address
       + '). Unlock the configured funded Owner Wallet and retry. No signature or broadcast was attempted.')
   }
@@ -1501,10 +1508,9 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
       throw new Error('The local Owner TronWeb signer rejects the node-issued CreateSmartContract payload before signing. No wallet prompt or broadcast was attempted. Check the wallet version and transaction serialization.')
     }
   }
-  // Re-read the exact fee-paying owner account immediately before opening
-  // TronLink. The initial balance/resource snapshot may become stale while
-  // simulation and transaction construction run; do not rely on it for a
-  // high-cost Mainnet deployment.
+  // Re-read the exact fee-paying Owner account immediately before local
+  // signing. The initial balance/resource snapshot may become stale while
+  // simulation and transaction construction run; do not rely on it.
   const finalResourceSnapshot = await readResources(tronWeb, wallet.address)
   resourceBudget = calculateDeploymentResourceBudget({
     energyRequired: energyEstimate.energyUsed,
@@ -1527,7 +1533,7 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
     const diagnostic = {
       tronWebVersion: String(tronWeb.version || 'unknown'),
       walletTronWebVersion: String(walletTronWeb.version || 'unknown'),
-      walletProviderKind: String(wallet.provider?.isTronLink ? 'TronLink' : wallet.provider?.constructor?.name || 'injected-provider'),
+      signerKind: String(wallet.signerType || 'unknown-local-signer'),
       walletTransactionIntegrity,
       energyEstimateAvailable: Boolean(energyEstimate),
       energyEstimateWarning: energyEstimateWarning || null,
@@ -1575,7 +1581,7 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
   verifyTransactionSigner(tronWeb, signedTransaction, wallet.address)
   await assertTransactionPermission(tronWeb, signedTransaction, wallet.address)
 
-  // Resources can change while the user reviews the TronLink signature prompt.
+  // Resources can change while the Owner reviews the local signing confirmation.
   // Re-read the exact fee-paying owner immediately after signing and directly
   // before broadcast. If any TRX fallback has appeared, discard the signature.
   try {
@@ -1615,10 +1621,10 @@ export async function deployContractWithOwnerSigner(wallet, artifact, contractNa
   } catch (error) {
     throw new Error('Deployment broadcast was accepted, but final Mainnet verification did not complete. Preserve transaction ' + unsigned.txID + ' and recover it with verifyExistingMainnetDeployment; do not submit a duplicate deployment. ' + (error?.message || String(error)))
   }
-  return { ...verifiedDeployment, resourceBudget, payerAddress: wallet.address, signerAddress: injectedSignerAddress || wallet.address }
+  return { ...verifiedDeployment, resourceBudget, payerAddress: wallet.address, signerAddress: localSignerAddress || wallet.address }
 }
 
-export const deployContractFromTronLink = deployContractWithOwnerSigner
+export const deployContractFromOwnerWallet = deployContractWithOwnerSigner
 
 export async function estimateMainnetContractCallEnergy(
   tronWeb,
@@ -1758,7 +1764,7 @@ export async function sendAndVerifyContractCall(
     throw new Error('Unsigned TRӾ ' + methodName + ' transaction does not match the verified owner, contract, method selector, zero call value or selected fee limit. No signature or broadcast was attempted.')
   }
 
-  // Simulate the exact encoded data from the transaction we will ask TronLink to sign.
+  // Simulate the exact encoded data that the encrypted local Owner Wallet will sign.
   // postNode routes both the preferred estimator and its fallback through the paced queue.
   let energyEstimate
   try {
@@ -1827,7 +1833,7 @@ export async function sendAndVerifyContractCall(
   checkTransactionSigner(tronWeb, signedTransaction, ownerAddress)
   await checkTransactionPermission(tronWeb, signedTransaction, ownerAddress)
 
-  // A user may leave the TronLink prompt open long enough for quotas to change.
+  // A user may leave the local transaction confirmation open long enough for quotas to change.
   // Discard an accepted signature if the final pre-broadcast snapshot no longer
   // covers the exact operation without any TRX fallback.
   let finalBudget
@@ -1856,7 +1862,7 @@ export async function sendAndVerifyContractCall(
   return { txID: unsigned.txID, receipt, resourceBudget: finalBudget, payerAddress: ownerAddress, signerAddress: ownerAddress }
 }
 
-export async function sendNativeTrxFromTronLink(wallet, toAddress, amountSun) {
+export async function sendNativeTrxFromOwnerWallet(wallet, toAddress, amountSun) {
   const tronWeb = assertMainnetWallet(wallet)
   if (!tronWeb.isAddress(toAddress)) throw new Error('Invalid reserve-vault TRON address.')
   const amount = BigInt(String(amountSun))
