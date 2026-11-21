@@ -288,7 +288,8 @@ export function createSponsorResourceApi({
 
     if (req.method === 'GET' && path === '/api/sponsor/status') {
       const readiness = engine.readiness()
-      const databaseConnection = sponsorDatabaseConnectionInfo(env)\n      const dbConfigured = databaseConnection.configured
+      const databaseConnection = sponsorDatabaseConnectionInfo(env)
+      const dbConfigured = databaseConnection.configured
       const ownerAddressMatches = readiness.ownerAddress === ownerAddress
       const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
       const adminRequired = adminTokenRequired(env)
