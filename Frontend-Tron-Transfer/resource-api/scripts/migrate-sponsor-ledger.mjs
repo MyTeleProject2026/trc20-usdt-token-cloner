@@ -1,9 +1,13 @@
 import pg from 'pg'
+import { createHash } from 'node:crypto'
 
 const { Pool } = pg
 const sourceUrl = process.env.SOURCE_DATABASE_URL
 const targetUrl = process.env.TARGET_DATABASE_URL
 
+if (process.env.SPONSOR_WRITES_PAUSED !== 'true') {
+  throw new Error('Set SPONSOR_WRITES_PAUSED=true only after Sponsor writes and broadcasts are disabled.')
+}
 if (!sourceUrl || !targetUrl) {
   throw new Error('Set SOURCE_DATABASE_URL and TARGET_DATABASE_URL; values are never printed.')
 }
@@ -26,6 +30,19 @@ const columns = [
 ]
 const table = 'public.tron_transfer_sponsor_operations'
 
+function rowDigest(rows) {
+  const hash = createHash('sha256')
+  for (const row of rows) {
+    const normalized = columns.map(column => {
+      const value = row[column]
+      return value instanceof Date ? value.toISOString() : value === null ? null : String(value)
+    })
+    hash.update(JSON.stringify(normalized))
+    hash.update('\n')
+  }
+  return hash.digest('hex')
+}
+
 async function main() {
   const sourceClient = await source.connect()
   const targetClient = await target.connect()
@@ -38,6 +55,13 @@ async function main() {
 
     const rows = await sourceClient.query(`SELECT ${columns.join(', ')} FROM ${table} ORDER BY id ASC`)
     const sourceCount = rows.rowCount
+    const inFlight = await sourceClient.query(
+      `SELECT count(*)::bigint AS count FROM ${table} WHERE status IN ('reserved','signed-not-broadcast','broadcast-unknown')`
+    )
+    if (BigInt(inFlight.rows[0].count) !== 0n) {
+      throw new Error('Source ledger contains in-flight or ambiguous operations. Reconcile them before migration.')
+    }
+    const sourceDigest = rowDigest(rows.rows)
 
     await targetClient.query('BEGIN')
     await targetClient.query(`
@@ -81,9 +105,13 @@ async function main() {
         EXISTS (SELECT 1 FROM ${table})
       )
     `)
-    const targetCount = await targetClient.query(`SELECT count(*)::bigint AS count FROM ${table}`)
-    if (BigInt(targetCount.rows[0].count) !== BigInt(sourceCount)) {
+    const targetRows = await targetClient.query(`SELECT ${columns.join(', ')} FROM ${table} ORDER BY id ASC`)
+    const targetCount = targetRows.rowCount
+    if (BigInt(targetCount) !== BigInt(sourceCount)) {
       throw new Error('Source and target row counts differ; rolling back target migration.')
+    }
+    if (rowDigest(targetRows.rows) !== sourceDigest) {
+      throw new Error('Source and target ledger checksums differ; rolling back target migration.')
     }
 
     await targetClient.query('COMMIT')
@@ -91,9 +119,10 @@ async function main() {
     process.stdout.write(JSON.stringify({
       success: true,
       copiedRows: sourceCount,
-      verifiedRows: Number(targetCount.rows[0].count),
+      verifiedRows: targetCount,
+      checksumVerified: true,
       note: 'No database URLs, passwords, wallet keys, or row contents were printed.',
-    }) + '\\n')
+    }) + '\n')
   } catch (error) {
     await targetClient.query('ROLLBACK').catch(() => {})
     await sourceClient.query('ROLLBACK').catch(() => {})
@@ -107,7 +136,7 @@ async function main() {
 try {
   await main()
 } catch (error) {
-  process.stderr.write('Sponsor ledger migration failed: ' + String(error?.message || 'unknown error') + '\\n')
+  process.stderr.write('Sponsor ledger migration failed: ' + String(error?.message || 'unknown error') + '\n')
   process.exitCode = 1
 } finally {
   await Promise.all([source.end(), target.end()])
