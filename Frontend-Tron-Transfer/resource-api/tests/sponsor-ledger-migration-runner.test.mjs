@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { pauseSourceLedgerWrites, resolveMigrationRunnerConfig, runMigrationTask } from '../scripts/run-sponsor-ledger-migration.mjs'
+import { pauseSourceLedgerWrites, resolveMigrationRunnerConfig, runMigrationTask } from '../scripts/run-sponsor-ledger-migration.mjs'\nimport { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const source = 'postgresql://source:secret@dpg-source.singapore-postgres.render.com/sponsor?sslmode=require'
 const target = 'postgresql://neon:secret@ep-target.c-9.us-east-2.aws.neon.tech/sponsor?sslmode=require'
@@ -97,7 +97,7 @@ test('runner ignores arbitrary source URL overrides and pins the runtime-selecte
 test('pause step durably creates or updates the source write-control gate and verifies it', async () => {
   const queries = []
   class FakePool {
-    constructor(options) { assert.equal(options.connectionString, source) }
+    constructor(options) { assert.equal(options.connectionString, normalizePostgresTlsMode(source)) }
     async query(sql) {
       queries.push(sql)
       if (sql.includes('to_regclass')) return { rows: [{ operations_table: 'tron_transfer_sponsor_operations' }] }
@@ -119,4 +119,20 @@ test('runner validates task mode before starting any migration process', async (
     /Usage:/,
   )
   assert.equal(spawned, false)
+})
+
+test('migration runner pools use explicit strict TLS while retaining database identity', async () => {
+  const seen = []
+  class FakePool {
+    constructor(options) { seen.push(options.connectionString) }
+    async query(sql) {
+      if (sql.includes('to_regclass')) return { rows: [{ operations_table: 'tron_transfer_sponsor_operations' }] }
+      if (sql.includes('SELECT writes_paused')) return { rows: [{ writes_paused: true }] }
+      return { rows: [] }
+    }
+    async end() {}
+  }
+  await pauseSourceLedgerWrites(source, { PoolClass: FakePool })
+  assert.deepEqual(seen, [normalizePostgresTlsMode(source)])
+  assert.equal(new URL(seen[0]).searchParams.get('sslmode'), 'verify-full')
 })
