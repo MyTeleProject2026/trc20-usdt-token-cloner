@@ -1,6 +1,7 @@
 import pg from 'pg'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { databaseIdentity } from './sponsor-ledger-database-identity.mjs'
 
 const { Pool } = pg
 const TABLE = 'public.tron_transfer_sponsor_operations'
@@ -9,15 +10,6 @@ const REQUIRED_COLUMNS = [
   'amount_sun', 'sponsor_address', 'owner_address', 'status', 'transaction_id',
   'result_code', 'confirmation_block', 'created_at', 'updated_at',
 ]
-
-export function databaseIdentity(value) {
-  const url = new URL(value)
-  return [
-    url.hostname.toLowerCase(),
-    url.port || '5432',
-    decodeURIComponent(url.pathname.slice(1)),
-  ].join('|')
-}
 
 export function assessMigrationPreflight(snapshot) {
   const blockers = []
