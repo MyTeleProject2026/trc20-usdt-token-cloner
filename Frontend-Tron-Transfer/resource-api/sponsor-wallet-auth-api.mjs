@@ -91,6 +91,13 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
   }
 
   return {
+    // Used only by the in-process Sponsor API. It never exposes the session
+    // token or private key; mutating routes require same-origin CSRF proof.
+    async authenticateRequest(req, { requireCsrf = false } = {}) {
+      const db = getPool()
+      if (!db) return null
+      try { return await authenticate(req, db, requireCsrf) } catch { return null }
+    },
     async handle(req, res, url, origin) {
       if (url.pathname !== '/api/wallet-auth/sponsor' && !url.pathname.startsWith('/api/wallet-auth/sponsor/')) return false
       const db = getPool()
