@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createOwnerWalletAuthApi } from '../sponsor-wallet-auth-api.mjs'
+import { createSponsorWalletAuthApi } from '../sponsor-wallet-auth-api.mjs'
 import { hashWalletPassword } from '../managed-wallet-auth-crypto.mjs'
 
 const address = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
@@ -42,13 +42,13 @@ function response() {
 const identityReport = { owner: { ready: true, address }, sponsor: { ready: true, address: 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR' }, identitiesDistinct: true }
 
 test('Sponsor wallet auth ignores paths outside its exact route namespace', async () => {
-  const api = createOwnerWalletAuthApi({ env: {}, database: fakeDatabase(), send() {} })
+  const api = createSponsorWalletAuthApi({ env: {}, database: fakeDatabase(), send() {} })
   assert.equal(await api.handle(request('GET'), response(), new URL('https://api.test/api/wallet-auth/sponsorish/status'), null), false)
 })
 
 test('Sponsor enrollment requires backend bootstrap token and only succeeds once', async () => {
   const db = fakeDatabase()
-  const api = createOwnerWalletAuthApi({ env: { TRON_SPONSOR_ENROLLMENT_TOKEN: bootstrap }, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) }, identityReport })
+  const api = createSponsorWalletAuthApi({ env: { TRON_SPONSOR_ENROLLMENT_TOKEN: bootstrap }, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) }, identityReport })
   const denied = response()
   await api.handle(request('POST', {}, { password: 'a sufficiently long sponsor password 123' }), denied, new URL('https://api.test/api/wallet-auth/sponsor/enroll'), 'https://tron-transfer.onrender.com')
   assert.equal(denied.status, 403)
@@ -71,7 +71,7 @@ test('Sponsor password login creates a new session and returns no private key ma
   const db = fakeDatabase()
   const verifier = await hashWalletPassword('correct sponsor password phrase 123')
   db.state.account = { wallet_address: address, password_hash: verifier.passwordHash, password_salt: verifier.passwordSalt, password_algorithm: verifier.passwordAlgorithm, password_params: verifier.passwordParams, enabled: true, failed_attempts: 0 }
-  const api = createOwnerWalletAuthApi({ env: {}, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) } })
+  const api = createSponsorWalletAuthApi({ env: {}, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) } })
   const res = response()
   await api.handle(request('POST', {}, { password: 'correct sponsor password phrase 123' }), res, new URL('https://api.test/api/wallet-auth/sponsor/login'), 'https://tron-transfer.onrender.com')
   assert.equal(res.status, 200)
