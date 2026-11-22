@@ -1,4 +1,4 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 
 const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID = /^[0-9a-f]{64}$/i
@@ -40,8 +40,15 @@ export function createRemoteSponsorSigner({
       if (!configured || !parsedEndpoint) throw new Error('remote-sponsor-signer-not-configured')
       if (!unsignedTransaction || !TXID.test(unsignedTransaction.txID || '')
         || typeof unsignedTransaction.raw_data_hex !== 'string'
+        || !/^(?:[0-9a-f]{2})+$/i.test(unsignedTransaction.raw_data_hex)
         || !unsignedTransaction.raw_data || !Array.isArray(unsignedTransaction.raw_data.contract)) {
         throw new Error('remote-sponsor-signer-invalid-transaction')
+      }
+      // TRON transaction IDs are SHA-256(raw_data bytes). Verify locally so
+      // the remote service cannot be asked to sign a mismatched txID/body pair.
+      const computedTxId = createHash('sha256').update(Buffer.from(unsignedTransaction.raw_data_hex, 'hex')).digest('hex')
+      if (computedTxId !== unsignedTransaction.txID.toLowerCase()) {
+        throw new Error('remote-sponsor-signer-transaction-id-mismatch')
       }
       const id = requestId()
       const timestamp = String(now())
@@ -52,8 +59,6 @@ export function createRemoteSponsorSigner({
         raw_data: unsignedTransaction.raw_data,
       })
       const signature = mac(secret, [timestamp, id, payload].join('.'))
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), timeoutMs)
       try {
         const response = await fetchImpl(endpoint, {
           method: 'POST',
@@ -64,7 +69,7 @@ export function createRemoteSponsorSigner({
             'x-sponsor-signer-signature': signature,
           },
           body: payload,
-          signal: controller.signal,
+          signal: AbortSignal.timeout(timeoutMs),
         })
         if (!response.ok) throw new Error('remote-sponsor-signer-http-' + response.status)
         const result = await response.json()
@@ -79,8 +84,6 @@ export function createRemoteSponsorSigner({
         const responseMac = mac(secret, [id, signed.txID, signed.raw_data_hex, signed.signature.join(',')].join('.'))
         if (!safeEqual(responseMac, result.responseMac)) throw new Error('remote-sponsor-signer-response-authentication-failed')
         return signed
-      } finally {
-        clearTimeout(timeout)
       }
     },
   })
