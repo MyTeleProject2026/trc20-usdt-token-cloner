@@ -11,7 +11,7 @@ function fakeTronWeb(options) {
     fullNode: { host: 'https://api.trongrid.io' },
     address: {
       fromPrivateKey: () => owner,
-      fromHex: value => value === '41' + '11'.repeat(20) ? owner : contract,
+      fromHex: value => value === '41' + '22'.repeat(20) ? owner : contract,
     },
     isAddress: value => value === owner || value === contract,
     utils: { transaction: { txCheck: () => true } },
