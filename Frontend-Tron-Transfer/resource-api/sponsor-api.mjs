@@ -630,16 +630,39 @@ export function createSponsorResourceApi({
         )
         const row = result.rows?.[0]
         if (!row) return reply(res, 404, { success: false, error: 'sponsor-operation-not-found' }, origin)
-        if (row.transaction_id && row.status === 'broadcast-unknown') {
-          const check = await engine.reconcile({ transactionId: row.transaction_id, operation: row.operation, resource: row.resource, amountSun: row.amount_sun, sponsorAddress: row.sponsor_address, ownerAddress: row.owner_address })
-          if (check.confirmed) {
-            await db.query('UPDATE public.tron_transfer_sponsor_operations SET status=\'confirmed\',result_code=$2,confirmation_block=$3,updated_at=now() WHERE idempotency_key_hash=$1', [row.idempotency_key_hash, check.status, check.blockNumber])
-            row.status = 'confirmed'
-            row.result_code = check.status
-            row.confirmation_block = check.blockNumber
+        let reconciliation = null
+        // The transaction ID is persisted before broadcast. Reconcile both
+        // signed-not-broadcast and broadcast-unknown rows against solidified
+        // Mainnet state. Never automatically re-sign or re-broadcast ambiguity.
+        if (row.transaction_id && ['signed-not-broadcast', 'broadcast-unknown'].includes(row.status)) {
+          reconciliation = await engine.reconcile({
+            transactionId: row.transaction_id, operation: row.operation, resource: row.resource,
+            amountSun: row.amount_sun, sponsorAddress: row.sponsor_address, ownerAddress: row.owner_address,
+          })
+          const confirmed = reconciliation.confirmed === true
+          const solidifiedFailure = reconciliation.status === 'solidified-execution-failed'
+          if (confirmed || solidifiedFailure) {
+            const nextStatus = confirmed ? 'confirmed' : 'failed'
+            await db.query(
+              'UPDATE public.tron_transfer_sponsor_operations SET status=$2,result_code=$3,confirmation_block=$4,updated_at=now() WHERE idempotency_key_hash=$1',
+              [row.idempotency_key_hash, nextStatus, reconciliation.status, reconciliation.blockNumber || null],
+            )
+            row.status = nextStatus
+            row.result_code = reconciliation.status
+            row.confirmation_block = reconciliation.blockNumber || null
+          } else if (reconciliation.status) {
+            await db.query(
+              'UPDATE public.tron_transfer_sponsor_operations SET result_code=$2,updated_at=now() WHERE idempotency_key_hash=$1',
+              [row.idempotency_key_hash, reconciliation.status],
+            )
+            row.result_code = reconciliation.status
           }
         }
-        return reply(res, 200, { success: row.status === 'confirmed', operationReference: key, operation: row, retryAllowed: false }, origin)
+        return reply(res, 200, {
+          success: row.status === 'confirmed', operationReference: key, operation: row,
+          reconciliation: reconciliation ? { attempted: true, confirmed: reconciliation.confirmed === true, status: reconciliation.status || 'unknown', blockNumber: reconciliation.blockNumber || null } : { attempted: false },
+          retryAllowed: false,
+        }, origin)
       } catch { return reply(res, 503, { success: false, error: 'sponsor-operation-reconciliation-unavailable', retryAllowed: false }, origin) }
     }
 
