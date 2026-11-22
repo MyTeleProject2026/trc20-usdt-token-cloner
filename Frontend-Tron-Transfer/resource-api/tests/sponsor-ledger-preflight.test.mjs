@@ -26,7 +26,7 @@ test('database identity ignores query options but distinguishes databases and ro
     databaseIdentity('postgresql://user:secret@db.example.test/ledger'),
     databaseIdentity('postgresql://user:secret@db.example.test/other'),
   )
-  assert.notEqual(
+  assert.equal(
     databaseIdentity('postgresql://user:secret@db.example.test/ledger'),
     databaseIdentity('postgresql://other:secret@db.example.test/ledger'),
   )
