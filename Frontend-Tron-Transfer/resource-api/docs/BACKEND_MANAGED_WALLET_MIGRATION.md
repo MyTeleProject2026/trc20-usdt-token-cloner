@@ -45,3 +45,14 @@ It creates three persistent tables:
 This is **schema only**. It does not enroll either wallet, authenticate a user, issue a session, or enable signing. Do not apply it to production until the current Sponsor ledger has been backed up and a maintenance migration has been approved. The authentication routes and password-verifier implementation must be reviewed and tested before any account rows are created.
 
 The next code increment must implement one-time enrollment using a separate short-lived server-side bootstrap trust anchor, Node's built-in scrypt with fixed validated parameters, constant-time verifier comparison, bounded login lockout, independent role sessions, CSRF protection, session revocation, and audit events. Owner and Sponsor enrollment must bind to the addresses derived from their respective backend keys; a request must never be allowed to choose an address or role.
+
+
+## Read-only preflight for the wallet-auth migration
+
+After the migration has been applied in an approved maintenance window, run this from `Frontend-Tron-Transfer/resource-api`:
+
+```sh
+npm run check:wallet-auth-schema
+```
+
+The script checks for the three wallet-auth tables and confirms that the existing Sponsor ledger schema/control row is present and writes remain paused. It is read-only: it never creates tables, changes pause state, enrolls accounts, issues sessions, signs, or broadcasts. It exits non-zero if any required condition is missing. Do not treat a successful schema check as proof of backup restoration, password authentication, or signer acceptance.
