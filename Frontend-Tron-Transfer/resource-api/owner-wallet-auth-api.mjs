@@ -50,7 +50,7 @@ function clearSessionCookies(res) {
   ])
 }
 
-export function createOwnerWalletAuthApi({ env = process.env, database, send }) {
+export function createOwnerWalletAuthApi({ env = process.env, database, send, allowedOrigins = ['https://tron-transfer.onrender.com', 'http://localhost:5173', 'http://127.0.0.1:5173'], identityReport }) {
   let pool = database || null
   function getPool() {
     if (pool) return pool
@@ -60,7 +60,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send }) 
     pool.on('error', error => process.stderr.write('Owner wallet auth database error: ' + String(error?.code || 'unknown') + '\\n'))
     return pool
   }
-  const identity = () => createManagedWalletIdentityReport({ env })
+  const identity = () => identityReport || createManagedWalletIdentityReport({ env })
   async function audit(db, type, outcome, metadata = {}) {
     await db.query('INSERT INTO public.tron_transfer_wallet_auth_audit (wallet_role,event_type,outcome,metadata) VALUES ($1,$2,$3,$4::jsonb)', ['owner', type, outcome, JSON.stringify(metadata)])
   }
@@ -84,7 +84,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send }) 
     if (requireCsrf) {
       const csrf = req.headers['x-csrf-token']
       if (!safeEqual(digest(String(csrf || '')), session.csrf_hash)
-        || !safeEqual(String(req.headers.origin || ''), 'https://tron-transfer.onrender.com')) return null
+        || !allowedOrigins.includes(String(req.headers.origin || ''))) return null
     }
     await db.query('UPDATE public.tron_transfer_wallet_sessions SET last_seen_at=now() WHERE session_id=$1', [session.session_id])
     return { address: session.wallet_address, sessionId: session.session_id }
@@ -92,7 +92,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send }) 
 
   return {
     async handle(req, res, url, origin) {
-      if (!url.pathname.startsWith('/api/wallet-auth/owner')) return false
+      if (url.pathname !== '/api/wallet-auth/owner' && !url.pathname.startsWith('/api/wallet-auth/owner/')) return false
       const db = getPool()
       if (!db) { send(res, 503, { success: false, error: 'WALLET_AUTH_DATABASE_UNAVAILABLE' }, origin); return true }
       try {
