@@ -58,7 +58,7 @@ export async function runMigrationTask(mode, { env = process.env, spawn = spawnS
   if (mode === 'preflight') {
     const { runSponsorLedgerPreflight } = await import('./check-sponsor-ledger-migration.mjs')
     const result = await runSponsorLedgerPreflight({ env: taskEnv })
-    process.stdout.write(JSON.stringify(result) + '\\n')
+    process.stdout.write(JSON.stringify(result) + '\n')
     return result.readyToMigrate ? 0 : 1
   }
 
@@ -74,7 +74,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const code = await runMigrationTask(process.argv[2])
     if (code !== 0) process.exitCode = code
   } catch (error) {
-    process.stderr.write('Sponsor ledger task blocked: ' + String(error?.message || 'unknown error') + '\\n')
+    process.stderr.write('Sponsor ledger task blocked: ' + String(error?.message || 'unknown error') + '\n')
     process.exitCode = 1
   }
 }
