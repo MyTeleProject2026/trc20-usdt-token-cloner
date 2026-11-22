@@ -1,6 +1,6 @@
 import pg from 'pg'
 import { createHash } from 'node:crypto'
-import { databaseIdentity } from './sponsor-ledger-database-identity.mjs'
+import { databaseIdentity, normalizePostgresTlsMode } from './sponsor-ledger-database-identity.mjs'
 
 const { Pool } = pg
 const sourceUrl = process.env.SOURCE_DATABASE_URL
@@ -17,8 +17,8 @@ if (databaseIdentity(sourceUrl) === databaseIdentity(targetUrl)) {
   throw new Error('Source and target database identities are the same; refusing migration.')
 }
 
-const source = new Pool({ connectionString: sourceUrl, max: 1, connectionTimeoutMillis: 8000 })
-const target = new Pool({ connectionString: targetUrl, max: 1, connectionTimeoutMillis: 8000 })
+const source = new Pool({ connectionString: normalizePostgresTlsMode(sourceUrl), max: 1, connectionTimeoutMillis: 8000 })
+const target = new Pool({ connectionString: normalizePostgresTlsMode(targetUrl), max: 1, connectionTimeoutMillis: 8000 })
 
 const columns = [
   'id', 'idempotency_key_hash', 'request_hash', 'operation', 'resource',
