@@ -69,6 +69,7 @@ export function createRemoteSponsorSigner({
           },
           body: payload,
           signal: AbortSignal.timeout(timeoutMs),
+          redirect: 'error',
         })
         if (!response.ok) throw new Error('remote-sponsor-signer-http-' + response.status)
         const result = await response.json()
