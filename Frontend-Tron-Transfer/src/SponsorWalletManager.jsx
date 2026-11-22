@@ -178,6 +178,9 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [activity, setActivity] = useState([])
   const [securityEvents, setSecurityEvents] = useState([])
   const [sponsorApiStatus, setSponsorApiStatus] = useState(null)
+  const [durableOperations, setDurableOperations] = useState([])
+  const [durableLedgerState, setDurableLedgerState] = useState('idle')
+  const [durableLedgerError, setDurableLedgerError] = useState('')
   const toastTimer = useRef(null)
   const resourceAlertState = useRef('unknown')
 
@@ -272,6 +275,36 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [workspaceActive])
 
   const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
+
+  useEffect(() => {
+    setDurableOperations([])
+    setDurableLedgerState('idle')
+    setDurableLedgerError('')
+  }, [wallet?.address])
+
+  const loadDurableOperations = useCallback(async () => {
+    if (!wallet || !tronWeb) return
+    setDurableLedgerState('loading')
+    setDurableLedgerError('')
+    try {
+      const token = await authenticateSponsorWallet(wallet, tronWeb)
+      const payload = await sponsorApiRequest('/api/sponsor/operations?limit=50', { token })
+      if (payload?.success !== true || !Array.isArray(payload.operations)) {
+        throw new Error('The Resource API did not return a valid durable Sponsor ledger.')
+      }
+      setDurableOperations(payload.operations.filter((row) => row && row.sponsor_address === wallet.address))
+      setDurableLedgerState('ready')
+    } catch (error) {
+      setDurableLedgerState('unavailable')
+      setDurableLedgerError(error instanceof Error ? error.message : 'Could not load the durable Sponsor ledger.')
+    }
+  }, [wallet, tronWeb])
+
+  useEffect(() => {
+    if (!workspaceActive || activePage !== 'sponsor-activity' || !wallet || !tronWeb) return undefined
+    void loadDurableOperations()
+    return undefined
+  }, [workspaceActive, activePage, wallet?.address, tronWeb, loadDurableOperations])
 
   const refresh = useCallback(async ({ quiet = false } = {}) => {
     if (!wallet || !tronWeb) return
@@ -860,7 +893,11 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         <div className="sponsor-card-heading"><FileKey2/><div><h3>Sponsor Activity</h3><p>Current browser session and latest observed transaction.</p></div></div>
         <div className="sponsor-activity-row"><span>Wallet connection</span><b>Unlocked locally</b></div>
         <div className="sponsor-activity-row"><span>Network</span><b>TRON Mainnet</b></div><div className="sponsor-activity-row"><span>Security events</span><b>{securityEvents.length} local events</b></div>{securityEvents.slice(0, 5).map((item, index) => <div className="sponsor-activity-row" key={item.createdAt + index}><span>{item.event} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.detail}</b></div>)}
-        <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => String(item.status || '').startsWith('solidified-mainnet-')).length} independently verified</b></div><div className="sponsor-activity-row"><span>Recent wallet transactions</span><b>{walletTransactionsAvailable ? walletTransactions.length + ' confirmed chain records' : 'History unavailable'}</b></div>{walletTransactions.slice(0, 8).map((item) => { const txid = item.txID || item.txid; const type = item.raw_data?.contract?.[0]?.type || 'TRON transaction'; const result = item.ret?.[0]?.contractRet || 'CONFIRMED'; return <div className="sponsor-activity-row" key={txid}><span>{type} · {item.block_timestamp ? new Date(item.block_timestamp).toLocaleString() : 'Confirmed on-chain'}</span><b>{result} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}<div className="sponsor-activity-row"><span>Official USDT transfers</span><b>{walletTokenTransfersAvailable ? walletTokenTransfers.length + ' confirmed transfers' : 'History unavailable'}</b></div>{walletTokenTransfers.slice(0, 8).map((item) => { const txid = item.transaction_id; const sent = item.from === wallet.address; const amount = formatTokenUnits(item.value, 6); return <div className="sponsor-activity-row" key={txid}><span>{sent ? 'Sent' : 'Received'} {amount} USDT · {new Date(item.block_timestamp || 0).toLocaleString()}</span><b>{sent ? 'To ' + item.to : 'From ' + item.from} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : item.action === 'topup' ? 'TRX top-up' : item.action === 'undelegate' ? 'Reclaim delegation' : item.action === 'unstake' ? 'Unstake request' : item.action === 'withdraw' ? 'Matured withdrawal' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'solidified-mainnet-confirmed' ? 'Confirmed · block ' + (item.blockNumber || '—') : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
+        <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => String(item.status || '').startsWith('solidified-mainnet-')).length} independently verified</b></div>
+        <div className="sponsor-activity-row"><span>Durable Sponsor ledger</span><b>{durableLedgerState === 'ready' ? durableOperations.length + ' server records · PostgreSQL' : durableLedgerState === 'loading' ? 'Loading authenticated ledger…' : durableLedgerState === 'unavailable' ? 'Unavailable · local history only' : 'Not loaded'}</b></div>
+        {durableLedgerError && <p className="sponsor-warning" role="status">Durable ledger could not be loaded: {durableLedgerError}. Local browser history is shown separately and is not a substitute for the server ledger.</p>}
+        <div className="sponsor-actions"><button type="button" className="sponsor-secondary" disabled={durableLedgerState === 'loading'} onClick={() => void loadDurableOperations()}>{durableLedgerState === 'loading' ? 'Refreshing ledger…' : 'Refresh durable ledger'}</button></div>
+        {durableOperations.map((item, index) => <div className="sponsor-activity-row" key={(item.transaction_id || item.created_at || 'operation') + '-' + index}><span>{String(item.operation || 'operation').toUpperCase()} · {item.resource || '—'} · {item.created_at ? new Date(item.created_at).toLocaleString() : 'Timestamp unavailable'}</span><b>{formatSunAsTrx(item.amount_sun || '0')} TRX · {item.status || 'unknown'}{item.confirmation_block ? ' · block ' + item.confirmation_block : ''}{item.transaction_id ? <> · <a href={'https://tronscan.org/#/transaction/' + item.transaction_id} target="_blank" rel="noreferrer">View</a></> : ''}</b></div>)}<div className="sponsor-activity-row"><span>Recent wallet transactions</span><b>{walletTransactionsAvailable ? walletTransactions.length + ' confirmed chain records' : 'History unavailable'}</b></div>{walletTransactions.slice(0, 8).map((item) => { const txid = item.txID || item.txid; const type = item.raw_data?.contract?.[0]?.type || 'TRON transaction'; const result = item.ret?.[0]?.contractRet || 'CONFIRMED'; return <div className="sponsor-activity-row" key={txid}><span>{type} · {item.block_timestamp ? new Date(item.block_timestamp).toLocaleString() : 'Confirmed on-chain'}</span><b>{result} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}<div className="sponsor-activity-row"><span>Official USDT transfers</span><b>{walletTokenTransfersAvailable ? walletTokenTransfers.length + ' confirmed transfers' : 'History unavailable'}</b></div>{walletTokenTransfers.slice(0, 8).map((item) => { const txid = item.transaction_id; const sent = item.from === wallet.address; const amount = formatTokenUnits(item.value, 6); return <div className="sponsor-activity-row" key={txid}><span>{sent ? 'Sent' : 'Received'} {amount} USDT · {new Date(item.block_timestamp || 0).toLocaleString()}</span><b>{sent ? 'To ' + item.to : 'From ' + item.from} <a href={'https://tronscan.org/#/transaction/' + txid} target="_blank" rel="noreferrer">View</a></b></div>})}{activity.slice(0, 8).map((item) => <div className="sponsor-activity-row" key={item.transactionId}><span>{item.action === 'stake' ? 'Stake' : item.action === 'topup' ? 'TRX top-up' : item.action === 'undelegate' ? 'Reclaim delegation' : item.action === 'unstake' ? 'Unstake request' : item.action === 'withdraw' ? 'Matured withdrawal' : 'Delegation'} · {item.resourceType} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.status === 'solidified-mainnet-verified' ? 'Verified · block ' + item.blockNumber : item.status === 'solidified-mainnet-confirmed' ? 'Confirmed · block ' + (item.blockNumber || '—') : item.status === 'verification-pending' ? 'Awaiting solidification / retry' : 'Broadcast · not yet verified'} <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">View</a></b></div>)}
       </section>}
     </div>}
     
