@@ -91,6 +91,14 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
   }
 
   return {
+    // Internal in-process verifier for Owner transaction routes. Session tokens
+    // remain in HttpOnly cookies; callers receive only the enrolled address and
+    // session identifier after optional CSRF/Origin validation.
+    async authenticateRequest(req, { requireCsrf = false } = {}) {
+      const db = getPool()
+      if (!db) return null
+      return authenticate(req, db, requireCsrf)
+    },
     async handle(req, res, url, origin) {
       if (url.pathname !== '/api/wallet-auth/owner' && !url.pathname.startsWith('/api/wallet-auth/owner/')) return false
       const db = getPool()
