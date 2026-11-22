@@ -536,9 +536,10 @@ export function createSponsorResourceApi({
           if (!row || row.request_hash !== requestHash) return reply(res, 409, { success: false, error: 'idempotency-key-reused-with-different-intent', retryAllowed: false }, origin)
           return reply(res, 409, { success: false, error: 'operation-already-recorded', operationReference: intent.idempotencyKey, operationStatus: row.status, transactionId: row.transaction_id, resultCode: row.result_code, confirmationBlock: row.confirmation_block, retryAllowed: false }, origin)
         }
-        await reservationClient.query('COMMIT')
-        reservationTransactionOpen = false
-        if (reservationClient !== db) { reservationClient.release(); reservationClient = null }
+        // Keep the control-row FOR SHARE lock through signing, broadcast and
+        // durable result recording. A concurrent maintenance pause (UPDATE of
+        // writes_paused) must wait for this in-flight operation to finish; it
+        // cannot flip the gate in the gap between reservation and signing.
         const result = await engine.execute({
           operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, ownerAddress,
           onSigned: async transactionId => {
@@ -555,6 +556,9 @@ export function createSponsorResourceApi({
           'UPDATE public.tron_transfer_sponsor_operations SET status=$2,transaction_id=COALESCE($3,transaction_id),result_code=$4,confirmation_block=$5,updated_at=now() WHERE idempotency_key_hash=$1',
           [keyHash, status, result.txid || null, result.status || 'unknown', result.blockNumber || null],
         )
+        await reservationClient.query('COMMIT')
+        reservationTransactionOpen = false
+        if (reservationClient !== db) { reservationClient.release(); reservationClient = null }
         return reply(res, result.success ? 200 : result.broadcast ? 202 : 422, {
           success: result.success === true, operationReference: intent.idempotencyKey, operationStatus: status, transactionId: result.txid || null,
           resultCode: result.status || 'unknown', confirmationBlock: result.blockNumber || null,
