@@ -48,6 +48,29 @@ test('logout sends CSRF proof and clears the in-memory token', async () => {
   assert.equal(calls[1].headers['x-csrf-token'], 'csrf-session')
 })
 
+test('authenticated Resource API requests carry the role cookie, CSRF proof, and reject auth namespace escape', async () => {
+  const calls = []
+  const api = createManagedWalletAuthClient({
+    role: 'sponsor',
+    apiBaseUrl: 'https://api.test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options })
+      if (url.endsWith('/login')) return response(200, { success: true, role: 'sponsor', session: { csrfToken: 'sponsor-csrf' } })
+      return response(200, { success: true })
+    },
+  })
+  await api.login('a sufficiently long password')
+  await api.apiRequest('/api/sponsor/intent', {
+    method: 'POST', csrf: true, body: { operation: 'delegate' },
+    headers: { 'x-sponsor-admin-token': 'admin-token-test-value' },
+  })
+  assert.equal(calls[1].url, 'https://api.test/api/sponsor/intent')
+  assert.equal(calls[1].options.credentials, 'include')
+  assert.equal(calls[1].options.headers['x-csrf-token'], 'sponsor-csrf')
+  assert.equal(calls[1].options.headers['x-sponsor-admin-token'], 'admin-token-test-value')
+  await assert.rejects(api.apiRequest('/api/wallet-auth/owner/session'), /MANAGED_WALLET_API_PATH_INVALID/)
+})
+
 test('client rejects invalid roles and does not persist secrets in browser storage', async () => {
   assert.throws(() => createManagedWalletAuthClient({ role: 'admin' }), /wallet-auth-role-invalid/)
   const api = createManagedWalletAuthClient({ role: 'owner', fetchImpl: async () => response(200, { success: true, enrolled: false }) })
