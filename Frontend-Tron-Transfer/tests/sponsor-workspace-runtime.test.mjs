@@ -42,3 +42,11 @@ test('Sponsor Admin bootstrap authorization is cleared on wallet lock and worksp
   assert.match(source, /if \(!wallet \|\| !workspaceActive\) setAdminToken\(''\)/)
   assert.match(source, /\[wallet, workspaceActive\]/)
 })
+
+test('Sponsor TronWeb instance is initialized before any effect dependency reads it', () => {
+  const declaration = source.indexOf("const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])")
+  const firstEffectRead = source.indexOf("if (!workspaceActive || !wallet?.address || !tronWeb)")
+  assert.notEqual(declaration, -1, 'Sponsor TronWeb memo must exist')
+  assert.notEqual(firstEffectRead, -1, 'resource history effect must exist')
+  assert.ok(declaration < firstEffectRead, 'tronWeb must be initialized before effect callbacks and dependency arrays reference it')
+})
