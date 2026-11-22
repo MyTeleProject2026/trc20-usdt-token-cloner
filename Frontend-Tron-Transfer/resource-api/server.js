@@ -342,10 +342,11 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       return send(res, 200, {
         success: true,
         ...managedWalletIdentities,
-        custody: 'backend-managed',
+        custody: 'backend-configured-identities',
+        signingMode: 'not-migrated',
         privateKeysExposed: false,
         passwordEnrollmentAvailable: false,
-        note: 'Identity validation only. Password enrollment and backend transaction signing remain disabled until their dedicated authentication and signing controls are deployed.',
+        note: 'This endpoint validates backend-configured wallet identities only. It does not establish password custody, provide wallet sessions, or perform transaction signing. Those features remain disabled until their dedicated authentication and signing controls are deployed.',
       }, origin)
     }
     if (await sponsorApi.handle(req, res, url, origin)) return
