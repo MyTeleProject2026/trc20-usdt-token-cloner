@@ -123,7 +123,7 @@ async function readResourceSnapshot(address, tronWeb) {
 }
 
 async function sponsorApiRequest(path, { method = 'GET', adminToken, body, csrfToken = '' } = {}) {
-  const csrf = csrfToken || String(document.cookie || '').match(/(?:^|;\\s*)tron_sponsor_csrf=([^;]+)/)?.[1]
+  const csrf = csrfToken || String(document.cookie || '').match(/(?:^|;\s*)tron_sponsor_csrf=([^;]+)/)?.[1]
   const response = await fetch(RESOURCE_API + path, {
     method, cache: 'no-store', credentials: 'include',
     headers: {
