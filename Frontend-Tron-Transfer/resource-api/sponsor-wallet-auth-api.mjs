@@ -102,13 +102,13 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
         }
         if (url.pathname === '/api/wallet-auth/sponsor/enroll' && req.method === 'POST') {
           const bootstrap = String(env.TRON_SPONSOR_ENROLLMENT_TOKEN || '')
-          const presented = String(req.headers['x-owner-enrollment-token'] || '')
+          const presented = String(req.headers['x-sponsor-enrollment-token'] || '')
           if (bootstrap.length < 32 || !safeEqual(bootstrap, presented)) {
             await audit(db, 'enrollment_rejected', 'denied')
-            send(res, 403, { success: false, error: 'OWNER_ENROLLMENT_NOT_AUTHORIZED' }, origin); return true
+            send(res, 403, { success: false, error: 'SPONSOR_ENROLLMENT_NOT_AUTHORIZED' }, origin); return true
           }
           const report = identity()
-          if (!report.sponsor.ready) { send(res, 503, { success: false, error: 'OWNER_IDENTITY_NOT_READY' }, origin); return true }
+          if (!report.sponsor.ready) { send(res, 503, { success: false, error: 'SPONSOR_IDENTITY_NOT_READY' }, origin); return true }
           const input = await body(req)
           if (!validateWalletPassword(input.password)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 12 }, origin); return true }
           const verifier = await hashWalletPassword(input.password)
@@ -119,7 +119,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
             if (existing.rowCount) {
               await client.query('ROLLBACK')
               await audit(db, 'enrollment_rejected', 'denied', { reason: 'already-enrolled' })
-              send(res, 409, { success: false, error: 'OWNER_ALREADY_ENROLLED' }, origin); return true
+              send(res, 409, { success: false, error: 'SPONSOR_ALREADY_ENROLLED' }, origin); return true
             }
             await client.query(`INSERT INTO public.tron_transfer_wallet_accounts
               (wallet_role,wallet_address,password_hash,password_salt,password_algorithm,password_params)
