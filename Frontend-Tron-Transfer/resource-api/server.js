@@ -702,7 +702,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     // Serve fresh cache hits before applying the per-IP miss budget. Dashboard
     // refreshes can legitimately request the same address from multiple widgets.
     const cached = cache.get(address)
-    if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, cached.value, origin)
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, { address, network: 'TRON Mainnet', ...cached.value }, origin)
 
     // Coalesce concurrent cache misses for the same address so a single UI
     // refresh cannot fan out into duplicate provider RPC requests.
