@@ -7,6 +7,7 @@ import { createFreeDelegationResourceReader } from '../../server/free-delegation
 import { createRuntimeObservatory } from './runtime-observatory.mjs'
 import { createSponsorResourceApi } from './sponsor-api.mjs'
 import { createOwnerWalletAuthApi } from './owner-wallet-auth-api.mjs'
+import { createSponsorWalletAuthApi } from './sponsor-wallet-auth-api.mjs'
 import { createRemoteSponsorSigner } from './remote-sponsor-signer.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
@@ -293,6 +294,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
   const activeSponsorSigner = sponsorSignerAdapter || configuredRemoteSigner
   const sponsorApi = createSponsorResourceApi({ env, allowedAddress, fetchImpl, ...(sponsorEngine ? { engine: sponsorEngine } : {}), ...(activeSponsorSigner ? { signerAdapter: activeSponsorSigner } : {}), ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}), send })
   const ownerWalletAuthApi = createOwnerWalletAuthApi({ env, send })
+  const sponsorWalletAuthApi = createSponsorWalletAuthApi({ env, send })
   const rateLimiters = new Map()
   let uptimeHistoryCache = { at: 0, value: null }
   let renderMetricsCache = { at: 0, value: null }
@@ -325,7 +327,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
         'access-control-allow-origin': origin || 'null',
         'access-control-allow-credentials': 'true',
         'access-control-allow-methods': 'GET, POST, OPTIONS',
-        'access-control-allow-headers': 'content-type, authorization, x-sponsor-admin-token, x-owner-enrollment-token, x-csrf-token',
+        'access-control-allow-headers': 'content-type, authorization, x-sponsor-admin-token, x-owner-enrollment-token, x-sponsor-enrollment-token, x-csrf-token',
         'access-control-max-age': '600',
         vary: 'Origin',
       })
@@ -333,6 +335,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     }
     const url = new URL(req.url || '/', 'http://localhost')
     if (await ownerWalletAuthApi.handle(req, res, url, origin)) return
+    if (await sponsorWalletAuthApi.handle(req, res, url, origin)) return
     if (await sponsorApi.handle(req, res, url, origin)) return
     if (req.method === 'GET' && url.pathname === '/api/observatory/snapshot') {
       const ip = observatoryRateLimitIp(req)
