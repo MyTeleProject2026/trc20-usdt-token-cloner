@@ -5,7 +5,7 @@ function safeRole(role) {
   return role
 }
 
-function readCsrfCookie(cookieString = '') {
+function readCsrfCookie(cookieString = '', role) {
   const match = String(cookieString).match(/(?:^|;\\s*)tron_wallet_csrf=([^;]+)/)
   return match ? decodeURIComponent(match[1]) : ''
 }
@@ -26,7 +26,7 @@ export function createManagedWalletAuthClient({
     if (body !== undefined) headers['content-type'] = 'application/json'
     if (enrollmentToken) headers['x-' + walletRole + '-enrollment-token'] = enrollmentToken
     if (csrf) {
-      const token = csrfToken || readCsrfCookie(cookieReader())
+      const token = csrfToken || readCsrfCookie(cookieReader(), walletRole)
       if (!token) throw new Error('WALLET_AUTH_CSRF_TOKEN_MISSING')
       headers['x-csrf-token'] = token
     }
