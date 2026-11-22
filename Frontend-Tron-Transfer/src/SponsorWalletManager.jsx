@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowDownUp, CheckCircle2, CircleAlert, FileKey2, LockKeyhole, LogOut, RefreshCw, ShieldCheck, UnlockKeyhole, Wallet } from 'lucide-react'
-import {
-  createSponsorTronWeb, deriveSponsorAccount, getSavedSponsorWalletAddress, hasSavedSponsorWallet,
-  removeSavedSponsorWallet, saveSponsorWalletVault, unlockSponsorWalletVault,
-} from './sponsor-wallet-vault.mjs'
+import { createSponsorTronWeb } from './sponsor-wallet-vault.mjs'
 import { planSponsorResourceProvisioning } from './sponsor-resource-planner.mjs'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 import './sponsor-wallet.css'
@@ -163,13 +160,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [wallet, setWallet] = useState(null)
   const [authPassword, setAuthPassword] = useState('')
   const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
-  const [saved, setSaved] = useState(() => hasSavedSponsorWallet())
-  const [replacing, setReplacing] = useState(false)
-  const [mode, setMode] = useState('private-key')
-  const [credential, setCredential] = useState('')
-  const [keystorePassword, setKeystorePassword] = useState('')
-  const [vaultPassword, setVaultPassword] = useState('')
-  const [unlockPassword, setUnlockPassword] = useState('')
+  const [saved, setSaved] = useState(false)
   const [adminToken, setAdminToken] = useState('')
   const [amount, setAmount] = useState('10')
   const [energyTarget, setEnergyTarget] = useState(() => readSavedTarget('energy', '1278524'))
@@ -451,52 +442,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     return () => window.clearInterval(timer)
   }, [wallet, workspaceActive, refresh])
 
-  async function importWallet() {
-    setBusy(true)
-    try {
-      const account = await deriveSponsorAccount({ mode, value: credential, secretPassword: keystorePassword })
-      if (account.address === OWNER_ADDRESS) throw new Error('The Sponsor Wallet must be independent from the existing Owner Wallet.')
-      await saveSponsorWalletVault(account, vaultPassword)
-      setWallet(account)
-      recordSecurityEvent(account.address, 'Sponsor Wallet imported', 'Existing account credentials encrypted in this browser.')
-      setSaved(true)
-      setReplacing(false)
-      setCredential('')
-      setKeystorePassword('')
-      setVaultPassword('')
-      setSnapshot(null)
-      setWalletTransactions([])
-      setWalletTransactionsAvailable(false)
-      setWalletTokenTransfers([])
-      setWalletTokenTransfersAvailable(false)
-      notify('success', 'Sponsor Wallet imported', `TRON Mainnet address verified: ${account.address}`)
-    } catch (error) {
-      notify('error', 'Wallet import failed', error instanceof Error ? error.message : 'Unable to import the Sponsor Wallet.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-
-  async function unlockWallet() {
-    setBusy(true)
-    try {
-      const account = await unlockSponsorWalletVault(unlockPassword)
-      if (account.address === OWNER_ADDRESS) throw new Error('The saved Sponsor Wallet must be independent from the Owner Wallet.')
-      setWallet(account)
-      recordSecurityEvent(account.address, 'Sponsor Wallet unlocked', 'Encrypted local vault successfully unlocked.')
-      setUnlockPassword('')
-      setSnapshot(null)
-      setWalletTransactions([])
-      setWalletTransactionsAvailable(false)
-      notify('success', 'Sponsor Wallet unlocked', account.address)
-    } catch (error) {
-      notify('error', 'Unlock failed', error instanceof Error ? error.message : 'Unable to unlock the Sponsor Wallet.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const lockWallet = useCallback((reason = 'manual') => {
     if (!wallet?.address) return
     const automatic = reason === 'inactivity' || reason === 'background'
@@ -505,7 +450,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       automatic ? 'Sponsor Wallet automatically locked' : 'Sponsor Wallet locked',
       automatic
         ? (reason === 'background' ? 'Session locked after the page remained hidden for 60 seconds.' : 'Session locked after 5 minutes without user activity.')
-        : 'In-memory signing key released; encrypted vault retained.',
+        : 'Backend-managed Sponsor session revoked; no private key is held in this browser.',
     )
     void sponsorAuth.logout().catch(() => {})
     setWallet(null)
@@ -518,16 +463,12 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setLastTx('')
     setLastOperationReference('')
     setLastDelegation(null)
-    setUnlockPassword('')
-    setCredential('')
-    setKeystorePassword('')
-    setVaultPassword('')
     notify(
       automatic ? 'info' : 'success',
       automatic ? 'Sponsor Wallet session auto-locked' : 'Sponsor Wallet locked',
       automatic
         ? 'The signing session was cleared. Unlock the encrypted local backup to continue.'
-        : 'The in-memory signing key was released. The encrypted local backup remains available to unlock.',
+        : 'The backend-managed Sponsor session has been revoked.',
     )
   }, [wallet?.address, recordSecurityEvent, notify])
 
@@ -578,64 +519,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     }
   }, [wallet?.address, lockWallet])
 
-  function logoutWallet() {
-    recordSecurityEvent(wallet?.address, 'Sponsor Wallet logged out', 'Active session cleared; encrypted vault retained for reconnect.')
-    void sponsorAuth.logout().catch(() => {})
-    setWallet(null)
-    setSaved(true)
-    setSnapshot(null)
-      setWalletTransactions([])
-    setWalletTransactionsAvailable(false)
-    setWalletTokenTransfers([])
-    setWalletTokenTransfersAvailable(false)
-    setLastTx('')
-    setLastOperationReference('')
-    setLastDelegation(null)
-    setUnlockPassword('')
-    setCredential('')
-    setKeystorePassword('')
-    setVaultPassword('')
-    notify('success', 'Sponsor Wallet logged out', 'The active session is disconnected. Your encrypted local backup is retained.')
-  }
-
-  function beginReplace() {
-    recordSecurityEvent(wallet?.address, 'Sponsor Wallet replacement started', 'Replacement import requested; existing encrypted vault retained until successful import.')
-    setWallet(null)
-    setSnapshot(null)
-      setWalletTransactions([])
-    setWalletTransactionsAvailable(false)
-    setWalletTokenTransfers([])
-    setWalletTokenTransfersAvailable(false)
-    setLastTx('')
-    setLastOperationReference('')
-    setLastDelegation(null)
-    setUnlockPassword('')
-    setCredential('')
-    setKeystorePassword('')
-    setVaultPassword('')
-    setSaved(false)
-    setReplacing(true)
-    setMode('private-key')
-    notify('info', 'Replace Sponsor Wallet', 'Import the replacement account. The current encrypted backup remains until the new import succeeds.')
-  }
-
-  function removeVault() {
-    if (!window.confirm('Remove the encrypted Sponsor Wallet backup from this browser? This does not affect the on-chain wallet. Make sure you have your own recovery backup.')) return
-    recordSecurityEvent(wallet?.address || getSavedSponsorWalletAddress(), 'Sponsor Wallet backup removed', 'Encrypted local vault removed from this browser; on-chain funds were not changed.')
-    try { removeSavedSponsorWallet() } catch (error) { notify('error', 'Could not remove local backup', error instanceof Error ? error.message : 'Browser storage is unavailable.'); return }
-    setSaved(false)
-    setWallet(null)
-    setSnapshot(null)
-    setWalletTransactions([])
-    setWalletTransactionsAvailable(false)
-    setWalletTokenTransfers([])
-    setWalletTokenTransfersAvailable(false)
-    setUnlockPassword('')
-    setCredential('')
-    setKeystorePassword('')
-    setVaultPassword('')
-    notify('success', 'Local wallet backup removed', 'No on-chain account or funds were changed.')
-  }
+  function logoutWallet() { lockWallet('manual') }
 
   async function submitResourceTransaction(action, options = {}) {
     if (!wallet || !tronWeb || busy) return
