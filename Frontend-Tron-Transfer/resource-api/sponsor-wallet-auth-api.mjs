@@ -39,13 +39,13 @@ async function body(req) {
 }
 function setSessionCookies(res, token, csrf) {
   res.setHeader('set-cookie', [
-    COOKIE + '=' + encodeURIComponent(token) + '; Path=/api/wallet-auth/sponsor; HttpOnly; Secure; SameSite=None; Max-Age=28800',
+    COOKIE + '=' + encodeURIComponent(token) + '; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=28800',
     CSRF_COOKIE + '=' + encodeURIComponent(csrf) + '; Path=/; Secure; SameSite=None; Max-Age=28800',
   ])
 }
 function clearSessionCookies(res) {
   res.setHeader('set-cookie', [
-    COOKIE + '=; Path=/api/wallet-auth/sponsor; HttpOnly; Secure; SameSite=None; Max-Age=0',
+    COOKIE + '=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0',
     CSRF_COOKIE + '=; Path=/; Secure; SameSite=None; Max-Age=0',
   ])
 }
