@@ -1,8 +1,11 @@
 import { spawnSync } from 'node:child_process'
+import pg from 'pg'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { sponsorDatabaseConnectionString } from '../sponsor-api.mjs'
 import { databaseIdentity } from './sponsor-ledger-database-identity.mjs'
+
+const { Pool } = pg
 
 export function resolveMigrationRunnerConfig(env = process.env) {
   if (env.SPONSOR_WRITES_PAUSED !== 'true') {
@@ -43,9 +46,46 @@ export function resolveMigrationRunnerConfig(env = process.env) {
   return { sourceUrl, targetUrl }
 }
 
-export async function runMigrationTask(mode, { env = process.env, spawn = spawnSync } = {}) {
-  if (!['preflight', 'migrate'].includes(mode)) {
-    throw new Error('Usage: npm run sponsor-ledger:preflight OR npm run sponsor-ledger:migrate')
+export async function pauseSourceLedgerWrites(sourceUrl, { PoolClass = Pool } = {}) {
+  const db = new PoolClass({ connectionString: sourceUrl, max: 1, connectionTimeoutMillis: 8000 })
+  try {
+    const ledger = await db.query(
+      "SELECT to_regclass('public.tron_transfer_sponsor_operations') AS operations_table"
+    )
+    if (!ledger.rows?.[0]?.operations_table) {
+      throw new Error('The source Sponsor operations table does not exist; refusing to create a partial ledger.')
+    }
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_control (
+        id SMALLINT PRIMARY KEY CHECK (id = 1),
+        writes_paused BOOLEAN NOT NULL DEFAULT TRUE,
+        pause_reason TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `)
+    await db.query(`
+      INSERT INTO public.tron_transfer_sponsor_control (id, writes_paused, pause_reason)
+      VALUES (1, TRUE, 'sponsor-ledger-migration-preflight')
+      ON CONFLICT (id) DO UPDATE SET
+        writes_paused = TRUE,
+        pause_reason = 'sponsor-ledger-migration-preflight',
+        updated_at = now()
+    `)
+    const control = await db.query(
+      'SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1'
+    )
+    if (control.rows?.length !== 1 || control.rows[0].writes_paused !== true) {
+      throw new Error('The source Sponsor write pause could not be verified.')
+    }
+    return { success: true, writesPaused: true }
+  } finally {
+    await db.end()
+  }
+}
+
+export async function runMigrationTask(mode, { env = process.env, spawn = spawnSync, PoolClass = Pool } = {}) {
+  if (!['pause', 'preflight', 'migrate'].includes(mode)) {
+    throw new Error('Usage: npm run sponsor-ledger:pause, sponsor-ledger:preflight, or sponsor-ledger:migrate')
   }
   const { sourceUrl, targetUrl } = resolveMigrationRunnerConfig(env)
   const taskEnv = {
@@ -53,6 +93,15 @@ export async function runMigrationTask(mode, { env = process.env, spawn = spawnS
     SOURCE_DATABASE_URL: sourceUrl,
     TARGET_DATABASE_URL: targetUrl,
     SPONSOR_WRITES_PAUSED: 'true',
+  }
+
+  if (mode === 'pause') {
+    const result = await pauseSourceLedgerWrites(sourceUrl, { PoolClass })
+    process.stdout.write(JSON.stringify({
+      ...result,
+      note: 'Source Sponsor writes are durably paused. Run the read-only preflight next; Mainnet broadcasting remains disabled.',
+    }) + '\\n')
+    return 0
   }
 
   if (mode === 'preflight') {
