@@ -398,3 +398,31 @@ test('Resource API CORS preflight still rejects an unapproved browser origin', a
   })
   assert.equal(response.status, 403)
 })
+
+
+test('managed wallet identity endpoint exposes public readiness only and never private keys', async (t) => {
+  const { createServer } = await import('../server.js')
+  const ownerKey = '1'.repeat(64)
+  const sponsorKey = '2'.repeat(64)
+  const server = createServer({
+    allowedAddress: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+    env: {
+      TRON_OWNER_PRIVATE_KEY: ownerKey,
+      TRON_OWNER_ADDRESS: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+      SPONSOR_MAINNET_PRIVATE_KEY: sponsorKey,
+      SPONSOR_MAINNET_ADDRESS: 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL',
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/wallets/managed-identities')
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.custody, 'backend-managed')
+  assert.equal(payload.privateKeysExposed, false)
+  assert.equal(payload.executionEnabled, false)
+  assert.equal(payload.passwordEnrollmentAvailable, false)
+  const serialized = JSON.stringify(payload)
+  assert.equal(serialized.includes(ownerKey), false)
+  assert.equal(serialized.includes(sponsorKey), false)
+})
