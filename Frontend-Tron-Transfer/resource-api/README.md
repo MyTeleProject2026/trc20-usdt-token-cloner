@@ -1,3 +1,24 @@
+## Remote Sponsor signer transport
+
+The Resource API now supports an HTTPS remote signer client through `SPONSOR_SIGNER_URL`, `SPONSOR_SIGNER_HMAC_SECRET` (minimum 32 characters), and the existing `SPONSOR_MAINNET_ADDRESS`. When no explicit adapter is injected and `SPONSOR_SIGNER_URL` is configured, the server constructs this adapter. The Resource API never sends a private key to the signer; it sends only the exact unsigned transaction body and its transaction ID.
+
+### Request protocol
+
+The client sends a JSON body containing `requestId`, `txID`, `raw_data_hex`, and `raw_data`. Headers contain a millisecond timestamp, a cryptographically random request ID, and an HMAC-SHA256 over `timestamp.requestId.rawJsonBody`. Requests use HTTPS only and have a bounded timeout. The signer service must independently:
+
+- Authenticate the HMAC using a secret stored outside the Resource API.
+- Reject timestamps outside a short configured skew window (recommended 60 seconds).
+- Atomically reject previously consumed request IDs and retain them longer than the maximum request validity window.
+- Recompute the transaction ID and validate the transaction's intended Sponsor, Owner, contract type, amount, resource, expiration and fee policy before signing.
+- Sign only with a key whose derived Mainnet address is the configured Sponsor.
+- Return the exact unchanged transaction body with the signature and a response HMAC over `requestId.txID.raw_data_hex.signaturesJoinedByComma`.
+- Never broadcast transactions; broadcasting remains the Resource API engine's responsibility.
+- Never log request secrets, private keys or complete authorization headers.
+
+The client checks response request ID, transaction ID, raw bytes, raw transaction body, signature encoding and response HMAC before returning the signed transaction to the engine. The engine performs its own transaction-body integrity check and persists the transaction ID before any broadcast attempt.
+
+**Deployment boundary:** this repository implements the Resource API remote-signer client and its tests, not the remote signer service itself. No HSM/KMS provider, signer endpoint, anti-replay datastore, key handle, network allowlist or production secret has been provisioned here. The remote signer service must be implemented and independently reviewed before setting these variables in Render. Do not enable Mainnet writes merely by configuring the URL.
+
 ## Isolated Sponsor signer adapter
 
 The Sponsor engine accepts an injected signer adapter through its `signerAdapter` dependency. The contract is intentionally narrow:
