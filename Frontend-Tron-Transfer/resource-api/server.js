@@ -292,7 +292,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     : null
   const activeSponsorSigner = sponsorSignerAdapter || configuredRemoteSigner
   const sponsorApi = createSponsorResourceApi({ env, allowedAddress, fetchImpl, ...(sponsorEngine ? { engine: sponsorEngine } : {}), ...(activeSponsorSigner ? { signerAdapter: activeSponsorSigner } : {}), ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}), send })
-  const ownerWalletAuthApi = createOwnerWalletAuthApi({ env, database: sponsorDatabase, send })
+  const ownerWalletAuthApi = createOwnerWalletAuthApi({ env, send })
   const rateLimiters = new Map()
   let uptimeHistoryCache = { at: 0, value: null }
   let renderMetricsCache = { at: 0, value: null }
