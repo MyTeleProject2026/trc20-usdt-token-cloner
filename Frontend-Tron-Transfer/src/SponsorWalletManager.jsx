@@ -676,10 +676,9 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 This request is sent to the authenticated TRON Transfer Resource API. The backend enforces the configured fee cap and reserve, signs only the exact intent authorized by this Sponsor Wallet, and records the transaction ID before broadcast. Continue?`)) return
     setBusy(true)
     try {
-      const token = await authenticateSponsorWallet(wallet, tronWeb)
       const idempotencyKey = createIdempotencyKey()
       const intent = await sponsorApiRequest('/api/sponsor/intent', {
-        method: 'POST', token, adminToken,
+        method: 'POST', adminToken,
         body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
