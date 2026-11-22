@@ -398,3 +398,43 @@ test('Resource API CORS preflight still rejects an unapproved browser origin', a
   })
   assert.equal(response.status, 403)
 })
+
+
+test('Mainnet resource endpoint serves cached reads before rate limiting and coalesces concurrent misses', async (t) => {
+  const { createServer } = await import('../server.js')
+  const address = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
+  let providerCalls = 0
+  const fetchImpl = async (url) => {
+    providerCalls += 1
+    await new Promise(resolve => setTimeout(resolve, 15))
+    let payload
+    if (url.endsWith('/wallet/getaccountresource')) payload = {
+      EnergyLimit: 90000, EnergyUsed: 10000,
+      NetLimit: 800, NetUsed: 100, freeNetLimit: 600, freeNetUsed: 50,
+      TotalEnergyLimit: 180000000000, TotalEnergyWeight: 3000000000,
+      TotalNetLimit: 43200000000, TotalNetWeight: 1200000000,
+    }
+    else if (url.endsWith('/wallet/getaccount')) payload = { address, balance: 123456 }
+    else if (url.endsWith('/wallet/getchainparameters')) payload = { chainParameter: [] }
+    else throw new Error('unexpected RPC request ' + url)
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  const server = createServer({ allowedAddress: address, fetchImpl, env: { TRONGRID_API_KEY: 'test-key' } })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const endpoint = 'http://127.0.0.1:' + server.address().port + '/v1/resources/' + address
+  const concurrent = await Promise.all(Array.from({ length: 12 }, () => fetch(endpoint)))
+  assert.equal(concurrent.every(response => response.status === 200), true)
+  const payloads = await Promise.all(concurrent.map(response => response.json()))
+  assert.equal(payloads.every(payload => payload.address === address && payload.network === 'TRON Mainnet'), true)
+  assert.equal(providerCalls, 3)
+  for (let index = 0; index < 45; index += 1) {
+    const cached = await fetch(endpoint)
+    assert.equal(cached.status, 200)
+    const cachedPayload = await cached.json()
+    assert.equal(cachedPayload.address, address)
+    assert.equal(cachedPayload.network, 'TRON Mainnet')
+    assert.ok(cachedPayload.energy && cachedPayload.bandwidth && cachedPayload.networkResourceWeights)
+  }
+  assert.equal(providerCalls, 3)
+})
