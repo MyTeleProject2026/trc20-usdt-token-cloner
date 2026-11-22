@@ -276,6 +276,12 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
+  useEffect(() => {
+    setDurableOperations([])
+    setDurableLedgerState('idle')
+    setDurableLedgerError('')
+  }, [wallet?.address])
+
   const loadDurableOperations = useCallback(async () => {
     if (!wallet || !tronWeb) return
     setDurableLedgerState('loading')
