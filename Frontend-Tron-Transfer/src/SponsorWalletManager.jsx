@@ -91,7 +91,11 @@ async function readRecentTransactions(address) {
 async function readResourceSnapshot(address, tronWeb) {
   try {
     const response = await fetch(RESOURCE_API + '/v1/resources/' + encodeURIComponent(address), { cache: 'no-store' })
-    if (!response.ok) throw new Error('Resource API returned HTTP ' + response.status)
+    if (!response.ok) {
+      const error = new Error('Resource API returned HTTP ' + response.status)
+      error.status = response.status
+      throw error
+    }
     const payload = await response.json()
     if (payload?.address !== address || payload?.network !== 'TRON Mainnet' || !payload.energy || !payload.bandwidth || !payload.networkResourceWeights) throw new Error('Resource API returned an invalid account snapshot')
     return {
