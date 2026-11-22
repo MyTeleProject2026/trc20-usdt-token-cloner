@@ -467,10 +467,10 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       automatic ? 'info' : 'success',
       automatic ? 'Sponsor Wallet session auto-locked' : 'Sponsor Wallet locked',
       automatic
-        ? 'The signing session was cleared. Unlock the encrypted local backup to continue.'
+        ? 'The authenticated Sponsor session was revoked. Sign in again to continue.'
         : 'The backend-managed Sponsor session has been revoked.',
     )
-  }, [wallet?.address, recordSecurityEvent, notify])
+  }, [wallet?.address, recordSecurityEvent, notify, sponsorAuth])
 
   useEffect(() => {
     if (!wallet?.address) return undefined
@@ -793,7 +793,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     {wallet && <div className="sponsor-dashboard">
       {activePage === "sponsor" && <section id="sponsor-overview" className="sponsor-card sponsor-wallet-summary">
         <div className="sponsor-card-heading"><Wallet/><div><h3>Sponsor Wallet Overview</h3><p>{wallet.address}</p></div></div>
-        <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Imported · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={() => lockWallet()}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button><button onClick={beginReplace}>Replace</button></div>
+        <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Password authenticated · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={() => lockWallet()}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button></div>
         <div className="sponsor-metric-grid">
           <article><small>TRX BALANCE</small><strong>{snapshot ? formatAmount(snapshot.trxSun) : '—'}</strong></article>
           <article><small>OFFICIAL USDT</small><strong>{snapshot ? (Number(snapshot.usdt) / 1e6).toLocaleString(undefined,{maximumFractionDigits:6}) : '—'}</strong></article>
@@ -801,7 +801,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
           <article><small>BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.maxSingleTransactionBandwidth || Math.max(bandwidthAvailable, freeBandwidthAvailable)).toLocaleString() : '—'}</strong><small>{snapshot ? `${bandwidthAvailable.toLocaleString()} staked + ${freeBandwidthAvailable.toLocaleString()} free` : 'Refresh to read'}</small></article>
         </div>
         <p className="sponsor-muted">Owner recipient: <code>{OWNER_ADDRESS}</code></p>
-        <p className="sponsor-muted">Session protection: automatically locks after 5 minutes without activity or 60 seconds with this page in the background. Locking clears the in-memory signing session; the encrypted local backup remains.</p>
+        <p className="sponsor-muted">Session protection: automatically revokes the backend password session after 5 minutes without activity or 60 seconds with this page in the background.</p>
         {snapshot?.resourceReadSource && <p className="sponsor-muted">Resource data source: {snapshot.resourceReadSource === 'resource-api' ? 'TRON Transfer Resource API' : 'Direct TronWeb fallback'}{snapshot.resourceRpcProviders ? ' · ' + Object.values(snapshot.resourceRpcProviders).join(' / ') : ''}</p>}
         {snapshot?.checkedAt && <p className="sponsor-muted">Last live check: {new Date(snapshot.checkedAt).toLocaleString()}</p>}
         {lastTx && <p className="sponsor-tx-link">Last transaction: <a href={`https://tronscan.org/#/transaction/${lastTx}`} target="_blank" rel="noreferrer">{lastTx}</a></p>}
