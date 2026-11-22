@@ -431,6 +431,10 @@ test('Mainnet resource endpoint serves cached reads before rate limiting and coa
   for (let index = 0; index < 45; index += 1) {
     const cached = await fetch(endpoint)
     assert.equal(cached.status, 200)
+    const cachedPayload = await cached.json()
+    assert.equal(cachedPayload.address, address)
+    assert.equal(cachedPayload.network, 'TRON Mainnet')
+    assert.ok(cachedPayload.energy && cachedPayload.bandwidth && cachedPayload.networkResourceWeights)
   }
   assert.equal(providerCalls, 3)
 })
