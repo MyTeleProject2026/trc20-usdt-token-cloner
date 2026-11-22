@@ -59,8 +59,7 @@ export function createRemoteSponsorSigner({
         raw_data: unsignedTransaction.raw_data,
       })
       const signature = mac(secret, [timestamp, id, payload].join('.'))
-      try {
-        const response = await fetchImpl(endpoint, {
+      const response = await fetchImpl(endpoint, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -83,8 +82,7 @@ export function createRemoteSponsorSigner({
         }
         const responseMac = mac(secret, [id, signed.txID, signed.raw_data_hex, signed.signature.join(',')].join('.'))
         if (!safeEqual(responseMac, result.responseMac)) throw new Error('remote-sponsor-signer-response-authentication-failed')
-        return signed
-      }
+      return signed
     },
   })
 }
