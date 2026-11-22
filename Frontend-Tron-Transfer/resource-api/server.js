@@ -21,6 +21,7 @@ const RATE_WINDOW_MS = 60_000
 const RATE_LIMIT = 30
 const MAX_RATE_LIMIT_ENTRIES = 10_000
 const cache = new Map()
+const resourceReadsInFlight = new Map()
 
 const number = value => {
   const parsed = Number(value ?? 0)
@@ -697,13 +698,35 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
     const match = url.pathname.match(/^\/v1\/resources\/(T[1-9A-HJ-NP-Za-km-z]{33})$/)
     if (!match || !isMainnetAddress(match[1])) return send(res, 400, { error: 'INVALID_TRON_ADDRESS' }, origin)
-    const ip = observatoryRateLimitIp(req)
-    if (!allowRequest(ip, 'mainnet-resource-read')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
     const address = match[1]
+    // Serve fresh cache hits before applying the per-IP miss budget. Dashboard
+    // refreshes can legitimately request the same address from multiple widgets.
     const cached = cache.get(address)
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, cached.value, origin)
+
+    // Coalesce concurrent cache misses for the same address so a single UI
+    // refresh cannot fan out into duplicate provider RPC requests.
+    const inFlight = resourceReadsInFlight.get(address)
+    if (inFlight) {
+      try {
+        const value = await inFlight
+        return send(res, 200, { address, network: 'TRON Mainnet', ...value }, origin)
+      } catch (error) {
+        const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600 ? error.status : 503
+        return send(res, status === 429 ? 503 : status, {
+          error: status === 401 || status === 403 || status === 429 ? 'PUBLIC_RPC_LIMITED' : 'TRON_RPC_UNAVAILABLE',
+          message: 'The shared Mainnet resource read is temporarily unavailable. Retry after the indicated delay; no resource amount has been assumed.',
+          retryAfterSeconds: 15,
+        }, origin)
+      }
+    }
+
+    const ip = observatoryRateLimitIp(req)
+    if (!allowRequest(ip, 'mainnet-resource-read')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 15 }, origin)
+    const readPromise = readResources(address, { fetchImpl, env })
+    resourceReadsInFlight.set(address, readPromise)
     try {
-      const value = await readResources(address, { fetchImpl, env })
+      const value = await readPromise
       cache.set(address, { at: Date.now(), value })
       return send(res, 200, { address, network: 'TRON Mainnet', ...value }, origin)
     } catch (error) {
@@ -715,6 +738,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
           ? 'Configured TRON Mainnet RPC provider rejected or rate-limited the request. Check its API key and quota; no resource amount has been assumed.'
           : 'Could not read current Mainnet resources from Tatum or TronGrid. No resource amount has been assumed.',
       }, origin)
+    } finally {
+      if (resourceReadsInFlight.get(address) === readPromise) resourceReadsInFlight.delete(address)
     }
   })
   server.on('close', () => runtimeObservatory.stop())
