@@ -492,7 +492,8 @@ export function createSponsorResourceApi({
       } catch { return reply(res, 503, { success: false, error: 'sponsor-ledger-read-failed' }, origin) }
     }
 
-    const session = typeof authenticateManagedSession === 'function'
+    const managedSessionAuth = typeof authenticateManagedSession === 'function'
+    const session = managedSessionAuth
       ? await authenticateManagedSession(req, { requireCsrf: req.method !== 'GET' })
       : verifySession(req, env, now())
     if (!session) return reply(res, 401, { success: false, error: 'sponsor-session-required' }, origin)
@@ -526,13 +527,21 @@ export function createSponsorResourceApi({
       const intent = intents.get(body.intentId)
       if (!intent || intent.expiresAt <= now() || intent.sponsorAddress !== session.address) return reply(res, 409, { success: false, error: 'intent-expired-or-already-used', retryAllowed: false }, origin)
       intents.delete(body.intentId)
-      if (body.confirmPhrase !== CONFIRMATION || typeof body.signature !== 'string' || !/^(?:0x)?[0-9a-f]{130}$/i.test(body.signature)) {
-        return reply(res, 400, { success: false, error: 'explicit-confirmation-and-message-signature-required', retryAllowed: false }, origin)
+      if (body.confirmPhrase !== CONFIRMATION
+        || (!managedSessionAuth && (typeof body.signature !== 'string' || !/^(?:0x)?[0-9a-f]{130}$/i.test(body.signature)))) {
+        return reply(res, 400, { success: false, error: 'explicit-confirmation-and-authentication-required', retryAllowed: false }, origin)
       }
-      try {
-        const recovered = await verifyMessage(intent.message, body.signature)
-        if (recovered !== session.address) return reply(res, 401, { success: false, error: 'operation-signature-address-mismatch', retryAllowed: false }, origin)
-      } catch { return reply(res, 401, { success: false, error: 'operation-signature-verification-failed', retryAllowed: false }, origin) }
+      // Legacy wallet sessions retain their exact-message signature. Managed
+      // password sessions are already bound to the enrolled Sponsor address;
+      // the short-lived exact intent, CSRF-protected cookie, Admin authorization,
+      // explicit confirmation phrase, ledger gate and idempotency reservation
+      // jointly authorize this operation without exposing a browser private key.
+      if (!managedSessionAuth) {
+        try {
+          const recovered = await verifyMessage(intent.message, body.signature)
+          if (recovered !== session.address) return reply(res, 401, { success: false, error: 'operation-signature-address-mismatch', retryAllowed: false }, origin)
+        } catch { return reply(res, 401, { success: false, error: 'operation-signature-verification-failed', retryAllowed: false }, origin) }
+      }
 
       const db = getDatabase()
       if (!db) return reply(res, 503, { success: false, error: 'durable-idempotency-storage-required', retryAllowed: false }, origin)
