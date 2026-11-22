@@ -57,16 +57,15 @@ test('runner refuses missing source or target and same database identities', () 
   }), /identities are the same/)
 })
 
-test('runner refuses arbitrary source URL overrides', async () => {
-  let spawned = false
-  await assert.rejects(
-    runMigrationTask('migrate', {
-      env: { ...safeEnv, SOURCE_DATABASE_URL: 'postgresql://attacker:secret@other.example/other' },
-      spawn: () => { spawned = true; return { status: 0 } },
-    }),
-    /same database identities|direct PostgreSQL endpoint|Source and target/,
-  )
-  assert.equal(spawned, false)
+test('runner ignores arbitrary source URL overrides and pins the runtime-selected source', async () => {
+  let invocation
+  const status = await runMigrationTask('migrate', {
+    env: { ...safeEnv, SOURCE_DATABASE_URL: 'postgresql://attacker:secret@other.example/other' },
+    spawn: (...args) => { invocation = args; return { status: 0 } },
+  })
+  assert.equal(status, 0)
+  assert.equal(invocation[2].env.SOURCE_DATABASE_URL, source)
+  assert.equal(invocation[2].env.TARGET_DATABASE_URL, target)
 })
 
 test('runner validates task mode before starting any migration process', async () => {
