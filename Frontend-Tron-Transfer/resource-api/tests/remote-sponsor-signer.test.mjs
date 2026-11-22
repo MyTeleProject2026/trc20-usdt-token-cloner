@@ -1,12 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createHmac } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { createRemoteSponsorSigner } from '../remote-sponsor-signer.mjs'
 
 const secret = 's'.repeat(48)
 const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const transaction = {
-  txID: 'a'.repeat(64),
+  txID: createHash('sha256').update(Buffer.from('ab'.repeat(40), 'hex')).digest('hex'),
   raw_data_hex: 'ab'.repeat(40),
   raw_data: { expiration: 123456789, contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { amount: 1 } } }] },
 }
@@ -74,5 +74,18 @@ test('remote signer rejects malformed transaction before network request', async
   let calls = 0
   const signer = createRemoteSponsorSigner({ env, fetchImpl: async () => { calls += 1 } })
   await assert.rejects(() => signer.signTransaction({ ...transaction, txID: 'bad' }), /invalid-transaction/)
+  assert.equal(calls, 0)
+})
+
+test('remote signer rejects a transaction ID that does not hash to its raw transaction bytes', async () => {
+  let calls = 0
+  const signer = createRemoteSponsorSigner({
+    env,
+    fetchImpl: async () => { calls += 1; throw new Error('network must not be called') },
+  })
+  await assert.rejects(
+    () => signer.signTransaction({ ...transaction, txID: 'f'.repeat(64) }),
+    /transaction-id-mismatch/,
+  )
   assert.equal(calls, 0)
 })
