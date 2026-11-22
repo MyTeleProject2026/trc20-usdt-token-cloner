@@ -35,7 +35,7 @@ try {
   const required = [
     'owner-address',
     'sponsor-address-format-and-separation',
-    'sponsor-signer-key-match',
+    'sponsor-signer-address-match',
     'ledger-database-configured',
     'ledger-schema-and-control-row',
     'ledger-durability-and-restore-attestation',
