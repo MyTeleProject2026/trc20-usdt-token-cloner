@@ -22,6 +22,7 @@ function safeCode(error) {
   if (/timeout|abort/i.test(message)) return 'provider-timeout'
   if (/balance|insufficient/i.test(message)) return 'insufficient-sponsor-balance'
   if (/signer-address-mismatch/i.test(message)) return 'sponsor-signer-address-mismatch'
+  if (/signed-transaction-integrity-failed/i.test(message)) return 'signed-transaction-integrity-failed'
   return 'sponsor-transaction-failed'
 }
 function addressFromHex(tronWeb, value) {
