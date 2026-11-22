@@ -40,6 +40,7 @@ test('remote signer authenticates request and accepts only matching signed trans
   const signed = await signer.signTransaction(transaction)
   assert.deepEqual(signed.signature, ['c'.repeat(130)])
   assert.equal(request.url, env.SPONSOR_SIGNER_URL)
+  assert.equal(request.options.redirect, 'error', 'signer authentication must never follow redirects')
   const expected = mac(['1700000000000', 'request-123', request.options.body].join('.'))
   assert.equal(request.options.headers['x-sponsor-signer-signature'], expected)
   assert.equal(request.options.headers['x-sponsor-signer-request-id'], 'request-123')
