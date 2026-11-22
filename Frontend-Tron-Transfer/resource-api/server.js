@@ -277,6 +277,7 @@ function send(res, status, payload, origin) {
   }
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     headers['access-control-allow-origin'] = origin
+    headers['access-control-allow-credentials'] = 'true'
     headers.vary = 'Origin'
   }
   res.writeHead(status, headers)
