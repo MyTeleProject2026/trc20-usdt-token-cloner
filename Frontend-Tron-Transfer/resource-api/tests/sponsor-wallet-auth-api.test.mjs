@@ -39,7 +39,7 @@ function request(method, headers = {}, payload = {}) {
 function response() {
   return { headers: {}, status: 0, body: '', setHeader(k, v) { this.headers[k.toLowerCase()] = v }, writeHead(status) { this.status = status }, end(value) { this.body = value || '' } }
 }
-const identityReport = { owner: { ready: true, address }, sponsor: { ready: true, address: 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR' }, identitiesDistinct: true }
+const identityReport = { owner: { ready: true, address: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp' }, sponsor: { ready: true, address }, identitiesDistinct: true }
 
 test('Sponsor wallet auth ignores paths outside its exact route namespace', async () => {
   const api = createSponsorWalletAuthApi({ env: {}, database: fakeDatabase(), send() {} })
