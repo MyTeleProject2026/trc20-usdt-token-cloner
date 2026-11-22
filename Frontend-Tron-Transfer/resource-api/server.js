@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
 import { createRuntimeObservatory } from './runtime-observatory.mjs'
 import { createSponsorResourceApi } from './sponsor-api.mjs'
+import { createOwnerWalletAuthApi } from './owner-wallet-auth-api.mjs'
 import { createRemoteSponsorSigner } from './remote-sponsor-signer.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
@@ -290,6 +291,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     : null
   const activeSponsorSigner = sponsorSignerAdapter || configuredRemoteSigner
   const sponsorApi = createSponsorResourceApi({ env, allowedAddress, fetchImpl, ...(sponsorEngine ? { engine: sponsorEngine } : {}), ...(activeSponsorSigner ? { signerAdapter: activeSponsorSigner } : {}), ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}), send })
+  const ownerWalletAuthApi = createOwnerWalletAuthApi({ env, database: sponsorDatabase, send })
   const rateLimiters = new Map()
   let uptimeHistoryCache = { at: 0, value: null }
   let renderMetricsCache = { at: 0, value: null }
@@ -321,13 +323,14 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       res.writeHead(204, {
         'access-control-allow-origin': origin || 'null',
         'access-control-allow-methods': 'GET, POST, OPTIONS',
-        'access-control-allow-headers': 'content-type, authorization, x-sponsor-admin-token',
+        'access-control-allow-headers': 'content-type, authorization, x-sponsor-admin-token, x-owner-enrollment-token, x-csrf-token',
         'access-control-max-age': '600',
         vary: 'Origin',
       })
       return res.end()
     }
     const url = new URL(req.url || '/', 'http://localhost')
+    if (await ownerWalletAuthApi.handle(req, res, url, origin)) return
     if (await sponsorApi.handle(req, res, url, origin)) return
     if (req.method === 'GET' && url.pathname === '/api/observatory/snapshot') {
       const ip = observatoryRateLimitIp(req)
