@@ -1,3 +1,16 @@
+## Isolated Sponsor signer adapter
+
+The Sponsor engine accepts an injected signer adapter through its `signerAdapter` dependency. The contract is intentionally narrow:
+
+- `address`: the adapter's public TRON Mainnet address.
+- `signTransaction(unsignedTransaction)`: signs the exact transaction constructed and preflighted by the Resource API, returning the signed transaction object.
+
+When an adapter is injected, the engine does not read `SPONSOR_MAINNET_PRIVATE_KEY` or pass a private key to the TronWeb provider factory. It checks that the adapter address exactly matches `SPONSOR_MAINNET_ADDRESS` and differs from the Owner. Before broadcast, it verifies that the signer did not change `txID`, `raw_data_hex`, or `raw_data`, and requires at least one signature. A mismatch fails closed before the transaction ID is persisted or broadcast.
+
+The existing Render server factory can receive an already-constructed Sponsor engine through its `sponsorEngine` dependency. This provides the integration seam for a separately hosted HSM/KMS signer without moving Owner keys or granting the signer control over transaction construction, fee policy, database authorization, or broadcasting.
+
+**Deployment status:** the adapter interface and tests are implemented, but the existing production server still uses its legacy environment-backed Sponsor signer unless an external engine is explicitly injected. No HSM/KMS vendor, endpoint, key handle, authentication method or network policy has been configured in this repository. Do not claim external custody is active until an approved signer service is provisioned, wired into `createServer({ sponsorEngine })`, and accepted with key-isolation and recovery tests. The existing encrypted browser Sponsor vault also remains a separate custody exposure for wallet challenge signing; this adapter alone does not remove that browser copy.
+
 ## Sponsor transaction execution and recovery
 
 Sponsor transaction execution requires two independent authorizations: a short-lived TRON Mainnet message-signature session from the configured Sponsor wallet, and the separately configured Sponsor Admin second factor. The server-side transaction signer must derive the configured Sponsor address and must not equal the Owner address. The private key is never returned to the browser.
