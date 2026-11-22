@@ -48,6 +48,30 @@ export function createManagedWalletAuthClient({
     return payload
   }
 
+  async function resourceRequest(path, { method = 'GET', body, headers = {}, csrf = false } = {}) {
+    const normalizedPath = String(path || '')
+    if (!normalizedPath.startsWith('/api/') || normalizedPath.startsWith('/api/wallet-auth/')) {
+      throw new TypeError('MANAGED_WALLET_API_PATH_INVALID')
+    }
+    const requestHeaders = { accept: 'application/json', ...headers }
+    if (body !== undefined) requestHeaders['content-type'] = 'application/json'
+    if (csrf) {
+      const token = csrfToken || readCsrfCookie(cookieReader(), walletRole)
+      if (!token) throw new Error('WALLET_AUTH_CSRF_TOKEN_MISSING')
+      requestHeaders['x-csrf-token'] = token
+    }
+    const response = await fetchImpl(base + normalizedPath, {
+      method, headers: requestHeaders, credentials: 'include', cache: 'no-store',
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      const code = typeof payload.error === 'string' ? payload.error : 'WALLET_API_REQUEST_FAILED'
+      throw Object.assign(new Error(code), { status: response.status, code })
+    }
+    return payload
+  }
+
   return Object.freeze({
     role: walletRole,
     status: () => request('/status'),
@@ -56,6 +80,7 @@ export function createManagedWalletAuthClient({
     }),
     login: password => request('/login', { method: 'POST', body: { password } }),
     session: () => request('/session'),
+    apiRequest: resourceRequest,
     logout: () => request('/logout', { method: 'POST', csrf: true }).finally(() => { csrfToken = '' }),
   })
 }
