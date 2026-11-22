@@ -117,6 +117,9 @@ export function createSponsorTransactionEngine({
     const policyValid = feeCapValid && reserveValid
     return {
       configured: keyShapeValid && addressShapeValid && signerMatches && policyValid,
+      signerKeyConfigured: keyShapeValid,
+      sponsorAddressValid: addressShapeValid,
+      signerAddressMatches: signerMatches,
       signerMode,
       signerAdapterValid,
       enabled,
