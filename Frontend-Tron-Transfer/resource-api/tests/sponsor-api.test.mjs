@@ -9,12 +9,12 @@ const SECRET = 'test-session-secret-with-at-least-thirty-two-bytes'
 const SIGNATURE = 'a'.repeat(130)
 const TEST_ADMIN_TOKEN = 'test-admin-token-with-at-least-thirty-two-bytes'
 
-function request(method, path, body, token, adminToken) {
+function request(method, path, body, token, adminToken, client = {}) {
   const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   stream.method = method
   stream.url = path
-  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}) }
-  stream.socket = { remoteAddress: '127.0.0.1' }
+  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}), ...(client.headers || {}) }
+  stream.socket = { remoteAddress: client.remoteAddress || '127.0.0.1' }
   return stream
 }
 function response() {
@@ -49,9 +49,9 @@ function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, 
   })
   return { api, calls, env }
 }
-async function call(api, method, path, body, token, adminToken = TEST_ADMIN_TOKEN) {
+async function call(api, method, path, body, token, adminToken = TEST_ADMIN_TOKEN, client = {}) {
   const res = response()
-  const handled = await api.handle(request(method, path, body, token, adminToken), res, new URL(path, 'http://localhost'), null)
+  const handled = await api.handle(request(method, path, body, token, adminToken, client), res, new URL(path, 'http://localhost'), null)
   assert.equal(handled, true)
   return res
 }
@@ -109,6 +109,21 @@ test('Sponsor status reports selected database source but never returns hostname
   assert.equal(serialized.includes('neon_secret'), false)
   assert.equal(serialized.includes('ep-private'), false)
   assert.equal(serialized.includes('neon.tech'), false)
+})
+
+
+test('Sponsor API rate limits use validated Cloudflare client IPs, not caller-controlled forwarding headers', async () => {
+  const { api } = setup()
+  const firstClient = { headers: { 'cf-connecting-ip': '198.51.100.10', 'x-forwarded-for': '203.0.113.77' } }
+  const results = []
+  for (let index = 0; index < 9; index += 1) {
+    results.push(await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, TEST_ADMIN_TOKEN, firstClient))
+  }
+  assert.deepEqual(results.slice(0, 8).map(result => result.status), Array(8).fill(201))
+  assert.equal(results[8].status, 429)
+  const secondClient = { headers: { 'cf-connecting-ip': '198.51.100.11', 'x-forwarded-for': '203.0.113.77' } }
+  const second = await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, TEST_ADMIN_TOKEN, secondClient)
+  assert.equal(second.status, 201)
 })
 
 test('Sponsor-specific database URLs take precedence over shared application URLs', () => {
