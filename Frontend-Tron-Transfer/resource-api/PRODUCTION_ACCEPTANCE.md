@@ -15,7 +15,7 @@ The acceptance endpoint is diagnostic only. It does not create schema, migrate d
 The report evaluates:
 1. Owner address configuration consistency.
 2. Sponsor address format and separation from Owner.
-3. Sponsor signing key/adapter readiness and address match.
+3. Sponsor signer configuration and derived/declared address match.
 4. Sponsor ledger database configuration.
 5. Existing ledger schema and control-row availability.
 6. Operator-attested durable backup and restore-test flags.
