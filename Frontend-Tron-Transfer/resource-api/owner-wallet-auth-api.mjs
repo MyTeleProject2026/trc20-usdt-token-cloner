@@ -39,14 +39,14 @@ async function body(req) {
 }
 function setSessionCookies(res, token, csrf) {
   res.setHeader('set-cookie', [
-    COOKIE + '=' + encodeURIComponent(token) + '; Path=/api/wallet-auth/owner; HttpOnly; Secure; SameSite=Strict; Max-Age=28800',
-    CSRF_COOKIE + '=' + encodeURIComponent(csrf) + '; Path=/; Secure; SameSite=Strict; Max-Age=28800',
+    COOKIE + '=' + encodeURIComponent(token) + '; Path=/api/wallet-auth/owner; HttpOnly; Secure; SameSite=None; Max-Age=28800',
+    CSRF_COOKIE + '=' + encodeURIComponent(csrf) + '; Path=/; Secure; SameSite=None; Max-Age=28800',
   ])
 }
 function clearSessionCookies(res) {
   res.setHeader('set-cookie', [
-    COOKIE + '=; Path=/api/wallet-auth/owner; HttpOnly; Secure; SameSite=Strict; Max-Age=0',
-    CSRF_COOKIE + '=; Path=/; Secure; SameSite=Strict; Max-Age=0',
+    COOKIE + '=; Path=/api/wallet-auth/owner; HttpOnly; Secure; SameSite=None; Max-Age=0',
+    CSRF_COOKIE + '=; Path=/; Secure; SameSite=None; Max-Age=0',
   ])
 }
 
@@ -171,7 +171,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           // only to the authenticated same-origin client and is never stored in localStorage.
           const csrfToken = randomBytes(32).toString('base64url')
           await db.query('UPDATE public.tron_transfer_wallet_sessions SET csrf_hash=$2 WHERE session_id=$1', [session.sessionId, digest(csrfToken)])
-          res.setHeader('set-cookie', 'tron_owner_csrf=' + encodeURIComponent(csrfToken) + '; Path=/; Secure; SameSite=Strict; Max-Age=28800')
+          res.setHeader('set-cookie', 'tron_owner_csrf=' + encodeURIComponent(csrfToken) + '; Path=/; Secure; SameSite=None; Max-Age=28800')
           send(res, 200, { success: true, role: 'owner', address: session.address, csrfToken }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/owner/logout' && req.method === 'POST') {
