@@ -53,7 +53,7 @@ test('runner refuses missing source or target and same database identities', () 
   assert.throws(() => resolveMigrationRunnerConfig({ ...safeEnv, SPONSOR_MIGRATION_TARGET_DATABASE_URL: '' }), /target is not configured/)
   assert.throws(() => resolveMigrationRunnerConfig({
     ...safeEnv,
-    SPONSOR_MIGRATION_TARGET_DATABASE_URL: source,
+    DATABASE_URL: target,
   }), /identities are the same/)
 })
 
