@@ -656,7 +656,7 @@ test('signed-not-broadcast operation is reconciled against solidified Mainnet st
       reconciliations += 1
       assert.equal(input.transactionId, 'c'.repeat(64))
       assert.equal(input.operation, 'delegate')
-      return { confirmed: true, status: 'solidified-success', blockNumber: 987654 },
+      return { confirmed: true, status: 'solidified-success', blockNumber: 987654 }
     },
   }
   const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
