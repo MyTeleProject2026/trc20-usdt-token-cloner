@@ -1,3 +1,45 @@
+## Remote Sponsor signer transport
+
+The Resource API now supports an HTTPS remote signer client through `SPONSOR_SIGNER_URL`, `SPONSOR_SIGNER_HMAC_SECRET` (minimum 32 characters), and the existing `SPONSOR_MAINNET_ADDRESS`. When no explicit adapter is injected and `SPONSOR_SIGNER_URL` is configured, the server constructs this adapter. The Resource API never sends a private key to the signer; it sends only the exact unsigned transaction body and its transaction ID.
+
+### Request protocol
+
+The client sends a JSON body containing `requestId`, `txID`, `raw_data_hex`, and `raw_data`. Headers contain a millisecond timestamp, a cryptographically random request ID, and an HMAC-SHA256 over `timestamp.requestId.rawJsonBody`. Requests use HTTPS only and have a bounded timeout. The signer service must independently:
+
+- Authenticate the HMAC using a secret stored outside the Resource API.
+- Reject timestamps outside a short configured skew window (recommended 60 seconds).
+- Atomically reject previously consumed request IDs and retain them longer than the maximum request validity window.
+- Recompute the transaction ID and validate the transaction's intended Sponsor, Owner, contract type, amount, resource, expiration and fee policy before signing.
+- Sign only with a key whose derived Mainnet address is the configured Sponsor.
+- Return the exact unchanged transaction body with the signature and a response HMAC over `requestId.txID.raw_data_hex.signaturesJoinedByComma`.
+- Never broadcast transactions; broadcasting remains the Resource API engine's responsibility.
+- Never log request secrets, private keys or complete authorization headers.
+
+The client checks response request ID, transaction ID, raw bytes, raw transaction body, signature encoding and response HMAC before returning the signed transaction to the engine. The engine performs its own transaction-body integrity check and persists the transaction ID before any broadcast attempt.
+
+**Deployment boundary:** this repository implements the Resource API remote-signer client and its tests, not the remote signer service itself. No HSM/KMS provider, signer endpoint, anti-replay datastore, key handle, network allowlist or production secret has been provisioned here. The remote signer service must be implemented and independently reviewed before setting these variables in Render. Do not enable Mainnet writes merely by configuring the URL.
+
+## Isolated Sponsor signer adapter
+
+The Sponsor engine accepts an injected signer adapter through its `signerAdapter` dependency. The contract is intentionally narrow:
+
+- `address`: the adapter's public TRON Mainnet address.
+- `signTransaction(unsignedTransaction)`: signs the exact transaction constructed and preflighted by the Resource API, returning the signed transaction object.
+
+When an adapter is injected, the engine does not read `SPONSOR_MAINNET_PRIVATE_KEY` or pass a private key to the TronWeb provider factory. It checks that the adapter address exactly matches `SPONSOR_MAINNET_ADDRESS` and differs from the Owner. Before broadcast, it verifies that the signer did not change `txID`, `raw_data_hex`, or `raw_data`, and requires at least one signature. A mismatch fails closed before the transaction ID is persisted or broadcast.
+
+The existing Render server factory can receive an already-constructed Sponsor engine through its `sponsorEngine` dependency. This provides the integration seam for a separately hosted HSM/KMS signer without moving Owner keys or granting the signer control over transaction construction, fee policy, database authorization, or broadcasting.
+
+**Deployment status:** the adapter interface and tests are implemented, but the existing production server still uses its legacy environment-backed Sponsor signer unless an external engine is explicitly injected. No HSM/KMS vendor, endpoint, key handle, authentication method or network policy has been configured in this repository. Do not claim external custody is active until an approved signer service is provisioned, wired into `createServer({ sponsorEngine })`, and accepted with key-isolation and recovery tests. The existing encrypted browser Sponsor vault also remains a separate custody exposure for wallet challenge signing; this adapter alone does not remove that browser copy.
+
+## Sponsor transaction execution and recovery
+
+Sponsor transaction execution requires two independent authorizations: a short-lived TRON Mainnet message-signature session from the configured Sponsor wallet, and the separately configured Sponsor Admin second factor. The server-side transaction signer must derive the configured Sponsor address and must not equal the Owner address. The private key is never returned to the browser.
+
+Before execution, the API reserves the idempotency key in the durable ledger and acquires a shared lock on the Sponsor write-control row. That lock remains held until signing, broadcast attempt, and final operation status are durably recorded. A concurrent maintenance pause therefore cannot be switched on between reservation and signing; it waits for the in-flight operation to leave the critical section.
+
+The transaction ID is persisted before attempting broadcast. If the process or provider fails after signing, the operation remains `signed-not-broadcast` or `broadcast-unknown`. A later authenticated GET of `/api/sponsor/operations/:idempotencyKey` reconciles that exact transaction against solidified Mainnet state. It may mark a verified success as `confirmed`, a solidified failed receipt as `failed`, or preserve the ambiguous state with the latest reconciliation result. It never automatically re-signs or re-broadcasts an ambiguous operation; the idempotency key remains non-retryable.
+
 # TRON Transfer resource API
 
 Mainnet resource monitor and guarded Sponsor transaction service for the TRON Transfer frontend. Public chain/resource endpoints remain read-only; Sponsor write operations require a signed wallet session, a separate exact-intent signature, durable PostgreSQL idempotency, and explicit server-side execution flags.

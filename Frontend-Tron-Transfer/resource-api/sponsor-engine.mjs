@@ -22,6 +22,7 @@ function safeCode(error) {
   if (/timeout|abort/i.test(message)) return 'provider-timeout'
   if (/balance|insufficient/i.test(message)) return 'insufficient-sponsor-balance'
   if (/signer-address-mismatch/i.test(message)) return 'sponsor-signer-address-mismatch'
+  if (/signed-transaction-integrity-failed/i.test(message)) return 'signed-transaction-integrity-failed'
   return 'sponsor-transaction-failed'
 }
 function addressFromHex(tronWeb, value) {
@@ -67,21 +68,38 @@ export function createSponsorTransactionEngine({
   fetchImpl = globalThis.fetch,
   tronWebFactory = (privateKey) => new TronWeb({
     fullHost: MAINNET,
-    privateKey,
+    ...(privateKey ? { privateKey } : {}),
     headers: env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {},
   }),
+  signerAdapter = null,
   now = () => Date.now(),
 } = {}) {
   const ownerAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || OWNER_FALLBACK
+  // A production HSM/KMS adapter implements { address, signTransaction(tx) }.
+  // The adapter receives only the exact, prevalidated transaction; it never
+  // receives Owner credentials or controls transaction construction/broadcast.
+  const signerMode = signerAdapter ? 'external-adapter' : 'local-env'
+  const signerAddress = signerAdapter ? signerAdapter.address : null
+  const signerAdapterValid = !signerAdapter || (
+    typeof signerAddress === 'string' && ADDRESS.test(signerAddress)
+    && typeof signerAdapter.signTransaction === 'function'
+  )
 
   function readiness() {
     const privateKey = env.SPONSOR_MAINNET_PRIVATE_KEY
     const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
-    const keyShapeValid = typeof privateKey === 'string' && /^[0-9a-f]{64}$/i.test(privateKey)
+    const keyShapeValid = signerAdapter
+      ? signerAdapterValid
+      : typeof privateKey === 'string' && /^[0-9a-f]{64}$/i.test(privateKey)
     const addressShapeValid = typeof sponsorAddress === 'string' && ADDRESS.test(sponsorAddress)
     let signerMatches = false
     if (keyShapeValid && addressShapeValid) {
-      try { signerMatches = tronWebFactory(privateKey).address.fromPrivateKey(privateKey) === sponsorAddress } catch {}
+      try {
+        const derivedAddress = signerAdapter
+          ? signerAdapter.address
+          : tronWebFactory(privateKey).address.fromPrivateKey(privateKey)
+        signerMatches = derivedAddress === sponsorAddress
+      } catch {}
     }
     const enabled = env.SPONSOR_TRANSACTION_ENGINE_ENABLED === 'true'
       && env.SPONSOR_MAINNET_BROADCAST_ENABLED === 'true'
@@ -99,6 +117,8 @@ export function createSponsorTransactionEngine({
     const policyValid = feeCapValid && reserveValid
     return {
       configured: keyShapeValid && addressShapeValid && signerMatches && policyValid,
+      signerMode,
+      signerAdapterValid,
       enabled,
       ownerAddress,
       sponsorAddress: addressShapeValid ? sponsorAddress : null,
@@ -213,9 +233,9 @@ export function createSponsorTransactionEngine({
     let broadcastAttempted = false
     let txid = null
     try {
-      const privateKey = env.SPONSOR_MAINNET_PRIVATE_KEY
+      const privateKey = signerAdapter ? null : env.SPONSOR_MAINNET_PRIVATE_KEY
       const tronWeb = tronWebFactory(privateKey)
-      const sponsorAddress = tronWeb.address.fromPrivateKey(privateKey)
+      const sponsorAddress = signerAdapter ? signerAdapter.address : tronWeb.address.fromPrivateKey(privateKey)
       if (sponsorAddress !== env.SPONSOR_MAINNET_ADDRESS || sponsorAddress === recipient) throw new Error('sponsor-signer-address-mismatch')
       const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
       const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
@@ -285,10 +305,21 @@ export function createSponsorTransactionEngine({
       if (requiredFeeSun > maxFee) return { success: false, status: 'bandwidth-shortfall-exceeds-authorized-fee-cap', signed: false, broadcast: false }
       const requiredBalance = (operation === 'stake' || operation === 'topup' ? amount : 0n) + reserve + requiredFeeSun
       if (balance < requiredBalance) return { success: false, status: 'insufficient-balance-for-authorized-fee-cap', signed: false, broadcast: false }
-      const signedTransaction = await tronWeb.trx.sign(transaction, privateKey)
-      signed = Boolean(signedTransaction?.signature?.length)
+      const signedTransaction = signerAdapter
+        ? await signerAdapter.signTransaction(structuredClone(transaction))
+        : await tronWeb.trx.sign(transaction, privateKey)
+      // An external signer may add signatures, but must not mutate the
+      // transaction body, txID, expiration, contract parameters or raw bytes.
+      const signaturePresent = Array.isArray(signedTransaction?.signature) && signedTransaction.signature.length > 0
       txid = signedTransaction?.txID || transaction.txID
-      if (!signed || signedTransaction.txID !== transaction.txID) throw new Error('signed-transaction-integrity-failed')
+      if (!signaturePresent || signedTransaction.txID !== transaction.txID
+        || signedTransaction.raw_data_hex !== transaction.raw_data_hex
+        || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(transaction.raw_data)) {
+        throw new Error('signed-transaction-integrity-failed')
+      }
+      // Mark signed only after the adapter's returned transaction body passes
+      // integrity checks; rejected/tampered responses are not valid signatures.
+      signed = true
       if (typeof onSigned !== 'function') throw new Error('durable-transaction-id-persistence-required')
       await onSigned(txid)
       broadcastAttempted = true
