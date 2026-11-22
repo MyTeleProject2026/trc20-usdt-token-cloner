@@ -122,7 +122,7 @@ async function readResourceSnapshot(address, tronWeb) {
   }
 }
 
-async function sponsorApiRequest(path, { method = 'GET', token, adminToken, body } = {}) {
+async function sponsorApiRequest(path, { method = 'GET', adminToken, body } = {}) {
   const csrf = String(document.cookie || '').match(/(?:^|;\s*)tron_sponsor_csrf=([^;]+)/)?.[1]
   const response = await fetch(RESOURCE_API + path, {
     method, cache: 'no-store', credentials: 'include',
@@ -130,7 +130,6 @@ async function sponsorApiRequest(path, { method = 'GET', token, adminToken, body
       accept: 'application/json',
       ...(body ? { 'content-type': 'application/json' } : {}),
       ...(method !== 'GET' && csrf ? { 'x-csrf-token': decodeURIComponent(csrf) } : {}),
-      ...(token ? { authorization: 'Bearer ' + token } : {}),
       ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
