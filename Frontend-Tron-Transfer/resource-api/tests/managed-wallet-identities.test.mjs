@@ -61,10 +61,15 @@ test('fails closed when Owner and Sponsor resolve to the same identity', () => {
   assert.equal(report.ready, false)
 })
 
-test('rejects malformed private-key configuration without disclosing its value', () => {
+test('reports malformed private-key configuration without crashing or disclosing its value', () => {
   const secret = 'not-a-valid-private-key'
-  assert.throws(
-    () => createManagedWalletIdentityReport({ env: fixture({ TRON_OWNER_PRIVATE_KEY: secret }) }),
-    error => error.message === 'TRON_OWNER_PRIVATE_KEY-invalid-format' && !error.message.includes(secret),
-  )
+  const report = createManagedWalletIdentityReport({
+    env: fixture({ TRON_OWNER_PRIVATE_KEY: secret }),
+    deriveAddress: key => key === SPONSOR_KEY ? SPONSOR : null,
+  })
+  assert.equal(report.owner.configured, true)
+  assert.equal(report.owner.keyFormatValid, false)
+  assert.equal(report.owner.ready, false)
+  assert.equal(report.ready, false)
+  assert.equal(JSON.stringify(report).includes(secret), false)
 })
