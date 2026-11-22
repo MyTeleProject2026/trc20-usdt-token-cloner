@@ -37,3 +37,8 @@ test('Sponsor workspace render errors are contained by an application error boun
   assert.ok(app.includes('<SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>'))
   assert.match(app, /This Sponsor page could not be displayed/)
 })
+
+test('Sponsor Admin bootstrap authorization is cleared on wallet lock and workspace exit', () => {
+  assert.match(source, /if \(!wallet \|\| !workspaceActive\) setAdminToken\(''\)/)
+  assert.match(source, /\[wallet, workspaceActive\]/)
+})
