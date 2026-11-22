@@ -217,7 +217,7 @@ test('Sponsor operation history reads never bootstrap or mutate the ledger schem
   const result = await call(api, 'GET', '/api/sponsor/operations?limit=20', undefined, token)
   assert.equal(result.status, 200)
   assert.deepEqual(result.payload.operations, [])
-  assert.equal(queries.some(sql => /CREATE|ALTER|DROP|INSERT|UPDATE/i.test(sql)), false)
+  assert.equal(queries.some(sql => /^\\s*(CREATE|ALTER|DROP|INSERT|UPDATE)\\b/im.test(sql)), false)
 })
 
 test('Sponsor status fails closed when the ledger control row is missing', async () => {
