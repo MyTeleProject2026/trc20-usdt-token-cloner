@@ -2,7 +2,8 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import pg from 'pg'
 import { isIP } from 'node:net'
 import { TronWeb } from 'tronweb'
-import { createSponsorTransactionEngine } from './sponsor-engine.mjs'\nimport { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
+import { createSponsorTransactionEngine } from './sponsor-engine.mjs'
+import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
 const { Pool } = pg
 const SESSION_TTL_MS = 15 * 60_000
