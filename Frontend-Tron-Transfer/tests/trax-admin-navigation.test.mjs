@@ -148,6 +148,7 @@ test('Sponsor Activity reads authenticated durable ledger records separately fro
   assert.ok(sponsor.includes('durableOperations'))
   assert.ok(sponsor.includes('Refresh durable ledger'))
   assert.ok(sponsor.includes('Local browser history is shown separately'))
+  assert.ok(sponsor.includes("setDurableOperations([])") && sponsor.includes("setDurableLedgerState('idle')"), 'clear previous wallet ledger records on lock or account change')
   assert.ok(api.includes("req.method === 'GET' && path === '/api/sponsor/operations'"))
   assert.ok(api.includes('WHERE sponsor_address=$1 ORDER BY created_at DESC LIMIT $2'))
 })
