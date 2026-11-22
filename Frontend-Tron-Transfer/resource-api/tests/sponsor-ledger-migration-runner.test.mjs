@@ -1,0 +1,79 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { resolveMigrationRunnerConfig, runMigrationTask } from '../scripts/run-sponsor-ledger-migration.mjs'
+
+const source = 'postgresql://source:secret@dpg-source.singapore-postgres.render.com/sponsor?sslmode=require'
+const target = 'postgresql://neon:secret@ep-target.c-9.us-east-2.aws.neon.tech/sponsor?sslmode=require'
+const safeEnv = {
+  DATABASE_URL: source,
+  SPONSOR_MIGRATION_TARGET_DATABASE_URL: target,
+  SPONSOR_MIGRATION_TARGET_DATABASE_URL_POOLED: 'postgresql://neon:secret@ep-target-pooler.c-9.aws.neon.tech/sponsor',
+  SPONSOR_WRITES_PAUSED: 'true',
+  SPONSOR_TRANSACTION_ENGINE_ENABLED: 'false',
+  SPONSOR_MAINNET_BROADCAST_ENABLED: 'false',
+}
+
+test('runner selects existing runtime source and direct Neon target without exposing URLs', () => {
+  const config = resolveMigrationRunnerConfig(safeEnv)
+  assert.equal(config.sourceUrl, source)
+  assert.equal(config.targetUrl, target)
+})
+
+test('runner follows Sponsor-specific runtime database precedence', () => {
+  const config = resolveMigrationRunnerConfig({
+    ...safeEnv,
+    SPONSOR_DATABASE_URL_POOLED: 'postgresql://source:secret@dpg-source.singapore-postgres.render.com/sponsor?sslmode=require',
+    SPONSOR_DATABASE_URL: 'postgresql://ignored:secret@ignored.example/sponsor',
+  })
+  assert.equal(config.sourceUrl, safeEnv.SPONSOR_DATABASE_URL_POOLED)
+})
+
+test('runner refuses unless the durable write pause is explicitly confirmed', () => {
+  assert.throws(() => resolveMigrationRunnerConfig({ ...safeEnv, SPONSOR_WRITES_PAUSED: 'false' }), /SPONSOR_WRITES_PAUSED=true/)
+})
+
+test('runner refuses unless Sponsor transaction execution is explicitly disabled', () => {
+  assert.throws(() => resolveMigrationRunnerConfig({ ...safeEnv, SPONSOR_TRANSACTION_ENGINE_ENABLED: 'true' }), /engine must be explicitly disabled/)
+  assert.throws(() => resolveMigrationRunnerConfig({ ...safeEnv, SPONSOR_TRANSACTION_ENGINE_ENABLED: undefined }), /engine must be explicitly disabled/)
+})
+
+test('runner refuses unless Mainnet broadcasting is explicitly disabled', () => {
+  assert.throws(() => resolveMigrationRunnerConfig({ ...safeEnv, SPONSOR_MAINNET_BROADCAST_ENABLED: 'true' }), /broadcasting must be explicitly disabled/)
+})
+
+test('runner refuses pooled Neon targets', () => {
+  assert.throws(() => resolveMigrationRunnerConfig({
+    ...safeEnv,
+    SPONSOR_MIGRATION_TARGET_DATABASE_URL: safeEnv.SPONSOR_MIGRATION_TARGET_DATABASE_URL_POOLED,
+  }), /direct PostgreSQL endpoint/)
+})
+
+test('runner refuses missing source or target and same database identities', () => {
+  assert.throws(() => resolveMigrationRunnerConfig({ ...safeEnv, DATABASE_URL: '' }), /source database is not configured/)
+  assert.throws(() => resolveMigrationRunnerConfig({ ...safeEnv, SPONSOR_MIGRATION_TARGET_DATABASE_URL: '' }), /target is not configured/)
+  assert.throws(() => resolveMigrationRunnerConfig({
+    ...safeEnv,
+    SPONSOR_MIGRATION_TARGET_DATABASE_URL: source,
+  }), /identities are the same/)
+})
+
+test('runner refuses arbitrary source URL overrides', async () => {
+  let spawned = false
+  await assert.rejects(
+    runMigrationTask('migrate', {
+      env: { ...safeEnv, SOURCE_DATABASE_URL: 'postgresql://attacker:secret@other.example/other' },
+      spawn: () => { spawned = true; return { status: 0 } },
+    }),
+    /same database identities|direct PostgreSQL endpoint|Source and target/,
+  )
+  assert.equal(spawned, false)
+})
+
+test('runner validates task mode before starting any migration process', async () => {
+  let spawned = false
+  await assert.rejects(
+    runMigrationTask('anything', { env: safeEnv, spawn: () => { spawned = true; return { status: 0 } } }),
+    /Usage:/,
+  )
+  assert.equal(spawned, false)
+})
