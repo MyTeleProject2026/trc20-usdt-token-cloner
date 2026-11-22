@@ -331,3 +331,127 @@ test('withdraw blocks when the matured amount changed after the user reviewed it
   assert.equal(result.status, 'withdraw-amount-changed-refresh-and-retry')
   assert.deepEqual(f.counts(), { signed: 0, broadcast: 0 })
 })
+
+
+test('external Sponsor signer adapter signs only the immutable prevalidated transaction body', async () => {
+  const transaction = {
+    txID: TXID,
+    raw_data_hex: 'ab'.repeat(16),
+    raw_data: {
+      expiration: Date.now() + 60_000,
+      contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: sponsorHex, resource: 1, frozen_balance: '1000000' } } }],
+    },
+  }
+  let adapterCalls = 0
+  let broadcastCalls = 0
+  let persisted = false
+  const adapter = {
+    address: SPONSOR,
+    async signTransaction(unsignedTransaction) {
+      adapterCalls += 1
+      assert.deepEqual(unsignedTransaction, transaction)
+      return { ...unsignedTransaction, signature: ['hsm-signature'] }
+    },
+  }
+  const fakeTronWeb = {
+    address: { fromHex: () => SPONSOR },
+    transactionBuilder: { freezeBalanceV2: async () => structuredClone(transaction) },
+    trx: {
+      getBalance: async () => 10_000_000n,
+      getAccountResources: async () => ({ freeNetLimit: 600, freeNetUsed: 0, NetLimit: 0, NetUsed: 0 }),
+      getChainParameters: async () => [{ key: 'getTransactionFee', value: 1000 }],
+      sendRawTransaction: async signed => {
+        broadcastCalls += 1
+        assert.equal(persisted, true)
+        assert.equal(signed.signature[0], 'hsm-signature')
+        return { result: true, txid: TXID }
+      },
+    },
+  }
+  const engine = createSponsorTransactionEngine({
+    env: configuredEnv({ SPONSOR_MAINNET_PRIVATE_KEY: undefined }),
+    signerAdapter: adapter,
+    tronWebFactory: privateKey => {
+      assert.equal(privateKey, null, 'external adapter mode must not load an env private key')
+      return fakeTronWeb
+    },
+    fetchImpl: async url => ({
+      ok: true,
+      json: async () => url.endsWith('gettransactioninfobyid')
+        ? { id: TXID, blockNumber: 321, receipt: { result: 'SUCCESS' } }
+        : { txID: TXID, raw_data: transaction.raw_data },
+    }),
+  })
+  assert.equal(engine.readiness().signerMode, 'external-adapter')
+  assert.equal(engine.readiness().configured, true)
+  const result = await engine.execute({
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
+    onSigned: async txid => { assert.equal(txid, TXID); persisted = true },
+  })
+  assert.equal(result.success, true)
+  assert.equal(adapterCalls, 1)
+  assert.equal(broadcastCalls, 1)
+})
+
+test('external Sponsor signer address mismatch fails closed before signing or broadcast', async () => {
+  let signCalls = 0
+  let broadcastCalls = 0
+  const engine = createSponsorTransactionEngine({
+    env: configuredEnv({ SPONSOR_MAINNET_PRIVATE_KEY: undefined }),
+    signerAdapter: { address: OWNER, signTransaction: async () => { signCalls += 1; throw new Error('must not sign') } },
+    tronWebFactory: () => ({
+      address: { fromHex: () => SPONSOR },
+      trx: { sendRawTransaction: async () => { broadcastCalls += 1 } },
+    }),
+  })
+  assert.equal(engine.readiness().configured, false)
+  assert.equal(engine.readiness().broadcastAvailable, false)
+  const result = await engine.execute({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
+  assert.equal(result.signed, false)
+  assert.equal(result.broadcast, false)
+  assert.equal(signCalls, 0)
+  assert.equal(broadcastCalls, 0)
+})
+
+test('external Sponsor signer cannot mutate transaction bytes or intent before broadcast', async () => {
+  const transaction = {
+    txID: TXID,
+    raw_data_hex: 'cd'.repeat(16),
+    raw_data: {
+      expiration: Date.now() + 60_000,
+      contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: sponsorHex, resource: 1, frozen_balance: '1000000' } } }],
+    },
+  }
+  let broadcastCalls = 0
+  let persistenceCalls = 0
+  const engine = createSponsorTransactionEngine({
+    env: configuredEnv({ SPONSOR_MAINNET_PRIVATE_KEY: undefined }),
+    signerAdapter: {
+      address: SPONSOR,
+      signTransaction: async unsigned => ({
+        ...unsigned,
+        raw_data_hex: 'ef'.repeat(16),
+        signature: ['tampered-signature'],
+      }),
+    },
+    tronWebFactory: () => ({
+      address: { fromHex: () => SPONSOR },
+      transactionBuilder: { freezeBalanceV2: async () => structuredClone(transaction) },
+      trx: {
+        getBalance: async () => 10_000_000n,
+        getAccountResources: async () => ({ freeNetLimit: 600, freeNetUsed: 0, NetLimit: 0, NetUsed: 0 }),
+        getChainParameters: async () => [{ key: 'getTransactionFee', value: 1000 }],
+        sendRawTransaction: async () => { broadcastCalls += 1; return { result: true } },
+      },
+    }),
+  })
+  const result = await engine.execute({
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
+    onSigned: async () => { persistenceCalls += 1 },
+  })
+  assert.equal(result.status, 'signed-transaction-integrity-failed')
+  assert.equal(result.signed, false)
+  assert.equal(result.broadcast, false)
+  assert.equal(persistenceCalls, 0)
+  assert.equal(broadcastCalls, 0)
+})
