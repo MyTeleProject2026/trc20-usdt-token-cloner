@@ -6,7 +6,7 @@ function safeRole(role) {
 }
 
 function readCsrfCookie(cookieString = '', role) {
-  const match = String(cookieString).match(/(?:^|;\\s*)tron_wallet_csrf=([^;]+)/)
+  const match = String(cookieString).match(new RegExp('(?:^|;\\s*)tron_' + role + '_csrf=([^;]+)'))
   return match ? decodeURIComponent(match[1]) : ''
 }
 
@@ -17,7 +17,7 @@ export function createManagedWalletAuthClient({
   cookieReader = () => typeof document === 'undefined' ? '' : document.cookie,
 } = {}) {
   const walletRole = safeRole(role)
-  const base = String(apiBaseUrl).replace(/\\/+$/, '')
+  const base = String(apiBaseUrl).replace(/\/+$/, '')
   const root = base + '/api/wallet-auth/' + walletRole
   let csrfToken = ''
 
