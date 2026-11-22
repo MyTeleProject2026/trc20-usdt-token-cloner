@@ -138,3 +138,16 @@ test('desktop sidebar clearly identifies the active workspace context', async ()
   assert.ok(sidebar.includes('Sponsor workspace pages'))
   assert.ok(sidebar.includes('Owner workspace pages'))
 })
+
+
+test('Sponsor Activity reads authenticated durable ledger records separately from local browser history', async () => {
+  const sponsor = await read('../src/SponsorWalletManager.jsx')
+  const api = await read('../resource-api/sponsor-api.mjs')
+  assert.ok(sponsor.includes("'/api/sponsor/operations?limit=50'"))
+  assert.ok(sponsor.includes('authenticateSponsorWallet(wallet, tronWeb)'))
+  assert.ok(sponsor.includes('durableOperations'))
+  assert.ok(sponsor.includes('Refresh durable ledger'))
+  assert.ok(sponsor.includes('Local browser history is shown separately'))
+  assert.ok(api.includes("req.method === 'GET' && path === '/api/sponsor/operations'"))
+  assert.ok(api.includes('WHERE sponsor_address=$1 ORDER BY created_at DESC LIMIT $2'))
+})
