@@ -676,7 +676,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       if (!allowRequest(ip, 'mainnet-transaction-history')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       const cacheKey = 'transactions:' + address + ':' + requestedLimit
       const cached = cache.get(cacheKey)
-      if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, cached.value, origin)
+      if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, { address, network: 'TRON Mainnet', ...cached.value }, origin)
       try {
         const apiKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
         const headers = { accept: 'application/json', ...(apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {}) }
