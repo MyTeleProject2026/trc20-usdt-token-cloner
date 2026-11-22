@@ -273,7 +273,8 @@ export function createSponsorResourceApi({
   env = process.env,
   allowedAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
   fetchImpl = globalThis.fetch,
-  engine = createSponsorTransactionEngine({ env, fetchImpl }),
+  signerAdapter = null,
+  engine = createSponsorTransactionEngine({ env, fetchImpl, ...(signerAdapter ? { signerAdapter } : {}) }),
   getDatabase = () => getPool(env),
   verifyMessage = async (message, signature) => {
     const verifier = new TronWeb({ fullHost: 'https://api.trongrid.io' })
