@@ -184,6 +184,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const toastTimer = useRef(null)
   const resourceAlertState = useRef('unknown')
 
+  const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
+
   const notify = useCallback((kind, title, message) => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current)
     setToast({ kind, title, message })
@@ -238,7 +240,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       setLastOperationReference(rows.find((item) => item.operationReference && item.status === 'broadcast-pending-verification')?.operationReference || '')
     } catch { setActivity([]) }
   }, [wallet?.address])
-
   useEffect(() => {
     if (!workspaceActive || !wallet?.address || !tronWeb) return undefined
     let cancelled = false
@@ -275,7 +276,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     return () => { active = false; window.clearInterval(timer) }
   }, [workspaceActive])
 
-  const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
   const bootstrapSponsorLedger = useCallback(async () => {
     if (!wallet?.address) return
@@ -477,8 +477,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setVaultPassword('')
     notify(
       automatic ? 'info' : 'success',
-      automatic ? 'Sponsor Wallet session auto-locked' : 'Sponsor Wallet locked',
-      automatic
+      automatic ? 'Sponsor Wallet session auto-locked' : 'Sponsor Wallet locked',      automatic
         ? 'The signing session was cleared. Unlock the encrypted local backup to continue.'
         : 'The in-memory signing key was released. The encrypted local backup remains available to unlock.',
     )
@@ -717,8 +716,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         stakingEnabled: sponsorApiStatus?.stakingPolicy?.enabled === true,
         maxStakeSun: String(maxStakeSun),
       })
-      if (plan.reason === 'target-met') {
-        notify('success', resource + ' target already met', 'The latest live Owner resource snapshot meets the configured target. No transaction is needed.')
+      if (plan.reason === 'target-met') {        notify('success', resource + ' target already met', 'The latest live Owner resource snapshot meets the configured target. No transaction is needed.')
         return
       }
       if (!plan.ready || !plan.action || !plan.amountSun) {
