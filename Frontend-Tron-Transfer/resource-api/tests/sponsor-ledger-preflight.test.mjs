@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assessMigrationPreflight, databaseIdentity } from '../scripts/check-sponsor-ledger-migration.mjs'
+import { assessMigrationPreflight } from '../scripts/check-sponsor-ledger-migration.mjs'
+import { databaseIdentity } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const ready = {
   operatorConfirmed: true,
