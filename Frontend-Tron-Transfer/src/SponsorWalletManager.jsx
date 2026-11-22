@@ -184,6 +184,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const toastTimer = useRef(null)
   const resourceAlertState = useRef('unknown')
 
+  const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
+
   const notify = useCallback((kind, title, message) => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current)
     setToast({ kind, title, message })
@@ -238,7 +240,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       setLastOperationReference(rows.find((item) => item.operationReference && item.status === 'broadcast-pending-verification')?.operationReference || '')
     } catch { setActivity([]) }
   }, [wallet?.address])
-
   useEffect(() => {
     if (!workspaceActive || !wallet?.address || !tronWeb) return undefined
     let cancelled = false
@@ -275,7 +276,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     return () => { active = false; window.clearInterval(timer) }
   }, [workspaceActive])
 
-  const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
   const bootstrapSponsorLedger = useCallback(async () => {
     if (!wallet?.address) return
