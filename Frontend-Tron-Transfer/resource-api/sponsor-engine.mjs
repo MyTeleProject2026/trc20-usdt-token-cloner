@@ -310,13 +310,16 @@ export function createSponsorTransactionEngine({
         : await tronWeb.trx.sign(transaction, privateKey)
       // An external signer may add signatures, but must not mutate the
       // transaction body, txID, expiration, contract parameters or raw bytes.
-      signed = Boolean(Array.isArray(signedTransaction?.signature) && signedTransaction.signature.length > 0)
+      const signaturePresent = Array.isArray(signedTransaction?.signature) && signedTransaction.signature.length > 0
       txid = signedTransaction?.txID || transaction.txID
-      if (!signed || signedTransaction.txID !== transaction.txID
+      if (!signaturePresent || signedTransaction.txID !== transaction.txID
         || signedTransaction.raw_data_hex !== transaction.raw_data_hex
         || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(transaction.raw_data)) {
         throw new Error('signed-transaction-integrity-failed')
       }
+      // Mark signed only after the adapter's returned transaction body passes
+      // integrity checks; rejected/tampered responses are not valid signatures.
+      signed = true
       if (typeof onSigned !== 'function') throw new Error('durable-transaction-id-persistence-required')
       await onSigned(txid)
       broadcastAttempted = true
