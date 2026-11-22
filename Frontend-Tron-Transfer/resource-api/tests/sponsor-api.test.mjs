@@ -343,6 +343,33 @@ test('managed Sponsor password sessions authorize through the backend cookie ver
   assert.deepEqual(calls, [{ requireCsrf: true }, { requireCsrf: false }])
 })
 
+test('managed password session authorizes a short-lived exact intent without a browser message signature', async () => {
+  const authCalls = []
+  const { api } = setup({
+    authenticateManagedSession: async (_req, options) => {
+      authCalls.push(options)
+      return { address: SPONSOR, sessionId: 'managed-sponsor-session' }
+    },
+  })
+  const client = { headers: { origin: 'https://tron-transfer.onrender.com', 'x-csrf-token': 'csrf-proof' } }
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'managed-password-intent-test-0001',
+  }, null, TEST_ADMIN_TOKEN, client)
+  assert.equal(intent.status, 201)
+  assert.equal(authCalls[0].requireCsrf, true)
+
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: intent.payload.intentId,
+    confirmPhrase: intent.payload.confirmationPhrase,
+  }, null, TEST_ADMIN_TOKEN, client)
+  // The request passes the managed-session and explicit-confirmation checks.
+  // It then fails closed because this isolated test intentionally has no ledger DB.
+  assert.equal(result.status, 503)
+  assert.equal(result.payload.error, 'durable-idempotency-storage-required')
+  assert.equal(authCalls[1].requireCsrf, true)
+})
+
 test('all private Sponsor operations require a valid bearer session', async () => {
   const { api } = setup()
   const result = await call(api, 'POST', '/api/sponsor/intent', {
