@@ -1,7 +1,7 @@
 import pg from 'pg'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { databaseIdentity } from './sponsor-ledger-database-identity.mjs'
+import { databaseIdentity, normalizePostgresTlsMode } from './sponsor-ledger-database-identity.mjs'
 
 const { Pool } = pg
 const TABLE = 'public.tron_transfer_sponsor_operations'
@@ -122,8 +122,8 @@ export async function runSponsorLedgerPreflight({ env = process.env, PoolClass =
     return { success: false, readyToMigrate: false, readOnly: true, blockers: ['source-and-target-must-be-distinct'] }
   }
 
-  const source = new PoolClass({ connectionString: sourceUrl, max: 1, connectionTimeoutMillis: 8000 })
-  const target = new PoolClass({ connectionString: targetUrl, max: 1, connectionTimeoutMillis: 8000 })
+  const source = new PoolClass({ connectionString: normalizePostgresTlsMode(sourceUrl), max: 1, connectionTimeoutMillis: 8000 })
+  const target = new PoolClass({ connectionString: normalizePostgresTlsMode(targetUrl), max: 1, connectionTimeoutMillis: 8000 })
   try {
     const [sourceState, targetState] = await Promise.all([
       readDatabase(source, 'source'),

@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { createSponsorResourceApi, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString } from '../sponsor-api.mjs'
+import { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -774,4 +775,19 @@ test('Sponsor maintenance pause lock remains held until signing and broadcast li
   assert.ok(timeline.indexOf('engine-finished') < timeline.indexOf('persist-final-status'))
   assert.ok(timeline.indexOf('persist-final-status') < timeline.indexOf('commit'))
   assert.equal(timeline.at(-1), 'release')
+})
+
+test('PostgreSQL legacy require mode is normalized to explicit verify-full without weakening TLS', () => {
+  const input = 'postgresql://user:password@ep-example.neon.tech/db?sslmode=require&channel_binding=require'
+  const normalized = new URL(normalizePostgresTlsMode(input))
+  assert.equal(normalized.searchParams.get('sslmode'), 'verify-full')
+  assert.equal(normalized.searchParams.get('channel_binding'), 'require')
+  assert.equal(normalized.hostname, 'ep-example.neon.tech')
+})
+
+test('PostgreSQL explicit verify-full and local disable modes are preserved', () => {
+  const strict = 'postgres://user:password@db.example.test/app?sslmode=verify-full'
+  const local = 'postgres://user:password@localhost/app?sslmode=disable'
+  assert.equal(normalizePostgresTlsMode(strict), new URL(strict).toString())
+  assert.equal(normalizePostgresTlsMode(local), new URL(local).toString())
 })

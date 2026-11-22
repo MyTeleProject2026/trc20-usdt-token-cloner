@@ -3,6 +3,7 @@ import pg from 'pg'
 import { isIP } from 'node:net'
 import { TronWeb } from 'tronweb'
 import { createSponsorTransactionEngine } from './sponsor-engine.mjs'
+import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
 const { Pool } = pg
 const SESSION_TTL_MS = 15 * 60_000
@@ -121,7 +122,7 @@ function getPool(env) {
   const connectionString = sponsorDatabaseConnectionString(env)
   if (!connectionString) return null
   if (!pool) {
-    pool = new Pool({ connectionString, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30_000, max: 3 })
+    pool = new Pool({ connectionString: normalizePostgresTlsMode(connectionString), connectionTimeoutMillis: 5000, idleTimeoutMillis: 30_000, max: 3 })
     pool.on('error', error => process.stderr.write('Sponsor ledger database error: ' + String(error?.code || 'unknown') + '\n'))
   }
   return pool
