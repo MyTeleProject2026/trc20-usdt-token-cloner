@@ -256,7 +256,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     return () => { cancelled = true }
   }, [wallet?.address, tronWeb, recordActivity, workspaceActive])
 
-  useEffect(() => { if (!wallet) setAdminToken('') }, [wallet])
+  // Owner Admin bootstrap authorization is short-lived UI state: clear it on wallet lock/logout and whenever the Sponsor workspace is left.
+  useEffect(() => { if (!wallet || !workspaceActive) setAdminToken('') }, [wallet, workspaceActive])
 
   useEffect(() => {
     if (!workspaceActive) return undefined
