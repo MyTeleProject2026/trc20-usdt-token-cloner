@@ -363,7 +363,7 @@ export function createSponsorResourceApi({
       const acceptanceChecks = [
         { id: 'owner-address', state: ownerAddressMatches ? 'passed' : 'blocked' },
         { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
-        { id: 'sponsor-signer-key-match', state: readiness.signerKeyConfigured === true && readiness.sponsorAddressValid === true && readiness.signerAddressMatches === true ? 'passed' : 'blocked' },
+        { id: 'sponsor-signer-address-match', state: readiness.signerConfigured === true && readiness.sponsorAddressValid === true && readiness.signerAddressMatches === true ? 'passed' : 'blocked' },
         { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
         { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
         { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
