@@ -1,5 +1,6 @@
 import pg from 'pg'
 import { createHash } from 'node:crypto'
+import { databaseIdentity } from './sponsor-ledger-database-identity.mjs'
 
 const { Pool } = pg
 const sourceUrl = process.env.SOURCE_DATABASE_URL
@@ -12,11 +13,7 @@ if (!sourceUrl || !targetUrl) {
   throw new Error('Set SOURCE_DATABASE_URL and TARGET_DATABASE_URL; values are never printed.')
 }
 
-function identity(value) {
-  const url = new URL(value)
-  return [url.hostname, url.port || '5432', url.pathname, url.username].join('|')
-}
-if (identity(sourceUrl) === identity(targetUrl)) {
+if (databaseIdentity(sourceUrl) === databaseIdentity(targetUrl)) {
   throw new Error('Source and target database identities are the same; refusing migration.')
 }
 
