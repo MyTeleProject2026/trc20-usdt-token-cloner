@@ -21,7 +21,7 @@ function request(method, path, body, token, adminToken, client = {}) {
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '' } = {}) {
+function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '', authenticateManagedSession = null } = {}) {
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
     SPONSOR_LEDGER_DURABLE: 'true',
@@ -39,6 +39,7 @@ function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, 
     env,
     allowedAddress: OWNER,
     getDatabase: () => database,
+    ...(authenticateManagedSession ? { authenticateManagedSession } : {}),
     engine: engine || {
       readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, feePolicy: {} }),
       execute: async () => { calls.push('execute'); return { success: true } },
@@ -320,6 +321,26 @@ test('challenge can be verified once and creates a short-lived bearer session', 
   assert.match(first.payload.token, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)
   const replay = await call(api, 'POST', '/api/sponsor/session/verify', body)
   assert.equal(replay.status, 401)
+})
+
+test('managed Sponsor password sessions authorize through the backend cookie verifier and require CSRF on writes', async () => {
+  const calls = []
+  const { api } = setup({
+    authenticateManagedSession: async (_req, options) => {
+      calls.push(options)
+      return null
+    },
+  })
+  const deniedWrite = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'managed-session-csrf-test-0001',
+  }, null)
+  assert.equal(deniedWrite.status, 401)
+  assert.deepEqual(calls, [{ requireCsrf: true }])
+
+  const deniedRead = await call(api, 'GET', '/api/sponsor/operations?limit=10')
+  assert.equal(deniedRead.status, 401)
+  assert.deepEqual(calls, [{ requireCsrf: true }, { requireCsrf: false }])
 })
 
 test('all private Sponsor operations require a valid bearer session', async () => {
