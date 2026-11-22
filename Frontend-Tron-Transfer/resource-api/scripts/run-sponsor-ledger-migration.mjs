@@ -3,7 +3,7 @@ import pg from 'pg'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { sponsorDatabaseConnectionString } from '../sponsor-api.mjs'
-import { databaseIdentity } from './sponsor-ledger-database-identity.mjs'
+import { databaseIdentity, normalizePostgresTlsMode } from './sponsor-ledger-database-identity.mjs'
 
 const { Pool } = pg
 
@@ -47,7 +47,7 @@ export function resolveMigrationRunnerConfig(env = process.env) {
 }
 
 export async function pauseSourceLedgerWrites(sourceUrl, { PoolClass = Pool } = {}) {
-  const db = new PoolClass({ connectionString: sourceUrl, max: 1, connectionTimeoutMillis: 8000 })
+  const db = new PoolClass({ connectionString: normalizePostgresTlsMode(sourceUrl), max: 1, connectionTimeoutMillis: 8000 })
   try {
     const ledger = await db.query(
       "SELECT to_regclass('public.tron_transfer_sponsor_operations') AS operations_table"
