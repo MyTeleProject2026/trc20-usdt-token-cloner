@@ -108,7 +108,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
             send(res, 403, { success: false, error: 'OWNER_ENROLLMENT_NOT_AUTHORIZED' }, origin); return true
           }
           const report = identity()
-          if (!report.owner.ready) { send(res, 503, { success: false, error: 'OWNER_IDENTITY_NOT_READY' }, origin); return true }
+          if (!report.owner.ready || !report.sponsor.ready || !report.identitiesDistinct) { send(res, 503, { success: false, error: 'OWNER_SPONSOR_IDENTITY_SEPARATION_REQUIRED' }, origin); return true }
           const input = await body(req)
           if (!validateWalletPassword(input.password)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 12 }, origin); return true }
           const verifier = await hashWalletPassword(input.password)
