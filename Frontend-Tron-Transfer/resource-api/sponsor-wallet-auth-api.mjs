@@ -158,7 +158,13 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
         }
         if (url.pathname === '/api/wallet-auth/sponsor/session' && req.method === 'GET') {
           const session = await authenticate(req, db)
-          send(res, session ? 200 : 401, session ? { success: true, role: 'sponsor', address: session.address } : { success: false, error: 'SESSION_REQUIRED' }, origin); return true
+          if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
+          // Rotate the readable CSRF proof on session refresh. The token is returned
+          // only to the authenticated same-origin client and is never stored in localStorage.
+          const csrfToken = randomBytes(32).toString('base64url')
+          await db.query('UPDATE public.tron_transfer_wallet_sessions SET csrf_hash=$2 WHERE session_id=$1', [session.sessionId, digest(csrfToken)])
+          res.setHeader('set-cookie', 'tron_sponsor_csrf=' + encodeURIComponent(csrfToken) + '; Path=/; Secure; SameSite=Strict; Max-Age=28800')
+          send(res, 200, { success: true, role: 'sponsor', address: session.address, csrfToken }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/sponsor/logout' && req.method === 'POST') {
           const session = await authenticate(req, db, true)
