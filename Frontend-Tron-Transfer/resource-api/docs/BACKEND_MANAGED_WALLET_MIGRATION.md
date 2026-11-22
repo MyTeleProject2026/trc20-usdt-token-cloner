@@ -56,3 +56,16 @@ npm run check:wallet-auth-schema
 ```
 
 The script checks for the three wallet-auth tables and confirms that the existing Sponsor ledger schema/control row is present and writes remain paused. It is read-only: it never creates tables, changes pause state, enrolls accounts, issues sessions, signs, or broadcasts. It exits non-zero if any required condition is missing. Do not treat a successful schema check as proof of backup restoration, password authentication, or signer acceptance.
+
+
+## Password and session cryptographic primitives
+
+The follow-up adds `managed-wallet-auth-crypto.mjs` and focused tests. The module provides:
+
+- Password policy validation (minimum 12 UTF-8 bytes, maximum 1024 bytes, no control characters).
+- Per-password random 16-byte salts and Node.js scrypt verifiers (`N=32768, r=8, p=1`, 64-byte output).
+- Constant-time comparison of derived password verifiers.
+- 256-bit opaque session and CSRF tokens, with SHA-256 digests for database persistence.
+- Strict validation of the persisted algorithm and scrypt parameters before verification.
+
+These are reusable cryptographic primitives only. They are **not yet wired to HTTP enrollment/login routes or the account/session tables**, and therefore do not make password login operational. The route implementation must add one-time role-bound enrollment, server-side bootstrap authorization, atomic session persistence/revocation, lockout/rate limiting, secure cookie or equivalent session transport, CSRF enforcement, and audit writes before the UI can rely on these functions. Do not remove the existing Sponsor signature challenge or admin authorization until the replacement path has passed security review and migration acceptance.
