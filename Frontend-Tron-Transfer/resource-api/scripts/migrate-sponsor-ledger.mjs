@@ -14,7 +14,7 @@ if (!sourceUrl || !targetUrl) {
 
 function identity(value) {
   const url = new URL(value)
-  return [url.hostname, url.port || '5432', url.pathname, url.username].join('|')
+  return [url.hostname.toLowerCase(), url.port || '5432', decodeURIComponent(url.pathname.slice(1))].join('|')
 }
 if (identity(sourceUrl) === identity(targetUrl)) {
   throw new Error('Source and target database identities are the same; refusing migration.')
