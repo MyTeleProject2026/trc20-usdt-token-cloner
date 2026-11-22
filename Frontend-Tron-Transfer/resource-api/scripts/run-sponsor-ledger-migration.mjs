@@ -88,6 +88,14 @@ export async function runMigrationTask(mode, { env = process.env, spawn = spawnS
     throw new Error('Usage: npm run sponsor-ledger:pause, sponsor-ledger:preflight, or sponsor-ledger:migrate')
   }
   const { sourceUrl, targetUrl } = resolveMigrationRunnerConfig(env)
+  if (mode === 'migrate') {
+    if (env.SPONSOR_MIGRATION_BACKUP_VERIFIED !== 'true') {
+      throw new Error('Migration blocked: verify a recoverable source backup and set SPONSOR_MIGRATION_BACKUP_VERIFIED=true.')
+    }
+    if (env.SPONSOR_MIGRATION_ROLLBACK_PLAN_CONFIRMED !== 'true') {
+      throw new Error('Migration blocked: confirm the source-retention and rollback plan before setting SPONSOR_MIGRATION_ROLLBACK_PLAN_CONFIRMED=true.')
+    }
+  }
   const taskEnv = {
     ...env,
     SOURCE_DATABASE_URL: sourceUrl,

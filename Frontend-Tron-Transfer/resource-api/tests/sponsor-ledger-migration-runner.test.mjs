@@ -11,6 +11,8 @@ const safeEnv = {
   SPONSOR_WRITES_PAUSED: 'true',
   SPONSOR_TRANSACTION_ENGINE_ENABLED: 'false',
   SPONSOR_MAINNET_BROADCAST_ENABLED: 'false',
+  SPONSOR_MIGRATION_BACKUP_VERIFIED: 'true',
+  SPONSOR_MIGRATION_ROLLBACK_PLAN_CONFIRMED: 'true',
 }
 
 test('runner selects existing runtime source and direct Neon target without exposing URLs', () => {
@@ -55,6 +57,30 @@ test('runner refuses missing source or target and same database identities', () 
     ...safeEnv,
     DATABASE_URL: target,
   }), /identities are the same/)
+})
+
+test('migration requires a verified recoverable backup before starting the copy', async () => {
+  let spawned = false
+  await assert.rejects(
+    runMigrationTask('migrate', {
+      env: { ...safeEnv, SPONSOR_MIGRATION_BACKUP_VERIFIED: 'false' },
+      spawn: () => { spawned = true; return { status: 0 } },
+    }),
+    /verify a recoverable source backup/,
+  )
+  assert.equal(spawned, false)
+})
+
+test('migration requires an explicit rollback and source-retention plan', async () => {
+  let spawned = false
+  await assert.rejects(
+    runMigrationTask('migrate', {
+      env: { ...safeEnv, SPONSOR_MIGRATION_ROLLBACK_PLAN_CONFIRMED: 'false' },
+      spawn: () => { spawned = true; return { status: 0 } },
+    }),
+    /source-retention and rollback plan/,
+  )
+  assert.equal(spawned, false)
 })
 
 test('runner ignores arbitrary source URL overrides and pins the runtime-selected source', async () => {

@@ -92,6 +92,8 @@ Complete these checks against the existing Render services before enabling Spons
 5. **Deploy order:** merge the reviewed application change into the configured production branch, verify the Resource API build and health check, verify Sponsor status and read-only Mainnet resource responses, then verify the frontend against that API. Do not treat a successful `/health` response alone as proof that Sponsor database migrations or transaction execution are ready.
 6. **Mainnet safety:** keep the existing TRӾ contract source and artifact unchanged. Contract deployment, token administration, and Sponsor transactions each require their own explicit authorization and live preflight; CI success is not authorization to broadcast.
 
+The migration runner adds two mandatory operator attestations for the copy step (not for read-only preflight): `SPONSOR_MIGRATION_BACKUP_VERIFIED=true` and `SPONSOR_MIGRATION_ROLLBACK_PLAN_CONFIRMED=true`. Set the first only after confirming a recoverable source backup/export, and the second only after documenting that the source database will remain intact throughout the rollback window. The runner refuses to spawn the migration process when either attestation is absent or false. These flags are assertions, not automated proof that a backup can be restored; the restore drill remains a separate acceptance requirement.
+
 The production database must have an independently verified backup and a tested recovery path. Never put database URLs, private keys, session secrets, Admin tokens, or RPC API keys in frontend build variables, source control, logs, or public status responses.
 
 
