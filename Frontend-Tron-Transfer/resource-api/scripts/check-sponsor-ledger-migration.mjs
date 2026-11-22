@@ -15,7 +15,7 @@ export function databaseIdentity(value) {
   return [
     url.hostname.toLowerCase(),
     url.port || '5432',
-    decodeURIComponent(url.pathname.replace(/^\\/+/, '')),
+    decodeURIComponent(url.pathname.slice(1)),
     decodeURIComponent(url.username),
   ].join('|')
 }
