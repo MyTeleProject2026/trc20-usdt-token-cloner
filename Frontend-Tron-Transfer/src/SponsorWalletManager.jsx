@@ -101,6 +101,11 @@ async function readResourceSnapshot(address, tronWeb) {
       networkResourceWeights: payload.networkResourceWeights || {}, source: 'resource-api', rpc: payload.rpc || null,
     }
   } catch (error) {
+    // Do not turn an explicit API/provider rate limit into a burst of direct
+    // TronWeb fallback calls. That amplifies 429s against the same RPC provider.
+    if (error?.status === 429 || error?.status === 503) {
+      throw new Error('Mainnet resource service is temporarily rate-limited or unavailable. Existing balances are not treated as fresh; wait briefly and refresh again.')
+    }
     const [raw, balanceSun] = await Promise.all([tronWeb.trx.getAccountResources(address), tronWeb.trx.getBalance(address)])
     const energyLimit = Number(raw.EnergyLimit || 0), energyUsed = Number(raw.EnergyUsed || 0)
     const netLimit = Number(raw.NetLimit || 0), netUsed = Number(raw.NetUsed || 0)
