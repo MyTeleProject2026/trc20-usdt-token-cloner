@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
-import { createSponsorResourceApi, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString } from '../sponsor-api.mjs'\nimport { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
+import { createSponsorResourceApi, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString } from '../sponsor-api.mjs'
+import { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
