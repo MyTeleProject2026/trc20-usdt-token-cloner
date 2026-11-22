@@ -10,9 +10,11 @@
     "pretest": "npm install --no-audit --no-fund",
     "start": "node server.js",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check server.js && node --check sponsor-api.mjs && node --check sponsor-engine.mjs && node --check scripts/migrate-sponsor-ledger.mjs && node --check scripts/check-sponsor-ledger-migration.mjs && node --check scripts/sponsor-ledger-database-identity.mjs",
+    "check": "node --check server.js && node --check sponsor-api.mjs && node --check sponsor-engine.mjs && node --check scripts/migrate-sponsor-ledger.mjs && node --check scripts/check-sponsor-ledger-migration.mjs && node --check scripts/sponsor-ledger-database-identity.mjs && node --check scripts/run-sponsor-ledger-migration.mjs",
     "migrate:sponsor-ledger": "node scripts/migrate-sponsor-ledger.mjs",
-    "check:migrate:sponsor-ledger": "node scripts/check-sponsor-ledger-migration.mjs"
+    "check:migrate:sponsor-ledger": "node scripts/check-sponsor-ledger-migration.mjs",
+    "sponsor-ledger:preflight": "node scripts/run-sponsor-ledger-migration.mjs preflight",
+    "sponsor-ledger:migrate": "node scripts/run-sponsor-ledger-migration.mjs migrate"
   },
   "dependencies": {
     "pg": "^8.16.3",
