@@ -4,12 +4,13 @@ const PRIVATE_KEY = /^(?:0x)?[0-9a-fA-F]{64}$/
 
 function readPrivateKey(env, name) {
   const value = typeof env[name] === 'string' ? env[name].trim() : ''
-  if (!value) return null
+  if (!value) return { key: null, configured: false, validFormat: false }
   if (!PRIVATE_KEY.test(value)) {
+    // Keep the API alive so health diagnostics can report a blocked identity.
     // Never include the supplied value in an error or diagnostic.
-    throw new Error(name + '-invalid-format')
+    return { key: null, configured: true, validFormat: false }
   }
-  return value.replace(/^0x/i, '')
+  return { key: value.replace(/^0x/i, ''), configured: true, validFormat: true }
 }
 
 function configuredAddress(env, names) {
@@ -41,8 +42,8 @@ export function createManagedWalletIdentityReport({
 
   let derivedOwnerAddress = null
   let derivedSponsorAddress = null
-  if (ownerKey) derivedOwnerAddress = deriveAddress(ownerKey) || null
-  if (sponsorKey) derivedSponsorAddress = deriveAddress(sponsorKey) || null
+  try { if (ownerKey.key) derivedOwnerAddress = deriveAddress(ownerKey.key) || null } catch {}
+  try { if (sponsorKey.key) derivedSponsorAddress = deriveAddress(sponsorKey.key) || null } catch {}
 
   const ownerMatches = Boolean(ownerAddress && derivedOwnerAddress && ownerAddress === derivedOwnerAddress)
   const sponsorMatches = Boolean(sponsorAddress && derivedSponsorAddress && sponsorAddress === derivedSponsorAddress)
@@ -54,7 +55,8 @@ export function createManagedWalletIdentityReport({
   return Object.freeze({
     network: 'TRON Mainnet',
     owner: Object.freeze({
-      configured: Boolean(ownerKey),
+      configured: ownerKey.configured,
+      keyFormatValid: ownerKey.validFormat,
       addressConfigured: Boolean(ownerAddress),
       address: ownerAddress,
       derivedAddress: derivedOwnerAddress,
@@ -62,7 +64,8 @@ export function createManagedWalletIdentityReport({
       ready: ownerMatches,
     }),
     sponsor: Object.freeze({
-      configured: Boolean(sponsorKey),
+      configured: sponsorKey.configured,
+      keyFormatValid: sponsorKey.validFormat,
       addressConfigured: Boolean(sponsorAddress),
       address: sponsorAddress,
       derivedAddress: derivedSponsorAddress,
