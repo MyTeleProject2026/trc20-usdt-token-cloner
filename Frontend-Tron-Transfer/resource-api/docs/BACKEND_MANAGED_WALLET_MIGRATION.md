@@ -28,3 +28,20 @@ The endpoint returns public addresses, match/readiness flags, and `executionEnab
 ## Safety
 
 The identity report is diagnostic only. The endpoint always reports execution disabled. Do not enable `SPONSOR_TRANSACTION_ENGINE_ENABLED` or `SPONSOR_MAINNET_BROADCAST_ENABLED` as a consequence of this PR. The Owner and Sponsor private keys must never be copied into frontend environment variables, browser storage, logs, screenshots, GitHub issues, or chat.
+
+
+## Database schema foundation added in the follow-up
+
+Migration file:
+
+`migrations/20261122_backend_wallet_auth.sql`
+
+It creates three persistent tables:
+
+- `tron_transfer_wallet_accounts` — one independent account row per Owner/Sponsor role, with a scrypt verifier, per-account salt, lockout counters and timestamps.
+- `tron_transfer_wallet_sessions` — hashed opaque session identifiers, CSRF hashes, expiry and revocation state.
+- `tron_transfer_wallet_auth_audit` — security events without plaintext passwords, private keys, tokens or raw client IPs.
+
+This is **schema only**. It does not enroll either wallet, authenticate a user, issue a session, or enable signing. Do not apply it to production until the current Sponsor ledger has been backed up and a maintenance migration has been approved. The authentication routes and password-verifier implementation must be reviewed and tested before any account rows are created.
+
+The next code increment must implement one-time enrollment using a separate short-lived server-side bootstrap trust anchor, Node's built-in scrypt with fixed validated parameters, constant-time verifier comparison, bounded login lockout, independent role sessions, CSRF protection, session revocation, and audit events. Owner and Sponsor enrollment must bind to the addresses derived from their respective backend keys; a request must never be allowed to choose an address or role.
