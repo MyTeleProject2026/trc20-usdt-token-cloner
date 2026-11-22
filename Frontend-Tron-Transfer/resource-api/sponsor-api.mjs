@@ -277,6 +277,7 @@ export function createSponsorResourceApi({
   signerAdapter = null,
   engine = createSponsorTransactionEngine({ env, fetchImpl, ...(signerAdapter ? { signerAdapter } : {}) }),
   getDatabase = () => getPool(env),
+  authenticateManagedSession = null,
   verifyMessage = async (message, signature) => {
     const verifier = new TronWeb({ fullHost: 'https://api.trongrid.io' })
     return verifier.trx.verifyMessageV2(message, signature)
@@ -491,7 +492,9 @@ export function createSponsorResourceApi({
       } catch { return reply(res, 503, { success: false, error: 'sponsor-ledger-read-failed' }, origin) }
     }
 
-    const session = verifySession(req, env, now())
+    const session = typeof authenticateManagedSession === 'function'
+      ? await authenticateManagedSession(req, { requireCsrf: req.method !== 'GET' })
+      : verifySession(req, env, now())
     if (!session) return reply(res, 401, { success: false, error: 'sponsor-session-required' }, origin)
 
     if (req.method === 'POST' && path === '/api/sponsor/intent') {
