@@ -16,7 +16,8 @@
     "sponsor-ledger:pause": "node scripts/run-sponsor-ledger-migration.mjs pause",
     "sponsor-ledger:preflight": "node scripts/run-sponsor-ledger-migration.mjs preflight",
     "sponsor-ledger:migrate": "node scripts/run-sponsor-ledger-migration.mjs migrate",
-    "smoke:production-acceptance": "node scripts/production-acceptance-smoke.mjs"
+    "smoke:production-acceptance": "node scripts/production-acceptance-smoke.mjs",
+    "check:wallet-auth-schema": "node scripts/check-wallet-auth-schema.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",
