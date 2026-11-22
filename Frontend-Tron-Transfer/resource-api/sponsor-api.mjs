@@ -323,7 +323,7 @@ export function createSponsorResourceApi({
       const readiness = engine.readiness()
       const databaseConnection = sponsorDatabaseConnectionInfo(env)
       const dbConfigured = databaseConnection.configured
-      const ownerAddressMatches = readiness.ownerAddress === ownerAddress
+      const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
       const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
       const adminRequired = adminTokenRequired(env)
       const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32
@@ -363,7 +363,7 @@ export function createSponsorResourceApi({
       const acceptanceChecks = [
         { id: 'owner-address', state: ownerAddressMatches ? 'passed' : 'blocked' },
         { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
-        { id: 'sponsor-signer-key-match', state: readiness.configured === true ? 'passed' : 'blocked' },
+        { id: 'sponsor-signer-key-match', state: readiness.signerKeyConfigured === true && readiness.sponsorAddressValid === true && readiness.signerAddressMatches === true ? 'passed' : 'blocked' },
         { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
         { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
         { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
