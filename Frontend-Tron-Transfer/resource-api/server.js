@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
 import { createRuntimeObservatory } from './runtime-observatory.mjs'
 import { createSponsorResourceApi } from './sponsor-api.mjs'
+import { createManagedWalletIdentityReport } from './managed-wallet-identities.mjs'
 import { createRemoteSponsorSigner } from './remote-sponsor-signer.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
@@ -284,6 +285,12 @@ function send(res, status, payload, origin) {
 export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorSignerAdapter, sponsorDatabase } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
+  const managedWalletIdentities = createManagedWalletIdentityReport({
+    env: {
+      ...env,
+      TRON_OWNER_ADDRESS: env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || allowedAddress,
+    },
+  })
   const configuredRemoteSigner = !sponsorSignerAdapter && env.SPONSOR_SIGNER_URL
     ? createRemoteSponsorSigner({ env, fetchImpl })
     : null
@@ -327,6 +334,20 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       return res.end()
     }
     const url = new URL(req.url || '/', 'http://localhost')
+    if (req.method === 'GET' && url.pathname === '/api/wallets/managed-identities') {
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'managed-wallet-identities', 30)) {
+        return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      }
+      return send(res, 200, {
+        success: true,
+        ...managedWalletIdentities,
+        custody: 'backend-managed',
+        privateKeysExposed: false,
+        passwordEnrollmentAvailable: false,
+        note: 'Identity validation only. Password enrollment and backend transaction signing remain disabled until their dedicated authentication and signing controls are deployed.',
+      }, origin)
+    }
     if (await sponsorApi.handle(req, res, url, origin)) return
     if (req.method === 'GET' && url.pathname === '/api/observatory/snapshot') {
       const ip = observatoryRateLimitIp(req)
