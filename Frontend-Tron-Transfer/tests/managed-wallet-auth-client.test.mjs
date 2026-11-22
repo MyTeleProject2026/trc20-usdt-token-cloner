@@ -59,3 +59,14 @@ test('server errors preserve safe error codes and HTTP status', async () => {
   const api = createManagedWalletAuthClient({ role: 'owner', fetchImpl: async () => response(401, { success: false, error: 'INVALID_CREDENTIALS_OR_LOCKED' }) })
   await assert.rejects(api.login('incorrect password'), error => error.status === 401 && error.code === 'INVALID_CREDENTIALS_OR_LOCKED')
 })
+
+test('logout can recover the role-specific CSRF cookie after a page reload', async () => {
+  let sentHeaders
+  const api = createManagedWalletAuthClient({
+    role: 'owner',
+    cookieReader: () => 'other=value; tron_owner_csrf=csrf-from-cookie',
+    fetchImpl: async (_url, options) => { sentHeaders = options.headers; return response(200, { success: true }) },
+  })
+  await api.logout()
+  assert.equal(sentHeaders['x-csrf-token'], 'csrf-from-cookie')
+})
