@@ -5,6 +5,7 @@ import {
   removeSavedSponsorWallet, saveSponsorWalletVault, unlockSponsorWalletVault,
 } from './sponsor-wallet-vault.mjs'
 import { planSponsorResourceProvisioning } from './sponsor-resource-planner.mjs'
+import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 import './sponsor-wallet.css'
 
 const OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -125,23 +126,21 @@ async function readResourceSnapshot(address, tronWeb) {
 }
 
 async function sponsorApiRequest(path, { method = 'GET', token, adminToken, body } = {}) {
+  const csrf = String(document.cookie || '').match(/(?:^|;\s*)tron_sponsor_csrf=([^;]+)/)?.[1]
   const response = await fetch(RESOURCE_API + path, {
-    method, cache: 'no-store',
-    headers: { accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}) },
+    method, cache: 'no-store', credentials: 'include',
+    headers: {
+      accept: 'application/json',
+      ...(body ? { 'content-type': 'application/json' } : {}),
+      ...(method !== 'GET' && csrf ? { 'x-csrf-token': decodeURIComponent(csrf) } : {}),
+      ...(token ? { authorization: 'Bearer ' + token } : {}),
+      ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}),
+    },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(payload.message || payload.error || ('Sponsor Resource API returned HTTP ' + response.status))
   return payload
-}
-async function authenticateSponsorWallet(wallet, tronWeb) {
-  const challenge = await sponsorApiRequest('/api/sponsor/session/challenge', { method: 'POST', body: { address: wallet.address } })
-  if (challenge.address !== wallet.address || challenge.network !== 'TRON Mainnet' || typeof challenge.message !== 'string') throw new Error('Sponsor API returned an invalid wallet-authentication challenge.')
-  if (typeof tronWeb.trx.signMessageV2 !== 'function') throw new Error('This TronWeb build does not support version-2 message signing.')
-  const signature = await tronWeb.trx.signMessageV2(challenge.message, wallet.privateKey)
-  const verified = await sponsorApiRequest('/api/sponsor/session/verify', { method: 'POST', body: { address: wallet.address, nonce: challenge.nonce, signature } })
-  if (verified.address !== wallet.address || typeof verified.token !== 'string') throw new Error('Sponsor session verification returned an invalid session.')
-  return verified.token
 }
 function createIdempotencyKey() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
@@ -162,6 +161,8 @@ function CenterToast({ toast, onClose }) {
 
 export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {}, workspaceActive = true }) {
   const [wallet, setWallet] = useState(null)
+  const [authPassword, setAuthPassword] = useState('')
+  const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
   const [saved, setSaved] = useState(() => hasSavedSponsorWallet())
   const [replacing, setReplacing] = useState(false)
   const [mode, setMode] = useState('private-key')
@@ -193,7 +194,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const toastTimer = useRef(null)
   const resourceAlertState = useRef('unknown')
 
-  const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
+  const tronWeb = useMemo(() => wallet ? createSponsorTronWeb() : null, [wallet])
 
   const notify = useCallback((kind, title, message) => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current)
@@ -202,6 +203,43 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [])
 
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
+
+  useEffect(() => {
+    if (!workspaceActive) return undefined
+    let active = true
+    void sponsorAuth.status().then(status => {
+      if (active) setSaved(status.enrolled === true)
+    }).catch(() => { if (active) setSaved(false) })
+    void sponsorAuth.session().then(session => {
+      if (active && session?.address) {
+        setWallet({ address: session.address })
+        setSnapshot(null)
+      }
+    }).catch(() => {})
+    return () => { active = false }
+  }, [workspaceActive, sponsorAuth])
+
+  async function loginSponsorWallet() {
+    if (busy || authPassword.length < 12) return
+    setBusy(true)
+    try {
+      await sponsorAuth.login(authPassword)
+      const session = await sponsorAuth.session()
+      if (!session?.address) throw new Error('Sponsor password session did not return the enrolled Mainnet address.')
+      if (session.address === OWNER_ADDRESS) throw new Error('Owner and Sponsor wallet identities must remain separate.')
+      setWallet({ address: session.address })
+      setAuthPassword('')
+      setSnapshot(null)
+      setWalletTransactions([])
+      setWalletTransactionsAvailable(false)
+      setWalletTokenTransfers([])
+      setWalletTokenTransfersAvailable(false)
+      recordSecurityEvent(session.address, 'Sponsor password session opened', 'Authenticated by the backend-managed Sponsor account.')
+      notify('success', 'Sponsor workspace unlocked', session.address)
+    } catch (error) {
+      notify('error', 'Sponsor login failed', error instanceof Error ? error.message : 'Could not authenticate the Sponsor account.')
+    } finally { setBusy(false) }
+  }
 
   useEffect(() => {
     const reloadTargets = () => {
@@ -316,8 +354,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setDurableLedgerState('loading')
     setDurableLedgerError('')
     try {
-      const token = await authenticateSponsorWallet(wallet, tronWeb)
-      const payload = await sponsorApiRequest('/api/sponsor/operations?limit=50', { token })
+      const payload = await sponsorApiRequest('/api/sponsor/operations?limit=50')
       if (payload?.success !== true || !Array.isArray(payload.operations)) {
         throw new Error('The Resource API did not return a valid durable Sponsor ledger.')
       }
@@ -470,6 +507,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
         ? (reason === 'background' ? 'Session locked after the page remained hidden for 60 seconds.' : 'Session locked after 5 minutes without user activity.')
         : 'In-memory signing key released; encrypted vault retained.',
     )
+    void sponsorAuth.logout().catch(() => {})
     setWallet(null)
     setSaved(true)
     setSnapshot(null)
@@ -542,8 +580,9 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   function logoutWallet() {
     recordSecurityEvent(wallet?.address, 'Sponsor Wallet logged out', 'Active session cleared; encrypted vault retained for reconnect.')
+    void sponsorAuth.logout().catch(() => {})
     setWallet(null)
-    setSaved(hasSavedSponsorWallet())
+    setSaved(true)
     setSnapshot(null)
       setWalletTransactions([])
     setWalletTransactionsAvailable(false)
@@ -644,11 +683,10 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
-      if (!window.confirm('Authorize this exact Sponsor operation with a signed message?\n\n' + intent.message + '\n\nThis is an off-chain authorization message, not a TRON transaction.')) return
-      const signature = await tronWeb.trx.signMessageV2(intent.message, wallet.privateKey)
+      if (!window.confirm('Confirm this exact Sponsor operation?\n\n' + intent.message + '\n\nYour authenticated Sponsor password session, CSRF protection and Sponsor Admin authorization will be checked by the backend. The backend signs and submits only this exact intent.')) return
       const result = await sponsorApiRequest('/api/sponsor/operations', {
-        method: 'POST', token, adminToken,
-        body: { intentId: intent.intentId, signature, confirmPhrase: intent.confirmationPhrase },
+        method: 'POST', adminToken,
+        body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
       })
       const transactionId = typeof result.transactionId === 'string' ? result.transactionId : ''
       if (transactionId) {
@@ -755,8 +793,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     const local = activity.find((item) => item.operationReference === lastOperationReference)
     setBusy(true)
     try {
-      const token = await authenticateSponsorWallet(wallet, tronWeb)
-      const result = await sponsorApiRequest('/api/sponsor/operations/' + encodeURIComponent(lastOperationReference), { token })
+      const result = await sponsorApiRequest('/api/sponsor/operations/' + encodeURIComponent(lastOperationReference))
       const operation = result.operation || {}
       if (operation.status === 'confirmed') {
         const confirmed = {
@@ -789,9 +826,8 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     if (!lastDelegation || !wallet || !tronWeb || busy) return
     setBusy(true)
     try {
-      const token = await authenticateSponsorWallet(wallet, tronWeb)
       const payload = await sponsorApiRequest('/api/tron/sponsorship/resource-delegations/verify-wallet', {
-        method: 'POST', token,
+        method: 'POST',
         body: {
           network: 'mainnet', transactionId: lastDelegation.transactionId,
           sponsorAddress: lastDelegation.sponsorAddress, receiverAddress: lastDelegation.receiverAddress,
@@ -862,24 +898,12 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       </div>}
     </section>}
 
-    {activePage === 'sponsor' && !wallet && !saved && <section className="sponsor-card">
-      <div className="sponsor-card-heading"><Wallet/><div><h3>Import existing Sponsor Wallet</h3><p>No wallet creation. Credentials are processed in this browser and encrypted before local storage.</p></div></div>
-      <div className="sponsor-import-tabs">{[['private-key','Private key'],['keystore','Keystore JSON'],['mnemonic','Mnemonic phrase']].map(([id,label]) => <button key={id} className={mode === id ? 'active' : ''} onClick={() => {setMode(id);setCredential('')}}>{label}</button>)}</div>
-      {mode === 'keystore'
-        ? <label className="sponsor-field">Keystore JSON file<input type="file" accept=".json,application/json" onChange={async event => setCredential(await event.target.files?.[0]?.text() || '')}/><small>Standard V3 JSON keystore format.</small></label>
-        : <label className="sponsor-field">{mode === 'private-key' ? 'Private key' : 'Recovery mnemonic phrase'}<textarea value={credential} onChange={event => setCredential(event.target.value)} rows={mode === 'mnemonic' ? 3 : 2} autoComplete="off" spellCheck="false" placeholder={mode === 'private-key' ? 'Paste private key locally' : 'Enter recovery words locally'}/></label>}
-      {mode === 'keystore' && <label className="sponsor-field">Keystore password<input type="password" value={keystorePassword} onChange={event => setKeystorePassword(event.target.value)} autoComplete="new-password"/></label>}
-      <label className="sponsor-field">New local vault password<input type="password" value={vaultPassword} onChange={event => setVaultPassword(event.target.value)} minLength={12} autoComplete="new-password"/><small>At least 12 characters. It encrypts the private key with AES-256-GCM and PBKDF2-SHA256 in this browser.</small></label>
-      <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !credential.trim() || vaultPassword.length < 12} onClick={() => void importWallet()}>{busy ? 'Importing securely…' : 'Import & encrypt Sponsor Wallet'}</button>{replacing && <button className="sponsor-secondary" onClick={() => {setSaved(hasSavedSponsorWallet());setReplacing(false)}}>Cancel replacement</button>}</div>
-      {hasSavedSponsorWallet() && !replacing && <button className="sponsor-secondary" onClick={() => setSaved(true)}>Reconnect saved Sponsor Wallet</button>}
-      <p className="sponsor-security-note"><ShieldCheck/> Never paste credentials into chat. The private key is not sent to the Tron Transfer API. Browser storage is device-specific; keep your original recovery backup safe.</p>
-    </section>}
-
-    {activePage === 'sponsor' && !wallet && saved && <section className="sponsor-card sponsor-unlock-card">
-      <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Encrypted Sponsor Wallet saved</h3><p>Unlock this browser's encrypted wallet backup, or replace it by importing another account.</p></div></div>
-      <label className="sponsor-field">Vault password<input type="password" value={unlockPassword} onChange={event => setUnlockPassword(event.target.value)} autoComplete="current-password"/></label>
-      <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !unlockPassword} onClick={() => void unlockWallet()}><UnlockKeyhole size={16}/> {busy ? 'Unlocking…' : 'Unlock Sponsor Wallet'}</button><button className="sponsor-secondary" onClick={() => {setSaved(false);setMode('private-key')}}>Replace / import another</button></div>
-      <button className="sponsor-danger-link" onClick={removeVault}>Remove encrypted local backup</button>
+    {activePage === 'sponsor' && !wallet && <section className="sponsor-card sponsor-unlock-card">
+      <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Workspace Login</h3><p>Sign in to the existing backend-managed Sponsor Mainnet account. The private key remains on the Resource API and is never entered in this page.</p></div></div>
+      <label className="sponsor-field">Sponsor account password<input type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} autoComplete="current-password" minLength={12}/><small>Use the password enrolled for the Sponsor wallet. Passwords are verified by the backend; failed attempts are rate-limited and may temporarily lock the account.</small></label>
+      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || authPassword.length < 12} onClick={() => void loginSponsorWallet()}>{busy ? 'Authenticating…' : 'Login to Sponsor Workspace'}</button></div>
+      {saved === false && <p className="sponsor-warning">No Sponsor password account is enrolled yet. Complete the one-time backend enrollment before logging in; do not enter a private key here.</p>}
+      <p className="sponsor-security-note"><ShieldCheck/> Session cookie is HttpOnly, Secure and role-specific. Lock or logout revokes the backend session. No browser private-key import is used by this login.</p>
     </section>}
 
     {!wallet && activePage !== 'sponsor' && <section className="sponsor-card sponsor-page-locked"><div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Wallet is locked</h3><p>Unlock the Sponsor Wallet from Overview to access its live data and existing operations.</p></div></div><button type="button" className="sponsor-primary" onClick={() => onNavigate('sponsor')}>Open Sponsor Overview</button></section>}
