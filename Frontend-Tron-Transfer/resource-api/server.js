@@ -672,11 +672,13 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       if (!isMainnetAddress(address)) return send(res, 400, { error: 'INVALID_TRON_ADDRESS' }, origin)
       const requestedLimit = Number(url.searchParams.get('limit') || 20)
       if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 50) return send(res, 400, { error: 'INVALID_LIMIT', message: 'limit must be an integer between 1 and 50' }, origin)
-      const ip = observatoryRateLimitIp(req)
-      if (!allowRequest(ip, 'mainnet-transaction-history')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      // Confirmed history is cached by address and page size. Reuse a fresh
+      // snapshot before consuming the provider-miss rate budget.
       const cacheKey = 'transactions:' + address + ':' + requestedLimit
       const cached = cache.get(cacheKey)
-      if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, { address, network: 'TRON Mainnet', ...cached.value }, origin)
+      if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, cached.value, origin)
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'mainnet-transaction-history')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 15 }, origin)
       try {
         const apiKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
         const headers = { accept: 'application/json', ...(apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {}) }
