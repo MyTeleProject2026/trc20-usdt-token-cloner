@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { pauseSourceLedgerWrites, resolveMigrationRunnerConfig, runMigrationTask } from '../scripts/run-sponsor-ledger-migration.mjs'\nimport { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
+import { pauseSourceLedgerWrites, resolveMigrationRunnerConfig, runMigrationTask } from '../scripts/run-sponsor-ledger-migration.mjs'
+import { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const source = 'postgresql://source:secret@dpg-source.singapore-postgres.render.com/sponsor?sslmode=require'
 const target = 'postgresql://neon:secret@ep-target.c-9.us-east-2.aws.neon.tech/sponsor?sslmode=require'
