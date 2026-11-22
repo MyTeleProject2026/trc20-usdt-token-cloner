@@ -44,6 +44,7 @@ export function createManagedWalletAuthClient({
     }
     if (payload?.role && payload.role !== walletRole) throw new Error('WALLET_AUTH_ROLE_MISMATCH')
     if (payload?.session?.csrfToken) csrfToken = payload.session.csrfToken
+    if (payload?.csrfToken) csrfToken = payload.csrfToken
     return payload
   }
 
