@@ -16,8 +16,8 @@ test('Owner and Sponsor clients use isolated route namespaces and cookie session
   const sponsor = createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: 'https://api.test', fetchImpl })
   await owner.session()
   await sponsor.session()
-  assert.match(calls[0].url, /api\\/wallet-auth\\/owner\\/session$/)
-  assert.match(calls[1].url, /api\\/wallet-auth\\/sponsor\\/session$/)
+  assert.ok(calls[0].url.endsWith('/api/wallet-auth/owner/session'))
+  assert.ok(calls[1].url.endsWith('/api/wallet-auth/sponsor/session'))
   for (const call of calls) {
     assert.equal(call.options.credentials, 'include')
     assert.equal(call.options.cache, 'no-store')
