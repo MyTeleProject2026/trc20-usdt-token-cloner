@@ -307,6 +307,7 @@ export function createSponsorResourceApi({
   async function handle(req, res, url, origin) {
     const path = url.pathname
     const isRoute = path === '/api/sponsor/status'
+      || path === '/api/acceptance/production'
       || path === '/api/sponsor/ledger/bootstrap'
       || path === '/api/sponsor/session/challenge'
       || path === '/api/sponsor/session/verify'
@@ -318,11 +319,11 @@ export function createSponsorResourceApi({
     if (!isRoute) return false
     cleanup(now())
 
-    if (req.method === 'GET' && path === '/api/sponsor/status') {
+    if (req.method === 'GET' && (path === '/api/sponsor/status' || path === '/api/acceptance/production')) {
       const readiness = engine.readiness()
       const databaseConnection = sponsorDatabaseConnectionInfo(env)
       const dbConfigured = databaseConnection.configured
-      const ownerAddressMatches = readiness.ownerAddress === ownerAddress
+      const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
       const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
       const adminRequired = adminTokenRequired(env)
       const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32
@@ -359,8 +360,29 @@ export function createSponsorResourceApi({
           }
         } catch (error) { databaseStatus = classifySponsorDatabaseError(error) }
       }
+      const acceptanceChecks = [
+        { id: 'owner-address', state: ownerAddressMatches ? 'passed' : 'blocked' },
+        { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
+        { id: 'sponsor-signer-address-match', state: readiness.signerConfigured === true && readiness.sponsorAddressValid === true && readiness.signerAddressMatches === true ? 'passed' : 'blocked' },
+        { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
+        { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
+        { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
+        { id: 'writes-remain-paused-until-release', state: sponsorWritesPaused ? 'passed' : 'blocked' },
+        { id: 'admin-second-factor-configured', state: adminConfigured ? 'passed' : 'blocked' },
+        { id: 'session-authentication-configured', state: sessionSecret(env) ? 'passed' : 'blocked' },
+        { id: 'mainnet-execution-explicitly-disabled', state: readiness.enabled !== true ? 'passed' : 'review-required' },
+      ]
+      const acceptancePassed = acceptanceChecks.every(check => check.state === 'passed')
+      const acceptance = {
+        version: 1,
+        state: acceptancePassed ? 'ready-for-independent-review' : 'blocked',
+        executionEnabled: false,
+        checks: acceptanceChecks,
+        note: 'Read-only diagnostic. Passing checks do not authorize Mainnet execution; operator approval and independent acceptance remain required.',
+      }
       return reply(res, 200, {
         success: true,
+        acceptance,
         network: 'TRON Mainnet',
         ownerAddress,
         sponsorAddress: validAddress(env.SPONSOR_MAINNET_ADDRESS) ? env.SPONSOR_MAINNET_ADDRESS : null,
