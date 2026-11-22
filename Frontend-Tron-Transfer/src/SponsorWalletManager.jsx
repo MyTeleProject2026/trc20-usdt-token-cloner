@@ -477,7 +477,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setVaultPassword('')
     notify(
       automatic ? 'info' : 'success',
-      automatic ? 'Sponsor Wallet session auto-locked' : 'Sponsor Wallet locked',      automatic
+      automatic ? 'Sponsor Wallet session auto-locked' : 'Sponsor Wallet locked',
+      automatic
         ? 'The signing session was cleared. Unlock the encrypted local backup to continue.'
         : 'The in-memory signing key was released. The encrypted local backup remains available to unlock.',
     )
@@ -716,7 +717,8 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         stakingEnabled: sponsorApiStatus?.stakingPolicy?.enabled === true,
         maxStakeSun: String(maxStakeSun),
       })
-      if (plan.reason === 'target-met') {        notify('success', resource + ' target already met', 'The latest live Owner resource snapshot meets the configured target. No transaction is needed.')
+      if (plan.reason === 'target-met') {
+        notify('success', resource + ' target already met', 'The latest live Owner resource snapshot meets the configured target. No transaction is needed.')
         return
       }
       if (!plan.ready || !plan.action || !plan.amountSun) {
