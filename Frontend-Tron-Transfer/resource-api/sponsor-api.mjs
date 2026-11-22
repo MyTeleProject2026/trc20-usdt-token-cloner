@@ -151,6 +151,26 @@ async function ensureSchema(db) {
   `).catch(error => { schemaPromise = null; throw error })
   await schemaPromise
 }
+
+// Runtime reads and transaction execution must never create or alter production
+// schema. Schema creation is reserved for the separately authorized bootstrap
+// endpoint; all other routes fail closed until that bootstrap has completed.
+async function assertSchema(db) {
+  const schema = await db.query(`
+    SELECT
+      to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
+      to_regclass('public.tron_transfer_sponsor_control') AS control_table
+  `)
+  if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table) {
+    throw new Error('sponsor-ledger-schema-not-initialized')
+  }
+  const control = await db.query(
+    'SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1'
+  )
+  if (!control.rows?.length) throw new Error('sponsor-ledger-control-row-missing')
+  return { writesPaused: control.rows[0].writes_paused === true }
+}
+
 async function readSponsorWritesPaused(db) {
   const result = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
   return result.rows?.[0]?.writes_paused === true
@@ -428,7 +448,7 @@ export function createSponsorResourceApi({
       const db = getDatabase()
       if (!db) return reply(res, 503, { success: false, error: 'sponsor-ledger-unavailable' }, origin)
       try {
-        await ensureSchema(db)
+        await assertSchema(db)
         const result = await db.query(
           'SELECT transaction_id AS "transactionId",sponsor_address AS "sponsorAddress",owner_address AS "receiverAddress",resource AS "resourceType",amount_sun::text AS "stakeEquivalentSun",status,confirmation_block AS "blockNumber",created_at AS "recordedAt" FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 AND operation=\'delegate\' AND status=\'confirmed\' ORDER BY created_at DESC LIMIT $2',
           [address, limit],
@@ -484,7 +504,7 @@ export function createSponsorResourceApi({
       let reservationClient
       let reservationTransactionOpen = false
       try {
-        await ensureSchema(db)
+        await assertSchema(db)
         reservationClient = typeof db.connect === 'function' ? await db.connect() : db
         await reservationClient.query('BEGIN')
         reservationTransactionOpen = true
@@ -545,7 +565,7 @@ export function createSponsorResourceApi({
       const db = getDatabase()
       if (!db) return reply(res, 503, { success: false, error: 'sponsor-ledger-unavailable' }, origin)
       try {
-        await ensureSchema(db)
+        await assertSchema(db)
         const result = await db.query(
           'SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,transaction_id,result_code,confirmation_block,created_at,updated_at FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 ORDER BY created_at DESC LIMIT $2',
           [session.address, limit],
@@ -563,7 +583,7 @@ export function createSponsorResourceApi({
       const db = getDatabase()
       if (!db) return reply(res, 503, { success: false, error: 'sponsor-ledger-unavailable' }, origin)
       try {
-        await ensureSchema(db)
+        await assertSchema(db)
         const result = await db.query(
           'SELECT idempotency_key_hash,amount_sun::text AS amount_sun,resource,status,transaction_id FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 AND owner_address=$2 AND operation=\'delegate\' AND transaction_id=$3',
           [session.address, ownerAddress, body.transactionId],
@@ -593,7 +613,7 @@ export function createSponsorResourceApi({
       const db = getDatabase()
       if (!db) return reply(res, 503, { success: false, error: 'sponsor-ledger-unavailable' }, origin)
       try {
-        await ensureSchema(db)
+        await assertSchema(db)
         const result = await db.query(
           'SELECT idempotency_key_hash,operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,transaction_id,result_code,confirmation_block FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2',
           [sha(key), session.address],
