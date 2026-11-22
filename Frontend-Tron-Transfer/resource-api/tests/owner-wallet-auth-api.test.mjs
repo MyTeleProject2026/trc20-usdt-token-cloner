@@ -64,7 +64,7 @@ test('Owner enrollment requires backend bootstrap token and only succeeds once',
   await api.handle(request('POST', { 'x-owner-enrollment-token': bootstrap }, { password: 'a sufficiently long owner password 123' }), enrolled, new URL('https://api.test/api/wallet-auth/owner/enroll'), 'https://tron-transfer.onrender.com')
   assert.equal(enrolled.status, 201)
   assert.equal(db.state.account.wallet_address, address)
-  assert.match(enrolled.headers['set-cookie'][0], /HttpOnly; Secure; SameSite=Strict/)
+  assert.match(enrolled.headers['set-cookie'][0], /HttpOnly; Secure; SameSite=None/)
   assert.equal(db.state.sessions.length, 1)
 
   const repeated = response()
