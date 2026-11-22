@@ -1,3 +1,11 @@
+## Sponsor transaction execution and recovery
+
+Sponsor transaction execution requires two independent authorizations: a short-lived TRON Mainnet message-signature session from the configured Sponsor wallet, and the separately configured Sponsor Admin second factor. The server-side transaction signer must derive the configured Sponsor address and must not equal the Owner address. The private key is never returned to the browser.
+
+Before execution, the API reserves the idempotency key in the durable ledger and acquires a shared lock on the Sponsor write-control row. That lock remains held until signing, broadcast attempt, and final operation status are durably recorded. A concurrent maintenance pause therefore cannot be switched on between reservation and signing; it waits for the in-flight operation to leave the critical section.
+
+The transaction ID is persisted before attempting broadcast. If the process or provider fails after signing, the operation remains `signed-not-broadcast` or `broadcast-unknown`. A later authenticated GET of `/api/sponsor/operations/:idempotencyKey` reconciles that exact transaction against solidified Mainnet state. It may mark a verified success as `confirmed`, a solidified failed receipt as `failed`, or preserve the ambiguous state with the latest reconciliation result. It never automatically re-signs or re-broadcasts an ambiguous operation; the idempotency key remains non-retryable.
+
 # TRON Transfer resource API
 
 Mainnet resource monitor and guarded Sponsor transaction service for the TRON Transfer frontend. Public chain/resource endpoints remain read-only; Sponsor write operations require a signed wallet session, a separate exact-intent signature, durable PostgreSQL idempotency, and explicit server-side execution flags.
