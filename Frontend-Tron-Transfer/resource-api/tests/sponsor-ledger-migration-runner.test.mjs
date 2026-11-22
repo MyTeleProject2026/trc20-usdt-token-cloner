@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveMigrationRunnerConfig, runMigrationTask } from '../scripts/run-sponsor-ledger-migration.mjs'
+import { pauseSourceLedgerWrites, resolveMigrationRunnerConfig, runMigrationTask } from '../scripts/run-sponsor-ledger-migration.mjs'
 
 const source = 'postgresql://source:secret@dpg-source.singapore-postgres.render.com/sponsor?sslmode=require'
 const target = 'postgresql://neon:secret@ep-target.c-9.us-east-2.aws.neon.tech/sponsor?sslmode=require'
@@ -66,6 +66,24 @@ test('runner ignores arbitrary source URL overrides and pins the runtime-selecte
   assert.equal(status, 0)
   assert.equal(invocation[2].env.SOURCE_DATABASE_URL, source)
   assert.equal(invocation[2].env.TARGET_DATABASE_URL, target)
+})
+
+test('pause step durably creates or updates the source write-control gate and verifies it', async () => {
+  const queries = []
+  class FakePool {
+    constructor(options) { assert.equal(options.connectionString, source) }
+    async query(sql) {
+      queries.push(sql)
+      if (sql.includes('to_regclass')) return { rows: [{ operations_table: 'tron_transfer_sponsor_operations' }] }
+      if (sql.includes('SELECT writes_paused')) return { rows: [{ writes_paused: true }] }
+      return { rows: [] }
+    }
+    async end() {}
+  }
+  const result = await pauseSourceLedgerWrites(source, { PoolClass: FakePool })
+  assert.deepEqual(result, { success: true, writesPaused: true })
+  assert.equal(queries.some(sql => sql.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_control')), true)
+  assert.equal(queries.some(sql => sql.includes('ON CONFLICT (id) DO UPDATE') && sql.includes('writes_paused = TRUE')), true)
 })
 
 test('runner validates task mode before starting any migration process', async () => {
