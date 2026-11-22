@@ -158,6 +158,7 @@ function CenterToast({ toast, onClose }) {
 export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {}, workspaceActive = true }) {
   const [wallet, setWallet] = useState(null)
   const [authPassword, setAuthPassword] = useState('')
+  const [authCsrfToken, setAuthCsrfToken] = useState('')
   const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
   const [saved, setSaved] = useState(false)
   const [adminToken, setAdminToken] = useState('')
@@ -203,6 +204,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     void sponsorAuth.session().then(session => {
       if (active && session?.address) {
         setWallet({ address: session.address })
+        setAuthCsrfToken(session.csrfToken || '')
         setSnapshot(null)
       }
     }).catch(() => {})
@@ -218,6 +220,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       if (!session?.address) throw new Error('Sponsor password session did not return the enrolled Mainnet address.')
       if (session.address === OWNER_ADDRESS) throw new Error('Owner and Sponsor wallet identities must remain separate.')
       setWallet({ address: session.address })
+      setAuthCsrfToken(session.csrfToken || '')
       setAuthPassword('')
       setSnapshot(null)
       setWalletTransactions([])
@@ -323,7 +326,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setBusy(true)
     try {
       const result = await sponsorApiRequest('/api/sponsor/ledger/bootstrap', {
-        method: 'POST', adminToken, body: { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' },
+        method: 'POST', adminToken, csrfToken: authCsrfToken, body: { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' },
       })
       const status = await sponsorApiRequest('/api/sponsor/status')
       setSponsorApiStatus(status)
@@ -452,6 +455,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
         : 'Backend-managed Sponsor session revoked; no private key is held in this browser.',
     )
     void sponsorAuth.logout().catch(() => {})
+    setAuthCsrfToken('')
     setWallet(null)
     setSaved(true)
     setSnapshot(null)
@@ -561,13 +565,13 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     try {
       const idempotencyKey = createIdempotencyKey()
       const intent = await sponsorApiRequest('/api/sponsor/intent', {
-        method: 'POST', adminToken,
+        method: 'POST', adminToken, csrfToken: authCsrfToken,
         body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
       if (!window.confirm('Confirm this exact Sponsor operation?\n\n' + intent.message + '\n\nYour authenticated Sponsor password session, CSRF protection and Sponsor Admin authorization will be checked by the backend. The backend signs and submits only this exact intent.')) return
       const result = await sponsorApiRequest('/api/sponsor/operations', {
-        method: 'POST', adminToken,
+        method: 'POST', adminToken, csrfToken: authCsrfToken,
         body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
       })
       const transactionId = typeof result.transactionId === 'string' ? result.transactionId : ''
@@ -709,7 +713,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     setBusy(true)
     try {
       const payload = await sponsorApiRequest('/api/tron/sponsorship/resource-delegations/verify-wallet', {
-        method: 'POST',
+        method: 'POST', csrfToken: authCsrfToken,
         body: {
           network: 'mainnet', transactionId: lastDelegation.transactionId,
           sponsorAddress: lastDelegation.sponsorAddress, receiverAddress: lastDelegation.receiverAddress,
