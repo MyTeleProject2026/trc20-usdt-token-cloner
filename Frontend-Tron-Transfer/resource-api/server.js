@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
 import { createRuntimeObservatory } from './runtime-observatory.mjs'
 import { createSponsorResourceApi } from './sponsor-api.mjs'
+import { createRemoteSponsorSigner } from './remote-sponsor-signer.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
@@ -283,7 +284,11 @@ function send(res, status, payload, origin) {
 export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorSignerAdapter, sponsorDatabase } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
-  const sponsorApi = createSponsorResourceApi({ env, allowedAddress, fetchImpl, ...(sponsorEngine ? { engine: sponsorEngine } : {}), ...(sponsorSignerAdapter ? { signerAdapter: sponsorSignerAdapter } : {}), ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}), send })
+  const configuredRemoteSigner = !sponsorSignerAdapter && env.SPONSOR_SIGNER_URL
+    ? createRemoteSponsorSigner({ env, fetchImpl })
+    : null
+  const activeSponsorSigner = sponsorSignerAdapter || configuredRemoteSigner
+  const sponsorApi = createSponsorResourceApi({ env, allowedAddress, fetchImpl, ...(sponsorEngine ? { engine: sponsorEngine } : {}), ...(activeSponsorSigner ? { signerAdapter: activeSponsorSigner } : {}), ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}), send })
   const rateLimiters = new Map()
   let uptimeHistoryCache = { at: 0, value: null }
   let renderMetricsCache = { at: 0, value: null }
