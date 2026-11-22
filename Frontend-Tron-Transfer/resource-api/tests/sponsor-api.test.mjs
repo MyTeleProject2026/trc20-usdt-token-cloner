@@ -708,3 +708,70 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
   assert.equal(executions, 0)
   assert.equal(updates.length, 1)
 })
+
+
+test('Sponsor maintenance pause lock remains held until signing and broadcast lifecycle is durably recorded', async () => {
+  const timeline = []
+  const row = { idempotency_key_hash: '', request_hash: '', status: 'reserved', transaction_id: null }
+  const database = {
+    async query(sql, params = []) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+      if (sql.startsWith("UPDATE public.tron_transfer_sponsor_operations SET status='broadcast-unknown'")) {
+        timeline.push('persist-transaction-id')
+        row.transaction_id = params[1]
+        return { rowCount: 1, rows: [{ id: 1 }] }
+      }
+      if (sql.includes('SET status=$2,transaction_id=COALESCE')) {
+        timeline.push('persist-final-status')
+        row.status = params[1]
+        return { rowCount: 1, rows: [] }
+      }
+      throw new Error('unexpected database query: ' + sql)
+    },
+    async connect() {
+      return {
+        async query(sql, params = []) {
+          if (sql === 'BEGIN') { timeline.push('begin'); return { rowCount: 0, rows: [] } }
+          if (sql.includes('FOR SHARE')) { timeline.push('acquire-pause-lock'); return { rowCount: 1, rows: [{ writes_paused: false }] } }
+          if (sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')) {
+            timeline.push('reserve')
+            row.idempotency_key_hash = params[0]; row.request_hash = params[1]
+            return { rowCount: 1, rows: [{ id: 1 }] }
+          }
+          if (sql === 'COMMIT') { timeline.push('commit'); return { rowCount: 0, rows: [] } }
+          if (sql === 'ROLLBACK') { timeline.push('rollback'); return { rowCount: 0, rows: [] } }
+          throw new Error('unexpected transaction query: ' + sql)
+        },
+        release() { timeline.push('release') },
+      }
+    },
+  }
+  const engine = {
+    readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
+    execute: async ({ onSigned }) => {
+      assert.equal(timeline.includes('acquire-pause-lock'), true)
+      assert.equal(timeline.includes('commit'), false, 'maintenance lock must remain held during execution')
+      timeline.push('engine-execute')
+      await onSigned('e'.repeat(64))
+      timeline.push('engine-finished')
+      return { success: false, status: 'broadcast-outcome-unknown', txid: 'e'.repeat(64), signed: true, broadcast: true, solidified: false }
+    },
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const token = await authenticated(api)
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-lock-lifecycle-0123456789',
+  }, token)
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: intent.payload.intentId, signature: SIGNATURE,
+    confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  }, token)
+  assert.equal(result.status, 202)
+  assert.ok(timeline.indexOf('acquire-pause-lock') < timeline.indexOf('engine-execute'))
+  assert.ok(timeline.indexOf('engine-finished') < timeline.indexOf('persist-final-status'))
+  assert.ok(timeline.indexOf('persist-final-status') < timeline.indexOf('commit'))
+  assert.equal(timeline.at(-1), 'release')
+})
