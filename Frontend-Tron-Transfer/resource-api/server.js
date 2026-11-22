@@ -280,10 +280,10 @@ function send(res, status, payload, origin) {
   res.end(JSON.stringify(payload))
 }
 
-export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorDatabase } = {}) {
+export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorSignerAdapter, sponsorDatabase } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
-  const sponsorApi = createSponsorResourceApi({ env, allowedAddress, fetchImpl, ...(sponsorEngine ? { engine: sponsorEngine } : {}), ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}), send })
+  const sponsorApi = createSponsorResourceApi({ env, allowedAddress, fetchImpl, ...(sponsorEngine ? { engine: sponsorEngine } : {}), ...(sponsorSignerAdapter ? { signerAdapter: sponsorSignerAdapter } : {}), ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}), send })
   const rateLimiters = new Map()
   let uptimeHistoryCache = { at: 0, value: null }
   let renderMetricsCache = { at: 0, value: null }
