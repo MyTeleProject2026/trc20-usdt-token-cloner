@@ -41,6 +41,12 @@ function response() {
 }
 const identityReport = { owner: { ready: true, address }, sponsor: { ready: true, address: 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR' }, identitiesDistinct: true }
 
+test('Owner auth exposes an internal cookie-session verifier for future contract routes', async () => {
+  const api = createOwnerWalletAuthApi({ env: {}, database: fakeDatabase(), send() {} })
+  assert.equal(typeof api.authenticateRequest, 'function')
+  assert.equal(await api.authenticateRequest({ headers: {} }), null)
+})
+
 test('Owner wallet auth ignores paths outside its exact route namespace', async () => {
   const api = createOwnerWalletAuthApi({ env: {}, database: fakeDatabase(), send() {} })
   assert.equal(await api.handle(request('GET'), response(), new URL('https://api.test/api/wallet-auth/ownerish/status'), null), false)
