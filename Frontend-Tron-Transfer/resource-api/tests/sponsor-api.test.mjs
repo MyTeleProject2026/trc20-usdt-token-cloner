@@ -199,6 +199,27 @@ test('Sponsor ledger bootstrap requires admin authorization and leaves writes pa
   assert.equal(schemaCreated, true)
 })
 
+test('Sponsor operation history reads never bootstrap or mutate the ledger schema', async () => {
+  const queries = []
+  const database = {
+    async query(sql) {
+      queries.push(sql)
+      if (sql.includes('to_regclass')) {
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+      }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      if (sql.includes('SELECT operation,resource,amount_sun')) return { rowCount: 0, rows: [] }
+      throw new Error('history reads must not create or alter Sponsor schema')
+    },
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const token = await authenticated(api)
+  const result = await call(api, 'GET', '/api/sponsor/operations?limit=20', undefined, token)
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.payload.operations, [])
+  assert.equal(queries.some(sql => /^\\s*(CREATE|ALTER|DROP|INSERT|UPDATE)\\b/im.test(sql)), false)
+})
+
 test('Sponsor status fails closed when the ledger control row is missing', async () => {
   const database = {
     async query(sql) {
@@ -381,6 +402,7 @@ test('durable Sponsor idempotency prevents a second signer invocation for the sa
   const rows = new Map()
   const database = {
     async query(sql, params = []) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
       if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX')
         || ['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rowCount: 0, rows: [] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
