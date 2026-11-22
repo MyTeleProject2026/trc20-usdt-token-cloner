@@ -25,7 +25,7 @@ test('runner follows Sponsor-specific runtime database precedence', () => {
     SPONSOR_DATABASE_URL_POOLED: 'postgresql://source:secret@dpg-source.singapore-postgres.render.com/sponsor?sslmode=require',
     SPONSOR_DATABASE_URL: 'postgresql://ignored:secret@ignored.example/sponsor',
   })
-  assert.equal(config.sourceUrl, safeEnv.SPONSOR_DATABASE_URL_POOLED)
+  assert.equal(config.sourceUrl, 'postgresql://source:secret@dpg-source.singapore-postgres.render.com/sponsor?sslmode=require')
 })
 
 test('runner refuses unless the durable write pause is explicitly confirmed', () => {
