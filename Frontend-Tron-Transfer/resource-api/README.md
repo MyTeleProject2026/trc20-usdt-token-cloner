@@ -147,3 +147,7 @@ If Render paid billing is unavailable, see [`docs/TRON-TRANSFER-NO-CARD-DATABASE
 ### Neon connection URLs
 
 For Neon, configure server-side `DATABASE_URL` with the direct connection string and `DATABASE_URL_POOLED` with the pooled connection string. The Sponsor Resource API prefers `DATABASE_URL_POOLED` for normal runtime queries and falls back to `DATABASE_URL`. Use the direct URL as `TARGET_DATABASE_URL` for the one-off ledger migration. Never expose either URL through a `VITE_*` frontend variable or commit it to Git.
+
+## PostgreSQL TLS mode compatibility
+
+Sponsor API runtime pools, migration preflight pools, and migration copy pools normalize legacy PostgreSQL URL modes `sslmode=require`, `prefer`, and `verify-ca` to the explicit `sslmode=verify-full` setting. This preserves the strict certificate-and-hostname verification behavior currently provided by node-postgres 8.16 while avoiding its compatibility warning about future major-version semantics. Existing `verify-full` and local `disable` modes are preserved. The helper never logs or returns connection URLs, usernames, or passwords. Neon pooled URLs remain the preferred runtime connection; the one-time ledger migration continues to require the direct Neon endpoint.
