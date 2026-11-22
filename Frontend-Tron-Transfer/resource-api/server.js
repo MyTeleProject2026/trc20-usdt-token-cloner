@@ -323,6 +323,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'access-control-allow-origin': origin || 'null',
+        'access-control-allow-credentials': 'true',
         'access-control-allow-methods': 'GET, POST, OPTIONS',
         'access-control-allow-headers': 'content-type, authorization, x-sponsor-admin-token, x-owner-enrollment-token, x-csrf-token',
         'access-control-max-age': '600',
