@@ -8,7 +8,7 @@ function mac(secret, value) {
 }
 
 function safeEqual(left, right) {
-  if (typeof left !== 'string' || typeof right !== 'string' || left.length !== right.length) return false
+  if (typeof left !== 'string' || typeof right !== 'string' || !/^[0-9a-f]{64}$/i.test(left) || !/^[0-9a-f]{64}$/i.test(right) || left.length !== right.length) return false
   return timingSafeEqual(Buffer.from(left, 'hex'), Buffer.from(right, 'hex'))
 }
 
