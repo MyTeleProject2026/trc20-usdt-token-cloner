@@ -20,7 +20,7 @@ The report evaluates:
 5. Existing ledger schema and control-row availability.
 6. Operator-attested durable backup and restore-test flags.
 7. Sponsor writes remain paused.
-8. Independent Sponsor Admin second-factor configuration.
+8. Independent Owner Admin password-session integration and Sponsor-session separation.
 9. Sponsor session authentication configuration.
 10. Mainnet execution remains explicitly disabled during acceptance.
 
@@ -38,12 +38,12 @@ The command uses HTTPS only, refuses redirects, checks the health and acceptance
 
 ## Owner and Sponsor browser acceptance
 
-Use the existing production frontend in a real desktop and mobile browser. Do not paste admin tokens, private keys, seed phrases, or database credentials into browser developer tools.
+Use the existing production frontend in a real desktop and mobile browser. Do not paste passwords, private keys, seed phrases, session cookies, or database credentials into browser developer tools.
 
 - Confirm the Owner workspace loads, navigation works, and the connected address is the configured Owner.
 - Confirm the Sponsor workspace loads independently and displays the Sponsor identity separately.
 - Confirm read-only Sponsor status is visible and blocked checks are clearly labelled.
-- Confirm browser storage, page source, network responses, and console output contain no Sponsor private key, Sponsor Admin token, session secret, or database URL.
+- Confirm browser storage, page source, network responses, and console output contain no Sponsor or Owner private key, static Sponsor Admin token, session secret, or database URL. Confirm Sponsor transaction requests include the independent Owner session cookie and Sponsor CSRF proof, without any private-key or static admin-token header.
 - Confirm navigation, reload, logout/session expiry, narrow mobile viewport, keyboard focus, and error/empty states.
 - Confirm no Owner or Sponsor page silently submits, signs, or broadcasts a transaction during page load or status refresh.
 - Keep all write controls disabled while acceptance is in progress.
