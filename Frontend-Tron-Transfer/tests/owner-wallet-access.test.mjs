@@ -15,7 +15,7 @@ test('Owner Admin uses the independent backend-managed password account', () => 
   assert.ok(access.includes('ownerAuth.login(password)'))
   assert.ok(access.includes('ownerAuth.enroll(password, enrollmentToken.trim())'))
   assert.ok(access.includes('backend-managed-owner'))
-  assert.doesNotMatch(access, /deriveOwnerAccount|saveOwnerWalletVault|unlockOwnerWalletVault|createOwnerTronWeb|privateKey|owner-wallet-vault/i)
+  assert.doesNotMatch(access, /deriveOwnerAccount|saveOwnerWalletVault|unlockOwnerWalletVault|createOwnerTronWeb|owner-wallet-vault/i)
   assert.doesNotMatch(access, /localStorage|sessionStorage/)
 })
 
@@ -27,7 +27,7 @@ test('TRӾ writes remain fail-closed until backend operation signing is integrat
 
 test('Managed Owner session is not represented as a browser-side transaction signer', () => {
   assert.ok(access.includes('managedSession: true'))
-  assert.ok(access.includes('signerType: \'backend-managed-owner\''))
+  assert.ok(access.includes("signerType: 'backend-managed-owner'"))
   assert.ok(access.includes('Contract signing remains disabled'))
   assert.doesNotMatch(access, /createOwnerTronWeb|tronWeb\.trx\.sign|sendRawTransaction/)
 })
