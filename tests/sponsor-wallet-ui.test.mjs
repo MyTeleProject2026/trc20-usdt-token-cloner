@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises'
 const component = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorWalletManager.jsx', import.meta.url), 'utf8')
 const vault = await readFile(new URL('../Frontend-Tron-Transfer/src/sponsor-wallet-vault.mjs', import.meta.url), 'utf8')
 
-test('Sponsor Wallet uses backend password login and never exposes a private-key import control', () => {
+test('Sponsor Wallet uses separate password authentication and an encrypted import-only local vault', () => {
   assert.ok(component.includes('Sponsor Workspace Login'))
   assert.ok(component.includes("createManagedWalletAuthClient({ role: 'sponsor'"))
   assert.ok(component.includes('sponsorAuth.login(authPassword)'))
@@ -16,14 +16,21 @@ test('Sponsor Wallet uses backend password login and never exposes a private-key
   assert.doesNotMatch(component, /wallet\.privateKey|signMessageV2|authorization: 'Bearer '/)
   assert.doesNotMatch(component, /trc20-usdt-token-cloner-api\.onrender\.com/)
   assert.doesNotMatch(component, /sendRawTransaction|trx\.sign\(/)
-  assert.ok(vault.includes("new TronWeb({ fullHost: MAINNET_HOST })"))
-  assert.doesNotMatch(vault, /privateKey|mnemonic|keystore|localStorage|subtle\\.encrypt|subtle\\.decrypt/)
+  assert.ok(vault.includes('new TronWeb({ fullHost: MAINNET_HOST, ...(privateKey ? { privateKey } : {}) })'))
+  assert.ok(vault.includes('TronWeb.fromMnemonic'))
+  assert.ok(vault.includes('Wallet.fromEncryptedJson'))
+  assert.ok(vault.includes("name: 'PBKDF2'"))
+  assert.ok(vault.includes("name: 'AES-GCM'"))
+  assert.ok(vault.includes("kdf: 'PBKDF2-SHA256'"))
+  assert.ok(vault.includes("cipher: 'AES-256-GCM'"))
+  assert.ok(vault.includes('export async function unlockSponsorWalletVault'))
+  assert.doesNotMatch(vault, /createRandom|Wallet\\.create/)
   assert.ok(component.includes('Independent Owner Admin authorization'))
   assert.ok(component.includes('ownerAuth.login(ownerAdminPassword)'))
   assert.doesNotMatch(component, /x-sponsor-admin-token/)
 })
 
-test('Sponsor Wallet authorizes exact Mainnet intents and delegates signing to the Resource API', () => {
+test('Sponsor Wallet operation requests remain gated until local signing is integrated with the Resource API', () => {
   assert.ok(component.includes('/api/sponsor/intent'))
   assert.ok(component.includes('/api/sponsor/operations'))
   assert.ok(component.includes('createIdempotencyKey'))
@@ -69,7 +76,7 @@ test('Sponsor activity supports persistent local pending records and solidified 
   assert.ok(component.includes('SECURITY_KEY'))
   assert.ok(component.includes('Security events'))
   assert.ok(component.includes('Sponsor password session opened'))
-  assert.ok(component.includes('Backend-managed Sponsor session revoked'))
+  assert.ok(component.includes('Local Sponsor signer cleared from memory'))
   assert.ok(component.includes('Session locked after 5 minutes without user activity'))
   assert.ok(component.includes('Session locked after the page remained hidden for 60 seconds'))
   assert.ok(component.includes("window.addEventListener(event, onActivity, { passive: true })"))
