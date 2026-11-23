@@ -89,7 +89,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const feeCapSun = useMemo(() => {
     try {
       const units = BigInt(parseTokenUnits(feeCap))
-      if (units > 500000000n) return 0
+      if (units > 150000000n) return 0
       return Number(units)
     } catch { return 0 }
   }, [feeCap])
@@ -523,7 +523,10 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <p><b>{pendingOperation.summary || pendingOperation.operationType}</b></p>
       <p className="fine-print">Operation ID: {pendingOperation.operationId}</p>
       <p className="fine-print">Exact intent SHA-256: {pendingOperation.intentSha256}</p>
-      <details><summary>Inspect exact contract method and arguments</summary><pre>{JSON.stringify({ method: pendingOperation.method, args: pendingOperation.args, feeLimitSun: pendingOperation.feeLimitSun || pendingOperation.preflight?.feeLimitSun }, null, 2)}</pre></details>
+      <details><summary>Inspect exact contract method and arguments</summary>
+        {pendingOperation.operationType === 'batch-credit' && Array.isArray(pendingOperation.args?.[0]) && <ol>{pendingOperation.args[0].map((address, index) => <li key={address + ':' + index}>{address} · {formatTokenUnits(pendingOperation.args?.[1]?.[index] || '0')} TRӾ · reference {pendingOperation.args?.[2]?.[index]}</li>)}</ol>}
+        <pre>{JSON.stringify({ method: pendingOperation.method, args: pendingOperation.args, feeLimitSun: pendingOperation.feeLimitSun || pendingOperation.preflight?.feeLimitSun }, null, 2)}</pre>
+      </details>
       <p className="fine-print">TRON Mainnet · Owner / fee payer: {pendingOperation.ownerAddress} · Contract: {pendingOperation.contractAddress}</p>
       {pendingOperation.preflight && <div className="trax-checks">
         <span>Energy required: {pendingOperation.preflight.requiredEnergyWithSafetyMargin || pendingOperation.preflight.estimatedEnergy}</span>
