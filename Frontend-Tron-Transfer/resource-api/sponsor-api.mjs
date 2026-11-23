@@ -599,6 +599,12 @@ export function createSponsorResourceApi({
       ? await authenticateManagedSession(req, { requireCsrf: req.method !== 'GET' })
       : verifySession(req, env, now())
     if (!session) return reply(res, 401, { success: false, error: 'sponsor-session-required' }, origin)
+    // A managed Sponsor session is bound to the address enrolled at that time.
+    // Re-check it against the currently configured Mainnet Sponsor identity on
+    // every request so an environment rotation cannot leave a stale signer active.
+    if (session.address !== env.SPONSOR_MAINNET_ADDRESS || session.address === ownerAddress) {
+      return reply(res, 403, { success: false, error: 'sponsor-session-address-mismatch' }, origin)
+    }
 
     if (req.method === 'POST' && path === '/api/sponsor/intent') {
       if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
