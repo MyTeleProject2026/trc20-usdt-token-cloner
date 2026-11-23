@@ -782,10 +782,38 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
-      if (!window.confirm('Confirm this exact Sponsor operation?\n\n' + intent.message + '\n\nThe local Sponsor signing and backend verification path is not yet implemented. The API will reject this operation; no Sponsor transaction is submitted.')) return
-      const result = await sponsorApiRequest('/api/sponsor/operations', {
+      if (!window.confirm('Confirm this exact Sponsor operation?\\n\\n' + intent.message + '\\n\\nThe Resource API will prepare and persist one unsigned transaction. The imported Sponsor Wallet will sign locally; the API will verify the signer and persist the transaction ID before broadcasting.')) return
+      const prepared = await sponsorApiRequest('/api/sponsor/operations/prepare', {
         method: 'POST', csrfToken: authCsrfToken,
         body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
+      })
+      const unsignedTransaction = prepared?.unsignedTransaction
+      if (!unsignedTransaction?.txID || !/^[0-9a-f]{64}$/i.test(unsignedTransaction.txID)
+        || typeof unsignedTransaction.raw_data_hex !== 'string'
+        || prepared.sponsorAddress !== wallet.address) {
+        throw new Error('Sponsor API returned an invalid or mismatched unsigned Mainnet transaction. No signature was requested.')
+      }
+      const expiration = Number(unsignedTransaction.raw_data?.expiration || 0)
+      if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
+        throw new Error('Prepared Sponsor transaction is too close to expiration. Refresh resources and prepare a new operation.')
+      }
+      if (!window.confirm('Review the exact unsigned Mainnet transaction before local signing.\\n\\nOperation: ' + action
+        + '\\nSponsor: ' + wallet.address + '\\nOwner: ' + OWNER_ADDRESS + '\\nTransaction ID: ' + unsignedTransaction.txID
+        + '\\nExpires: ' + new Date(expiration).toLocaleString()
+        + '\\n\\nOnly the imported local Sponsor Wallet signs this transaction. The Resource API will verify the signature and recheck balance and Bandwidth before broadcast.')) {
+        throw new Error('Sponsor signing cancelled. No signature or broadcast was attempted.')
+      }
+      const signedTransaction = await tronWeb.trx.sign(unsignedTransaction)
+      if (!signedTransaction || signedTransaction.txID !== unsignedTransaction.txID
+        || signedTransaction.raw_data_hex !== unsignedTransaction.raw_data_hex
+        || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(unsignedTransaction.raw_data)
+        || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length !== 1
+        || !/^[0-9a-f]{130}$/i.test(signedTransaction.signature[0])) {
+        throw new Error('Local Sponsor signer changed the prepared transaction or returned an invalid signature. Nothing was submitted.')
+      }
+      const result = await sponsorApiRequest('/api/sponsor/operations/submit', {
+        method: 'POST', csrfToken: authCsrfToken,
+        body: { operationReference: idempotencyKey, signedTransaction },
       })
       const transactionId = typeof result.transactionId === 'string' ? result.transactionId : ''
       if (transactionId) {
