@@ -358,11 +358,15 @@ export function createSponsorResourceApi({
     return true
   }
   const reply = (res, status, value, origin) => { send(res, status, value, origin); return true }
+  const localSponsorSigningImplemented = () => false
 
   let sponsorStatusCache = { at: 0, value: null }
   let sponsorStatusInFlight = null
   const buildStatusPayload = async () => {
         const readiness = engine.readiness()
+        // Fail closed until the imported Sponsor vault signs exact transactions locally.
+        // The legacy server-side engine signer is deliberately not accepted as a substitute.
+        const localSignerReady = false
         const databaseConnection = sponsorDatabaseConnectionInfo(env)
         const dbConfigured = databaseConnection.configured
         const expectedDatabaseIdentity = typeof env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256 === 'string'
@@ -420,6 +424,7 @@ export function createSponsorResourceApi({
           { id: 'writes-remain-paused-until-release', state: sponsorWritesPaused ? 'passed' : 'blocked' },
           { id: 'owner-admin-second-factor-configured', state: adminConfigured ? 'passed' : 'blocked' },
           { id: 'session-authentication-configured', state: sessionSecret(env) ? 'passed' : 'blocked' },
+          { id: 'sponsor-local-transaction-signer', state: localSignerReady ? 'passed' : 'blocked' },
           { id: 'mainnet-execution-explicitly-disabled', state: readiness.enabled !== true ? 'passed' : 'review-required' },
         ]
         const acceptancePassed = acceptanceChecks.every(check => check.state === 'passed')
@@ -449,7 +454,8 @@ export function createSponsorResourceApi({
           sponsorIndependent,
           engineConfigured: readiness.configured === true,
           engineEnabled: readiness.enabled === true,
-          transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
+          localSignerReady,
+          transactionExecutionAvailable: localSignerReady && readiness.broadcastAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
@@ -655,6 +661,14 @@ export function createSponsorResourceApi({
           await reservationClient.query('ROLLBACK')
           reservationTransactionOpen = false
           return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
+        }
+        // The legacy engine signs with SPONSOR_MAINNET_PRIVATE_KEY. Do not invoke
+        // it: Sponsor execution stays blocked until a browser-imported Sponsor
+        // vault signs the exact prepared transaction and the API verifies it.
+        if (!localSponsorSigningImplemented()) {
+          await reservationClient.query('ROLLBACK')
+          reservationTransactionOpen = false
+          return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented', retryAllowed: false }, origin)
         }
         const reserved = await reservationClient.query(
           'INSERT INTO public.tron_transfer_sponsor_operations (idempotency_key_hash,request_hash,operation,resource,amount_sun,sponsor_address,owner_address,status) VALUES ($1,$2,$3,$4,$5,$6,$7,\'reserved\') ON CONFLICT (idempotency_key_hash) DO NOTHING RETURNING id',
