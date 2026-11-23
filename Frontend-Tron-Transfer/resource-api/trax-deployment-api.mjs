@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { TronWeb } from 'tronweb'
+import pg from 'pg'
+import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
+import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 import {
   createMainnetDeploymentTransaction,
   estimateMainnetDeploymentEnergy,
@@ -14,6 +17,7 @@ import {
 import { loadPinnedTRAXDeploymentArtifact } from './trax-deployment-artifact.mjs'
 import { predictMainnetContractAddress, recoverMainnetDeployment, waitForSolidifiedReceipt } from '../src/trax-mainnet.mjs'
 
+const { Pool } = pg
 const OWNER = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID = /^[0-9a-f]{64}$/i
 const PHRASE = 'PREPARE TRӾ MAINNET DEPLOYMENT'
@@ -75,13 +79,22 @@ export function createTRAXDeploymentApi({
   broadcastDeployment = (client, signed) => client.trx.sendRawTransaction(signed),
 } = {}) {
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('TRӾ deployment API requires response and Owner-session adapters.')
+  let pool = database
+  async function getDatabase() {
+    if (pool) return pool
+    const connection = sponsorDatabaseConnectionString(env)
+    if (!connection) return null
+    pool = new Pool({ connectionString: normalizePostgresTlsMode(connection), connectionTimeoutMillis: 2500, query_timeout: 2500, statement_timeout: 2000, idleTimeoutMillis: 30000, max: 3 })
+    pool.on('error', error => process.stderr.write('TRӾ deployment ledger database error: ' + String(error?.code || 'unknown') + '\\n'))
+    return pool
+  }
   const mainnetEnabled = () => env.TRAX_DEPLOYMENT_EXECUTION_ENABLED === 'true'
     && env.TRAX_DEPLOYMENT_MAINNET_ACK === 'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT'
     && durabilityReady(env)
 
-  async function checkDatabase() {
-    if (!database || typeof database.query !== 'function') return false
-    const result = await database.query("SELECT to_regclass('public.tron_transfer_deployments') AS deployments_table")
+  async function checkDatabase(db) {
+    if (!db || typeof db.query !== 'function') return false
+    const result = await db.query("SELECT to_regclass('public.tron_transfer_deployments') AS deployments_table")
     return Boolean(result.rows?.[0]?.deployments_table)
   }
   async function handle(req, res, url, origin) {
@@ -96,7 +109,8 @@ export function createTRAXDeploymentApi({
     if (!session?.address || !OWNER.test(session.address) || session.address !== env.TRON_OWNER_ADDRESS) {
       return send(res, 401, { error: 'OWNER_SESSION_REQUIRED' }, origin)
     }
-    const ledgerReady = await checkDatabase().catch(() => false)
+    const db = await getDatabase().catch(() => null)
+    const ledgerReady = await checkDatabase(db).catch(() => false)
     const pinsConfigured = ['TRAX_SOURCE_SHA256','TRAX_CREATION_BYTECODE_SHA256','TRAX_RUNTIME_BYTECODE_SHA256','TRAX_DEPLOYMENT_ARTIFACT_SHA256']
       .every(name => /^[0-9a-f]{64}$/.test(String(env[name] || '')))
     let artifact = null
@@ -125,7 +139,8 @@ export function createTRAXDeploymentApi({
       }, origin)
     }
     if (statusPath) {
-      const rowResult = await database.query(
+      if (!db) return send(res, 503, { error: 'TRAX_DEPLOYMENT_LEDGER_DATABASE_UNAVAILABLE' }, origin)
+      const rowResult = await db.query(
         'SELECT operation_id,owner_address,idempotency_key,intent,intent_sha256,artifact_sha256,transaction_id,unsigned_transaction,signed_transaction,preflight,receipt,contract_address,state,failure_code,created_at,updated_at,signed_at,broadcast_at,confirmed_at FROM public.tron_transfer_deployments WHERE operation_id=$1 AND owner_address=$2',
         [statusMatch[1], session.address],
       )
@@ -167,6 +182,7 @@ export function createTRAXDeploymentApi({
       return send(res, 200, { success: true, deployment: row, recovery: { available: false, automaticRebroadcast: false } }, origin)
     }
     if (confirmPath) {
+      if (!db || !ledgerReady) return send(res, 503, { error: 'TRAX_DEPLOYMENT_LEDGER_NOT_READY' }, origin)
       const body = await readBody(req)
       const operationId = String(body.operationId || '')
       const intentSha256 = String(body.intentSha256 || '')
