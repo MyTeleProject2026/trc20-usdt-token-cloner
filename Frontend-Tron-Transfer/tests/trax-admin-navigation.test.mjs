@@ -20,6 +20,17 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
   assert.ok(mobile.includes('role="dialog"'))
 })
 
+test('account security and pending-owner acceptance stay inside existing workflows without new navigation tabs', async () => {
+  const app = await read('../src/App.jsx')
+  const ownership = await read('../src/TRAXOwnershipControls.jsx')
+  assert.ok(!app.includes("id: 'accept-ownership'"), 'pending-owner acceptance must not add a navigation page')
+  assert.ok(!app.includes("id: 'account-security'"), 'account security must not add a navigation page')
+  assert.ok(app.includes('ownerSecurityOpen') && app.includes('trax-topbar-security'), 'account security must open from existing Owner session controls')
+  assert.ok(!app.includes('PendingOwnerAcceptance'), 'pending-owner acceptance must not be routed as a standalone page')
+  assert.ok(ownership.includes("import PendingOwnerAcceptance from './PendingOwnerAcceptance.jsx'"))
+  assert.ok(ownership.includes('<PendingOwnerAcceptance/>'), 'pending-owner acceptance must be embedded in Ownership transfer')
+})
+
 test('each TRӾ admin page is wired to the existing on-chain operation', async () => {
   const panel = await read('../src/TRXMainnetPanel.jsx')
   const app = await read('../src/App.jsx')
