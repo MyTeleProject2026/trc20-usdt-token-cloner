@@ -38,6 +38,7 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverr
   }
   const fakeTronWeb = {
     address: { fromPrivateKey: () => SPONSOR, fromHex: () => SPONSOR },
+    utils: { transaction: { txCheck: () => true } },
     transactionBuilder: { freezeBalanceV2: async () => transaction },
     trx: {
       getBalance: async () => balance,
