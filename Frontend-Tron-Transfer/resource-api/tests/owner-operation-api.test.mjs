@@ -227,6 +227,7 @@ test('Owner confirmation fails closed on a fresh resource shortfall without sign
   await fixture.api.handle(request('POST', {
     confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
     intentSha256: fixture.intentSha256, contractAddress: contract,
+    signedTransaction: { txID: 'b'.repeat(64), raw_data_hex: 'ab'.repeat(32), raw_data: { expiration: Date.now() + 60_000 }, signature: ['a'.repeat(130)] },
   }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
   assert.equal(fixture.replies[0].status, 423)
   assert.equal(fixture.counts.broadcast, 0)
