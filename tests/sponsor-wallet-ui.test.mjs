@@ -11,6 +11,9 @@ test('Sponsor Wallet uses separate password authentication and an encrypted impo
   assert.ok(component.includes('sponsorAuth.login(authPassword)'))
   assert.ok(component.includes('credentials: \'include\''))
   assert.ok(component.includes('x-csrf-token'))
+  assert.ok(component.includes('x-owner-csrf-token'))
+  assert.ok(component.includes('ownerCsrfToken: ownerAdminCsrfToken'))
+  assert.ok(component.includes('setOwnerAdminCsrfToken(session.csrfToken || \'\')'))
   assert.ok(component.includes('const RESOURCE_API ='))
   assert.ok(component.includes('Import existing Sponsor Wallet'))
   assert.ok(component.includes('Private key'))
@@ -41,7 +44,7 @@ test('Sponsor Wallet uses separate password authentication and an encrypted impo
   assert.doesNotMatch(component, /x-sponsor-admin-token/)
 })
 
-test('Sponsor Wallet operation requests remain gated until local signing is integrated with the Resource API', () => {
+test('Sponsor Wallet signs locally and submits only exact prepared transactions while Mainnet release gates remain enforced', () => {
   assert.ok(component.includes('/api/sponsor/intent'))
   assert.ok(component.includes('/api/sponsor/operations'))
   assert.ok(component.includes('createIdempotencyKey'))
