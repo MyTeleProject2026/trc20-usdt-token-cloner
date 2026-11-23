@@ -412,7 +412,7 @@ export function createSponsorResourceApi({
     cleanup(now())
 
     if (req.method === 'GET' && (path === '/api/sponsor/status' || path === '/api/acceptance/production')) {
-      if (sponsorStatusCache.value && now() - sponsorStatusCache.at < 5000) {
+      if (sponsorStatusCache.value?.sponsorWritesPaused === true && now() - sponsorStatusCache.at < 5000) {
         return reply(res, 200, sponsorStatusCache.value, origin)
       }
       let pending = sponsorStatusInFlight
@@ -422,7 +422,7 @@ export function createSponsorResourceApi({
       }
       try {
         const payload = await pending
-        sponsorStatusCache = { at: now(), value: payload }
+        sponsorStatusCache = payload.sponsorWritesPaused === true ? { at: now(), value: payload } : { at: 0, value: null }
         return reply(res, 200, payload, origin)
       } catch {
         return reply(res, 503, {
