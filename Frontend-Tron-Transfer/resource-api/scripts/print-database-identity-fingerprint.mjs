@@ -27,12 +27,12 @@ try {
     ? ownerAdminDatabaseInfo(process.env.OWNER_ADMIN_DATABASE_URL.trim())
     : sponsorDatabaseConnectionInfo(process.env)
 } catch {
-  process.stderr.write('Database identity fingerprint unavailable; selected database URL is invalid. No connection details were printed.\\n')
+  process.stderr.write('Database identity fingerprint unavailable; selected database URL is invalid. No connection details were printed.\n')
   process.exitCode = 1
 }
 
 if (!process.exitCode && (!info?.configured && !info?.identityFingerprint || !/^[0-9a-f]{64}$/.test(info?.identityFingerprint || ''))) {
-  process.stderr.write('Database identity fingerprint unavailable; configure a valid OWNER_ADMIN_DATABASE_URL or Sponsor/DATABASE_URL. No connection details were printed.\\n')
+  process.stderr.write('Database identity fingerprint unavailable; configure a valid OWNER_ADMIN_DATABASE_URL or Sponsor/DATABASE_URL. No connection details were printed.\n')
   process.exitCode = 1
 } else if (!process.exitCode) {
   process.stdout.write(JSON.stringify({
@@ -40,5 +40,5 @@ if (!process.exitCode && (!info?.configured && !info?.identityFingerprint || !/^
     provider: info.provider,
     connectionMode: info.connectionMode,
     identityFingerprint: info.identityFingerprint,
-  }, null, 2) + '\\n')
+  }, null, 2) + '\n')
 }
