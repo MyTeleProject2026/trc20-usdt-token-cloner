@@ -24,7 +24,7 @@ function fakeDatabase() {
       }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')) { const now = new Date().toISOString(); state.sessions.push({ session_id: state.sessions.length + 1, wallet_role: 'sponsor', token_hash: params[1], csrf_hash: params[2], revoked_at: null, created_at: now, last_seen_at: now, expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString() }); return { rowCount: 1, rows: [] } }
       if (sql.includes('SELECT * FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [state.account] : [] }
-      if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role=\'sponsor\' AND session_id<>$1')) { let count=0; state.sessions.forEach(x => { if (x.wallet_role==='sponsor' && x.session_id!==Number(params[0]) && !x.revoked_at) { x.revoked_at=new Date(); count++ } }); return { rowCount: count, rows: state.sessions.filter(x=>x.wallet_role==='sponsor'&&x.session_id!==Number(params[0])&&x.revoked_at).map(x=>({session_id:x.session_id})) } }
+      if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()') && sql.includes("wallet_role='sponsor'") && sql.includes('session_id<>$1')) { let count=0; state.sessions.forEach(x => { if (x.wallet_role==='sponsor' && x.session_id!==Number(params[0]) && !x.revoked_at) { x.revoked_at=new Date(); count++ } }); return { rowCount: count, rows: state.sessions.filter(x=>x.wallet_role==='sponsor'&&x.session_id!==Number(params[0])&&x.revoked_at).map(x=>({session_id:x.session_id})) } }
       if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role=\'sponsor\'')) { let count=0; state.sessions.forEach(x => { if (x.wallet_role==='sponsor' && !x.revoked_at) { x.revoked_at = new Date(); count++ } }); return { rowCount: count, rows: [] } }
       if (sql.includes('UPDATE public.tron_transfer_wallet_accounts SET failed_attempts=0')) { if (state.account) state.account.failed_attempts = 0; return { rowCount: 1, rows: [] } }
       if (sql.includes('UPDATE public.tron_transfer_wallet_accounts') && sql.includes('password_hash=$1')) { if (state.account) Object.assign(state.account,{password_hash:params[0],password_salt:params[1],password_algorithm:'scrypt',password_params:JSON.parse(params[2]),failed_attempts:0,locked_until:null}); return { rowCount: state.account?1:0, rows: state.account?[{wallet_address:state.account.wallet_address}]:[] } }
@@ -137,4 +137,28 @@ test('Sponsor one-time recovery consumes only Sponsor token and revokes Sponsor 
  assert.ok(db.state.recoveryTokens[0].consumed_at)
  assert.ok(db.state.sessions[0].revoked_at)
  assert.equal(await verifyWalletPassword('recovered sponsor password phrase 789',{passwordHash:db.state.account.password_hash,passwordSalt:db.state.account.password_salt,passwordAlgorithm:db.state.account.password_algorithm,passwordParams:db.state.account.password_params}),true)
+})
+
+
+test('Sponsor session revocation cannot revoke the current session and can revoke other sessions',async()=>{
+ const db=fakeDatabase()
+ const verifier=await hashWalletPassword('current sponsor password phrase 123')
+ db.state.account={wallet_address:address,password_hash:verifier.passwordHash,password_salt:verifier.passwordSalt,password_algorithm:verifier.passwordAlgorithm,password_params:verifier.passwordParams,enabled:true,failed_attempts:0}
+ const api=createSponsorWalletAuthApi({env:{},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
+ const login=response()
+ await api.handle(request('POST',{}, {password:'current sponsor password phrase 123'}),login,new URL('https://api.test/api/wallet-auth/sponsor/login'),'https://tron-transfer.onrender.com')
+ const headers=authHeaders(login)
+ db.state.sessions.push({session_id:99,wallet_role:'sponsor',token_hash:'other-token-hash',csrf_hash:'other-csrf-hash',revoked_at:null,created_at:new Date().toISOString(),last_seen_at:new Date().toISOString(),expires_at:new Date(Date.now()+3600000).toISOString()})
+ const one=response()
+ await api.handle(request('POST',headers,{}),one,new URL('https://api.test/api/wallet-auth/sponsor/sessions/99/revoke'),'https://tron-transfer.onrender.com')
+ assert.equal(one.status,200)
+ assert.ok(db.state.sessions.find(x=>x.session_id===99).revoked_at)
+ assert.equal(db.state.sessions.find(x=>x.session_id===1).revoked_at,null)
+ db.state.sessions.push({session_id:100,wallet_role:'sponsor',token_hash:'another-token-hash',csrf_hash:'another-csrf-hash',revoked_at:null,created_at:new Date().toISOString(),last_seen_at:new Date().toISOString(),expires_at:new Date(Date.now()+3600000).toISOString()})
+ const others=response()
+ await api.handle(request('POST',headers,{}),others,new URL('https://api.test/api/wallet-auth/sponsor/sessions/revoke-others'),'https://tron-transfer.onrender.com')
+ assert.equal(others.status,200)
+ assert.equal(JSON.parse(others.body).revokedCount,1)
+ assert.equal(db.state.sessions.find(x=>x.session_id===1).revoked_at,null)
+ assert.ok(db.state.sessions.find(x=>x.session_id===100).revoked_at)
 })
