@@ -65,7 +65,7 @@ test('deployment confirmation is locked even when readiness checks pass', async(
 })
 
 
-test('deployment confirmation accepts full-size TronLink transaction payloads before applying execution gates', async()=>{
+test('deployment confirmation accepts full-size local Owner Wallet transaction payloads before applying execution gates', async()=>{
  const {api,replies}=make()
  await api.handle(req('POST',{
   operationId:'123e4567-e89b-42d3-a456-426614174000',
@@ -78,7 +78,7 @@ test('deployment confirmation accepts full-size TronLink transaction payloads be
  assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_EXECUTION_GATES_LOCKED')
 })
 
-test('deployment confirmation refuses to claim an operation without a TronLink signature', async()=>{
+test('deployment confirmation refuses to claim an operation without a local Owner Wallet signature', async()=>{
  const {api,replies}=make({env:{
   TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',
   TRAX_DEPLOYMENT_MAINNET_ACK:'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT',
@@ -92,7 +92,7 @@ test('deployment confirmation refuses to claim an operation without a TronLink s
   confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT',
  }),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
  assert.equal(replies[0].status,409)
- assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_TRONLINK_SIGNATURE_REQUIRED')
+ assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_OWNER_SIGNATURE_REQUIRED')
 })
 
 test('deployment confirmation persists signed payload and broadcast-unknown state before network broadcast', async()=>{
