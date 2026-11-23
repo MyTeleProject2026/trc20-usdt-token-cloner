@@ -59,7 +59,7 @@ export default function App() {
     let active = true
     const restoreOwnerSession = () => ownerAuthClient.session().then(session => {
       if (active && session.address === 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp') {
-        setWallet({ address: session.address, managedSession: true, signerType: 'backend-managed-owner', authClient: ownerAuthClient })
+        setWallet({ address: session.address, managedSession: true, signerType: 'session-only', authClient: ownerAuthClient })
       }
     }).catch(() => {})
     void restoreOwnerSession()
@@ -93,7 +93,7 @@ export default function App() {
     setWallet(ownerWallet)
     setOwnerAccessOpen(false)
     setWalletError('')
-    setWalletNotice('Backend-managed Owner password session authenticated. TRӾ contract writes remain locked until the server-side operation and Mainnet preflight integration is enabled.')
+    setWalletNotice('Owner application session restored. Connect the matching TronLink wallet before preparing any Mainnet write.')
   }
 
   function lockWallet() {
