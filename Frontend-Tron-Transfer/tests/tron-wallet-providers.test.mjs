@@ -55,6 +55,17 @@ test('falls back to eth_requestAccounts only when the TRON method is unsupported
   assert.deepEqual(provider.calls, ['tron_requestAccounts', 'eth_requestAccounts'])
 })
 
+test('parses the TronLink DApp-browser code/data account response', async () => {
+  const provider = makeProvider()
+  const address = provider.tronWeb.defaultAddress.base58
+  provider.request = async ({ method }) => method === 'tron_requestAccounts'
+    ? { code: 200, message: 'Success', data: { address } }
+    : []
+  const result = await requestTronLinkConnection(provider, {})
+  assert.equal(result.address, address)
+  assert.deepEqual(result.accounts, [address])
+})
+
 test('rejects a TronWeb signer whose active address differs from the authorized account', async () => {
   const provider = makeProvider()
   const wrongAddress = 'T' + '3'.repeat(33)
