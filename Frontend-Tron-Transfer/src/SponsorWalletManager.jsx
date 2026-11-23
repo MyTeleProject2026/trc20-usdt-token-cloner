@@ -157,6 +157,13 @@ function CenterToast({ toast, onClose }) {
 export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {}, workspaceActive = true }) {
   const [wallet, setWallet] = useState(null)
   const [authPassword, setAuthPassword] = useState('')
+  const [authRecoveryMode, setAuthRecoveryMode] = useState(false)
+  const [authRecoveryToken, setAuthRecoveryToken] = useState('')
+  const [authRecoveryConfirmPassword, setAuthRecoveryConfirmPassword] = useState('')
+  const [sponsorSessions, setSponsorSessions] = useState([])
+  const [currentSponsorPassword, setCurrentSponsorPassword] = useState('')
+  const [newSponsorPassword, setNewSponsorPassword] = useState('')
+  const [confirmSponsorPassword, setConfirmSponsorPassword] = useState('')
   const [authCsrfToken, setAuthCsrfToken] = useState('')
   const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
   const ownerAuth = useMemo(() => createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: RESOURCE_API }), [])
@@ -274,6 +281,58 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     } finally { setBusy(false) }
   }
 
+  async function recoverSponsorPassword() {
+    if (busy || authPassword.length < 12 || authPassword !== authRecoveryConfirmPassword || authRecoveryToken.trim().length < 32) return
+    setBusy(true)
+    try {
+      await sponsorAuth.recoverPassword(authRecoveryToken.trim(), authPassword)
+      setAuthPassword(''); setAuthRecoveryToken(''); setAuthRecoveryConfirmPassword(''); setAuthRecoveryMode(false)
+      notify('success', 'Sponsor password recovered', 'All previous Sponsor sessions were revoked. Sign in using the new password.')
+    } catch (error) { notify('error', 'Sponsor password recovery failed', error instanceof Error ? error.message : 'Could not recover the Sponsor account.') }
+    finally { setBusy(false) }
+  }
+
+  async function refreshSponsorSessions() {
+    if (!wallet?.address) return
+    const result = await sponsorAuth.sessions()
+    setSponsorSessions(Array.isArray(result.sessions) ? result.sessions : [])
+  }
+
+  async function changeSponsorPassword(event) {
+    event.preventDefault()
+    if (busy || newSponsorPassword.length < 12 || newSponsorPassword !== confirmSponsorPassword) return
+    setBusy(true)
+    try {
+      await sponsorAuth.changePassword(currentSponsorPassword, newSponsorPassword)
+      const session = await sponsorAuth.session()
+      setAuthCsrfToken(session.csrfToken || '')
+      setCurrentSponsorPassword(''); setNewSponsorPassword(''); setConfirmSponsorPassword('')
+      await refreshSponsorSessions()
+      notify('success', 'Sponsor password changed', 'All previous Sponsor sessions were revoked and this browser received a fresh session.')
+    } catch (error) { notify('error', 'Sponsor password change failed', error instanceof Error ? error.message : 'Could not change the Sponsor password.') }
+    finally { setBusy(false) }
+  }
+
+  async function revokeSponsorSession(sessionId) {
+    setBusy(true)
+    try { const result = await sponsorAuth.revokeSession(sessionId); await refreshSponsorSessions(); notify('success', 'Sponsor session updated', result.revoked ? 'The selected Sponsor session was revoked.' : 'The selected session was already inactive.') }
+    catch (error) { notify('error', 'Session revocation failed', error instanceof Error ? error.message : 'Could not revoke the selected session.') }
+    finally { setBusy(false) }
+  }
+
+  async function revokeOtherSponsorSessions() {
+    setBusy(true)
+    try { const result = await sponsorAuth.revokeOtherSessions(); await refreshSponsorSessions(); notify('success', 'Other Sponsor sessions revoked', String(result.revokedCount || 0) + ' other session(s) were revoked.') }
+    catch (error) { notify('error', 'Session revocation failed', error instanceof Error ? error.message : 'Could not revoke other sessions.') }
+    finally { setBusy(false) }
+  }
+
+  useEffect(() => {
+    if (!wallet?.address || !workspaceActive) { setSponsorSessions([]); return undefined }
+    let active = true
+    void sponsorAuth.sessions().then(result => { if (active) setSponsorSessions(Array.isArray(result.sessions) ? result.sessions : []) }).catch(() => { if (active) setSponsorSessions([]) })
+    return () => { active = false }
+  }, [wallet?.address, workspaceActive, sponsorAuth])
   useEffect(() => {
     const reloadTargets = () => {
       setEnergyTarget(readSavedTarget('energy', '1278524'))
@@ -819,8 +878,10 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
 
     {activePage === 'sponsor' && !wallet && <section className="sponsor-card sponsor-unlock-card">
       <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Workspace Login</h3><p>Sign in to the existing backend-managed Sponsor Mainnet account. The private key remains on the Resource API and is never entered in this page.</p></div></div>
-      <label className="sponsor-field">Sponsor account password<input type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} autoComplete="current-password" minLength={12}/><small>Use the password enrolled for the Sponsor wallet. Passwords are verified by the backend; failed attempts are rate-limited and may temporarily lock the account.</small></label>
-      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || authPassword.length < 12} onClick={() => void loginSponsorWallet()}>{busy ? 'Authenticating…' : 'Login to Sponsor Workspace'}</button></div>
+      {authRecoveryMode && <label className="sponsor-field">One-time Sponsor recovery token<input type="password" value={authRecoveryToken} onChange={event => setAuthRecoveryToken(event.target.value)} autoComplete="off"/></label>}
+      <label className="sponsor-field">{authRecoveryMode ? 'New Sponsor password' : 'Sponsor account password'}<input type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} autoComplete={authRecoveryMode ? 'new-password' : 'current-password'} minLength={12}/><small>{authRecoveryMode ? 'Use the new password you want to set. Recovery tokens are single-use and expire after 30 minutes.' : 'Use the password enrolled for the Sponsor wallet. Passwords are verified by the backend; failed attempts are rate-limited and may temporarily lock the account.'}</small></label>
+      {authRecoveryMode && <label className="sponsor-field">Confirm new Sponsor password<input type="password" value={authRecoveryConfirmPassword} onChange={event => setAuthRecoveryConfirmPassword(event.target.value)} autoComplete="new-password" minLength={12}/></label>}
+      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || authPassword.length < 12 || (authRecoveryMode && (authRecoveryToken.length < 32 || authRecoveryConfirmPassword !== authPassword))} onClick={() => void (authRecoveryMode ? recoverSponsorPassword() : loginSponsorWallet())}>{busy ? 'Working…' : authRecoveryMode ? 'Recover Sponsor password' : 'Login to Sponsor Workspace'}</button>{saved === true && <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => {setAuthRecoveryMode(value => !value);setAuthPassword('');setAuthRecoveryToken('');setAuthRecoveryConfirmPassword('')}}>{authRecoveryMode ? 'Back to Sponsor login' : 'Recover password'}</button>}</div>
       {saved === false && <p className="sponsor-warning">No Sponsor password account is enrolled yet. Complete the one-time backend enrollment before logging in; do not enter a private key here.</p>}
       <p className="sponsor-security-note"><ShieldCheck/> Session cookie is HttpOnly, Secure and role-specific. Lock or logout revokes the backend session. No browser private-key import is used by this login.</p>
     </section>}
