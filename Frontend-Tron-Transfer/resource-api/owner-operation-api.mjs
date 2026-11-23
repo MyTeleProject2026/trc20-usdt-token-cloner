@@ -91,7 +91,7 @@ async function readBody(req) {
   let size = 0
   for await (const chunk of req) {
     size += chunk.length
-    if (size > 16_384) fail('OWNER_OPERATION_REQUEST_TOO_LARGE', 413)
+    if (size > 128 * 1024) fail('OWNER_OPERATION_REQUEST_TOO_LARGE', 413)
     chunks.push(chunk)
   }
   try {
