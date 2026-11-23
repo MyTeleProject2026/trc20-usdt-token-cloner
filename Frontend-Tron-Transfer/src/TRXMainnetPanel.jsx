@@ -6,6 +6,7 @@ import {
   parseBatchCreditRows, parseTokenUnits, saveContractAddresses, verifyTRAXTokenContract, getMainnetUSDTBalance,
 } from './trax-mainnet.mjs'
 import { calculatePortfolioValue, fetchTRXReferencePrice } from './trax-pricing.mjs'
+import { requestTronLinkConnection } from './tronlink-provider.mjs'
 import TRAXOwnershipControls from './TRAXOwnershipControls.jsx'
 import TRAXCreditHistory from './TRAXCreditHistory.jsx'
 import './trax-mainnet.css'
@@ -82,8 +83,11 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
   const connectedAddress = wallet?.address || ''
   const readOnlyTronWeb = useMemo(() => new TronWeb({ fullHost: RESOURCE_API_BASE + '/api/tron/mainnet/rpc' }), [])
-  const panelWallet = useMemo(() => wallet?.managedSession ? { ...wallet, tronWeb: readOnlyTronWeb } : wallet, [wallet, readOnlyTronWeb])
-  const walletReady = Boolean(wallet?.managedSession && connectedAddress === EXPECTED_OWNER_ADDRESS)
+  const panelWallet = useMemo(() => wallet?.managedSession ? { ...wallet, readOnlyTronWeb } : wallet, [wallet, readOnlyTronWeb])
+  const walletReady = Boolean(wallet?.managedSession && wallet?.provider?.request
+    && typeof wallet?.tronWeb?.trx?.sign === 'function'
+    && wallet?.tronWeb?.defaultAddress?.base58 === EXPECTED_OWNER_ADDRESS
+    && connectedAddress === EXPECTED_OWNER_ADDRESS)
   useEffect(() => {
     if (walletReady) return
     setPendingOperation(null)
@@ -94,6 +98,17 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setDeploymentConfirmationPhrase('')
     setDeploymentExecutionEnabled(false)
   }, [walletReady])
+  const getTronLinkSigner = async () => {
+    if (!wallet?.provider?.request) throw new Error('Connect the configured Owner account in TronLink before signing.')
+    const connection = await requestTronLinkConnection(wallet.provider, window)
+    if (connection.address !== connectedAddress || connection.address !== EXPECTED_OWNER_ADDRESS
+      || connection.tronWeb?.defaultAddress?.base58 !== EXPECTED_OWNER_ADDRESS
+      || typeof connection.tronWeb?.trx?.sign !== 'function') {
+      throw new Error('The active TronLink signer no longer matches the authenticated Owner account. Reconnect before signing.')
+    }
+    return connection.tronWeb
+  }
+
   const feeCapSun = useMemo(() => {
     try {
       const units = BigInt(parseTokenUnits(feeCap))
@@ -175,22 +190,29 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     if (!walletReady || !deploymentReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Run a successful, unexpired backend deployment readiness check first.')
     const result = await wallet.authClient.apiRequest('/api/owner/deployment/prepare', { method: 'POST', csrf: true, body: { confirmationPhrase: 'PREPARE TRӾ MAINNET DEPLOYMENT', idempotencyKey: makeIdempotencyKey(), feeLimitSun: String(feeCapSun) } })
     const deployment = result.deployment || {}
-    setDeploymentOperation({ operationId: result.operationId || deployment.operation_id, intentSha256: result.intentSha256 || deployment.intent_sha256, state: deployment.state || 'prepared', transactionId: deployment.transaction_id || deployment.transactionId, contractAddress: deployment.contract_address || deployment.contractAddress || '', confirmationPhrase: result.confirmationPhrase || 'CONFIRM TRӾ MAINNET DEPLOYMENT', executionEnabled: deploymentExecutionEnabled })
+    setDeploymentOperation({ operationId: result.operationId || deployment.operation_id, intentSha256: result.intentSha256 || deployment.intent_sha256, unsignedTransaction: result.unsignedTransaction || deployment.unsignedTransaction || null, state: deployment.state || 'prepared', transactionId: deployment.transaction_id || deployment.transactionId, contractAddress: deployment.contract_address || deployment.contractAddress || '', confirmationPhrase: result.confirmationPhrase || 'CONFIRM TRӾ MAINNET DEPLOYMENT', executionEnabled: deploymentExecutionEnabled })
     setDeploymentConfirmationPhrase('')
-    setNotice('The exact unsigned CreateSmartContract transaction and artifact fingerprints are persisted. No browser key or signature was used. Review the execution gate before confirmation.')
+    setNotice('The exact unsigned CreateSmartContract transaction and artifact fingerprints are persisted. No signature was requested yet; the separate confirmation will open TronLink for Owner approval.')
     return result
   })
 
-  const confirmDeployment = () => run('Backend signing and broadcasting the approved TRӾ deployment', async () => {
-    if (!deploymentOperation?.operationId || !deploymentOperation.intentSha256) throw new Error('Prepare the exact deployment intent before confirmation.')
+  const confirmDeployment = () => run('Requesting explicit TronLink approval for TRӾ deployment', async () => {
+    if (!deploymentOperation?.operationId || !deploymentOperation.intentSha256 || !deploymentOperation.unsignedTransaction) throw new Error('Prepare and review the exact unsigned deployment transaction first.')
     if (!deploymentExecutionEnabled) throw new Error('Deployment execution remains locked until independent database backup/restore and production acceptance gates are verified.')
     if (deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase) throw new Error('Type the exact deployment confirmation phrase shown below.')
+    const signer = await getTronLinkSigner()
+    const signedTransaction = await signer.trx.sign(deploymentOperation.unsignedTransaction)
+    if (!Array.isArray(signedTransaction?.signature) || signedTransaction.signature.length !== 1
+      || String(signedTransaction.txID || '').toLowerCase() !== String(deploymentOperation.unsignedTransaction.txID || '').toLowerCase()
+      || String(signedTransaction.raw_data_hex || '').toLowerCase() !== String(deploymentOperation.unsignedTransaction.raw_data_hex || '').toLowerCase()) {
+      throw new Error('TronLink did not return a signature for the exact prepared deployment. Nothing was submitted.')
+    }
     let result
-    try { result = await wallet.authClient.apiRequest('/api/owner/deployment/confirm', { method: 'POST', csrf: true, body: { operationId: deploymentOperation.operationId, intentSha256: deploymentOperation.intentSha256, confirmationPhrase: deploymentOperation.confirmationPhrase } }) }
+    try { result = await wallet.authClient.apiRequest('/api/owner/deployment/confirm', { method: 'POST', csrf: true, body: { operationId: deploymentOperation.operationId, intentSha256: deploymentOperation.intentSha256, confirmationPhrase: deploymentOperation.confirmationPhrase, signedTransaction } }) }
     catch (requestError) { const recovered = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId).catch(() => null); if (recovered?.deployment) setDeploymentOperation(current => ({ ...current, ...recovered.deployment, executionEnabled: deploymentExecutionEnabled })); throw requestError }
     setDeploymentOperation(current => ({ ...current, ...(result.deployment || {}), executionEnabled: deploymentExecutionEnabled }))
     setDeploymentConfirmationPhrase('')
-    setNotice(result.message || 'Deployment transaction was processed by the backend. Reconcile the original transaction ID until the solidified receipt and runtime verification complete.')
+    setNotice(result.message || 'TronLink approved the transaction. The Resource API verified the signature, persisted it, and submitted the original transaction for Mainnet confirmation.')
     return result
   })
 
@@ -268,12 +290,21 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     if (confirmationPhrase !== pendingOperation.confirmationPhrase) throw new Error('Type the exact confirmation phrase shown below.')
     let result
     try {
+      if (!pendingOperation.unsignedTransaction) throw new Error('The prepared unsigned transaction is unavailable. Cancel and prepare the operation again.')
+      const signer = await getTronLinkSigner()
+      const signedTransaction = await signer.trx.sign(pendingOperation.unsignedTransaction)
+      if (!Array.isArray(signedTransaction?.signature) || signedTransaction.signature.length !== 1
+        || String(signedTransaction.txID || '').toLowerCase() !== String(pendingOperation.unsignedTransaction.txID || '').toLowerCase()
+        || String(signedTransaction.raw_data_hex || '').toLowerCase() !== String(pendingOperation.unsignedTransaction.raw_data_hex || '').toLowerCase()) {
+        throw new Error('TronLink did not return a signature for the exact prepared Owner operation. Nothing was submitted.')
+      }
       result = await wallet.authClient.apiRequest('/api/owner/operations/' + pendingOperation.operationId + '/confirm', {
         method: 'POST', csrf: true,
         body: {
           confirmationPhrase,
           intentSha256: pendingOperation.intentSha256,
           contractAddress: pendingOperation.contractAddress,
+          signedTransaction,
         },
       })
     } catch (requestError) {
@@ -464,7 +495,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         {promoClaimStatus && <div className="trax-state-banner"><b>Free Energy promotion: {promoClaimStatus.status}</b><span>{promoClaimStatus.energyVerified ? "Provider delegation was independently observed; fresh deployment preflight will verify exact required coverage." : (promoClaimStatus.message || "No grant has been verified. Deployment remains subject to live Mainnet resource checks.")}</span></div>}
         {deploymentReadiness && <div className={'trax-state-banner' + (deploymentReady ? ' success' : '')}><b>{deploymentReady ? 'Artifact and ledger readiness passed · expires in 60 seconds' : 'Deployment readiness blocked'}</b><span>{deploymentReadiness.blocker || ('Execution: ' + (deploymentReadiness.executionEnabled ? 'enabled by server gates' : 'locked') + ' · Backup: ' + (deploymentReadiness.gates?.backupVerified ? 'verified' : 'not verified') + ' · Restore test: ' + (deploymentReadiness.gates?.restoreTested ? 'verified' : 'not verified'))}</span></div>}
         <div className="button-row"><button type="button" className="secondary-button" disabled={true} onClick={claimTenergyPromo}><ShieldCheck size={15}/> Check &amp; claim TEnergy Energy</button><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}><Rocket size={15}/> Prepare deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
-        {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span><label>Type confirmation phrase<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Confirm backend deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshDeploymentStatus}><RefreshCw size={15}/> Reconcile status</button></div>{!deploymentExecutionEnabled && <p className="fine-print">Signing and broadcast remain locked until database durability, backup/restore and independent production acceptance gates pass. No wallet signature is requested by this page.</p>}</div>}
+        {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span><label>Type confirmation phrase<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Confirm with TronLink</button><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshDeploymentStatus}><RefreshCw size={15}/> Reconcile status</button></div>{!deploymentExecutionEnabled && <p className="fine-print">Signing and broadcast remain locked until database durability, backup/restore and independent production acceptance gates pass. TronLink must approve the exact prepared transaction before the Resource API can verify and broadcast it.</p>}</div>}
       </div>}
       {show('portfolio') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
       {!show('portfolio', 'deploy') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
