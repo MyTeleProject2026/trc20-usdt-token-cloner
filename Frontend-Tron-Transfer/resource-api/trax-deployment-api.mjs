@@ -150,6 +150,9 @@ export function createTRAXDeploymentApi({
       )
       const row = rowResult.rows?.[0]
       if (!row) return send(res, 404, { error: 'TRAX_DEPLOYMENT_NOT_FOUND' }, origin)
+      // Keep signed/raw transaction payloads server-side; the browser only needs
+      // the transaction ID, predicted address, state and verified receipt.
+      const { unsigned_transaction: _unsignedTransaction, signed_transaction: _signedTransaction, ...publicRow } = row
       if (['signed','broadcast-unknown','broadcast'].includes(row.state)) {
         try {
           const artifactNow = await artifactLoader({ env })
@@ -185,13 +188,13 @@ export function createTRAXDeploymentApi({
           }, origin)
         } catch (error) {
           return send(res, 202, {
-            success: true, deployment: row,
+            success: true, deployment: publicRow,
             recovery: { available: true, solidified: false, automaticRebroadcast: false },
             message: String(error?.message || 'Solidified Mainnet receipt is not yet available. Keep the original transaction ID and retry status recovery.').slice(0,240),
           }, origin)
         }
       }
-      return send(res, 200, { success: true, deployment: row, recovery: { available: false, automaticRebroadcast: false } }, origin)
+      return send(res, 200, { success: true, deployment: publicRow, recovery: { available: false, automaticRebroadcast: false } }, origin)
     }
     if (confirmPath) {
       if (!db || !ledgerReady) return send(res, 503, { error: 'TRAX_DEPLOYMENT_LEDGER_NOT_READY' }, origin)
