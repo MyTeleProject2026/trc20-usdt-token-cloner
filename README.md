@@ -2,7 +2,7 @@
 
 TRON Transfer is the existing TRON Mainnet Owner Admin application. It includes the AETHERIA Home, TRӾ contract administration, and two independent local wallet workspaces: Owner and Sponsor. The Sponsor Wallet is part of the same application; it is not a separate portal or a wallet-creation service.
 
-> **Release status — 24 November 2026:** architecture corrections and the local Sponsor signing protocol are implemented on [draft PR #263](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/263). The latest verified frontend workflows passed (155 tests, zero failures, frontend build successful). The PR is not merged or deployed. Production database acceptance and Mainnet release gates remain closed.
+> **Release status — 24 November 2026:** architecture corrections and the local Sponsor signing protocol are implemented on [draft PR #263](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/263). The latest verified frontend workflows passed (155 tests, zero failures, frontend build successful). The PR is not merged or verified as deployed to production. Production database acceptance and Mainnet release gates remain closed.
 
 ## Wallet architecture
 
@@ -49,5 +49,16 @@ The existing `contracts/Restricted1TRAX.sol` source is preserved byte-for-byte. 
 - [Integrated Sponsor Wallet architecture](docs/INTEGRATED_SPONSOR_WALLET.md)
 - [Sponsor go-live gates](docs/SPONSOR_GO_LIVE_GATES.md)
 - [Draft implementation PR #263](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/263)
+
+## Separate legacy sponsor-direct payout service
+
+The repository retains a separate sponsor-direct USDT payout backend for existing treasury/settlement integrations. It is **not** the integrated Sponsor resource wallet, and its former standalone TronLink UI has been removed from the Owner Admin application. The historical [individual sponsor brief](docs/SPONSOR_BRIEF.md) (status date 12 November 2026) describes that separate workflow and should not be used as instructions for the active local Sponsor vault.
+
+- [Read the historical individual sponsor brief](docs/SPONSOR_BRIEF.md).
+- Open a [public, non-sensitive individual sponsor inquiry](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/issues/new?template=individual-sponsor-inquiry.yml). Do not post wallet addresses, personal documents, private keys or seed phrases.
+- [Legacy sponsor operating rules](docs/EXTERNAL_SPONSOR_OPERATING_CONTRACT.md).
+- [Legacy sponsor/provider integration notes](docs/INDIVIDUAL_SPONSOR_AND_PROVIDER_FUNDING_INTEGRATION.md).
+
+The historical brief documents a $5,000–$10,000 equivalent target in sponsor-controlled official TRON Mainnet USDT capacity. That is not a current funding claim, platform deposit, owner-controlled treasury balance, or promise of payout liquidity. The current integrated Sponsor Wallet is for TRX/resource management and Sponsor-to-Owner resource top-ups as documented above.
 
 A separate legacy sponsor-direct payout backend remains distinct from the integrated Sponsor resource wallet. It is not exposed as a page in the Owner Admin navigation and is not used for Sponsor staking, delegation, or TRӾ deployment.
