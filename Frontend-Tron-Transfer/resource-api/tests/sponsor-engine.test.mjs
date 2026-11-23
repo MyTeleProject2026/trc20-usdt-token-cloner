@@ -92,6 +92,61 @@ test('engine requires an explicit signer adapter and never loads a server-side S
   assert.equal(result.status, 'sponsor-engine-disabled-or-unconfigured')
 })
 
+
+test('client-local preparation returns an unsigned exact transaction without signing or broadcasting', async () => {
+  const f = fixture()
+  const result = await f.engine.prepare({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
+  assert.equal(result.success, true)
+  assert.equal(result.status, 'prepared')
+  assert.equal(result.sponsorAddress, SPONSOR)
+  assert.equal(result.transaction.txID, TXID)
+  assert.equal(Array.isArray(result.transaction.signature), false)
+  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
+})
+
+test('client-local submit verifies Sponsor permission and persists the exact signed payload before broadcasting', async () => {
+  const rawDataHex = '0a02c25122085c685c92bf035e7240988c89d0f72d'
+  const txid = createHash('sha256').update(Buffer.from(rawDataHex, 'hex')).digest('hex')
+  const transaction = {
+    txID: txid, raw_data_hex: rawDataHex,
+    raw_data: {
+      expiration: Date.now() + 60_000,
+      contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: sponsorHex, resource: 1, frozen_balance: '1000000' } } }],
+    },
+  }
+  let persisted = false
+  let broadcasts = 0
+  const fakeTronWeb = {
+    address: { fromHex: () => SPONSOR },
+    trx: {
+      getBalance: async () => 10_000_000n,
+      getAccountResources: async () => ({ freeNetLimit: 600, freeNetUsed: 0, NetLimit: 0, NetUsed: 0 }),
+      getChainParameters: async () => [{ key: 'getTransactionFee', value: 1000 }],
+      getSignWeight: async () => ({ approved_list: [SPONSOR], permission: { threshold: 1 }, current_weight: 1, result: {} }),
+      sendRawTransaction: async () => { assert.equal(persisted, true); broadcasts++; return { result: true } },
+    },
+  }
+  const engine = createSponsorTransactionEngine({
+    env: configuredEnv(), tronWebFactory: () => fakeTronWeb,
+    fetchImpl: async url => ({
+      ok: true,
+      json: async () => url.endsWith('gettransactioninfobyid')
+        ? { id: txid, blockNumber: 987, receipt: { result: 'SUCCESS' } }
+        : { txID: txid, raw_data: transaction.raw_data },
+    }),
+  })
+  const result = await engine.submitSigned({
+    preparedTransaction: transaction,
+    signedTransaction: { ...transaction, signature: ['b'.repeat(130)] },
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
+    onSigned: async id => { assert.equal(id, txid); persisted = true },
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.equal(result.blockNumber, 987)
+  assert.equal(broadcasts, 1)
+})
+
 test('engine persists the transaction ID before broadcasting and verifies a solidified Stake 2.0 transaction', async () => {
   const f = fixture({ onBroadcast: persisted => assert.equal(persisted, true, 'transaction ID must be durable before broadcast') })
   const result = await f.engine.execute({
