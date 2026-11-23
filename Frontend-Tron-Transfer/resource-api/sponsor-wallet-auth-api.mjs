@@ -196,7 +196,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
           `, [session.sessionId])
           send(res, 200, { success: true, sessions: result.rows || [] }, origin); return true
         }
-        const revokeSessionMatch = url.pathname.match(/^\\/api\\/wallet-auth\\/sponsor\\/sessions\\/([0-9]+)\\/revoke$/)
+        const revokeSessionMatch = url.pathname.match(/^\/api\/wallet-auth\/sponsor\/sessions\/([0-9]+)\/revoke$/)
         if (revokeSessionMatch && req.method === 'POST') {
           const session = await authenticate(req, db, true)
           if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
