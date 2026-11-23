@@ -331,7 +331,7 @@ export function createSponsorResourceApi({
   const ownerAdminAuthConfigured = typeof authenticateOwnerAdminSession === 'function'
   async function verifyAdminAuthorization(req) {
     if (ownerAdminAuthConfigured) {
-      const session = await authenticateOwnerAdminSession(req, { requireCsrf: false })
+      const session = await authenticateOwnerAdminSession(req, { requireCsrf: true })
       return Boolean(session && session.address === ownerAddress)
     }
     return verifyAdminToken(req, env)
@@ -496,6 +496,13 @@ export function createSponsorResourceApi({
 
     if (req.method === 'POST' && path === '/api/sponsor/ledger/bootstrap') {
       if (!(await verifyAdminAuthorization(req))) return reply(res, 401, { success: false, error: 'admin-authorization-required' }, origin)
+      let bootstrapInput
+      try { bootstrapInput = await readBody(req) } catch (error) {
+        return reply(res, Number(error?.status) || 400, { success: false, error: 'invalid-bootstrap-request' }, origin)
+      }
+      if (bootstrapInput.confirm !== 'INITIALIZE_SPONSOR_LEDGER_SCHEMA') {
+        return reply(res, 400, { success: false, error: 'explicit-ledger-bootstrap-confirmation-required' }, origin)
+      }
       if (!sponsorDatabaseConnectionInfo(env).configured) {
         return reply(res, 503, { success: false, error: 'sponsor-ledger-database-not-configured' }, origin)
       }
