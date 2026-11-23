@@ -79,6 +79,12 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const readOnlyTronWeb = useMemo(() => new TronWeb({ fullHost: 'https://api.trongrid.io' }), [])
   const panelWallet = useMemo(() => wallet?.managedSession ? { ...wallet, tronWeb: readOnlyTronWeb } : wallet, [wallet, readOnlyTronWeb])
   const walletReady = Boolean(wallet?.managedSession && connectedAddress === EXPECTED_OWNER_ADDRESS)
+  useEffect(() => {
+    if (walletReady) return
+    setPendingOperation(null)
+    setConfirmationPhrase('')
+    setRecentOperations([])
+  }, [walletReady])
   const feeCapSun = useMemo(() => {
     try {
       const units = BigInt(parseTokenUnits(feeCap))
