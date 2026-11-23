@@ -5,7 +5,6 @@ import { createSponsorTransactionEngine } from '../sponsor-engine.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const PRIVATE_KEY = '1'.repeat(64)
 const TXID = 'a'.repeat(64)
 const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' })
 const sponsorHex = tronWeb.address.toHex(SPONSOR)
@@ -13,7 +12,6 @@ const ownerHex = tronWeb.address.toHex(OWNER)
 
 function configuredEnv(overrides = {}) {
   return {
-    SPONSOR_MAINNET_PRIVATE_KEY: PRIVATE_KEY,
     SPONSOR_MAINNET_ADDRESS: SPONSOR,
     TRON_OWNER_ADDRESS: OWNER,
     SPONSOR_TRANSACTION_ENGINE_ENABLED: 'true',
@@ -56,7 +54,8 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverr
   })
   const engine = createSponsorTransactionEngine({
     env: configuredEnv(envOverrides),
-    tronWebFactory: () => fakeTronWeb,
+    tronWebFactory: privateKey => { assert.equal(privateKey, null); return fakeTronWeb },
+    signerAdapter: { address: SPONSOR, signTransaction: async tx => fakeTronWeb.trx.sign(tx) },
     fetchImpl,
   })
   return {
@@ -66,10 +65,12 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverr
   }
 }
 
-test('engine defaults to disabled and never signs without explicit server flags', async () => {
+test('engine requires an explicit signer adapter and never loads a server-side Sponsor private key', async () => {
   const engine = createSponsorTransactionEngine({ env: {} })
   const state = engine.readiness()
   assert.equal(state.broadcastAvailable, false)
+  assert.equal(state.signerMode, 'client-local-required')
+  assert.equal(state.signerConfigured, false)
   const result = await engine.execute({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
   assert.equal(result.broadcast, false)
   assert.equal(result.signed, false)
