@@ -126,7 +126,37 @@ export function createTRAXDeploymentApi({
       const row = rowResult.rows?.[0]
       if (!row) return send(res, 404, { error: 'TRAX_DEPLOYMENT_NOT_FOUND' }, origin)
       if (['signed','broadcast-unknown','broadcast'].includes(row.state)) {
-        return send(res, 200, { success: true, deployment: row, recovery: { available: true, automaticRebroadcast: false, note: 'Recovery only checks the original transaction ID on solidified Mainnet. It never signs or rebroadcasts.' } }, origin)
+        try {
+          const artifactNow = await artifactLoader({ env })
+          if (artifactNow.artifactSha256 !== row.artifact_sha256) fail('TRAX_DEPLOYMENT_ARTIFACT_CHANGED', 409)
+          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env) })
+          tronWeb.fullNode.headers = env.TATUM_API_KEY && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet'
+            ? { 'x-api-key': String(env.TATUM_API_KEY).trim() }
+            : (env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': String(env.TRONGRID_API_KEY).trim() } : {})
+          const recovered = await recoverMainnetDeployment(tronWeb, {
+            txID: row.transaction_id, ownerAddress: session.address, artifact: artifactNow,
+          }, {
+            waitForReceipt: (client, txID) => waitForSolidifiedReceipt(client, txID, { timeoutMs: 25000, intervalMs: 2500 }),
+          })
+          const saved = await database.query(`
+            UPDATE public.tron_transfer_deployments
+            SET state='confirmed',contract_address=$2,receipt=$3::jsonb,
+                confirmed_at=now(),updated_at=now(),failure_code=NULL
+            WHERE operation_id=$1 AND owner_address=$4
+              AND state IN ('signed','broadcast-unknown','broadcast')
+            RETURNING operation_id,state,transaction_id,contract_address,receipt,confirmed_at
+          `, [row.operation_id, recovered.address, JSON.stringify(recovered), session.address])
+          return send(res, 200, {
+            success: true, deployment: saved.rows?.[0] || { ...row, state: 'confirmed', contract_address: recovered.address, receipt: recovered },
+            recovery: { available: false, solidified: true, runtimeBytecodeVerified: true, ownerVerified: true, metadataVerified: true, automaticRebroadcast: false },
+          }, origin)
+        } catch (error) {
+          return send(res, 202, {
+            success: true, deployment: row,
+            recovery: { available: true, solidified: false, automaticRebroadcast: false },
+            message: String(error?.message || 'Solidified Mainnet receipt is not yet available. Keep the original transaction ID and retry status recovery.').slice(0,240),
+          }, origin)
+        }
       }
       return send(res, 200, { success: true, deployment: row, recovery: { available: false, automaticRebroadcast: false } }, origin)
     }
