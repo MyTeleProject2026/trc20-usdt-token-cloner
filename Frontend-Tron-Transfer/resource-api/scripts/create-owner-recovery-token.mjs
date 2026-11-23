@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto'
 import pg from 'pg'
 
-const connectionString = String(process.env.DATABASE_URL || '').trim()
+const connectionString = String(process.env.OWNER_ADMIN_DATABASE_URL || process.env.SPONSOR_DATABASE_URL || process.env.DATABASE_URL || '').trim()
 if (!connectionString) {
-  process.stderr.write('DATABASE_URL must be set to the direct Neon/Postgres connection string.\n')
+  process.stderr.write('Set OWNER_ADMIN_DATABASE_URL, SPONSOR_DATABASE_URL, or DATABASE_URL to the direct Neon/Postgres connection string.\n')
   process.exit(1)
 }
 let databaseHost = ''
