@@ -160,6 +160,8 @@ Apply Owner Admin schema migrations with a direct PostgreSQL URL only, after a v
 
 The runner applies ordered SQL files transactionally, records immutable SHA-256 migration checksums, refuses changed applied migrations, and verifies all required Owner, deployment, recovery and pending-owner tables. Use OWNER_ADMIN_DATABASE_URL or the direct DATABASE_URL; transaction-pooler URLs are rejected. The runner does not print connection strings, hostnames, usernames, passwords, row data or keys. Production acceptance also requires `OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256`: the SHA-256 fingerprint of the selected PostgreSQL endpoint hostname, database name and role (canonical JSON, no password). The API reports only the fingerprint and whether it matches; it never returns the hostname or credentials. Generate this value from the approved Neon production endpoint and set it on the existing Resource API service only after independently confirming the intended branch/database/role. A missing or mismatched value blocks acceptance.
 
+To print the fingerprint from the same environment that supplies the Resource API database URL, run `npm run database:identity-fingerprint` from this directory. The command prints only the selected variable name, provider, connection mode and one-way fingerprint; it never prints the URL, host, username or password. Set the printed fingerprint as `OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256` only after confirming that the selected endpoint belongs to the approved Neon production branch and database.
+
 ## Important limits
 
 - TRON resource reads use Tatum Mainnet when configured, with TronGrid fallback. Both providers expose chain state; neither grants resources merely because an API key is configured.
