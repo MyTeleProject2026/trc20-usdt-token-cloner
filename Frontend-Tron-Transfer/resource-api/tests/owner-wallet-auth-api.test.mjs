@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { createOwnerWalletAuthApi } from '../owner-wallet-auth-api.mjs'
 import { hashWalletPassword } from '../managed-wallet-auth-crypto.mjs'
 
@@ -86,4 +87,39 @@ test('Owner password login creates a new session and returns no private key mate
   assert.equal(payload.role, 'owner')
   assert.equal('privateKey' in payload, false)
   assert.equal(db.state.sessions.length, 1)
+})
+
+
+test('Owner recovery token is one-time, expires server-side, and revokes every session', async () => {
+  const recoveryToken = 'one-time-owner-recovery-token-value-which-is-long-enough'
+  const tokenHash = createHash('sha256').update(recoveryToken).digest('hex')
+  const verifier = await hashWalletPassword('old owner password phrase 123')
+  const state = { consumed: false, sessions: [{ revoked: false }, { revoked: false }], account: {
+    wallet_address: address, password_hash: verifier.passwordHash, password_salt: verifier.passwordSalt,
+    password_algorithm: verifier.passwordAlgorithm, password_params: verifier.passwordParams, enabled: true,
+  }, audits: [] }
+  const db = {
+    async connect() { return this }, release() {},
+    async query(sql, params=[]) {
+      if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(sql.trim())) return { rowCount: 0, rows: [] }
+      if (sql.includes('INSERT INTO public.tron_transfer_wallet_auth_audit')) { state.audits.push(params); return { rowCount: 1, rows: [] } }
+      if (sql.includes('SELECT recovery_token_id')) return { rows: state.consumed || params[0] !== tokenHash ? [] : [{ recovery_token_id: 7 }] }
+      if (sql.includes('UPDATE public.tron_transfer_wallet_recovery_tokens')) { state.consumed = true; return { rowCount: 1, rows: [] } }
+      if (sql.includes('UPDATE public.tron_transfer_wallet_accounts')) { state.account.password_hash=params[0]; state.account.password_salt=params[1]; state.account.password_params=JSON.parse(params[2]); return { rowCount: 1, rows: [] } }
+      if (sql.includes('UPDATE public.tron_transfer_wallet_sessions')) { state.sessions.forEach(item=>{item.revoked=true}); return { rowCount: 2, rows: [] } }
+      throw new Error('unexpected-recovery-query: '+sql.slice(0,100))
+    },
+  }
+  const api=createOwnerWalletAuthApi({env:{},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
+  const first=response()
+  await api.handle(request('POST',{origin:'https://tron-transfer.onrender.com'},{recoveryToken,newPassword:'new owner password phrase 456'}),first,new URL('https://api.test/api/wallet-auth/owner/recover'),'https://tron-transfer.onrender.com')
+  assert.equal(first.status,200)
+  assert.equal(JSON.parse(first.body).passwordRecovered,true)
+  assert.equal(state.consumed,true)
+  assert.ok(state.sessions.every(item=>item.revoked))
+  assert.ok(state.audits.some(item=>item[1]==='password_changed' && item[3].includes('one-time-recovery-token')))
+
+  const second=response()
+  await api.handle(request('POST',{origin:'https://tron-transfer.onrender.com'},{recoveryToken,newPassword:'another new owner password phrase 789'}),second,new URL('https://api.test/api/wallet-auth/owner/recover'),'https://tron-transfer.onrender.com')
+  assert.equal(second.status,401)
 })

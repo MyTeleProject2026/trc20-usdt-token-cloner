@@ -80,6 +80,11 @@ export function createManagedWalletAuthClient({
     }),
     login: password => request('/login', { method: 'POST', body: { password } }),
     session: () => request('/session'),
+    sessions: () => request('/sessions'),
+    revokeSession: sessionId => request('/sessions/' + encodeURIComponent(String(sessionId)) + '/revoke', { method: 'POST', csrf: true }),
+    revokeOtherSessions: () => request('/sessions/revoke-others', { method: 'POST', csrf: true }),
+    changePassword: (currentPassword, newPassword) => request('/password/change', { method: 'POST', body: { currentPassword, newPassword }, csrf: true }),
+    recoverPassword: (recoveryToken, newPassword) => request('/recover', { method: 'POST', body: { recoveryToken, newPassword } }),
     apiRequest: resourceRequest,
     logout: () => request('/logout', { method: 'POST', csrf: true }).finally(() => { csrfToken = '' }),
   })
