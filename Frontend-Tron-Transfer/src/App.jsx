@@ -59,7 +59,7 @@ export default function App() {
     let active = true
     const restoreOwnerSession = () => ownerAuthClient.session().then(session => {
       if (active && session.address === 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp') {
-        setWallet({ address: session.address, managedSession: true, signerType: 'session-only', authClient: ownerAuthClient })
+        setOwnerAccessOpen(true)
       }
     }).catch(() => {})
     void restoreOwnerSession()
