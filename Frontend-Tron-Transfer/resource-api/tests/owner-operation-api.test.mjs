@@ -131,6 +131,7 @@ function makeExecutionFixture(overrides = {}) {
     async get() { return { ...operation, state: transitions.at(-1)?.state || operation.state } },
     async claimConfirmation() { operation.state = 'confirming'; return { ...operation } },
     async transition(input) {
+      if (input.nextState === 'signed' && overrides.persistSignedFailure) throw new Error('durable signed transaction write failed')
       transitions.push({ state: input.nextState, ...input })
       operation.state = input.nextState
       if (input.transactionId) operation.transaction_id = input.transactionId
@@ -282,4 +283,16 @@ test('Owner operation API rate-limits repeated prepared writes per authenticated
   assert.equal(replies.slice(0, 6).every(reply => reply.status === 400), true)
   assert.equal(replies[6].status, 429)
   assert.equal(replies[6].payload.error, 'OWNER_OPERATION_RATE_LIMITED')
+})
+
+test('Owner confirmation never broadcasts unless the signed transaction is durably persisted first', async () => {
+  const fixture = makeExecutionFixture({ persistSignedFailure: true })
+  await fixture.api.handle(request('POST', {
+    confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
+    intentSha256: fixture.intentSha256, contractAddress: contract,
+  }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
+  assert.equal(fixture.replies[0].status, 503)
+  assert.equal(fixture.counts.sign, 1)
+  assert.equal(fixture.counts.broadcast, 0)
+  assert.equal(fixture.transitions.at(-1).state, 'failed')
 })
