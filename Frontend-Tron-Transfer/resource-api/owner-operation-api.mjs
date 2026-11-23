@@ -11,7 +11,6 @@ const { Pool } = pg
 const MAINNET = 'https://api.trongrid.io'
 const CONFIRMATION_PHRASE = 'CONFIRM TRON MAINNET OWNER OPERATION'
 const TXID = /^[0-9a-f]{64}$/i
-const OPERATION_ID = /^[0-9a-f-]{36}$/i
 const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const UINT = /^(?:0|[1-9][0-9]{0,77})$/
 const BYTES32 = /^(?:0x)?[0-9a-f]{64}$/i
@@ -193,7 +192,7 @@ async function buildUnsigned(tronWeb, contractAddress, ownerAddress, normalized)
   const rawHash = createHash('sha256').update(Buffer.from(transaction.raw_data_hex, 'hex')).digest('hex')
   const value = transaction.raw_data.contract[0]?.parameter?.value || {}
   if (rawHash.toLowerCase() !== String(transaction.txID).toLowerCase()) fail('OWNER_UNSIGNED_TRANSACTION_ID_MISMATCH', 409)
-  if (Number(transaction.raw_data?.contract?.[0]?.Permission_id ?? 0) !== 0
+  if (Number(transaction.raw_data?.contract?.[0]?.Permission_id ?? transaction.raw_data?.contract?.[0]?.permission_id ?? 0) !== 0
     || asAddress(tronWeb, value.owner_address) !== ownerAddress
     || asAddress(tronWeb, value.contract_address) !== contractAddress
     || Number(value.call_value || 0) !== 0
@@ -212,6 +211,7 @@ async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { 
   const resourceSnapshot = normalizeMainnetAccountResources(resourceResponse, chainParameters)
   if (asAddress(tronWeb, account?.address) !== ownerAddress) fail('OWNER_MAINNET_ACCOUNT_ADDRESS_MISMATCH', 409)
   const permission = normalizeMainnetPermissionSnapshot(account, ownerAddress, tronWeb)
+  if (Number(permission.permissionId) !== 0) fail('OWNER_OPERATION_PERMISSION_ID_NOT_OWNER', 403)
   if (!permission.connectedSignerCanAuthorizeAlone) fail('OWNER_SIGNER_CANNOT_SATISFY_OWNER_PERMISSION', 403)
   const estimate = await estimateMainnetContractCallEnergy(
     tronWeb, contractAddress, data, ownerAddress,
@@ -544,6 +544,10 @@ export function createOwnerOperationApi({
         const operation = await ledger.get(operationId, session.sessionId)
         if (!operation) return reply(res, 404, { success: false, error: 'OWNER_OPERATION_NOT_FOUND' }, origin)
         let reconciliation = null
+        if (operation.state === 'confirming' && !operation.transaction_id
+          && Date.now() - new Date(operation.updated_at).getTime() > 5 * 60_000) {
+          await ledger.transition({ operationId, sessionId: session.sessionId, nextState: 'failed', failureCode: 'OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE' })
+        }
         if (operation.transaction_id && ['signed', 'broadcast-unknown', 'broadcast'].includes(operation.state)) {
           const tronWeb = tronWebFactory({ fullHost: MAINNET })
           try {
