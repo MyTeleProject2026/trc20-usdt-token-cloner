@@ -277,11 +277,15 @@ export function createOwnerOperationApi({
     await assertTransactionPermission(tronWeb, signed, ownerAddress)
   },
   broadcastTransaction = (tronWeb, signed) => tronWeb.trx.sendRawTransaction(signed),
-  reconcileTransaction = async (txId, ownerAddress, contractAddress, { fetchImpl: requestFetch, env: requestEnv, tronWeb }) => {
+  reconcileTransaction = async (txId, ownerAddress, contractAddress, { fetchImpl: requestFetch, env: requestEnv, tronWeb, expectedTransaction }) => {
     const info = await rpcPost('/walletsolidity/gettransactioninfobyid', { value: txId }, { fetchImpl: requestFetch, env: requestEnv })
     const transaction = await rpcPost('/walletsolidity/gettransactionbyid', { value: txId }, { fetchImpl: requestFetch, env: requestEnv })
     const confirmedId = String(info?.id || info?.txID || transaction?.txID || '').toLowerCase()
     if (confirmedId && confirmedId !== txId.toLowerCase()) fail('OWNER_SOLIDIFIED_RECEIPT_TXID_MISMATCH', 409)
+    if (!expectedTransaction?.raw_data_hex || String(transaction?.raw_data_hex || '').toLowerCase() !== String(expectedTransaction.raw_data_hex).toLowerCase()
+      || String(transaction?.txID || '').toLowerCase() !== String(expectedTransaction.txID || txId).toLowerCase()) {
+      fail('OWNER_SOLIDIFIED_RECEIPT_INTENT_MISMATCH', 409)
+    }
     const blockNumber = Number(info?.blockNumber)
     const contracts = transaction?.raw_data?.contract
     if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== 'TriggerSmartContract') {
@@ -538,7 +542,7 @@ export function createOwnerOperationApi({
             await transition('broadcast')
           }
           let reconciliation
-          try { reconciliation = await reconcileTransaction(transactionId, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env, tronWeb }) }
+          try { reconciliation = await reconcileTransaction(transactionId, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env, tronWeb, expectedTransaction: unsigned }) }
           catch { reconciliation = { solidified: false, status: 'receipt-check-unavailable' } }
           if (reconciliation?.solidified && reconciliation.success === true) {
             await transition('confirmed', {
@@ -594,7 +598,7 @@ export function createOwnerOperationApi({
         if (operation.transaction_id && ['signed', 'broadcast-unknown', 'broadcast'].includes(operation.state)) {
           const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           try {
-            reconciliation = await reconcileTransaction(operation.transaction_id, String(env.TRON_OWNER_ADDRESS || ''), operation.contract_address, { fetchImpl: pacedFetch, env, tronWeb })
+            reconciliation = await reconcileTransaction(operation.transaction_id, String(env.TRON_OWNER_ADDRESS || ''), operation.contract_address, { fetchImpl: pacedFetch, env, tronWeb, expectedTransaction: operation.receipt?.unsignedTransaction })
             if (reconciliation?.solidified) {
               if (operation.state === 'signed') {
                 await ledger.transition({ operationId, ownerAddress: String(env.TRON_OWNER_ADDRESS || ''), nextState: 'broadcast-unknown' })
