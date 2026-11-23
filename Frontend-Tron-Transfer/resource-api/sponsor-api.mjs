@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import pg from 'pg'
 import { isIP } from 'node:net'
 import { TronWeb } from 'tronweb'
+import { isDeepStrictEqual } from 'node:util'
 import { createSponsorTransactionEngine } from './sponsor-engine.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
@@ -182,11 +183,13 @@ async function ensureSchema(db) {
         owner_address TEXT NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('reserved','signed-not-broadcast','broadcast-unknown','confirmed','failed')),
         transaction_id CHAR(64),
+        prepared_transaction JSONB,
         result_code TEXT,
         confirmation_block BIGINT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      ALTER TABLE public.tron_transfer_sponsor_operations ADD COLUMN IF NOT EXISTS prepared_transaction JSONB;
       ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_operation_check;
       ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_operation_check CHECK (operation IN ('stake','delegate','undelegate','unstake','withdraw','topup'));
       ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_resource_check;
@@ -358,15 +361,16 @@ export function createSponsorResourceApi({
     return true
   }
   const reply = (res, status, value, origin) => { send(res, status, value, origin); return true }
-  const localSponsorSigningImplemented = () => false
+  const localSponsorSigningImplemented = () => typeof engine.prepare === 'function' && typeof engine.submitSigned === 'function'
 
   let sponsorStatusCache = { at: 0, value: null }
   let sponsorStatusInFlight = null
   const buildStatusPayload = async () => {
         const readiness = engine.readiness()
-        // Fail closed until the imported Sponsor vault signs exact transactions locally.
-        // The legacy server-side engine signer is deliberately not accepted as a substitute.
-        const localSignerReady = false
+        // The engine exposes the client-local signing protocol. This is a code-capability
+        // check only; wallet unlock, Mainnet flags, ledger acceptance and pause state
+        // remain independent gates.
+        const localSignerReady = localSponsorSigningImplemented()
         const databaseConnection = sponsorDatabaseConnectionInfo(env)
         const dbConfigured = databaseConnection.configured
         const expectedDatabaseIdentity = typeof env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256 === 'string'
@@ -416,7 +420,7 @@ export function createSponsorResourceApi({
         const acceptanceChecks = [
           { id: 'owner-address', state: ownerAddressMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
-          { id: 'sponsor-signer-address-match', state: readiness.signerConfigured === true && readiness.sponsorAddressValid === true && readiness.signerAddressMatches === true ? 'passed' : 'blocked' },
+          { id: 'sponsor-mainnet-address-configured-and-independent', state: readiness.sponsorAddressValid === true && sponsorIndependent ? 'passed' : 'blocked' },
           { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
           { id: 'database-target-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
@@ -455,7 +459,7 @@ export function createSponsorResourceApi({
           engineConfigured: readiness.configured === true,
           engineEnabled: readiness.enabled === true,
           localSignerReady,
-          transactionExecutionAvailable: localSignerReady && readiness.broadcastAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
+          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
@@ -624,6 +628,133 @@ export function createSponsorResourceApi({
       const message = intentMessage(intent)
       intents.set(intent.intentId, { ...intent, message })
       return reply(res, 201, { success: true, intentId: intent.intentId, message, expiresAt: new Date(expiresAt).toISOString(), confirmationPhrase: CONFIRMATION }, origin)
+    }
+
+
+    if (req.method === 'POST' && path === '/api/sponsor/operations/prepare') {
+      if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
+      if (!localSponsorSigningImplemented() || typeof engine.prepare !== 'function') return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented' }, origin)
+      if (!rateLimit(req, 'prepare', 5)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
+      let body
+      try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
+      const intent = intents.get(body.intentId)
+      if (!intent || intent.expiresAt <= now() || intent.sponsorAddress !== session.address) return reply(res, 409, { success: false, error: 'intent-expired-or-already-used', retryAllowed: false }, origin)
+      if (body.confirmPhrase !== CONFIRMATION) return reply(res, 400, { success: false, error: 'explicit-operation-confirmation-required' }, origin)
+      intents.delete(body.intentId)
+      const db = getDatabase()
+      if (!db) return reply(res, 503, { success: false, error: 'durable-idempotency-storage-required' }, origin)
+      const keyHash = sha(intent.idempotencyKey)
+      const requestHash = sha(JSON.stringify({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: session.address, ownerAddress }))
+      let client
+      let open = false
+      try {
+        await assertSchema(db)
+        client = typeof db.connect === 'function' ? await db.connect() : db
+        await client.query('BEGIN')
+        open = true
+        const pause = await client.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1 FOR SHARE')
+        if (pause.rows?.[0]?.writes_paused !== false) {
+          await client.query('ROLLBACK'); open = false
+          return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
+        }
+        const reserved = await client.query(
+          "INSERT INTO public.tron_transfer_sponsor_operations (idempotency_key_hash,request_hash,operation,resource,amount_sun,sponsor_address,owner_address,status) VALUES ($1,$2,$3,$4,$5,$6,$7,'reserved') ON CONFLICT (idempotency_key_hash) DO NOTHING RETURNING id",
+          [keyHash, requestHash, intent.operation, intent.resource, intent.amountSun, session.address, ownerAddress],
+        )
+        if (!reserved.rowCount) {
+          await client.query('ROLLBACK'); open = false
+          return reply(res, 409, { success: false, error: 'operation-already-recorded', retryAllowed: false }, origin)
+        }
+        const prepared = await engine.prepare({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, ownerAddress })
+        if (!prepared?.success || !prepared.transaction?.txID) {
+          await client.query('ROLLBACK'); open = false
+          return reply(res, 422, { success: false, error: prepared?.status || 'sponsor-transaction-preparation-failed', retryAllowed: false }, origin)
+        }
+        const saved = await client.query(
+          "UPDATE public.tron_transfer_sponsor_operations SET prepared_transaction=$2::jsonb,updated_at=now() WHERE idempotency_key_hash=$1 AND status='reserved' RETURNING id",
+          [keyHash, JSON.stringify(prepared.transaction)],
+        )
+        if (!saved.rowCount) throw new Error('prepared-transaction-persistence-failed')
+        await client.query('COMMIT'); open = false
+        if (client !== db) { client.release(); client = null }
+        return reply(res, 201, {
+          success: true, operationReference: intent.idempotencyKey, operation: intent.operation,
+          resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: session.address,
+          ownerAddress, unsignedTransaction: prepared.transaction, feePolicy: prepared.feePolicy,
+          expiresAt: new Date(Number(prepared.transaction.raw_data.expiration)).toISOString(),
+          note: 'Unsigned Mainnet transaction only. Sign locally in the imported Sponsor vault; do not alter transaction bytes.',
+        }, origin)
+      } catch {
+        if (client && open) await client.query('ROLLBACK').catch(() => {})
+        return reply(res, 503, { success: false, error: 'sponsor-transaction-preparation-storage-failed', retryAllowed: false }, origin)
+      } finally { if (client && client !== db) client.release() }
+    }
+
+    if (req.method === 'POST' && path === '/api/sponsor/operations/submit') {
+      if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
+      if (!localSponsorSigningImplemented() || typeof engine.submitSigned !== 'function') return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented' }, origin)
+      if (!rateLimit(req, 'submit', 3)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
+      let body
+      try { body = await readBody(req, 64_000) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
+      if (!IDEMPOTENCY.test(String(body.operationReference || '')) || !body.signedTransaction || typeof body.signedTransaction !== 'object') {
+        return reply(res, 400, { success: false, error: 'invalid-signed-sponsor-transaction' }, origin)
+      }
+      const db = getDatabase()
+      if (!db) return reply(res, 503, { success: false, error: 'durable-idempotency-storage-required' }, origin)
+      const keyHash = sha(body.operationReference)
+      let client
+      let open = false
+      try {
+        await assertSchema(db)
+        client = typeof db.connect === 'function' ? await db.connect() : db
+        await client.query('BEGIN')
+        open = true
+        const pause = await client.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1 FOR SHARE')
+        if (pause.rows?.[0]?.writes_paused !== false) {
+          await client.query('ROLLBACK'); open = false
+          return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
+        }
+        const found = await client.query(
+          "SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2 FOR UPDATE",
+          [keyHash, session.address],
+        )
+        const row = found.rows?.[0]
+        if (!row || row.status !== 'reserved' || !row.prepared_transaction) {
+          await client.query('ROLLBACK'); open = false
+          return reply(res, 409, { success: false, error: 'prepared-operation-not-found-or-already-used', retryAllowed: false }, origin)
+        }
+        const result = await engine.submitSigned({
+          signedTransaction: body.signedTransaction,
+          preparedTransaction: row.prepared_transaction,
+          operation: row.operation, resource: row.resource, amountSun: row.amount_sun, ownerAddress: row.owner_address,
+          onSigned: async transactionId => {
+            if (!TXID.test(transactionId || '') || transactionId !== row.prepared_transaction.txID) throw new Error('signed-transaction-id-mismatch')
+            const saved = await client.query(
+              "UPDATE public.tron_transfer_sponsor_operations SET status='signed-not-broadcast',transaction_id=$2,updated_at=now() WHERE idempotency_key_hash=$1 AND status='reserved' RETURNING id",
+              [keyHash, transactionId],
+            )
+            if (!saved.rowCount) throw new Error('durable-transaction-id-persistence-failed')
+          },
+        })
+        const status = result.solidified ? 'confirmed' : result.broadcast ? 'broadcast-unknown' : result.signed ? 'signed-not-broadcast' : 'failed'
+        await client.query(
+          'UPDATE public.tron_transfer_sponsor_operations SET status=$2,transaction_id=COALESCE($3,transaction_id),result_code=$4,confirmation_block=$5,updated_at=now() WHERE idempotency_key_hash=$1',
+          [keyHash, status, result.txid || null, result.status || 'unknown', result.blockNumber || null],
+        )
+        await client.query('COMMIT'); open = false
+        if (client !== db) { client.release(); client = null }
+        return reply(res, result.success ? 200 : result.broadcast ? 202 : 422, {
+          success: result.success === true, operationReference: body.operationReference, operationStatus: status,
+          transactionId: result.txid || null, resultCode: result.status || 'unknown',
+          confirmationBlock: result.blockNumber || null, signed: result.signed === true,
+          broadcast: result.broadcast === true, solidified: result.solidified === true, retryAllowed: false,
+        }, origin)
+      } catch {
+        if (client && open) await client.query('ROLLBACK').catch(() => {})
+        return reply(res, 503, { success: false, error: 'sponsor-signed-transaction-storage-or-execution-failed', retryAllowed: false }, origin)
+      } finally { if (client && client !== db) client.release() }
     }
 
     if (req.method === 'POST' && path === '/api/sponsor/operations') {
