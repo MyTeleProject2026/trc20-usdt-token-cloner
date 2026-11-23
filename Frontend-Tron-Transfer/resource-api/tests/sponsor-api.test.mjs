@@ -478,7 +478,7 @@ test('managed password session authorizes a short-lived exact intent without a b
   }, null, TEST_ADMIN_TOKEN, client)
   assert.equal(result.status, 410)
   assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
-  assert.equal(authCalls[1].requireCsrf, true)
+  assert.equal(authCalls.length, 1)
 })
 
 test('all private Sponsor operations require a valid bearer session', async () => {
