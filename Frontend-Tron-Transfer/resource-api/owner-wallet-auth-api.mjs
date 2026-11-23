@@ -239,9 +239,9 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
               WHERE wallet_role='owner'
             `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
             await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='owner' AND revoked_at IS NULL")
+            await audit(client, 'password_changed', 'success', { source: 'authenticated-change' })
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
-          await audit(db, 'password_changed', 'success', { source: 'authenticated-change' })
           const nextSession = await issueSession(db, res)
           send(res, 200, { success: true, passwordChanged: true, session: nextSession }, origin); return true
         }
@@ -278,10 +278,10 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
             `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
             if (!accountUpdate.rowCount) throw Object.assign(new Error('OWNER_ACCOUNT_NOT_AVAILABLE'), { status: 503 })
             await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='owner' AND revoked_at IS NULL")
+            await audit(client, 'password_changed', 'success', { source: 'one-time-recovery-token' })
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
           clearSessionCookies(res)
-          await audit(db, 'password_changed', 'success', { source: 'one-time-recovery-token' })
           send(res, 200, { success: true, passwordRecovered: true, sessionsRevoked: true }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/owner/logout' && req.method === 'POST') {
