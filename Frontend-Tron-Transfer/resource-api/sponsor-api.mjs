@@ -680,6 +680,12 @@ export function createSponsorResourceApi({
           await client.query('ROLLBACK'); open = false
           return reply(res, 422, { success: false, error: prepared?.status || 'sponsor-transaction-preparation-failed', retryAllowed: false }, origin)
         }
+        if (prepared.sponsorAddress !== session.address || prepared.ownerAddress !== ownerAddress
+          || prepared.operation !== intent.operation || prepared.resource !== intent.resource
+          || String(prepared.amountSun) !== String(intent.amountSun)) {
+          await client.query('ROLLBACK'); open = false
+          return reply(res, 409, { success: false, error: 'prepared-operation-wallet-or-intent-mismatch', retryAllowed: false }, origin)
+        }
         const saved = await client.query(
           "UPDATE public.tron_transfer_sponsor_operations SET prepared_transaction=$2::jsonb,updated_at=now() WHERE idempotency_key_hash=$1 AND status='reserved' RETURNING id",
           [keyHash, JSON.stringify(prepared.transaction)],
@@ -689,8 +695,8 @@ export function createSponsorResourceApi({
         if (client !== db) { client.release(); client = null }
         return reply(res, 201, {
           success: true, operationReference: intent.idempotencyKey, operation: intent.operation,
-          resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: session.address,
-          ownerAddress, unsignedTransaction: prepared.transaction, feePolicy: prepared.feePolicy,
+          resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: prepared.sponsorAddress,
+          ownerAddress: prepared.ownerAddress, unsignedTransaction: prepared.transaction, feePolicy: prepared.feePolicy,
           expiresAt: new Date(Number(prepared.transaction.raw_data.expiration)).toISOString(),
           note: 'Unsigned Mainnet transaction only. Sign locally in the imported Sponsor vault; do not alter transaction bytes.',
         }, origin)
@@ -761,6 +767,10 @@ export function createSponsorResourceApi({
         if (!row || row.status !== 'reserved' || !row.prepared_transaction) {
           await client.query('ROLLBACK'); open = false
           return reply(res, 409, { success: false, error: 'prepared-operation-not-found-or-already-used', retryAllowed: false }, origin)
+        }
+        if (row.sponsor_address !== session.address || row.sponsor_address !== env.SPONSOR_MAINNET_ADDRESS || row.owner_address !== ownerAddress) {
+          await client.query('ROLLBACK'); open = false
+          return reply(res, 409, { success: false, error: 'prepared-operation-wallet-configuration-changed', retryAllowed: false }, origin)
         }
         const result = await engine.submitSigned({
           signedTransaction: body.signedTransaction,
