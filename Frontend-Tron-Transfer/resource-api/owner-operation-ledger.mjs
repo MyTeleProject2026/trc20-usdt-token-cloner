@@ -92,7 +92,8 @@ export function createOwnerOperationLedger({ database }) {
 
   async function list(sessionId, limit = 20) {
     if (!Number.isSafeInteger(Number(sessionId)) || Number(sessionId) <= 0) fail('OWNER_LEDGER_SESSION_REQUIRED')
-    const safeLimit = Math.min(50, Math.max(1, Number(limit) || 20))
+    const requestedLimit = Number(limit)
+    const safeLimit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(50, requestedLimit) : 20)
     const result = await database.query(`
       SELECT operation_id,session_id,idempotency_key,operation_type,contract_address,
         intent,intent_sha256,state,transaction_id,block_number,
