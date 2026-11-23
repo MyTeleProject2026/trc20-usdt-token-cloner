@@ -25,7 +25,7 @@ export function createOwnerOperationLedger({ database }) {
 
   async function prepare({ sessionId, ownerAddress, idempotencyKey, operationType, contractAddress, intent }) {
     if (!Number.isSafeInteger(Number(sessionId)) || Number(sessionId) <= 0) fail('OWNER_LEDGER_SESSION_REQUIRED')
-    if (typeof ownerAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(ownerAddress) || intent?.ownerAddress !== ownerAddress) fail('OWNER_LEDGER_OWNER_ADDRESS_INVALID')
+    if (typeof ownerAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(ownerAddress) || intent?.ownerAddress !== ownerAddress || intent?.contractAddress !== contractAddress) fail('OWNER_LEDGER_OWNER_OR_CONTRACT_IDENTITY_INVALID')
     if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{16,160}$/.test(idempotencyKey)) fail('OWNER_LEDGER_IDEMPOTENCY_KEY_INVALID')
     if (!OPERATION_TYPES.has(operationType)) fail('OWNER_LEDGER_OPERATION_NOT_ALLOWED')
     if (typeof contractAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(contractAddress)) fail('OWNER_LEDGER_CONTRACT_ADDRESS_INVALID')
