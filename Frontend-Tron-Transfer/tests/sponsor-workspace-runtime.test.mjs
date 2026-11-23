@@ -74,3 +74,14 @@ test('Sponsor local signer is locked immediately when leaving the Sponsor worksp
   assert.notEqual(lockCallback, -1, 'locking must clear the in-memory Sponsor signer')
   assert.ok(lockOnExit < idleEffect, 'workspace-exit lock must be registered before idle monitoring')
 })
+
+test('Sponsor lock clears local key-import, keystore and password inputs', () => {
+  const lockStart = source.indexOf('const lockWallet = useCallback')
+  const lockEnd = source.indexOf('}, [wallet?.address, recordSecurityEvent', lockStart)
+  const lockSource = source.slice(lockStart, lockEnd)
+  for (const setter of ['setCredential(\'\')','setKeystorePassword(\'\')','setVaultPassword(\'\')','setUnlockPassword(\'\')','setAuthPassword(\'\')','setCurrentSponsorPassword(\'\')','setNewSponsorPassword(\'\')','setConfirmSponsorPassword(\'\')']) {
+    assert.ok(lockSource.includes(setter), 'lock must clear ' + setter)
+  }
+  assert.ok(source.includes('// Clear pending import/unlock credentials even when no vault has been unlocked yet.'))
+  assert.ok(source.includes('setCredential(\'\')'))
+})
