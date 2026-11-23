@@ -48,6 +48,18 @@ test('Owner auth exposes an internal cookie-session verifier for future contract
   assert.equal(await api.authenticateRequest({ headers: {} }), null)
 })
 
+test('Owner session verifier rejects the other workspace cookie and enforces its own database role', async () => {
+  const queries=[]
+  const database={async query(sql){queries.push(sql);return {rows:[]}}}
+  const api=createOwnerWalletAuthApi({env:{},database,send(){}})
+  const otherCookie=await api.authenticateRequest({headers:{cookie:'tron_owner_session=foreign-session-token; tron_sponsor_session=foreign-session-token'}})
+  assert.equal(otherCookie,null)
+  const ownCookie=await api.authenticateRequest({headers:{cookie:'tron_owner_session=foreign-session-token'}})
+  assert.equal(ownCookie,null)
+  assert.equal(queries.length,1)
+  assert.match(queries[0],/wallet_role='owner'/)
+})
+
 test('Owner wallet auth ignores paths outside its exact route namespace', async () => {
   const api = createOwnerWalletAuthApi({ env: {}, database: fakeDatabase(), send() {} })
   assert.equal(await api.handle(request('GET'), response(), new URL('https://api.test/api/wallet-auth/ownerish/status'), null), false)
