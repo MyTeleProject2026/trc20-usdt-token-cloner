@@ -603,7 +603,7 @@ export function createOwnerOperationApi({
             }
           } catch { reconciliation = { solidified: false, status: 'receipt-check-unavailable' } }
         }
-        const current = await ledger.get(operationId, session.sessionId)
+        const current = await ledger.get(operationId, String(env.TRON_OWNER_ADDRESS || ''))
         return reply(res, 200, {
           success: true,
           operation: {
