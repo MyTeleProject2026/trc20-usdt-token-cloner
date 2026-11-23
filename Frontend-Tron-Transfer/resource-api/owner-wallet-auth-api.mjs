@@ -260,7 +260,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
             await client.query('BEGIN')
             const tokenResult = await client.query(`
               SELECT recovery_token_id FROM public.tron_transfer_wallet_recovery_tokens
-              WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>now()
+              WHERE wallet_role='owner' AND token_hash=$1 AND consumed_at IS NULL AND expires_at>now()
               FOR UPDATE
             `, [tokenHash])
             if (!tokenResult.rows?.[0]) {
