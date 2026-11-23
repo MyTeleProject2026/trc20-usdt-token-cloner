@@ -22,6 +22,8 @@ function make(overrides={}) {
     calculateBudget:overrides.calculateBudget,
     assertBudget:overrides.assertBudget,
     assertIntegrity:overrides.assertIntegrity,
+    verifySigner:overrides.verifySigner || (()=>true),
+    verifyPermission:overrides.verifyPermission || (async()=>true),
     predictAddress:overrides.predictAddress,
     signDeployment:overrides.signDeployment,
     broadcastDeployment:overrides.broadcastDeployment,
@@ -129,4 +131,65 @@ test('deployment recovery verifies only the original txID and persists solidifie
  assert.equal(replies[0].status,200)
  assert.equal(replies[0].payload.recovery.solidified,true)
  assert.equal(replies[0].payload.recovery.automaticRebroadcast,false)
+})
+
+
+test('deployment confirmation verifies recovered signature and live permission before persistence or broadcast', async()=>{
+ const events=[]
+ const rawDataHex='bb'.repeat(32), txID=createHash('sha256').update(Buffer.from(rawDataHex,'hex')).digest('hex')
+ const unsigned={txID,raw_data_hex:rawDataHex,raw_data:{expiration:Date.now()+120000,fee_limit:1000000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
+ const signed={...unsigned,signature:['c'.repeat(130)]}
+ const db={async query(sql){
+  if(sql.includes('to_regclass')) return {rows:[{deployments_table:'tron_transfer_deployments'}]}
+  if(sql.includes("SET state='confirming'")) return {rows:[{operation_id:'123e4567-e89b-42d3-a456-426614174000',owner_address:owner,intent:{feeLimitSun:'1000000'},intent_sha256:'d'.repeat(64),artifact_sha256:'4'.repeat(64),creation_bytecode_sha256:'2'.repeat(64),runtime_bytecode_sha256:'3'.repeat(64),transaction_id:unsigned.txID,unsigned_transaction:unsigned,state:'confirming'}]}
+  if(sql.includes('SET signed_transaction')) {events.push('persist-signed');return {rows:[{}]}}
+  if(sql.includes("SET state='broadcast-unknown'")) {events.push('persist-broadcast-unknown');return {rows:[{}]}}
+  return {rows:[]}
+ }}
+ const fakeTron={fullNode:{headers:{}},address:{fromPrivateKey:()=>owner,toHex:()=> '41'+'11'.repeat(20)},trx:{sign:async()=>signed}}
+ const {api,replies}=make({
+  env:{TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',TRAX_DEPLOYMENT_MAINNET_ACK:'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT',TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',TRON_OWNER_PRIVATE_KEY:'1'.repeat(64)},
+  database:db,artifactLoader:async()=>({contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}),
+  tronWebFactory:()=>fakeTron,assertIntegrity:()=>true,predictAddress:()=> 'T'+'A'.repeat(33),
+  estimateEnergy:async()=>({energyUsed:1}),readResources:async()=>({}),calculateBudget:()=>({}),assertBudget:()=>true,
+  session:{address:owner,sessionId:1},signDeployment:async()=>signed,
+  verifySigner:async()=>{events.push('verify-signature')},
+  verifyPermission:async()=>{events.push('verify-permission')},
+  broadcastDeployment:async()=>{events.push('broadcast');return {result:true}},
+ })
+ await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT'}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
+ assert.deepEqual(events,['verify-signature','verify-permission','persist-signed','persist-broadcast-unknown','broadcast'])
+ assert.equal(replies[0].status,202)
+})
+
+test('deployment status never returns stored signed or unsigned transaction payloads', async()=>{
+ const row={operation_id:'123e4567-e89b-42d3-a456-426614174000',owner_address:owner,state:'prepared',unsigned_transaction:{raw_data_hex:'aa'},signed_transaction:{signature:['bb']}}
+ const db={async query(sql){if(sql.includes('to_regclass'))return {rows:[{deployments_table:'tron_transfer_deployments'}]};if(sql.includes('SELECT operation_id,owner_address,idempotency_key,intent,intent_sha256'))return {rows:[row]};return {rows:[]}}}
+ const {api,replies}=make({database:db})
+ await api.handle(req(),res(),new URL('https://api.test/api/owner/deployment/123e4567-e89b-42d3-a456-426614174000'),null)
+ assert.equal(replies[0].status,200)
+ assert.equal('signed_transaction' in replies[0].payload.deployment,false)
+ assert.equal('unsigned_transaction' in replies[0].payload.deployment,false)
+})
+
+test('deployment signature failure blocks durable signing record and broadcast', async()=>{
+ const events=[]
+ const rawDataHex='bb'.repeat(32), txID=createHash('sha256').update(Buffer.from(rawDataHex,'hex')).digest('hex')
+ const unsigned={txID,raw_data_hex:rawDataHex,raw_data:{expiration:Date.now()+120000,fee_limit:1000000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
+ const signed={...unsigned,signature:['c'.repeat(130)]}
+ const db={async query(sql){if(sql.includes('to_regclass'))return {rows:[{deployments_table:'tron_transfer_deployments'}]};if(sql.includes("SET state='confirming'"))return {rows:[{operation_id:'123e4567-e89b-42d3-a456-426614174000',owner_address:owner,intent:{feeLimitSun:'1000000'},intent_sha256:'d'.repeat(64),artifact_sha256:'4'.repeat(64),creation_bytecode_sha256:'2'.repeat(64),runtime_bytecode_sha256:'3'.repeat(64),transaction_id:unsigned.txID,unsigned_transaction:unsigned,state:'confirming'}]};return {rows:[]}}}
+ const fakeTron={fullNode:{headers:{}},address:{fromPrivateKey:()=>owner,toHex:()=> '41'+'11'.repeat(20)},trx:{sign:async()=>signed}}
+ const {api,replies}=make({
+  env:{TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',TRAX_DEPLOYMENT_MAINNET_ACK:'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT',TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',TRON_OWNER_PRIVATE_KEY:'1'.repeat(64)},
+  database:db,tronWebFactory:()=>fakeTron,assertIntegrity:()=>true,predictAddress:()=> 'T'+'A'.repeat(33),
+  estimateEnergy:async()=>({energyUsed:1}),readResources:async()=>({}),calculateBudget:()=>({}),assertBudget:()=>true,
+  session:{address:owner,sessionId:1},signDeployment:async()=>signed,
+  verifySigner:async()=>{events.push('verify-signature');throw new Error('bad recovered signer')},
+  verifyPermission:async()=>{events.push('verify-permission')},
+  broadcastDeployment:async()=>{events.push('broadcast');return {result:true}},
+ })
+ await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT'}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
+ assert.deepEqual(events,['verify-signature'])
+ assert.equal(replies[0].status,503)
+ assert.equal(events.includes('broadcast'),false)
 })

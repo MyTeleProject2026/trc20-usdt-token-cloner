@@ -13,6 +13,8 @@ import {
   calculateDeploymentResourceBudget,
   assertZeroTrxBurnBudget,
   assertTransactionIntegrity,
+  verifyTransactionSigner,
+  assertTransactionPermission,
 } from '../src/tron-mainnet-preflight.mjs'
 import { loadPinnedTRAXDeploymentArtifact } from './trax-deployment-artifact.mjs'
 import { predictMainnetContractAddress, recoverMainnetDeployment, waitForSolidifiedReceipt } from '../src/trax-mainnet.mjs'
@@ -73,6 +75,8 @@ export function createTRAXDeploymentApi({
   calculateBudget = calculateDeploymentResourceBudget,
   assertBudget = assertZeroTrxBurnBudget,
   assertIntegrity = assertTransactionIntegrity,
+  verifySigner = verifyTransactionSigner,
+  verifyPermission = assertTransactionPermission,
   predictAddress = predictMainnetContractAddress,
   recoverDeployment = recoverMainnetDeployment,
   signDeployment = (client, unsigned) => client.trx.sign(unsigned),
@@ -141,7 +145,7 @@ export function createTRAXDeploymentApi({
     if (statusPath) {
       if (!db || !ledgerReady) return send(res, 503, { error: 'TRAX_DEPLOYMENT_LEDGER_DATABASE_UNAVAILABLE' }, origin)
       const rowResult = await db.query(
-        'SELECT operation_id,owner_address,idempotency_key,intent,intent_sha256,artifact_sha256,transaction_id,unsigned_transaction,signed_transaction,preflight,receipt,contract_address,state,failure_code,created_at,updated_at,signed_at,broadcast_at,confirmed_at FROM public.tron_transfer_deployments WHERE operation_id=$1 AND owner_address=$2',
+        'SELECT operation_id,owner_address,idempotency_key,intent,intent_sha256,artifact_sha256,transaction_id,preflight,receipt,contract_address,state,failure_code,created_at,updated_at,signed_at,broadcast_at,confirmed_at FROM public.tron_transfer_deployments WHERE operation_id=$1 AND owner_address=$2',
         [statusMatch[1], session.address],
       )
       const row = rowResult.rows?.[0]
@@ -167,8 +171,16 @@ export function createTRAXDeploymentApi({
               AND state IN ('signed','broadcast-unknown','broadcast')
             RETURNING operation_id,state,transaction_id,contract_address,receipt,confirmed_at
           `, [row.operation_id, recovered.address, JSON.stringify(recovered), session.address])
+          if (!saved.rows?.[0]) {
+            const current = await db.query(
+              'SELECT operation_id,state,transaction_id,contract_address,receipt,confirmed_at FROM public.tron_transfer_deployments WHERE operation_id=$1 AND owner_address=$2',
+              [row.operation_id, session.address],
+            )
+            if (current.rows?.[0]?.state !== 'confirmed') fail('TRAX_DEPLOYMENT_CONFIRMATION_NOT_DURABLY_PERSISTED', 503)
+            return send(res, 200, { success: true, deployment: current.rows[0], recovery: { available: false, solidified: true, runtimeBytecodeVerified: true, ownerVerified: true, metadataVerified: true, automaticRebroadcast: false } }, origin)
+          }
           return send(res, 200, {
-            success: true, deployment: saved.rows?.[0] || { ...row, state: 'confirmed', contract_address: recovered.address, receipt: recovered },
+            success: true, deployment: saved.rows[0],
             recovery: { available: false, solidified: true, runtimeBytecodeVerified: true, ownerVerified: true, metadataVerified: true, automaticRebroadcast: false },
           }, origin)
         } catch (error) {
@@ -245,6 +257,9 @@ export function createTRAXDeploymentApi({
           || String(signed.raw_data_hex || '').toLowerCase() !== String(unsigned.raw_data_hex).toLowerCase()) {
           fail('TRAX_DEPLOYMENT_SIGNED_TRANSACTION_MISMATCH', 409)
         }
+        assertIntegrity(tronWeb, signed, 'Signed TRӾ CreateSmartContract transaction')
+        verifySigner(tronWeb, signed, session.address)
+        await verifyPermission(tronWeb, signed, session.address)
         const [freshEstimate, freshSnapshot] = await Promise.all([
           estimateEnergy(tronWeb, session.address, artifactNow),
           readResources(tronWeb, session.address),
