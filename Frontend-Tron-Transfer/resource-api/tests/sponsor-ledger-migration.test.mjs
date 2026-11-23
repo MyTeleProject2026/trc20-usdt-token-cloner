@@ -47,3 +47,13 @@ test('migration preserves prepared and signed transaction payloads and includes 
   assert.match(source, /canonicalValue\(row\[column\]\)/)
   assert.match(source, /Source Sponsor ledger schema is incomplete/)
 })
+
+test('empty legacy restore can bootstrap nullable payload columns without permitting lossy row migration', () => {
+  const source = readFileSync(script, 'utf8')
+  assert.match(source, /payloadColumns = new Set\(\['prepared_transaction', 'signed_transaction'\]\)/)
+  assert.match(source, /missingSourceColumns\.some\(column => !payloadColumns\.has\(column\)\)/)
+  assert.match(source, /missingSourceColumns\.length && BigInt\(sourceCountCheck\.rows\?\.\[0\]\?\.count \?\? '-1'\) !== 0n/)
+  assert.match(source, /NULL::jsonb AS/)
+  assert.match(source, /ADD COLUMN IF NOT EXISTS prepared_transaction JSONB/)
+  assert.match(source, /ADD COLUMN IF NOT EXISTS signed_transaction JSONB/)
+})
