@@ -93,7 +93,7 @@ export function normalizeMainnetPermissionSnapshot(account, signerAddress, tronW
   }
 }
 
-function decodeNodeErrorText(value) {
+export function decodeNodeErrorText(value) {
   const raw = String(value ?? '')
   const match = raw.trim().match(/(?:^|:\s*)(?:0x)?((?:[0-9a-f]{2}){8,})$/i)
   if (match) {
