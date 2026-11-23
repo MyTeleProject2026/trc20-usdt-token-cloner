@@ -153,7 +153,8 @@ async function buildUnsigned(tronWeb, contractAddress, ownerAddress, normalized)
     tronWeb.address.toHex(ownerAddress),
   )
   const transaction = built?.transaction || built
-  if (built?.result?.result !== true || !TXID.test(String(transaction?.txID || ''))
+  if (built?.result?.result !== true || Number(transaction?.raw_data?.fee_limit) !== Number(normalized.feeLimitSun)
+    || !TXID.test(String(transaction?.txID || ''))
     || !/^(?:[0-9a-f]{2})+$/i.test(String(transaction?.raw_data_hex || ''))
     || transaction?.raw_data?.contract?.length !== 1
     || transaction.raw_data.contract[0]?.type !== 'TriggerSmartContract') fail('OWNER_UNSIGNED_TRANSACTION_BUILD_FAILED', 503)
@@ -231,6 +232,7 @@ export function createOwnerOperationApi({
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('Owner operation API dependencies are required')
   let pool = database
   function getDatabase() {
+    if (typeof pool === 'function') return pool()
     if (pool) return pool
     const connection = sponsorDatabaseConnectionString(env)
     if (!connection) return null
