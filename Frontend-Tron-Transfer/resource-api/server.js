@@ -337,6 +337,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     ...(activeSponsorSigner ? { signerAdapter: activeSponsorSigner } : {}),
     ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}),
     authenticateManagedSession: (req, options) => sponsorWalletAuthApi.authenticateRequest(req, options),
+    authenticateOwnerAdminSession: (req, options) => ownerWalletAuthApi.authenticateRequest(req, options),
     send,
   })
   const rateLimiters = new Map()
