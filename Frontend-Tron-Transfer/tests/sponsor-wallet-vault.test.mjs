@@ -6,7 +6,7 @@ import { Wallet } from 'ethers'
 import {
   createSponsorTronWeb, deriveSponsorAccount, getSavedSponsorWalletAddress,
   hasSavedSponsorWallet, removeSavedSponsorWallet, saveSponsorWalletVault,
-  unlockSponsorWalletVault,
+  unlockSponsorWalletVault, signSponsorTransaction,
 } from '../src/sponsor-wallet-vault.mjs'
 
 const vault = await readFile(new URL('../src/sponsor-wallet-vault.mjs', import.meta.url), 'utf8')
@@ -108,4 +108,88 @@ test('Sponsor vault round-trips encrypted storage, rejects wrong passwords and r
     if (priorCrypto) Object.defineProperty(globalThis, 'crypto', priorCrypto)
     else delete globalThis.crypto
   }
+})
+
+function signedTransactionFixture({ ownerAddress = '41' + '11'.repeat(20), expiration = Date.now() + 60_000 } = {}) {
+  return {
+    txID: 'a'.repeat(64),
+    raw_data_hex: '01'.repeat(20),
+    raw_data: {
+      expiration,
+      contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: ownerAddress, resource: 1, frozen_balance: '1000000' } } }],
+    },
+    signature: [],
+  }
+}
+
+test('Sponsor vault signs only an exact, unexpired Mainnet transaction bound to the unlocked Sponsor address', async () => {
+  const privateKey = '1'.repeat(64)
+  const address = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
+  const ownerHex = '41' + '11'.repeat(20)
+  let signCalls = 0
+  const fakeTronWeb = {
+    address: {
+      fromPrivateKey: key => { assert.equal(key, privateKey); return address },
+      fromHex: value => value === ownerHex ? address : '',
+    },
+    isAddress: value => value === address,
+    utils: {
+      transaction: { txCheck: () => true },
+      crypto: { ecRecover: () => ownerHex },
+    },
+    trx: {
+      sign: async (transaction, key) => {
+        signCalls += 1
+        assert.equal(key, privateKey)
+        return { ...transaction, signature: ['b'.repeat(130)] }
+      },
+    },
+  }
+  const unsigned = signedTransactionFixture({ ownerAddress: ownerHex })
+  const signed = await signSponsorTransaction(
+    { address, privateKey },
+    unsigned,
+    { tronWebFactory: () => fakeTronWeb },
+  )
+  assert.equal(signed.signature.length, 1)
+  assert.equal(signed.txID, unsigned.txID)
+  assert.equal(signed.raw_data_hex, unsigned.raw_data_hex)
+  assert.equal(signCalls, 1)
+  assert.deepEqual(unsigned.signature, [])
+})
+
+test('Sponsor vault refuses transactions for another wallet, expired transactions, or invalid protobuf bodies', async () => {
+  const privateKey = '1'.repeat(64)
+  const address = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
+  const ownerHex = '41' + '11'.repeat(20)
+  const fakeTronWeb = {
+    address: { fromPrivateKey: () => address, fromHex: value => value === ownerHex ? address : '' },
+    isAddress: value => value === address,
+    utils: { transaction: { txCheck: transaction => transaction?.raw_data_hex === '01'.repeat(20) }, crypto: { ecRecover: () => ownerHex } },
+    trx: { sign: async transaction => ({ ...transaction, signature: ['b'.repeat(130)] }) },
+  }
+  const account = { address, privateKey }
+  await assert.rejects(signSponsorTransaction(account, signedTransactionFixture({ ownerAddress: '41' + '22'.repeat(20) }), { tronWebFactory: () => fakeTronWeb }), /not bound/)
+  await assert.rejects(signSponsorTransaction(account, signedTransactionFixture({ ownerAddress: ownerHex, expiration: Date.now() - 1 }), { tronWebFactory: () => fakeTronWeb }), /malformed, expired/)
+  const malformed = signedTransactionFixture({ ownerAddress: ownerHex })
+  malformed.raw_data_hex = 'ff'
+  await assert.rejects(signSponsorTransaction(account, malformed, { tronWebFactory: () => fakeTronWeb }), /protobuf integrity/)
+})
+
+test('Sponsor vault rejects a returned signature if recovery identifies a different signer', async () => {
+  const privateKey = '1'.repeat(64)
+  const address = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
+  const ownerHex = '41' + '11'.repeat(20)
+  const otherHex = '41' + '22'.repeat(20)
+  const fakeTronWeb = {
+    address: { fromPrivateKey: () => address, fromHex: value => value === ownerHex ? address : '' },
+    isAddress: value => value === address,
+    utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => otherHex } },
+    trx: { sign: async transaction => ({ ...transaction, signature: ['b'.repeat(130)] }) },
+  }
+  await assert.rejects(signSponsorTransaction(
+    { address, privateKey },
+    signedTransactionFixture({ ownerAddress: ownerHex }),
+    { tronWebFactory: () => fakeTronWeb },
+  ), /does not match/)
 })
