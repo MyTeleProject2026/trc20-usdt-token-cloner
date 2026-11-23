@@ -292,7 +292,7 @@ export function createTRAXDeploymentApi({
           || !/^[0-9a-f]{130}$/i.test(String(signed.signature[0] || ''))
           || String(signed.txID || '').toLowerCase() !== String(unsigned.txID).toLowerCase()
           || String(signed.raw_data_hex || '').toLowerCase() !== String(unsigned.raw_data_hex).toLowerCase()) {
-          fail('TRAX_DEPLOYMENT_TRONLINK_SIGNATURE_REQUIRED', 409)
+          fail('TRAX_DEPLOYMENT_OWNER_SIGNATURE_INVALID', 409)
         }
         assertIntegrity(tronWeb, signed, 'Signed TRӾ CreateSmartContract transaction')
         await verifySigner(tronWeb, signed, session.address)
