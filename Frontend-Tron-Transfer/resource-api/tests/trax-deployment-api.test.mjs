@@ -16,6 +16,15 @@ function make(overrides={}) {
     artifactLoader:overrides.artifactLoader || (async()=>({contractName:'Restricted1TRAX',compiler:'solc 0.8.25',sourceSha256:'1'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),artifactSha256:'4'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'})),
     tronWebFactory:overrides.tronWebFactory || (()=>{ throw new Error('must-not-construct-without-prepare') }),
     recoverDeployment:overrides.recoverDeployment,
+    buildTransaction:overrides.buildTransaction,
+    estimateEnergy:overrides.estimateEnergy,
+    readResources:overrides.readResources,
+    calculateBudget:overrides.calculateBudget,
+    assertBudget:overrides.assertBudget,
+    assertIntegrity:overrides.assertIntegrity,
+    predictAddress:overrides.predictAddress,
+    signDeployment:overrides.signDeployment,
+    broadcastDeployment:overrides.broadcastDeployment,
   })
   return {api,replies}
 }
