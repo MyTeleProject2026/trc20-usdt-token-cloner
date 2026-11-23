@@ -10,7 +10,17 @@ const root = dirname(fileURLToPath(import.meta.url))
 const migrationsDir = join(root, '..', 'migrations')
 const ACK = 'APPLY_TRON_TRANSFER_OWNER_ADMIN_MIGRATIONS'
 
-export async function applyOwnerAdminMigrations(client, migrations) {
+// Migration files may be run independently, but this orchestrator owns the one
+// transaction spanning the complete ordered migration set. Strip only an
+// optional outer BEGIN/COMMIT envelope so a file cannot commit that transaction.
+export function stripOuterTransactionEnvelope(sql) {
+  let source = String(sql)
+  source = source.replace(/^\s*(?:(?:--[^\r\n]*(?:\r?\n|$))|(?:\/\*[\s\S]*?\*\/\s*))*BEGIN(?:\s+TRANSACTION)?\s*;\s*/i, '')
+  source = source.replace(/\s*COMMIT(?:\s+TRANSACTION)?\s*;\s*$/i, '')
+  return source.trim()
+}
+
+export async function applyOwnerAdminMigrations(client, migrations, validate = null) {
   const applied = [], skipped = []
   await client.query('BEGIN')
   try {
@@ -24,12 +34,13 @@ export async function applyOwnerAdminMigrations(client, migrations) {
         skipped.push(migration.version)
         continue
       }
-      await client.query(migration.sql)
+      await client.query(stripOuterTransactionEnvelope(migration.sql))
       await client.query('INSERT INTO public.tron_transfer_owner_admin_schema_migrations (version,checksum) VALUES ($1,$2)', [migration.version, checksum])
       applied.push(migration.version)
     }
+    const validation = typeof validate === 'function' ? await validate(client) : null
     await client.query('COMMIT')
-    return { applied, skipped }
+    return { applied, skipped, validation }
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {})
     throw error
@@ -50,12 +61,14 @@ async function main() {
   let client
   try {
     client = await pool.connect()
-    const result = await applyOwnerAdminMigrations(client, migrations)
-    const check = await client.query("SELECT to_regclass('public.tron_transfer_wallet_accounts') IS NOT NULL AS wallet_accounts, to_regclass('public.tron_transfer_wallet_sessions') IS NOT NULL AS wallet_sessions, to_regclass('public.tron_transfer_owner_operations') IS NOT NULL AS owner_operations, to_regclass('public.tron_transfer_deployments') IS NOT NULL AS trax_deployments, to_regclass('public.tron_transfer_wallet_recovery_tokens') IS NOT NULL AS recovery_tokens, to_regclass('public.tron_transfer_pending_owner_sessions') IS NOT NULL AS pending_owner_sessions, to_regclass('public.tron_transfer_pending_owner_acceptances') IS NOT NULL AS pending_owner_acceptances")
-    const checks = check.rows?.[0] || {}
-    const missing = Object.entries(checks).filter(([, value]) => value !== true).map(([name]) => name)
-    if (missing.length) throw new Error('Migration postflight is missing required tables: ' + missing.join(', '))
-    process.stdout.write(JSON.stringify({ success: true, applied: result.applied, alreadyApplied: result.skipped, postflight: checks, note: 'No credentials, connection details, row contents or wallet keys were printed.' }) + '\n')
+    const result = await applyOwnerAdminMigrations(client, migrations, async transactionClient => {
+      const check = await transactionClient.query("SELECT to_regclass('public.tron_transfer_wallet_accounts') IS NOT NULL AS wallet_accounts, to_regclass('public.tron_transfer_wallet_sessions') IS NOT NULL AS wallet_sessions, to_regclass('public.tron_transfer_owner_operations') IS NOT NULL AS owner_operations, to_regclass('public.tron_transfer_deployments') IS NOT NULL AS trax_deployments, to_regclass('public.tron_transfer_wallet_recovery_tokens') IS NOT NULL AS recovery_tokens, to_regclass('public.tron_transfer_pending_owner_sessions') IS NOT NULL AS pending_owner_sessions, to_regclass('public.tron_transfer_pending_owner_acceptances') IS NOT NULL AS pending_owner_acceptances")
+      const checks = check.rows?.[0] || {}
+      const missing = Object.entries(checks).filter(([, value]) => value !== true).map(([name]) => name)
+      if (missing.length) throw new Error('Migration postflight is missing required tables: ' + missing.join(', '))
+      return checks
+    })
+    process.stdout.write(JSON.stringify({ success: true, applied: result.applied, alreadyApplied: result.skipped, postflight: result.validation, note: 'No credentials, connection details, row contents or wallet keys were printed.' }) + '\n')
   } finally {
     client?.release()
     await pool.end()
