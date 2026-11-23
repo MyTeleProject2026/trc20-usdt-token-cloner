@@ -47,6 +47,17 @@ test('deployment readiness reports artifact and ledger gates without signing or 
  assert.equal(replies[0].payload.readyForPreparation,true)
  assert.equal(replies[0].payload.executionEnabled,false)
 })
+test('deployment readiness and confirmation block a mismatched database identity', async()=>{
+ const {api,replies}=make({env:{OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256:'f'.repeat(64)}})
+ await api.handle(req(),res(),new URL('https://api.test/api/owner/deployment/readiness'),null)
+ assert.equal(replies[0].payload.gates.databaseTargetIdentity,false)
+ assert.equal(replies[0].payload.readyForPreparation,false)
+ assert.equal(replies[0].payload.blocker,'TRAX_DEPLOYMENT_DATABASE_TARGET_IDENTITY_NOT_VERIFIED')
+ await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT'}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
+ assert.equal(replies[1].status,423)
+ assert.equal(replies[1].payload.error,'TRAX_DEPLOYMENT_EXECUTION_GATES_LOCKED')
+})
+
 test('deployment confirmation is locked even when readiness checks pass', async()=>{
  const {api,replies}=make()
  await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT'}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
