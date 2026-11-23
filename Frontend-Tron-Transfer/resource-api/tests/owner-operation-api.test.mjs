@@ -125,7 +125,7 @@ function makeExecutionFixture(overrides = {}) {
     state: 'awaiting-confirmation', transaction_id: null, receipt: {},
   }
   const transitions = []
-  const counts = { sign: 0, broadcast: 0, preflight: 0, verify: 0 }
+  const counts = { sign: 0, broadcast: 0, preflight: 0, verify: 0, signatureCheck: 0 }
   const ledger = {
     async get() { return { ...operation, state: transitions.at(-1)?.state || operation.state } },
     async claimConfirmation() { operation.state = 'confirming'; return { ...operation } },
@@ -152,6 +152,7 @@ function makeExecutionFixture(overrides = {}) {
     ledgerFactory: () => ledger,
     tronWebFactory: () => ({ trx: {} }),
     verifyContractState: async () => { counts.verify++ },
+    verifySignedTransaction: async () => { counts.signatureCheck++; if (overrides.signatureFailure) throw Object.assign(new Error('signature rejected'), { code: 'OWNER_SIGNED_TRANSACTION_PERMISSION_INVALID', status: 403 }) },
     prepareTransaction: async () => ({ txID: 'b'.repeat(64), raw_data: { expiration: Date.now() + 60_000 } }),
     preflightTransaction: async () => { counts.preflight++; if (overrides.preflightFailure) throw Object.assign(new Error('blocked'), { code: 'OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', status: 423 }); return { estimatedTrxFallbackSun: '0' } },
     signerFactory: () => ({
@@ -177,6 +178,7 @@ test('Owner confirmation signs once, durably journals before broadcast and verif
   assert.equal(fixture.replies[0].payload.state, 'confirmed')
   assert.equal(fixture.counts.sign, 1)
   assert.equal(fixture.counts.broadcast, 1)
+  assert.equal(fixture.counts.signatureCheck, 1)
   assert.deepEqual(fixture.transitions.map(item => item.state), ['signed', 'broadcast-unknown', 'broadcast', 'confirmed'])
 })
 
@@ -209,4 +211,17 @@ test('Owner confirmation remains disabled without both explicit Mainnet executio
   assert.equal(fixture.replies[0].status, 423)
   assert.equal(fixture.counts.sign, 0)
   assert.equal(fixture.counts.broadcast, 0)
+})
+
+test('Owner confirmation never broadcasts if recovered signature or permission evidence fails', async () => {
+  const fixture = makeExecutionFixture({ signatureFailure: true })
+  await fixture.api.handle(request('POST', {
+    confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
+    intentSha256: fixture.intentSha256, contractAddress: contract,
+  }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
+  assert.equal(fixture.replies[0].status, 403)
+  assert.equal(fixture.counts.sign, 1)
+  assert.equal(fixture.counts.signatureCheck, 1)
+  assert.equal(fixture.counts.broadcast, 0)
+  assert.equal(fixture.transitions.at(-1).state, 'failed')
 })
