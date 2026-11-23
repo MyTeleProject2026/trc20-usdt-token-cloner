@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TronWeb } from 'tronweb'
 import { AlertTriangle, ArrowUpRight, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import {
@@ -68,6 +68,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [step, setStep] = useState('')
   const [deploymentReadiness, setDeploymentReadiness] = useState(null)
   const [promoClaimStatus, setPromoClaimStatus] = useState(null)
+  const [recentOperations, setRecentOperations] = useState([])
+  const prepareInFlightRef = useRef(null)
 
   useEffect(() => {
     try { saveContractAddresses({ tokenAddress }) } catch {}
@@ -157,7 +159,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setTokenAddress('')
     setSnapshot(null)
     setLookupBalance('')
-    setNotice('The saved contract address was cleared from this browser only. No blockchain contract or tokens were changed. You can now deploy a new TRӾ contract.')
+    setNotice('The saved contract address was cleared from this browser only. No blockchain contract or tokens were changed. Backend-managed deployment remains locked until its artifact-pinned flow is implemented.')
     setError('')
   }
 
@@ -170,27 +172,36 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return 'owner-' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
   }
 
-  const prepareOwnerOperation = useCallback(async ({ operationType, summary, ...intent }) => run('Preparing guarded TRON Mainnet Owner operation', async () => {
-    if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured backend Owner session before preparing a write.')
-    if (!tokenAddress || tokenAddress.trim() === '') throw new Error('Enter the existing verified TRӾ Mainnet contract address.')
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
-    const result = await wallet.authClient.apiRequest('/api/owner/operations/prepare', {
-      method: 'POST',
-      csrf: true,
-      body: {
-        operationType, contractAddress: tokenAddress.trim(),
-        feeLimitSun: String(feeCapSun), idempotencyKey: makeIdempotencyKey(), ...intent,
-      },
-    })
-    if (!result.success || !result.operationId) throw new Error(result.error || 'OWNER_OPERATION_PREPARATION_FAILED')
-    if (result.replay) {
-      setNotice('This exact idempotency key already exists. No new transaction was prepared or submitted. Open the operation status before taking further action.')
+  const prepareOwnerOperation = useCallback(async ({ operationType, summary, ...intent }) => {
+    if (prepareInFlightRef.current) return prepareInFlightRef.current
+    const task = run('Preparing guarded TRON Mainnet Owner operation', async () => {
+      if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured backend Owner session before preparing a write.')
+      if (!tokenAddress || tokenAddress.trim() === '') throw new Error('Enter the existing verified TRӾ Mainnet contract address.')
+      if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
+      const result = await wallet.authClient.apiRequest('/api/owner/operations/prepare', {
+        method: 'POST', csrf: true,
+        body: {
+          operationType, contractAddress: tokenAddress.trim(),
+          feeLimitSun: String(feeCapSun), idempotencyKey: makeIdempotencyKey(), ...intent,
+        },
+      })
+      if (!result.success || !result.operationId) throw new Error(result.error || 'OWNER_OPERATION_PREPARATION_FAILED')
+      if (result.replay) {
+        const recovered = await wallet.authClient.apiRequest('/api/owner/operations/' + result.operationId)
+        setPendingOperation({ ...recovered.operation, ...result, ...recovered.operation, summary, executionEnabled: recovered.executionEnabled })
+        setNotice('An existing operation with this exact idempotency key was recovered. Review its stored intent and state; no new transaction was created.')
+        return recovered
+      }
+      setPendingOperation({ ...result, summary, state: result.state })
+      setConfirmationPhrase('')
+      const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
+      if (journal?.success) setRecentOperations(journal.operations || [])
       return result
-    }
-    setPendingOperation({ ...result, summary, state: result.state })
-    setConfirmationPhrase('')
-    return result
-  }), [run, wallet, walletReady, tokenAddress, feeCapSun])
+    })
+    prepareInFlightRef.current = task
+    try { return await task }
+    finally { if (prepareInFlightRef.current === task) prepareInFlightRef.current = null }
+  }, [run, wallet, walletReady, tokenAddress, feeCapSun])
 
   const confirmOwnerOperation = () => run('Rechecking Mainnet state, signing and verifying the Owner operation', async () => {
     if (!pendingOperation?.operationId) throw new Error('Prepare an Owner operation before confirming.')
@@ -226,6 +237,56 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setPendingOperation(null)
     setConfirmationPhrase('')
     setNotice('The prepared Owner operation was cancelled. No transaction was signed or broadcast.')
+  })
+
+  const refreshPendingOperation = () => run('Reconciling Owner transaction against solidified TRON Mainnet', async () => {
+    if (!pendingOperation?.operationId) return
+    const result = await wallet.authClient.apiRequest('/api/owner/operations/' + pendingOperation.operationId)
+    const operation = result.operation
+    setPendingOperation(current => current ? {
+      ...current, ...operation, summary: current.summary || operation.operationType,
+      confirmationPhrase: operation.confirmationPhrase || current.confirmationPhrase,
+      executionEnabled: result.executionEnabled,
+    } : current)
+    if (operation.state === 'confirmed' && operation.transactionId) {
+      setLastTx(operation.transactionId)
+      setPendingOperation(null)
+      setSnapshot(null)
+      setNotice('The transaction is confirmed in a solidified Mainnet block.')
+    } else if (operation.state === 'failed') {
+      setNotice('The solidified transaction failed on-chain: ' + String(operation.failureCode || 'execution failed') + '. Do not retry this transaction ID.')
+    } else {
+      setNotice('Owner operation state: ' + operation.state + '. No automatic re-sign or rebroadcast was attempted.')
+    }
+    return operation
+  })
+
+  const refreshOwnerOperations = () => run('Loading durable Owner operation journal', async () => {
+    if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the Owner session to read its operation journal.')
+    const result = await wallet.authClient.apiRequest('/api/owner/operations?limit=20')
+    setRecentOperations(result.operations || [])
+    return result.operations || []
+  })
+
+  const checkOwnerOperation = operationId => run('Checking Owner operation receipt', async () => {
+    const result = await wallet.authClient.apiRequest('/api/owner/operations/' + operationId)
+    const operation = result.operation
+    setRecentOperations(current => current.map(item => item.operationId === operationId ? { ...item, ...operation } : item))
+    if (operation.state === 'awaiting-confirmation') {
+      setPendingOperation({
+        ...operation, ownerAddress: connectedAddress, summary: operation.operationType,
+        confirmationPhrase: operation.confirmationPhrase,
+        executionEnabled: result.executionEnabled,
+      })
+      setConfirmationPhrase('')
+      setNotice('Recovered the exact pending Owner intent from the durable ledger. Review all ABI arguments before confirming.')
+    } else if (operation.transactionId) {
+      setNotice('Recovered transaction ' + operation.transactionId + ' · ' + operation.state + '. No automatic retry was attempted.')
+      if (operation.state === 'confirmed') setLastTx(operation.transactionId)
+    } else {
+      setNotice('Recovered Owner operation state: ' + operation.state + (operation.failureCode ? ' · ' + operation.failureCode : ''))
+    }
+    return operation
   })
 
   const unpauseTransfers = () => prepareOwnerOperation({
@@ -321,7 +382,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. Deployment remains locked until the backend deployment route pins and verifies the exact compiled artifact. No browser signing fallback is available.</span><span>4. Wait for a solidified receipt and verify bytecode, owner and metadata.</span></div>
         {promoClaimStatus && <div className="trax-state-banner"><b>Free Energy promotion: {promoClaimStatus.status}</b><span>{promoClaimStatus.energyVerified ? "Provider delegation was independently observed; fresh deployment preflight will verify exact required coverage." : (promoClaimStatus.message || "No grant has been verified. Deployment remains subject to live Mainnet resource checks.")}</span></div>}
         {deploymentReady && <div className="trax-state-banner success"><b>Readiness passed · expires in 60 seconds</b><span>Energy required with safety margin: {deploymentReadiness.energyWithSafetyMargin} · estimated transaction Bandwidth: {deploymentReadiness.bandwidthBytes} bytes · estimated TRX fallback: 0.</span></div>}
-        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={claimTenergyPromo}><ShieldCheck size={15}/> Check &amp; claim TEnergy Energy</button><button type="button" className="secondary-button" disabled={true} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={true} onClick={deployToken}><Rocket size={15}/> Preflight & deploy TRӾ</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+        <div className="button-row"><button type="button" className="secondary-button" disabled={true} onClick={claimTenergyPromo}><ShieldCheck size={15}/> Check &amp; claim TEnergy Energy</button><button type="button" className="secondary-button" disabled={true} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={true} onClick={deployToken}><Rocket size={15}/> Preflight & deploy TRӾ</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
       </div>}
       {show('portfolio') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
       {!show('portfolio', 'deploy') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
@@ -402,6 +463,14 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
     {show('ownership') && <TRAXOwnershipControls wallet={panelWallet} tokenAddress={tokenAddress} feeCapSun={feeCapSun} busy={busy} getToken={getToken} run={run} onPrepareOperation={prepareOwnerOperation}/>}
 
+    {show('history') && <div className="trax-actions">
+      <div className="trax-section-title"><h3>Durable Owner operation journal</h3><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshOwnerOperations}><RefreshCw size={14}/> Refresh journal</button></div>
+      <p className="fine-print">Session-scoped Mainnet Owner operation records. Signed and broadcast-unknown transactions are reconciled by transaction ID; they are never automatically re-signed or rebroadcast.</p>
+      {recentOperations.length === 0 ? <p className="fine-print">No Owner operations loaded. Refresh the durable journal to recover prepared intents and transaction receipts.</p> : <div className="trax-history-list">{recentOperations.map(operation => <article className="trax-history-item" key={operation.operationId}>
+        <div><b>{operation.operationType} · {operation.state}</b><small>{operation.method || 'Contract operation'} · {operation.createdAt ? new Date(operation.createdAt).toLocaleString() : 'Time unavailable'}</small><small>Operation: {operation.operationId}</small>{operation.transactionId && <small>Transaction: {operation.transactionId}</small>}{operation.failureCode && <small>Result: {operation.failureCode}</small>}</div>
+        <button type="button" className="outline-button" disabled={busy} onClick={() => checkOwnerOperation(operation.operationId)}>Recover / check receipt</button>
+      </article>)}</div>}
+    </div>}
     {show('history') && <TRAXCreditHistory wallet={panelWallet} tokenAddress={tokenAddress} run={run} busy={busy}/>}
 
     {show('balance') && <div className="trax-actions">
@@ -417,6 +486,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <p><b>{pendingOperation.summary || pendingOperation.operationType}</b></p>
       <p className="fine-print">Operation ID: {pendingOperation.operationId}</p>
       <p className="fine-print">Exact intent SHA-256: {pendingOperation.intentSha256}</p>
+      <details><summary>Inspect exact contract method and arguments</summary><pre>{JSON.stringify({ method: pendingOperation.method, args: pendingOperation.args, feeLimitSun: pendingOperation.feeLimitSun || pendingOperation.preflight?.feeLimitSun }, null, 2)}</pre></details>
       <p className="fine-print">TRON Mainnet · Owner / fee payer: {pendingOperation.ownerAddress} · Contract: {pendingOperation.contractAddress}</p>
       {pendingOperation.preflight && <div className="trax-checks">
         <span>Energy required: {pendingOperation.preflight.requiredEnergyWithSafetyMargin || pendingOperation.preflight.estimatedEnergy}</span>
@@ -433,6 +503,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       {pendingOperation.transactionId && <p className="fine-print">Transaction ID: {pendingOperation.transactionId} · State: {pendingOperation.state}</p>}
       <div className="button-row">
         <button type="button" className="primary-button" disabled={busy || !pendingOperation.executionEnabled || pendingOperation.state !== 'awaiting-confirmation' || confirmationPhrase !== pendingOperation.confirmationPhrase} onClick={confirmOwnerOperation}>Confirm exact operation &amp; submit</button>
+        {pendingOperation.transactionId && <button type="button" className="outline-button" disabled={busy} onClick={refreshPendingOperation}>Refresh receipt status</button>}
         <button type="button" className="outline-button" disabled={busy || pendingOperation.state !== 'awaiting-confirmation'} onClick={cancelOwnerOperation}>Cancel prepared operation</button>
       </div>
       <p className="fine-print">A signed or broadcast-unknown transaction is never automatically re-signed or rebroadcast. Its transaction ID must be reconciled against a solidified Mainnet receipt.</p>
