@@ -65,6 +65,34 @@ function assertTransaction(transaction, { tronWeb, operation, resource, amountSu
   if (!TXID.test(String(transaction?.txID || '')) || !/^(?:[0-9a-f]{2})+$/i.test(String(transaction?.raw_data_hex || ''))) throw new Error('unsigned-transaction-bytes-invalid')
 }
 
+
+export async function verifySponsorSignedTransaction({
+  tronWeb, unsignedTransaction, signedTransaction, operation, resource, amountSun,
+  sponsorAddress, ownerAddress,
+} = {}) {
+  if (!tronWeb || !unsignedTransaction || !signedTransaction
+    || signedTransaction.txID !== unsignedTransaction.txID
+    || signedTransaction.raw_data_hex !== unsignedTransaction.raw_data_hex
+    || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(unsignedTransaction.raw_data)
+    || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length !== 1
+    || !/^[0-9a-f]{130}$/i.test(signedTransaction.signature[0])) {
+    throw new Error('signed-transaction-integrity-failed')
+  }
+  assertTransaction(unsignedTransaction, { tronWeb, operation, resource, amountSun, sponsorAddress, ownerAddress })
+  const computed = createHash('sha256').update(Buffer.from(unsignedTransaction.raw_data_hex, 'hex')).digest('hex')
+  if (computed.toLowerCase() !== String(unsignedTransaction.txID).toLowerCase()) throw new Error('signed-transaction-protobuf-hash-mismatch')
+  if (typeof tronWeb.trx?.getSignWeight !== 'function') throw new Error('sponsor-signature-verification-unavailable')
+  const signWeight = await tronWeb.trx.getSignWeight({ ...signedTransaction, visible: true })
+  const approved = Array.isArray(signWeight?.approved_list) ? signWeight.approved_list : []
+  const threshold = Number(signWeight?.permission?.threshold || 0)
+  const currentWeight = Number(signWeight?.current_weight || 0)
+  if (signWeight?.result?.code || !approved.includes(sponsorAddress) || !Number.isSafeInteger(threshold)
+    || threshold <= 0 || !Number.isSafeInteger(currentWeight) || currentWeight < threshold) {
+    throw new Error('sponsor-signature-or-permission-invalid')
+  }
+  return { verified: true, sponsorAddress, ownerAddress, transactionId: unsignedTransaction.txID }
+}
+
 export function createSponsorTransactionEngine({
   env = process.env,
   fetchImpl = globalThis.fetch,
@@ -319,18 +347,11 @@ export function createSponsorTransactionEngine({
     let signed = false
     let broadcastAttempted = false
     try {
-      if (!signedTransaction || !preparedTransaction
-        || signedTransaction.txID !== preparedTransaction.txID
-        || signedTransaction.raw_data_hex !== preparedTransaction.raw_data_hex
-        || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(preparedTransaction.raw_data)
-        || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length !== 1
-        || !/^[0-9a-f]{130}$/i.test(signedTransaction.signature[0])) {
-        throw new Error('signed-transaction-integrity-failed')
-      }
-      assertTransaction(preparedTransaction, { tronWeb: tronWebFactory(null), operation, resource, amountSun, sponsorAddress, ownerAddress: recipient })
       const tronWeb = tronWebFactory(null)
-      const txidHash = createHash('sha256').update(Buffer.from(preparedTransaction.raw_data_hex, 'hex')).digest('hex')
-      if (txidHash.toLowerCase() !== String(preparedTransaction.txID).toLowerCase()) throw new Error('signed-transaction-integrity-failed')
+      await verifySponsorSignedTransaction({
+        tronWeb, unsignedTransaction: preparedTransaction, signedTransaction,
+        operation, resource, amountSun, sponsorAddress, ownerAddress: recipient,
+      })
       const balance = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
       const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
       const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
