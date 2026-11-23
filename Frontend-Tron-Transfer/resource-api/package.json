@@ -20,6 +20,7 @@
     "build:trax-artifact": "node scripts/build-trax-deployment-artifact.mjs",
     "prestart": "npm run build:trax-artifact",
     "owner:recovery-token": "node scripts/create-owner-recovery-token.mjs",
+    "sponsor:recovery-token": "WALLET_ROLE=sponsor node scripts/create-owner-recovery-token.mjs",
     "migrate:owner-admin-ledgers": "node scripts/migrate-owner-admin-ledgers.mjs"
   },
   "dependencies": {
