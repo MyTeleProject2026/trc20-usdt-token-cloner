@@ -17,6 +17,13 @@ function fakeDb() {
       const id=keys.get(p[0]);const row=id&&rows.get(id)
       return {rows:row&&row.session_id===p[1]?[row]:[]}
     }
+    if(sql.includes("SET state='confirming'")) {
+      const row=rows.get(p[0]);if(!row||row.session_id!==p[1]||row.state!=='awaiting-confirmation')return {rows:[]}
+      row.state='confirming';return {rows:[row]}
+    }
+    if(sql.includes('WHERE session_id=$1 AND wallet_role=\'owner\'')) {
+      return {rows:[...rows.values()].filter(row=>row.session_id===p[0]).slice(0,p[1])}
+    }
     if(sql.startsWith('SELECT state FROM')) {
       const row=rows.get(p[0]);return {rows:row&&row.session_id===p[1]?[{state:row.state}]:[]}
     }
@@ -46,6 +53,9 @@ test('Owner ledger enforces session-bound lifecycle and recovery transitions',as
  await assert.rejects(ledger.transition({operationId:row.operation_id,sessionId,nextState:'broadcast'}),/OWNER_LEDGER_TRANSITION_NOT_ALLOWED/)
  await ledger.transition({operationId:row.operation_id,sessionId,nextState:'preflight-passed'})
  await ledger.transition({operationId:row.operation_id,sessionId,nextState:'awaiting-confirmation'})
+ const claimed=await ledger.claimConfirmation(row.operation_id,sessionId)
+ assert.equal(claimed.state,'confirming')
+ await assert.rejects(ledger.claimConfirmation(row.operation_id,sessionId),/OWNER_LEDGER_CONFIRMATION_ALREADY_CLAIMED_OR_NOT_PENDING/)
  await ledger.transition({operationId:row.operation_id,sessionId,nextState:'signed'})
  await ledger.transition({operationId:row.operation_id,sessionId,nextState:'broadcast',transactionId:'a'.repeat(64)})
  await ledger.transition({operationId:row.operation_id,sessionId,nextState:'confirmed',blockNumber:123})
@@ -59,4 +69,17 @@ test('Owner ledger rejects invalid session, key and operation type',async()=>{
  await assert.rejects(ledger.prepare({...base,sessionId:0}),/OWNER_LEDGER_SESSION_REQUIRED/)
  await assert.rejects(ledger.prepare({...base,idempotencyKey:'bad'}),/OWNER_LEDGER_IDEMPOTENCY_KEY_INVALID/)
  await assert.rejects(ledger.prepare({...base,operationType:'arbitrary'}),/OWNER_LEDGER_OPERATION_NOT_ALLOWED/)
+})
+
+test('Owner ledger exposes a session-scoped journal without signed transaction payloads',async()=>{
+ const database=fakeDb()
+ const ledger=createOwnerOperationLedger({database})
+ const row=await ledger.prepare({...base,idempotencyKey:'owner-operation-request-0003'})
+ await ledger.transition({operationId:row.operation_id,sessionId,nextState:'preflight-passed',receipt:{preflight:{estimatedTrxFallbackSun:'0'},unsignedTransaction:{secret:'never-list'}}})
+ await ledger.transition({operationId:row.operation_id,sessionId,nextState:'awaiting-confirmation'})
+ const rows=await ledger.list(sessionId,20)
+ assert.equal(rows.length,1)
+ assert.equal(rows[0].operation_id,row.operation_id)
+ assert.equal(rows[0].state,'awaiting-confirmation')
+ assert.equal(rows[0].receipt,undefined)
 })
