@@ -78,6 +78,7 @@ Apply all ordered Owner Admin migrations with the checksum-verifying runner afte
 3. `migrations/20261123_trax_deployment_ledger.sql`
 4. `migrations/20261124_owner_recovery_tokens.sql`
 5. `migrations/20261125_pending_owner_acceptance.sql`
+6. `migrations/20261126_wallet_recovery_roles.sql`
 
 Use the direct database URL and the explicit migration acknowledgement documented in the Artifact-pinned TRӾ deployment section. The runner applies all migrations in one transaction, stores SHA-256 checksums and refuses to silently reapply a changed migration. It verifies the required tables before reporting success. The Owner operation migration adds the atomic `confirming` lifecycle state.
 
@@ -157,7 +158,7 @@ Apply Owner Admin schema migrations with a direct PostgreSQL URL only, after a v
 
     OWNER_ADMIN_MIGRATIONS_ACK=APPLY_TRON_TRANSFER_OWNER_ADMIN_MIGRATIONS npm run migrate:owner-admin-ledgers
 
-The runner applies ordered SQL files transactionally, records immutable SHA-256 migration checksums, refuses changed applied migrations, and verifies all required Owner, deployment, recovery and pending-owner tables. Use OWNER_ADMIN_DATABASE_URL or the direct DATABASE_URL; transaction-pooler URLs are rejected. The runner does not print connection strings, hostnames, usernames, passwords, row data or keys.
+The runner applies ordered SQL files transactionally, records immutable SHA-256 migration checksums, refuses changed applied migrations, and verifies all required Owner, deployment, recovery and pending-owner tables. Use OWNER_ADMIN_DATABASE_URL or the direct DATABASE_URL; transaction-pooler URLs are rejected. The runner does not print connection strings, hostnames, usernames, passwords, row data or keys. Production acceptance also requires `OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256`: the SHA-256 fingerprint of the selected PostgreSQL endpoint hostname, database name and role (canonical JSON, no password). The API reports only the fingerprint and whether it matches; it never returns the hostname or credentials. Generate this value from the approved Neon production endpoint and set it on the existing Resource API service only after independently confirming the intended branch/database/role. A missing or mismatched value blocks acceptance.
 
 ## Important limits
 
