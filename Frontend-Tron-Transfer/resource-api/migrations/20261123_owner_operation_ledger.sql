@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS public.tron_transfer_owner_operations (
   intent JSONB NOT NULL CHECK (jsonb_typeof(intent) = 'object'),
   intent_sha256 CHAR(64) NOT NULL CHECK (intent_sha256 ~ '^[0-9a-f]{64}$'),
   state TEXT NOT NULL DEFAULT 'created' CHECK (state IN (
-    'created', 'preflight-passed', 'awaiting-confirmation', 'signed',
+    'created', 'preflight-passed', 'awaiting-confirmation', 'confirming', 'signed',
     'broadcast-unknown', 'broadcast', 'confirmed', 'failed', 'cancelled'
   )),
   transaction_id CHAR(64) UNIQUE CHECK (transaction_id IS NULL OR transaction_id ~ '^[0-9a-f]{64}$'),
@@ -38,6 +38,6 @@ CREATE INDEX IF NOT EXISTS tron_transfer_owner_operations_recent
 
 CREATE INDEX IF NOT EXISTS tron_transfer_owner_operations_recovery
   ON public.tron_transfer_owner_operations (state, updated_at)
-  WHERE state IN ('signed', 'broadcast-unknown', 'broadcast');
+  WHERE state IN ('confirming', 'signed', 'broadcast-unknown', 'broadcast');
 
 COMMIT;
