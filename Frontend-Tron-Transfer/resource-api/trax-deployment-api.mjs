@@ -4,6 +4,7 @@ import {
   createMainnetDeploymentTransaction,
   estimateMainnetDeploymentEnergy,
   getMainnetAccountResourceSnapshot,
+  getMainnetNativeBalance,
 } from '../src/trax-mainnet.mjs'
 import {
   calculateDeploymentResourceBudget,
@@ -132,6 +133,9 @@ export function createTRAXDeploymentApi({
     try {
       const artifactNow = await artifactLoader({ env })
       const tronWeb = tronWebFactory({ fullHost: mainnetHost(env) })
+      tronWeb.fullNode.headers = env.TATUM_API_KEY && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet'
+        ? { 'x-api-key': String(env.TATUM_API_KEY).trim() }
+        : (env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': String(env.TRONGRID_API_KEY).trim() } : {})
       const unsigned = await buildTransaction(tronWeb, {
         abi: artifactNow.abi, bytecode: artifactNow.bytecode, feeLimit: Number(feeLimitSun),
         originEnergyLimit: Number(env.TRAX_DEPLOYMENT_ORIGIN_ENERGY_LIMIT || 10000000),
@@ -150,7 +154,7 @@ export function createTRAXDeploymentApi({
       const [estimate, snapshot, balanceSun] = await Promise.all([
         estimateEnergy(tronWeb, session.address, artifactNow),
         readResources(tronWeb, session.address),
-        tronWeb.trx.getBalance(session.address).then(value => String(value)),
+        getMainnetNativeBalance(tronWeb, session.address),
       ])
       const resource = resourceFields(snapshot)
       const budget = calculateBudget({

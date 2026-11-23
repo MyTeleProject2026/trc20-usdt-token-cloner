@@ -518,7 +518,7 @@ async function postNode(tronWeb, path, body) {
       const rpcHost = String(tronWeb?.fullNode?.host || TRON_MAINNET_HOST).replace(/\/+$/, '')
       const response = await fetch(rpcHost + path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(tronWeb?.fullNode?.headers || {}) },
         body: JSON.stringify(body),
         cache: 'no-store',
       })
