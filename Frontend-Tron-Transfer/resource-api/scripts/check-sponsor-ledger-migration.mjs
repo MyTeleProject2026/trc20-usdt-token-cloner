@@ -8,7 +8,7 @@ const TABLE = 'public.tron_transfer_sponsor_operations'
 const REQUIRED_COLUMNS = [
   'id', 'idempotency_key_hash', 'request_hash', 'operation', 'resource',
   'amount_sun', 'sponsor_address', 'owner_address', 'status', 'transaction_id',
-  'result_code', 'confirmation_block', 'created_at', 'updated_at',
+  'prepared_transaction', 'signed_transaction', 'result_code', 'confirmation_block', 'created_at', 'updated_at',
 ]
 
 export function assessMigrationPreflight(snapshot) {
