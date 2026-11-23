@@ -38,7 +38,7 @@ export function parseOwnerUsdtAmount(value) {
   const [whole, fraction = ''] = raw.split('.')
   const baseUnits = BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, '0') || '0')
   if (baseUnits <= 0n || baseUnits > 10n ** 30n) {
-    throw new Error('The USDT amount is outside the permitted transfer range.')
+    throw new Error('Enter a positive USDT amount within the permitted transfer range.')
   }
   return baseUnits.toString()
 }
