@@ -30,7 +30,7 @@ const mainnetRpcProxyCache = new Map()
 const mainnetRpcProxyInFlight = new Map()
 const MAINNET_READ_RPC_METHODS = new Set([
   '/wallet/getaccount', '/walletsolidity/getaccount', '/wallet/getaccountresource',
-  '/wallet/getaccountnet', '/wallet/getchainparameters', '/wallet/getcontract',
+  '/wallet/getaccountnet', '/wallet/getchainparameters', '/wallet/getcontract', '/wallet/getcontractinfo',
   '/wallet/triggerconstantcontract', '/wallet/estimateenergy',
   '/walletsolidity/gettransactionbyid', '/walletsolidity/gettransactioninfobyid',
   '/walletsolidity/getavailableunfreezecount', '/walletsolidity/getcanwithdrawunfreezeamount',
