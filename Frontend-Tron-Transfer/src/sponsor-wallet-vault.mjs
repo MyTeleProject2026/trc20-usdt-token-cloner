@@ -162,7 +162,7 @@ export async function signSponsorTransaction(account, unsignedTransaction, { tro
   if (!Number.isSafeInteger(expiration) || expiration <= now() + 5_000 || expiration > now() + 10 * 60_000
     || !/^[0-9a-f]{64}$/i.test(String(unsignedTransaction?.txID || ''))
     || !/^(?:[0-9a-f]{2})+$/i.test(String(unsignedTransaction?.raw_data_hex || ''))
-    || !Array.isArray(unsignedTransaction?.signature) || unsignedTransaction.signature.length !== 0) {
+    || (unsignedTransaction?.signature != null && (!Array.isArray(unsignedTransaction.signature) || unsignedTransaction.signature.length !== 0))) {
     throw new Error('Unsigned Sponsor transaction is malformed, expired, or already signed.')
   }
   if (typeof tronWeb.utils?.transaction?.txCheck !== 'function'
