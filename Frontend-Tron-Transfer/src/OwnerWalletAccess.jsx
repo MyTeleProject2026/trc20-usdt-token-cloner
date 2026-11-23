@@ -1,104 +1,157 @@
 import { useEffect, useState } from 'react'
 import './owner-wallet-access.css'
-import { LockKeyhole, ShieldCheck } from 'lucide-react'
+import { KeyRound, LockKeyhole, ShieldCheck, Upload } from 'lucide-react'
+import {
+  createOwnerTronWeb, deriveOwnerAccount, getSavedOwnerWalletAddress, hasSavedOwnerWallet,
+  removeSavedOwnerWallet, saveOwnerWalletVault, unlockOwnerWalletVault,
+} from './owner-wallet-vault.mjs'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
-import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 
-const ownerAuth = createManagedWalletAuthClient({ role: 'owner' })
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const modes = [['private-key', 'Private key'], ['keystore', 'V3 Keystore JSON'], ['mnemonic', 'Mnemonic phrase']]
+const ownerAuth = createManagedWalletAuthClient({ role: 'owner' })
 
 export default function OwnerWalletAccess({ onUnlock, onClose }) {
   const [enrolled, setEnrolled] = useState(null)
-  const [password, setPassword] = useState('')
+  const [authenticated, setAuthenticated] = useState(false)
+  const [authPassword, setAuthPassword] = useState('')
   const [enrollmentToken, setEnrollmentToken] = useState('')
   const [recoveryToken, setRecoveryToken] = useState('')
   const [confirmRecoveryPassword, setConfirmRecoveryPassword] = useState('')
   const [recoveryMode, setRecoveryMode] = useState(false)
+  const [mode, setMode] = useState('private-key')
+  const [credential, setCredential] = useState('')
+  const [keystorePassword, setKeystorePassword] = useState('')
+  const [vaultPassword, setVaultPassword] = useState('')
+  const [unlockPassword, setUnlockPassword] = useState('')
+  const [saved, setSaved] = useState(hasSavedOwnerWallet())
+  const [replace, setReplace] = useState(!hasSavedOwnerWallet())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [message, setMessage] = useState('Checking backend Owner account…')
+  const [message, setMessage] = useState('Checking Owner account session…')
 
   useEffect(() => {
     let active = true
-    ownerAuth.status()
-      .then(result => {
-        if (!active) return
-        setEnrolled(Boolean(result.enrolled))
-        setMessage(result.enrolled
-          ? 'Sign in to the existing Owner account, then connect its TronLink wallet.'
-          : 'First-time enrollment uses the one-time token configured on the Resource API, then connects the matching TronLink wallet.')
-      })
-      .catch(cause => {
-        if (!active) return
-        setEnrolled(false)
-        setError(cause?.message || 'OWNER_AUTH_STATUS_UNAVAILABLE')
-        setMessage('The backend Owner account could not be reached.')
-      })
+    Promise.all([ownerAuth.status(), ownerAuth.session().catch(() => null)]).then(([status, session]) => {
+      if (!active) return
+      setEnrolled(Boolean(status.enrolled))
+      if (session?.success && session.address === EXPECTED_OWNER_ADDRESS) {
+        setAuthenticated(true)
+        setMessage('Owner application session is active. Unlock the encrypted local Owner Wallet to enable local signing.')
+      } else {
+        setMessage(status.enrolled
+          ? 'Sign in to the Owner application account, then unlock the independent local Owner Wallet.'
+          : 'First-time setup requires the one-time Owner enrollment token, then import the existing Owner Wallet.')
+      }
+    }).catch(cause => {
+      if (!active) return
+      setEnrolled(false)
+      setError(cause?.message || 'OWNER_AUTH_STATUS_UNAVAILABLE')
+      setMessage('The Resource API Owner account could not be reached.')
+    })
     return () => { active = false }
   }, [])
 
-  async function submit(event) {
+  async function authenticate(event) {
     event.preventDefault()
-    setBusy(true)
-    setError('')
+    setBusy(true); setError('')
     try {
+      const result = recoveryMode
+        ? await ownerAuth.recoverPassword(recoveryToken.trim(), authPassword)
+        : enrolled
+          ? await ownerAuth.login(authPassword)
+          : await ownerAuth.enroll(authPassword, enrollmentToken.trim())
       if (recoveryMode) {
-        if (password.length < 12 || password !== confirmRecoveryPassword || recoveryToken.trim().length < 32) throw new Error('Enter a valid recovery token and matching new password of at least 12 characters.')
-        await ownerAuth.recoverPassword(recoveryToken.trim(), password)
-        setPassword(''); setRecoveryToken(''); setConfirmRecoveryPassword(''); setRecoveryMode(false); setEnrolled(true)
-        setMessage('Password recovery completed. All previous Owner sessions were revoked. Sign in with the new password.')
+        setRecoveryMode(false); setRecoveryToken(''); setConfirmRecoveryPassword('')
+        setEnrolled(true); setMessage('Owner password recovered. Sign in with the new password.')
+        setAuthPassword('')
         return
       }
-      const result = enrolled
-        ? await ownerAuth.login(password)
-        : await ownerAuth.enroll(password, enrollmentToken.trim())
       if (result.address !== EXPECTED_OWNER_ADDRESS) {
         await ownerAuth.logout().catch(() => {})
-        throw new Error('The authenticated Owner account does not match the configured TRӾ Mainnet owner.')
+        throw new Error('The authenticated Owner account does not match the configured TRON Mainnet Owner address.')
       }
-      const provider = await discoverTronLinkProvider(window)
-      if (!provider) {
-        await ownerAuth.logout().catch(() => {})
-        throw new Error("TronLink was not detected. Open Tron Transfer in TronLink's DApp browser, unlock the configured Owner wallet, and try again.")
-      }
-      const connection = await requestTronLinkConnection(provider, window)
-      if (connection.address !== EXPECTED_OWNER_ADDRESS || connection.address !== result.address
-        || connection.tronWeb?.defaultAddress?.base58 !== EXPECTED_OWNER_ADDRESS) {
-        await ownerAuth.logout().catch(() => {})
-        throw new Error('The active TronLink signing address does not match the authenticated Owner account. No transaction was signed.')
-      }
-      setPassword('')
-      setEnrollmentToken('')
-      onUnlock({
-        address: result.address,
-        managedSession: true,
-        signerType: 'tronlink-owner',
-        tronWeb: connection.tronWeb,
-        provider: connection.provider,
-        authClient: ownerAuth,
-      })
+      setAuthenticated(true)
+      setEnrolled(true)
+      setAuthPassword(''); setEnrollmentToken('')
+      setMessage('Owner application session authenticated. Unlock or import the independent local Owner Wallet.')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Owner authentication failed.')
-    } finally {
-      setBusy(false)
+      setError(cause instanceof Error ? cause.message : 'Owner account authentication failed.')
+    } finally { setBusy(false) }
+  }
+
+  async function activate(account) {
+    const tronWeb = createOwnerTronWeb(account.privateKey)
+    const derived = tronWeb.address.fromPrivateKey(account.privateKey)
+    if (derived !== EXPECTED_OWNER_ADDRESS || account.address !== EXPECTED_OWNER_ADDRESS) {
+      throw new Error('Imported address does not match the configured TRON TRANSFER Owner Wallet. Expected ' + EXPECTED_OWNER_ADDRESS + '.')
     }
+    if (new URL(String(tronWeb.fullNode?.host || '')).hostname !== 'api.trongrid.io') {
+      throw new Error('Owner signer is not connected to TRON Mainnet.')
+    }
+    if (typeof tronWeb.trx?.sign !== 'function') throw new Error('Local Owner transaction signing is unavailable in this browser.')
+    onUnlock({
+      address: derived, tronWeb, provider: null, managedSession: true,
+      signerType: 'encrypted-local-owner-vault', authClient: ownerAuth,
+    })
+  }
+
+  async function importWallet(event) {
+    event.preventDefault(); setBusy(true); setError('')
+    try {
+      const account = await deriveOwnerAccount({ mode, value: credential, secretPassword: keystorePassword })
+      if (account.address !== EXPECTED_OWNER_ADDRESS) throw new Error('Imported address does not match the configured Owner Wallet. Expected ' + EXPECTED_OWNER_ADDRESS + '.')
+      await saveOwnerWalletVault(account, vaultPassword)
+      setSaved(true); setCredential(''); setKeystorePassword(''); setVaultPassword('')
+      await activate(account)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Owner Wallet import failed.') }
+    finally { setBusy(false) }
+  }
+
+  async function unlockWallet(event) {
+    event.preventDefault(); setBusy(true); setError('')
+    try { await activate(await unlockOwnerWalletVault(unlockPassword)); setUnlockPassword('') }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Owner Wallet unlock failed.') }
+    finally { setBusy(false) }
+  }
+
+  function removeBackup() {
+    if (!window.confirm('Permanently remove the encrypted Owner Wallet backup from this browser? This does not change the on-chain wallet. Ensure you have your own offline recovery backup.')) return
+    try { removeSavedOwnerWallet(); setSaved(false); setReplace(true); setUnlockPassword('') }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not remove the local backup.') }
   }
 
   return <div role="dialog" aria-modal="true" aria-labelledby="owner-wallet-title" className="owner-vault-backdrop">
     <section className="owner-vault-card">
-      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Owner workspace access</h2><p>Password access · TronLink transaction approval · TRON Mainnet</p></div></div>
-      <div className="owner-vault-warning">Your Owner password authenticates the application session. TronLink holds the signing key and must approve every transaction separately. Never paste a private key, recovery phrase or keystore into this page.</div>
-      <p className="owner-vault-address">{message}</p>
-      <form onSubmit={submit}>
-        {!enrolled && !recoveryMode && <label>One-time Owner enrollment token<input type="password" autoComplete="off" value={enrollmentToken} onChange={event => setEnrollmentToken(event.target.value)} required/></label>}
-        {recoveryMode && <label>One-time Owner recovery token<input type="password" autoComplete="off" value={recoveryToken} onChange={event => setRecoveryToken(event.target.value)} required/></label>}
-        <label>{recoveryMode ? 'New Owner account password' : 'Owner account password'}<input type="password" autoComplete={recoveryMode || !enrolled ? 'new-password' : 'current-password'} minLength={12} value={password} onChange={event => setPassword(event.target.value)} required/></label>
-        {recoveryMode && <label>Confirm new Owner password<input type="password" autoComplete="new-password" minLength={12} value={confirmRecoveryPassword} onChange={event => setConfirmRecoveryPassword(event.target.value)} required/></label>}
-        <button className="owner-vault-primary" disabled={busy || password.length < 12 || enrolled === null || (recoveryMode ? recoveryToken.length < 32 || confirmRecoveryPassword !== password : !enrolled && enrollmentToken.length < 32)}><LockKeyhole size={16}/>{busy ? 'Working…' : recoveryMode ? 'Recover Owner password' : enrolled ? 'Sign in to Owner workspace' : 'Enroll Owner password'}</button>
-        <div className="owner-vault-actions">{enrolled && <button type="button" onClick={() => {setRecoveryMode(value => !value);setPassword('');setRecoveryToken('');setConfirmRecoveryPassword('')}}>{recoveryMode ? 'Back to Owner login' : 'Recover Owner password'}</button>}<button type="button" onClick={onClose}>Close</button></div>
-      </form>
+      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Independent Owner Wallet</h2><p>Encrypted local Mainnet signing · no TronLink connection required</p></div></div>
+      {!authenticated ? <>
+        <div className="owner-vault-warning">The managed Owner password authenticates application access only. The separate encrypted local Owner vault holds the transaction-signing key. Never send wallet credentials to the Resource API.</div>
+        <p className="owner-vault-address">{message}</p>
+        <form onSubmit={authenticate}>
+          {!enrolled && !recoveryMode && <label>One-time Owner enrollment token<input type="password" autoComplete="off" value={enrollmentToken} onChange={event => setEnrollmentToken(event.target.value)} required/></label>}
+          {recoveryMode && <label>One-time Owner recovery token<input type="password" autoComplete="off" value={recoveryToken} onChange={event => setRecoveryToken(event.target.value)} required/></label>}
+          <label>{recoveryMode ? 'New Owner account password' : 'Owner account password'}<input type="password" minLength={12} autoComplete={recoveryMode || !enrolled ? 'new-password' : 'current-password'} value={authPassword} onChange={event => setAuthPassword(event.target.value)} required/></label>
+          {recoveryMode && <label>Confirm new Owner password<input type="password" minLength={12} autoComplete="new-password" value={confirmRecoveryPassword} onChange={event => setConfirmRecoveryPassword(event.target.value)} required/></label>}
+          <button className="owner-vault-primary" disabled={busy || authPassword.length < 12 || enrolled === null || (recoveryMode ? recoveryToken.length < 32 || confirmRecoveryPassword !== authPassword : !enrolled && enrollmentToken.length < 32)}><LockKeyhole size={16}/>{busy ? 'Working…' : recoveryMode ? 'Recover Owner password' : enrolled ? 'Sign in to Owner workspace' : 'Enroll Owner password'}</button>
+          <div className="owner-vault-actions">{enrolled && <button type="button" onClick={() => {setRecoveryMode(value => !value);setAuthPassword('');setRecoveryToken('');setConfirmRecoveryPassword('')}}>{recoveryMode ? 'Back to Owner login' : 'Recover Owner password'}</button>}<button type="button" onClick={onClose}>Close</button></div>
+        </form>
+      </> : saved && !replace ? <form onSubmit={unlockWallet}>
+        <p className="owner-vault-address">Saved Owner Wallet: <b>{getSavedOwnerWalletAddress()}</b></p>
+        <label>Owner vault password<input type="password" autoComplete="current-password" value={unlockPassword} onChange={event=>setUnlockPassword(event.target.value)} required/></label>
+        <button className="owner-vault-primary" disabled={busy || !unlockPassword}><LockKeyhole size={16}/>{busy ? 'Unlocking…' : 'Unlock Owner Wallet'}</button>
+        <div className="owner-vault-actions"><button type="button" onClick={()=>setReplace(true)}>Replace wallet</button><button type="button" onClick={removeBackup}>Remove encrypted backup</button><button type="button" onClick={onClose}>Close</button></div>
+      </form> : <form onSubmit={importWallet}>
+        <div className="owner-vault-warning">Import only the existing configured Owner Wallet. Credentials are processed in this browser and encrypted before local storage. The private key is never sent to the Resource API. Browser-local custody is not a hardware wallet or audited HSM.</div>
+        <label>Import format<select value={mode} onChange={event=>setMode(event.target.value)}>{modes.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+        <label>{mode === 'private-key' ? 'Owner private key' : mode === 'mnemonic' ? 'Owner recovery phrase' : 'V3 Keystore JSON'}<textarea rows={mode === 'mnemonic' ? 3 : 4} value={credential} onChange={event=>setCredential(event.target.value)} required autoComplete="off" spellCheck="false"/></label>
+        {mode === 'keystore' && <label>Select V3 Keystore JSON file<input type="file" accept=".json,application/json" onChange={async event=>{const file=event.target.files?.[0];if(file){try{setCredential(await file.text())}catch{setError('Could not read the selected keystore file.')}}}}/></label>}
+        {mode === 'keystore' && <label>Keystore password<input type="password" value={keystorePassword} onChange={event=>setKeystorePassword(event.target.value)}/></label>}
+        <label>New local vault password (minimum 12 characters)<input type="password" minLength={12} value={vaultPassword} onChange={event=>setVaultPassword(event.target.value)} required autoComplete="new-password"/></label>
+        <button className="owner-vault-primary" disabled={busy || !credential || vaultPassword.length < 12}><Upload size={16}/>{busy ? 'Encrypting and verifying…' : 'Import and unlock Owner Wallet'}</button>
+        {saved && <button type="button" className="owner-vault-secondary" onClick={()=>{setReplace(false);setCredential('');setVaultPassword('')}}>Cancel replacement</button>}
+      </form>}
       {error && <p role="alert" className="owner-vault-error">{error}</p>}
-      <p className="owner-vault-footnote">Configured Owner: {EXPECTED_OWNER_ADDRESS}. The password authenticates the Owner application session; TronLink separately approves each on-chain transaction and remains the transaction signer. Recovery requires an operator-generated one-time token from the Resource API; the token expires after 30 minutes and is single-use.</p>
+      <p className="owner-vault-footnote"><KeyRound size={14}/> Expected Owner: {EXPECTED_OWNER_ADDRESS}. Local signing is followed by backend signature/permission verification, durable persistence and Mainnet receipt reconciliation. Every write remains subject to the configured execution gates.</p>
     </section>
   </div>
 }
