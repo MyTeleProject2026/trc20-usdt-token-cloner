@@ -144,26 +144,8 @@ async function rpcPost(path, payload, { fetchImpl, env }) {
   if (result?.Error || result?.error) throw Object.assign(new Error(String(result?.Error || result?.error).slice(0, 160)), { code: 'OWNER_MAINNET_RPC_UNAVAILABLE', status: 503 })
   return result
 }
-function available(limit, used) {
-  const a = BigInt(String(limit || '0')), b = BigInt(String(used || '0'))
-  return a > b ? a - b : 0n
-}
 function asAddress(tronWeb, value) {
   try { return value && (String(value).startsWith('T') ? value : tronWeb.address.fromHex(value)) } catch { return '' }
-}
-function verifyPermission(tronWeb, account, ownerAddress) {
-  if (asAddress(tronWeb, account?.address) !== ownerAddress) fail('OWNER_MAINNET_ACCOUNT_ADDRESS_MISMATCH', 409)
-  const permission = account?.owner_permission
-  const threshold = Number(permission?.threshold)
-  if (!permission || !Number.isSafeInteger(threshold) || threshold <= 0 || !Array.isArray(permission.keys)) {
-    fail('OWNER_MAINNET_OWNER_PERMISSION_UNAVAILABLE', 503)
-  }
-  const weight = permission.keys.reduce((sum, item) => {
-    const keyAddress = asAddress(tronWeb, item?.address)
-    return keyAddress === ownerAddress ? sum + Number(item?.weight || 0) : sum
-  }, 0)
-  if (!Number.isSafeInteger(weight) || weight < threshold) fail('OWNER_SIGNER_CANNOT_SATISFY_OWNER_PERMISSION', 403)
-  return { permissionId: 0, threshold, signerWeight: weight, satisfied: true }
 }
 async function verifyContract(tronWeb, contractAddress, ownerAddress, { fetchImpl, env }) {
   const expectedRuntimeHash = String(env.TRAX_RUNTIME_BYTECODE_SHA256 || '').trim().toLowerCase()
@@ -278,6 +260,7 @@ export function createOwnerOperationApi({
   prepareTransaction = buildUnsigned, preflightTransaction = preflight,
   verifyContractState = verifyContract,
   signerFactory = options => createOwnerManagedSigner(options),
+  verifyUnsignedTransaction = (tronWeb, unsigned) => assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ Owner operation'),
   verifySignedTransaction = async (tronWeb, signed, ownerAddress) => {
     assertTransactionIntegrity(tronWeb, signed, 'Signed TRӾ Owner operation')
     verifyTransactionSigner(tronWeb, signed, ownerAddress)
@@ -297,6 +280,7 @@ export function createOwnerOperationApi({
     const value = contracts[0]?.parameter?.value || {}
     if (asAddress(tronWeb, value.owner_address) !== ownerAddress) fail('OWNER_SOLIDIFIED_RECEIPT_OWNER_MISMATCH', 409)
     if (asAddress(tronWeb, value.contract_address) !== contractAddress) fail('OWNER_SOLIDIFIED_RECEIPT_CONTRACT_MISMATCH', 409)
+    assertTransactionIntegrity(tronWeb, transaction, 'Solidified TRON Mainnet transaction')
     verifyTransactionSigner(tronWeb, transaction, ownerAddress)
     if (!Number.isSafeInteger(blockNumber) || blockNumber <= 0) return { solidified: false, status: 'not-solidified' }
     const result = String(info?.receipt?.result || info?.result || '').toUpperCase()
@@ -491,7 +475,7 @@ export function createOwnerOperationApi({
           if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
           }
-          assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ Owner operation')
+          verifyUnsignedTransaction(tronWeb, unsigned)
           const signed = await signer.signContractTransaction(unsigned)
           await verifySignedTransaction(tronWeb, signed, ownerAddress)
           transactionId = String(signed?.txID || '').toLowerCase()
@@ -563,7 +547,7 @@ export function createOwnerOperationApi({
         if (operation.transaction_id && ['signed', 'broadcast-unknown', 'broadcast'].includes(operation.state)) {
           const tronWeb = tronWebFactory({ fullHost: MAINNET })
           try {
-            reconciliation = await reconcileTransaction(operation.transaction_id, String(env.TRON_OWNER_ADDRESS || ''), operation.contract_address, { fetchImpl, env, tronWeb })
+            reconciliation = await reconcileTransaction(operation.transaction_id, String(env.TRON_OWNER_ADDRESS || ''), operation.contract_address, { fetchImpl: pacedFetch, env, tronWeb })
             if (reconciliation?.solidified) {
               if (operation.state === 'signed') {
                 await ledger.transition({ operationId, sessionId: session.sessionId, nextState: 'broadcast-unknown' })
