@@ -39,3 +39,11 @@ test('migration durably pauses the source before the read-only snapshot and keep
   assert.ok(targetPause > readOnlySnapshot)
   assert.match(source, /SELECT writes_paused FROM public\.tron_transfer_sponsor_control/)
 })
+test('migration preserves prepared and signed transaction payloads and includes them in checksum verification', () => {
+  const source = readFileSync(script, 'utf8')
+  assert.match(source, /'prepared_transaction', 'signed_transaction'/)
+  assert.match(source, /prepared_transaction JSONB/)
+  assert.match(source, /signed_transaction JSONB/)
+  assert.match(source, /canonicalValue\(row\[column\]\)/)
+  assert.match(source, /Source Sponsor ledger schema is incomplete/)
+})
