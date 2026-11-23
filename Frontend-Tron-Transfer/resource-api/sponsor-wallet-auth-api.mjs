@@ -87,7 +87,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
         || !allowedOrigins.includes(String(req.headers.origin || ''))) return null
     }
     await db.query('UPDATE public.tron_transfer_wallet_sessions SET last_seen_at=now() WHERE session_id=$1', [session.session_id])
-    return { address: session.wallet_address, sessionId: session.session_id }
+    return { address: session.wallet_address, sessionId: session.session_id, csrfHash: session.csrf_hash }
   }
 
   return {
@@ -168,8 +168,10 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
           if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
           // Rotate the readable CSRF proof on session refresh. The token is returned
           // only to the authenticated same-origin client and is never stored in localStorage.
-          const csrfToken = randomBytes(32).toString('base64url')
-          await db.query('UPDATE public.tron_transfer_wallet_sessions SET csrf_hash=$2 WHERE session_id=$1', [session.sessionId, digest(csrfToken)])
+          const existingCsrf = cookieValue(req, CSRF_COOKIE)
+          const csrfMatches = existingCsrf && safeEqual(digest(existingCsrf), session.csrfHash)
+          const csrfToken = csrfMatches ? existingCsrf : randomBytes(32).toString('base64url')
+          if (!csrfMatches) await db.query('UPDATE public.tron_transfer_wallet_sessions SET csrf_hash=$2 WHERE session_id=$1', [session.sessionId, digest(csrfToken)])
           res.setHeader('set-cookie', 'tron_sponsor_csrf=' + encodeURIComponent(csrfToken) + '; Path=/; Secure; SameSite=None; Max-Age=28800')
           send(res, 200, { success: true, role: 'sponsor', address: session.address, csrfToken }, origin); return true
         }
