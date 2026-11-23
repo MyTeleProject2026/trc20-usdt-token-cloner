@@ -21,7 +21,7 @@ function request(method, path, body, token, adminToken, client = {}) {
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '', authenticateManagedSession = null, authenticateOwnerAdminSession = null } = {}) {
+function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '', expectedDatabaseIdentitySha256 = '', authenticateManagedSession = null, authenticateOwnerAdminSession = null } = {}) {
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
     SPONSOR_LEDGER_DURABLE: 'true',
@@ -31,6 +31,7 @@ function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, 
     SPONSOR_MAINNET_ADDRESS: SPONSOR,
     TRON_OWNER_ADDRESS: OWNER,
     ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
+    ...(expectedDatabaseIdentitySha256 ? { OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: expectedDatabaseIdentitySha256 } : {}),
     SPONSOR_TRANSACTION_ENGINE_ENABLED: 'false',
     SPONSOR_MAINNET_BROADCAST_ENABLED: 'false',
   }
@@ -97,6 +98,25 @@ test('Sponsor database status identifies the selected URL source and provider wi
   })
 })
 
+test('production acceptance requires an exact configured database identity fingerprint', async () => {
+  const databaseUrl = 'postgres://neon_user:neon_secret@ep-production.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
+  const expected = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const matched = setup({ databaseUrl, expectedDatabaseIdentitySha256: expected })
+  const matchResult = await call(matched.api, 'GET', '/api/acceptance/production')
+  assert.equal(matchResult.status, 200)
+  assert.equal(matchResult.payload.databaseIdentityMatches, true)
+  assert.equal(matchResult.payload.expectedDatabaseIdentityConfigured, true)
+  assert.equal(matchResult.payload.acceptance.checks.find(check => check.id === 'database-target-identity').state, 'passed')
+
+  const mismatched = setup({ databaseUrl, expectedDatabaseIdentitySha256: 'f'.repeat(64) })
+  const mismatchResult = await call(mismatched.api, 'GET', '/api/acceptance/production')
+  assert.equal(mismatchResult.payload.databaseIdentityMatches, false)
+  assert.equal(mismatchResult.payload.acceptance.checks.find(check => check.id === 'database-target-identity').state, 'blocked')
+  const serialized = JSON.stringify(matchResult.payload)
+  assert.equal(serialized.includes('ep-production'), false)
+  assert.equal(serialized.includes('neon_secret'), false)
+})
+
 test('Sponsor status reports selected database source but never returns hostnames or credentials', async () => {
   const secretUrl = 'postgres://neon_user:neon_secret@ep-private.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
   const { api } = setup({ databaseUrl: secretUrl })
@@ -107,7 +127,11 @@ test('Sponsor status reports selected database source but never returns hostname
     sourceVariable: 'DATABASE_URL',
     provider: 'neon',
     connectionMode: 'direct',
+    identityFingerprint: sponsorDatabaseConnectionInfo({ DATABASE_URL: secretUrl }).identityFingerprint,
   })
+  assert.equal(result.payload.databaseIdentityMatches, false)
+  assert.equal(result.payload.expectedDatabaseIdentityConfigured, false)
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'database-target-identity').state, 'blocked')
   const serialized = JSON.stringify(result.payload)
   assert.equal(serialized.includes('neon_secret'), false)
   assert.equal(serialized.includes('ep-private'), false)
