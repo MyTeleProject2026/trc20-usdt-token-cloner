@@ -9,7 +9,7 @@ import {
 import {
   buildOwnerUsdtTransferParameter,
   MAINNET_USDT_CONTRACT,
-} from '../server/routes/tron-owner-withdrawals.mjs'
+} from '../server/owner-usdt-transfer.mjs'
 
 const sponsorAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
 const recipientAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
