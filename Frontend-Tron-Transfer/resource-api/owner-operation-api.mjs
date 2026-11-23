@@ -3,7 +3,7 @@ import { TronWeb } from 'tronweb'
 import pg from 'pg'
 import { createOwnerOperationLedger } from './owner-operation-ledger.mjs'
 import { createOwnerManagedSigner } from './owner-managed-signer.mjs'
-import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget, assertTransactionIntegrity, verifyTransactionSigner, assertTransactionPermission } from '../src/tron-mainnet-preflight.mjs'
+import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget, assertZeroTrxBurnBudget, assertTransactionIntegrity, verifyTransactionSigner, assertTransactionPermission } from '../src/tron-mainnet-preflight.mjs'
 import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
@@ -229,13 +229,14 @@ async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { 
     })
   } catch (error) {
     const message = String(error?.message || '')
-    if (/ZERO-TRX-BURN PROTECTION BLOCKED/i.test(message)) fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423)
+    if (/Zero-TRX .* preflight blocked/i.test(message)) fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423)
     if (/fee cap|fee_limit|fee limit/i.test(message)) fail('OWNER_OPERATION_FEE_LIMIT_UNSAFE', 422)
     throw error
   }
   const txId = String(transaction.txID || '').toLowerCase()
   if (!TXID.test(txId)) fail('OWNER_UNSIGNED_TRANSACTION_ID_INVALID', 500)
-  if (budget.requiredTrxSun !== '0') fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423)
+  try { assertZeroTrxBurnBudget(budget) }
+  catch { fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423) }
   return {
     network: 'TRON Mainnet', ownerAddress, contractAddress, permission,
     estimatedEnergy: estimate.energyUsed,
