@@ -26,6 +26,18 @@ Lock returns to the encrypted-wallet unlock prompt. Logout clears the active ses
 
 This is a local encrypted convenience vault, not a hardware wallet or audited KMS. Browser XSS, malicious extensions, compromised devices and malicious injected scripts remain in-scope threats. Do not use it to control meaningful funds until an independent security review and stronger isolated/hardware-backed signer have been completed. Clearing browser storage removes this local encrypted copy; users must retain their own recovery backup.
 
+## Resource API signing lifecycle
+
+The integrated Sponsor workspace uses the following Resource API lifecycle:
+
+- `POST /api/sponsor/operations/prepare`: consumes a short-lived, owner-authorized operation intent; checks the durable write-pause gate; reserves the idempotency key; prepares the exact unsigned transaction; and persists it before returning it to the browser.
+- The browser's unlocked Sponsor vault calls `signSponsorTransaction` locally. It verifies the Sponsor owner address, transaction integrity, expiry, contract type and exact operation intent. The API never receives the private key or vault password.
+- `POST /api/sponsor/operations/submit`: accepts only the matching prepared transaction and one local signature; verifies transaction integrity, recovers the Sponsor signer, checks TRON permission threshold and repeats current balance/resource/fee checks. The signed payload and transaction ID are committed before the API attempts broadcast.
+- `POST /api/sponsor/operations/cancel`: cancels only a reserved operation that has not been signed or broadcast. It cannot cancel a signed or ambiguous transaction.
+- `GET /api/sponsor/operations/:reference`: reconciles the persisted transaction ID against Mainnet. An unsigned preparation that expires is marked failed; a signed or ambiguous transaction is never replaced with a new transaction automatically.
+
+The former one-step server-signer route is disabled. A legacy remote-signer adapter module was removed because no HSM/KMS service or signer key handle was provisioned. The active workflow is local Sponsor vault signing followed by backend signature verification and controlled broadcast.
+
 ## Sponsor session lock policy
 
 The Sponsor Wallet automatically clears its in-memory signing session after five minutes without pointer, keyboard, touch, or scroll activity. If the page remains hidden/backgrounded for 60 seconds, the session is locked sooner. Returning to the page before that background timeout cancels the background lock and restarts the idle timer. Manual Lock uses the same cleanup path. These actions clear the active wallet object, resource/transaction snapshots, and credential form state while retaining the encrypted local vault for an explicit unlock. This reduces the time that signing material remains reachable through the active application state; it does not protect against an active XSS payload, malicious browser extension, compromised device, or memory inspection while the session is unlocked.
