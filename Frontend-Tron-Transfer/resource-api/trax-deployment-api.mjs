@@ -26,6 +26,28 @@ const PHRASE = 'PREPARE TRӾ MAINNET DEPLOYMENT'
 const MAINNET = 'https://api.trongrid.io'
 const TATUM = 'https://tron-mainnet.gateway.tatum.io'
 const sha256 = value => createHash('sha256').update(value).digest('hex')
+function deploymentDatabaseConnectionString(env) {
+  const ownerAdmin = typeof env.OWNER_ADMIN_DATABASE_URL === 'string' ? env.OWNER_ADMIN_DATABASE_URL.trim() : ''
+  return ownerAdmin || sponsorDatabaseConnectionString(env)
+}
+function deploymentDatabaseIdentityMatches(env) {
+  const connection = deploymentDatabaseConnectionString(env)
+  const expected = typeof env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256 === 'string'
+    ? env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256.trim().toLowerCase()
+    : ''
+  if (!connection || !/^[0-9a-f]{64}$/.test(expected)) return false
+  try {
+    const parsed = new URL(connection)
+    if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname || !parsed.pathname || parsed.pathname === '/') return false
+    const identity = JSON.stringify({
+      hostname: parsed.hostname.toLowerCase(),
+      port: parsed.port || '5432',
+      database: decodeURIComponent(parsed.pathname.slice(1)),
+      username: decodeURIComponent(parsed.username),
+    })
+    return sha256(identity) === expected
+  } catch { return false }
+}
 function fail(code, status = 400) { throw Object.assign(new Error(code), { code, status }) }
 function mainnetHost(env) {
   return env.TATUM_API_KEY && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet' ? TATUM : MAINNET
@@ -86,7 +108,7 @@ export function createTRAXDeploymentApi({
   let pool = database
   async function getDatabase() {
     if (pool) return pool
-    const connection = sponsorDatabaseConnectionString(env)
+    const connection = deploymentDatabaseConnectionString(env)
     if (!connection) return null
     pool = new Pool({ connectionString: normalizePostgresTlsMode(connection), connectionTimeoutMillis: 2500, query_timeout: 2500, statement_timeout: 2000, idleTimeoutMillis: 30000, max: 3 })
     pool.on('error', error => process.stderr.write('TRӾ deployment ledger database error: ' + String(error?.code || 'unknown') + '\\n'))
@@ -95,6 +117,7 @@ export function createTRAXDeploymentApi({
   const mainnetEnabled = () => env.TRAX_DEPLOYMENT_EXECUTION_ENABLED === 'true'
     && env.TRAX_DEPLOYMENT_MAINNET_ACK === 'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT'
     && durabilityReady(env)
+    && deploymentDatabaseIdentityMatches(env)
 
   async function checkDatabase(db) {
     if (!db || typeof db.query !== 'function') return false
@@ -120,7 +143,8 @@ export function createTRAXDeploymentApi({
     let artifact = null
     let artifactError = null
     try { artifact = await artifactLoader({ env }) } catch (error) { artifactError = error?.code || 'TRAX_DEPLOYMENT_ARTIFACT_UNAVAILABLE' }
-    const ready = Boolean(ledgerReady && durabilityReady(env) && artifact && session.address === env.TRON_OWNER_ADDRESS)
+    const databaseIdentityMatches = deploymentDatabaseIdentityMatches(env)
+    const ready = Boolean(ledgerReady && databaseIdentityMatches && durabilityReady(env) && pinsConfigured && artifact && session.address === env.TRON_OWNER_ADDRESS)
     if (readinessPath) {
       return send(res, 200, {
         success: true, network: 'TRON Mainnet', ownerAddress: session.address,
@@ -130,13 +154,13 @@ export function createTRAXDeploymentApi({
           runtimeBytecodeSha256: artifact.runtimeBytecodeSha256, artifactSha256: artifact.artifactSha256,
         } : null,
         gates: {
-          databaseLedger: ledgerReady, ledgerDurable: env.TRAX_DEPLOYMENT_LEDGER_DURABLE === 'true',
+          databaseLedger: ledgerReady, databaseTargetIdentity: databaseIdentityMatches, ledgerDurable: env.TRAX_DEPLOYMENT_LEDGER_DURABLE === 'true',
           backupVerified: env.TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED === 'true',
           restoreTested: env.TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED === 'true',
           artifactPinsConfigured: pinsConfigured, artifactValid: Boolean(artifact),
           executionEnabled: mainnetEnabled(),
         },
-        blocker: artifactError || (!ledgerReady ? 'TRAX_DEPLOYMENT_LEDGER_NOT_INSTALLED' : !durabilityReady(env) ? 'TRAX_DEPLOYMENT_LEDGER_DURABILITY_NOT_VERIFIED' : null),
+        blocker: artifactError || (!ledgerReady ? 'TRAX_DEPLOYMENT_LEDGER_NOT_INSTALLED' : !databaseIdentityMatches ? 'TRAX_DEPLOYMENT_DATABASE_TARGET_IDENTITY_NOT_VERIFIED' : !durabilityReady(env) ? 'TRAX_DEPLOYMENT_LEDGER_DURABILITY_NOT_VERIFIED' : !pinsConfigured ? 'TRAX_DEPLOYMENT_ARTIFACT_PINS_NOT_CONFIGURED' : null),
         readyForPreparation: ready,
         executionEnabled: mainnetEnabled(),
         note: 'Readiness checks never sign or broadcast a Mainnet transaction.',
