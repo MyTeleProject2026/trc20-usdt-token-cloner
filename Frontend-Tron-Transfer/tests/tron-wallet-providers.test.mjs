@@ -55,6 +55,16 @@ test('falls back to eth_requestAccounts only when the TRON method is unsupported
   assert.deepEqual(provider.calls, ['tron_requestAccounts', 'eth_requestAccounts'])
 })
 
+test('rejects a TronWeb signer whose active address differs from the authorized account', async () => {
+  const provider = makeProvider()
+  const wrongAddress = 'T' + '3'.repeat(33)
+  provider.request = async ({ method }) => method === 'tron_requestAccounts' ? [wrongAddress] : []
+  await assert.rejects(
+    requestTronLinkConnection(provider, {}, { readyTimeoutMs: 20, pollIntervalMs: 1 }),
+    /same active address through account authorization and TronWeb/,
+  )
+})
+
 test('connection does not call the wallet transaction signer', async () => {
   const provider = makeProvider()
   await requestTronLinkConnection(provider, {})
