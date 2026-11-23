@@ -928,3 +928,40 @@ test('database target identity uses the direct Owner Admin URL while Sponsor run
   assert.equal(target.identityFingerprint, directOnly.identityFingerprint)
   assert.notEqual(runtime.identityFingerprint, target.identityFingerprint)
 })
+
+test('managed Sponsor session cannot invoke the legacy server signer while local signing is unimplemented', async () => {
+  let engineCalls = 0
+  let rollbackCalls = 0
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) {
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+      }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+      if (sql === 'BEGIN') return { rowCount: 0, rows: [] }
+      if (sql === 'ROLLBACK') { rollbackCalls += 1; return { rowCount: 0, rows: [] } }
+      throw new Error('unexpected database query in fail-closed test: ' + sql)
+    },
+  }
+  const engine = {
+    readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, feePolicy: {} }),
+    execute: async () => { engineCalls += 1; return { success: true, signed: true, broadcast: true } },
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const token = await authenticated(api)
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-local-signing-blocked-0001',
+  }, token)
+  assert.equal(intent.status, 201)
+
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: intent.payload.intentId,
+    confirmPhrase: intent.payload.confirmationPhrase,
+  }, token)
+  assert.equal(result.status, 423)
+  assert.equal(result.payload.error, 'sponsor-local-signer-not-implemented')
+  assert.equal(engineCalls, 0, 'the legacy server-side signer must never be invoked')
+  assert.equal(rollbackCalls, 1, 'the database reservation transaction must be rolled back')
+})
