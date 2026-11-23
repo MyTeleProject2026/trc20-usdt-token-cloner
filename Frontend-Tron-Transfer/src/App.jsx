@@ -8,6 +8,7 @@ import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 import OwnerAccountSecurity from './OwnerAccountSecurity.jsx'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
+import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 
 const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
 
@@ -83,9 +84,33 @@ export default function App() {
     if (window.location.hash !== nextHash) window.history.pushState({ tronTransferPage: activePage }, '', nextHash)
   }, [activePage])
 
-  function connectWallet() {
+  async function connectWallet() {
     setWalletError('')
     setWalletNotice('')
+    if (wallet?.managedSession && !wallet?.tronWeb) {
+      try {
+        const session = await ownerAuthClient.session()
+        if (!session?.success || session.address !== wallet.address) {
+          setWallet(null)
+          setOwnerAccessOpen(true)
+          return
+        }
+        const provider = await discoverTronLinkProvider(window)
+        if (!provider) throw new Error("TronLink was not detected. Open this app in TronLink's DApp browser and try again.")
+        const connection = await requestTronLinkConnection(provider, window)
+        if (connection.address !== session.address || connection.address !== wallet.address
+          || connection.tronWeb?.defaultAddress?.base58 !== session.address) {
+          throw new Error('The active TronLink signer does not match the authenticated Owner session. No transaction was signed.')
+        }
+        setWallet(current => current?.managedSession && current.address === session.address
+          ? { ...current, signerType: 'tronlink-owner', tronWeb: connection.tronWeb, provider: connection.provider, authClient: ownerAuthClient }
+          : current)
+        setWalletNotice('The matching TronLink Owner wallet is connected. Every Mainnet transaction still requires a separate TronLink approval.')
+      } catch (error) {
+        setWalletError(error instanceof Error ? error.message : 'Unable to connect the TronLink Owner signer.')
+      }
+      return
+    }
     setOwnerAccessOpen(true)
   }
 
