@@ -36,3 +36,61 @@ test('deployment confirmation is locked even when readiness checks pass', async(
  assert.equal(replies[0].status,423)
  assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_CONFIRMATION_NOT_IMPLEMENTED')
 })
+
+
+test('deployment confirmation persists signed payload and broadcast-unknown state before network broadcast', async()=>{
+ const state={value:'prepared'}
+ const events=[]
+ const artifact={contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}
+ const unsigned={txID:'a'.repeat(64),raw_data_hex:'bb'.repeat(32),raw_data:{expiration:Date.now()+120000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
+ const signed={...unsigned,signature:['c'.repeat(130)]}
+ const db={async query(sql,params=[]){
+  if(sql.includes('to_regclass')) return {rows:[{deployments_table:'tron_transfer_deployments'}]}
+  if(sql.includes("SET state='confirming'")) { state.value='confirming'; return {rows:[{operation_id:'123e4567-e89b-42d3-a456-426614174000',owner_address:owner,intent:{feeLimitSun:'1000000'},intent_sha256:'d'.repeat(64),artifact_sha256:'4'.repeat(64),creation_bytecode_sha256:'2'.repeat(64),runtime_bytecode_sha256:'3'.repeat(64),transaction_id:unsigned.txID,unsigned_transaction:unsigned,state:'confirming'}]} }
+  if(sql.includes("SET signed_transaction")) { events.push('persist-signed'); state.value='signed'; return {rows:[{operation_id:'123e4567-e89b-42d3-a456-426614174000'}]} }
+  if(sql.includes("SET state='broadcast-unknown'")) { events.push('persist-broadcast-unknown'); state.value='broadcast-unknown'; return {rows:[{operation_id:'123e4567-e89b-42d3-a456-426614174000'}]} }
+  if(sql.includes("SET state='broadcast'")) { state.value='broadcast'; return {rows:[]} }
+  return {rows:[]}
+ }}
+ const fakeTron={fullNode:{headers:{}},address:{fromPrivateKey:()=>owner},trx:{sign:async()=>signed,sendRawTransaction:async()=>{events.push('broadcast');assert.equal(state.value,'broadcast-unknown');return {result:true}}}}
+ const {api,replies}=make({
+  env:{TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',TRAX_DEPLOYMENT_MAINNET_ACK:'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT',TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',TRON_OWNER_PRIVATE_KEY:'1'.repeat(64)},
+  database:db,artifactLoader:async()=>artifact,tronWebFactory:()=>fakeTron,
+  assertIntegrity:()=>true,predictAddress:()=> 'T'+'A'.repeat(33),estimateEnergy:async()=>({energyUsed:1}),readResources:async()=>({}),
+  calculateBudget:()=>({}),assertBudget:()=>true,
+  session:{address:owner,sessionId:1},
+  signDeployment:async()=>signed,
+  broadcastDeployment:async()=>{events.push('broadcast');assert.equal(state.value,'broadcast-unknown');return {result:true}},
+ })
+ await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT'}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
+ assert.deepEqual(events,['persist-signed','persist-broadcast-unknown','broadcast'])
+ assert.equal(state.value,'broadcast')
+ assert.equal(replies[0].status,202)
+})
+
+test('deployment broadcast ambiguity is retained without automatic rebroadcast', async()=>{
+ const state={value:'prepared'}, events=[]
+ const artifact={contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}
+ const unsigned={txID:'a'.repeat(64),raw_data_hex:'bb'.repeat(32),raw_data:{expiration:Date.now()+120000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
+ const signed={...unsigned,signature:['c'.repeat(130)]}
+ const db={async query(sql){
+  if(sql.includes('to_regclass')) return {rows:[{deployments_table:'tron_transfer_deployments'}]}
+  if(sql.includes("SET state='confirming'")) {state.value='confirming';return {rows:[{operation_id:'123e4567-e89b-42d3-a456-426614174000',owner_address:owner,intent:{feeLimitSun:'1000000'},intent_sha256:'d'.repeat(64),artifact_sha256:'4'.repeat(64),creation_bytecode_sha256:'2'.repeat(64),runtime_bytecode_sha256:'3'.repeat(64),transaction_id:unsigned.txID,unsigned_transaction:unsigned,state:'confirming'}]}}
+  if(sql.includes('SET signed_transaction')) {state.value='signed';events.push('signed');return {rows:[{}]}}
+  if(sql.includes("SET state='broadcast-unknown'")) {state.value='broadcast-unknown';events.push('unknown');return {rows:[{}]}}
+  return {rows:[]}
+ }}
+ const fakeTron={fullNode:{headers:{}},address:{fromPrivateKey:()=>owner},trx:{sign:async()=>signed}}
+ const {api,replies}=make({
+  env:{TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',TRAX_DEPLOYMENT_MAINNET_ACK:'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT',TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',TRON_OWNER_PRIVATE_KEY:'1'.repeat(64)},
+  database:db,artifactLoader:async()=>artifact,tronWebFactory:()=>fakeTron,
+  assertIntegrity:()=>true,predictAddress:()=> 'T'+'A'.repeat(33),estimateEnergy:async()=>({energyUsed:1}),readResources:async()=>({}),calculateBudget:()=>({}),assertBudget:()=>true,
+  session:{address:owner,sessionId:1},signDeployment:async()=>signed,
+  broadcastDeployment:async()=>{events.push('broadcast-attempt');throw new Error('socket reset')},
+ })
+ await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT'}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
+ assert.deepEqual(events,['signed','unknown','broadcast-attempt'])
+ assert.equal(state.value,'broadcast-unknown')
+ assert.equal(replies[0].status,202)
+ assert.equal(replies[0].payload.recovery.automaticRebroadcast,false)
+})

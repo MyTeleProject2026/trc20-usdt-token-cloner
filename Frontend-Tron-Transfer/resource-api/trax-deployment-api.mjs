@@ -67,6 +67,12 @@ export function createTRAXDeploymentApi({
   estimateEnergy = estimateMainnetDeploymentEnergy,
   readResources = getMainnetAccountResourceSnapshot,
   calculateBudget = calculateDeploymentResourceBudget,
+  assertBudget = assertZeroTrxBurnBudget,
+  assertIntegrity = assertTransactionIntegrity,
+  predictAddress = predictMainnetContractAddress,
+  recoverDeployment = recoverMainnetDeployment,
+  signDeployment = (client, unsigned) => client.trx.sign(unsigned),
+  broadcastDeployment = (client, signed) => client.trx.sendRawTransaction(signed),
 } = {}) {
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('TRӾ deployment API requires response and Owner-session adapters.')
   const mainnetEnabled = () => env.TRAX_DEPLOYMENT_EXECUTION_ENABLED === 'true'
@@ -133,7 +139,7 @@ export function createTRAXDeploymentApi({
           tronWeb.fullNode.headers = env.TATUM_API_KEY && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet'
             ? { 'x-api-key': String(env.TATUM_API_KEY).trim() }
             : (env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': String(env.TRONGRID_API_KEY).trim() } : {})
-          const recovered = await recoverMainnetDeployment(tronWeb, {
+          const recovered = await recoverDeployment(tronWeb, {
             txID: row.transaction_id, ownerAddress: session.address, artifact: artifactNow,
           }, {
             waitForReceipt: (client, txID) => waitForSolidifiedReceipt(client, txID, { timeoutMs: 25000, intervalMs: 2500 }),
@@ -199,7 +205,7 @@ export function createTRAXDeploymentApi({
         const derivedOwner = tronWeb.address.fromPrivateKey(key)
         if (derivedOwner !== session.address || derivedOwner !== env.TRON_OWNER_ADDRESS) fail('TRAX_DEPLOYMENT_SIGNER_OWNER_MISMATCH', 403)
         const unsigned = claimed.unsigned_transaction
-        assertTransactionIntegrity(tronWeb, unsigned, 'Persisted TRӾ deployment transaction')
+        assertIntegrity(tronWeb, unsigned, 'Persisted TRӾ deployment transaction')
         const contract = unsigned?.raw_data?.contract?.[0]
         const value = contract?.parameter?.value || {}
         const newContract = value.new_contract || {}
@@ -211,8 +217,8 @@ export function createTRAXDeploymentApi({
           || String(unsigned.txID || '').toLowerCase() !== calculatedTxId
           || Number(unsigned.raw_data?.expiration || 0) <= Date.now() + 5000
           || Number(unsigned.raw_data?.expiration || 0) > Date.now() + 10 * 60_000) fail('TRAX_DEPLOYMENT_PERSISTED_TRANSACTION_INVALID', 409)
-        const predictedAddress = predictMainnetContractAddress(tronWeb, session.address, unsigned.txID)
-        const signed = await tronWeb.trx.sign(unsigned)
+        const predictedAddress = predictAddress(tronWeb, session.address, unsigned.txID)
+        const signed = await signDeployment(tronWeb, unsigned)
         if (!Array.isArray(signed?.signature) || signed.signature.length !== 1
           || !/^[0-9a-f]{130}$/i.test(String(signed.signature[0] || ''))
           || String(signed.txID || '').toLowerCase() !== String(unsigned.txID).toLowerCase()
@@ -231,7 +237,7 @@ export function createTRAXDeploymentApi({
           safetyMarginBps: 12500,
           transactionLabel: 'TRӾ deployment final signed pre-broadcast check',
         })
-        assertZeroTrxBurnBudget(freshBudget)
+        assertBudget(freshBudget)
         const persisted = await database.query(`
           UPDATE public.tron_transfer_deployments
           SET signed_transaction=$2::jsonb,state='signed',signed_at=now(),updated_at=now()
@@ -250,7 +256,7 @@ export function createTRAXDeploymentApi({
         // If the response is lost or the process crashes, recovery checks this txID;
         // it never creates a replacement transaction or automatically rebroadcasts.
         let broadcast
-        try { broadcast = await tronWeb.trx.sendRawTransaction(signed) } catch (error) {
+        try { broadcast = await broadcastDeployment(tronWeb, signed) } catch (error) {
           await database.query(
             "UPDATE public.tron_transfer_deployments SET failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",
             [operationId, String(error?.code || 'BROADCAST_RESPONSE_UNKNOWN').slice(0,120)],
