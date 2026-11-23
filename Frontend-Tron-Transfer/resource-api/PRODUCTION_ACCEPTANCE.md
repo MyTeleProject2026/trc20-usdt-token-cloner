@@ -67,3 +67,11 @@ Browser acceptance must be recorded with browser/version, viewport, build commit
 - Mainnet deployment and pending-owner acceptance remain disabled until artifact pins, live resource coverage, database durability, backup/restore evidence, independent security review and explicit approval are complete.
 - Mainnet stake/delegation and funding acceptance require separately approved operations and chain evidence.
 - Do not enable Mainnet execution merely because this diagnostic returns HTTP 200.
+
+## Database restoration and migration checksum reconciliation
+
+The isolated restore rehearsal was performed from the existing Neon snapshot on branch `br-royal-shadow-be3pzyvg`. The six current migration files were replayed transactionally and the restored Owner Admin schema was compared against production using a stable catalog fingerprint over Owner/Sponsor-control columns, defaults, constraints, indexes, sequences, triggers, policies, functions and table properties. Both branches produced fingerprint `928d5dbfef69ff32cffe4513e267b60a9d84206ac727399cecbb206257903c8d`.
+
+Production's six migration-ledger checksum values are legacy values from the earlier migration source. They do not equal the current file hashes, even though the catalog fingerprint matches. The migration runner now recognizes only those six exact legacy values and updates them to the current file hashes only after the complete schema fingerprint matches. An unknown checksum or schema drift aborts and rolls back. The restored branch ledger was updated to the current file hashes for this rehearsal; production's ledger was not directly modified.
+
+The Sponsor operations table is intentionally excluded from this Owner Admin fingerprint because it is a separate guarded Sponsor bootstrap. It exists on the restored snapshot branch but remains absent on live production until the authenticated bootstrap endpoint is run after deployment and Owner enrollment.
