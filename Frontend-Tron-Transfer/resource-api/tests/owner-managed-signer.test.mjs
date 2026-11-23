@@ -14,6 +14,7 @@ function fakeTronWeb(options) {
       fromHex: value => value === '41' + '22'.repeat(20) ? owner : value === '41' + '33'.repeat(20) ? contract : 'TWrong',
     },
     isAddress: value => value === owner || value === contract,
+    sha3: () => '0x12345678',
     utils: { transaction: { txCheck: () => true } },
     trx: { async sign(tx) { return { ...tx, signature: ['a'.repeat(130)] } } },
   }
@@ -23,7 +24,7 @@ function transaction() {
   return {
     txID: createHash('sha256').update(raw).digest('hex'),
     raw_data_hex: raw.toString('hex'),
-    raw_data: { fee_limit: 1000000, contract: [{
+    raw_data: { timestamp: Date.now(), expiration: Date.now() + 60_000, fee_limit: 1000000, contract: [{
       type: 'TriggerSmartContract',
       parameter: { value: {
         owner_address: '41' + '22'.repeat(20),
@@ -73,4 +74,14 @@ test('Owner signer rejects tampered raw transaction IDs and call value', async (
   const value = transaction()
   value.raw_data.contract[0].parameter.value.call_value = 1
   await assert.rejects(signer.signContractTransaction(value), /OWNER_SIGNER_CALL_DATA_OR_VALUE_INVALID/)
+})
+
+test('Owner signer rejects expired and non-allowlisted contract method transactions', async () => {
+  const signer = createOwnerManagedSigner({ env, tronWebFactory: fakeTronWeb })
+  const expired = transaction()
+  expired.raw_data.expiration = Date.now() - 1
+  await assert.rejects(signer.signContractTransaction(expired), /OWNER_SIGNER_TRANSACTION_EXPIRED_OR_INVALID/)
+  const wrongMethod = transaction()
+  wrongMethod.raw_data.contract[0].parameter.value.data = 'deadbeef'
+  await assert.rejects(signer.signContractTransaction(wrongMethod), /OWNER_SIGNER_METHOD_NOT_ALLOWLISTED/)
 })
