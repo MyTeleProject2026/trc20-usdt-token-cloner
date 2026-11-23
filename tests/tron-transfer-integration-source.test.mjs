@@ -195,7 +195,7 @@ test('TRӾ Mainnet manager remains scoped to the requested smart-contract panel'
   assert.match(panel, /apiRequest\('\/api\/owner\/deployment\/readiness'\)/)
   assert.match(panel, /apiRequest\('\/api\/owner\/deployment\/prepare'/)
   assert.match(panel, /apiRequest\('\/api\/owner\/deployment\/confirm'/)
-  assert.match(panel, /disabled=\{!walletReady \|\| busy \|\| !deploymentReady\} onClick=\{deployToken\}/)
+  assert.match(panel, /disabled=\{!walletReady \|\| busy \|\| !feeCapSun \|\| !deploymentReady\} onClick=\{deployToken\}/)
   assert.doesNotMatch(panel, /deployContractWithOwnerSigner|sendAndVerifyContractCall|sendRawTransaction|tronWeb\.trx\.sign/)
   assert.match(panel, /Check deployment readiness/)
   assert.match(panel, /mintingEnabled/)

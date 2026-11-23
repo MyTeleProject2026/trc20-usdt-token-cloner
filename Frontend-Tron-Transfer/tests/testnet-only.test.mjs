@@ -16,7 +16,7 @@ test('TRӾ workspace exposes dedicated owner-admin pages and one Mainnet deploym
   assert.ok(contract.includes('contract Restricted1TRAX'))
   assert.ok(panel.includes('Prepare deployment'))
   assert.ok(panel.includes('Check deployment readiness'))
-  assert.ok(panel.includes('disabled={!walletReady || busy || !deploymentReady} onClick={deployToken}'))
+  assert.ok(panel.includes('disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}'))
   assert.ok(panel.includes("apiRequest('/api/owner/deployment/readiness')"))
   assert.ok(panel.includes("'/api/owner/deployment/prepare'"))
   assert.ok(panel.includes("'/api/owner/deployment/confirm'"))
