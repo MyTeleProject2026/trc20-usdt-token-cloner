@@ -46,7 +46,7 @@ test('Owner Admin migration runner rejects a changed checksum for an applied ver
 
 test('known legacy migration checksums reconcile only after the complete Owner schema fingerprint matches',async()=>{
  const version='20261122_backend_wallet_auth.sql'
- const legacy=LEGACY_MIGRATION_CHECKSUMS[version]
+ const legacy=LEGACY_MIGRATION_CHECKSUMS[version][0]
  const applied=new Map([[version,legacy]])
  const updates=[]
  const client={async query(sql,params=[]){
@@ -71,7 +71,7 @@ test('known legacy migration checksums reconcile only after the complete Owner s
 
 test('known legacy migration checksum is not rewritten when the live schema fingerprint differs',async()=>{
  const version='20261122_backend_wallet_auth.sql'
- const applied=new Map([[version,LEGACY_MIGRATION_CHECKSUMS[version]]])
+ const applied=new Map([[version,LEGACY_MIGRATION_CHECKSUMS[version][0]]])
  const client={async query(sql,params=[]){
   if(sql==='BEGIN'||sql==='ROLLBACK')return{rows:[]}
   if(sql.includes('pg_advisory_xact_lock')||sql.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_owner_admin_schema_migrations'))return{rows:[]}
@@ -125,4 +125,22 @@ test('Owner Admin migration postflight executes before commit and failure rolls 
  await assert.rejects(()=>applyOwnerAdminMigrations(client,[{version:'20261122_test.sql',sql:'CREATE TABLE test_table(id int);'}],async()=>{statements.push('POSTFLIGHT');throw new Error('postflight failed')}),/postflight failed/)
  assert.ok(statements.indexOf('POSTFLIGHT')<statements.indexOf('ROLLBACK'))
  assert.ok(!statements.includes('COMMIT'))
+})
+
+test('restore-branch legacy migration checksums are accepted only behind the verified live schema fingerprint',async()=>{
+ const version='20261122_backend_wallet_auth.sql'
+ const legacy=LEGACY_MIGRATION_CHECKSUMS[version][1]
+ const applied=new Map([[version,legacy]])
+ const client={async query(sql,params=[]){
+  if(sql==='BEGIN'||sql==='COMMIT'||sql==='ROLLBACK')return{rows:[]}
+  if(sql.includes('pg_advisory_xact_lock')||sql.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_owner_admin_schema_migrations'))return{rows:[]}
+  if(sql.startsWith('SELECT checksum'))return{rows:[{checksum:applied.get(params[0])}]}
+  if(sql.startsWith('UPDATE public.tron_transfer_owner_admin_schema_migrations')){applied.set(params[1],params[0]);return{rows:[]}}
+  return{rows:[]}
+ }}
+ const result=await applyOwnerAdminMigrations(client,[{version,sql:'CREATE TABLE wallet_accounts(id int);'}],null,{
+  readSchemaFingerprint:async()=>OWNER_ADMIN_SCHEMA_FINGERPRINT,
+ })
+ assert.equal(result.legacyChecksumsReconciled,true)
+ assert.equal(applied.get(version).length,64)
 })
