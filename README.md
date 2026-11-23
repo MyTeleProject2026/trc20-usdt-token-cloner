@@ -58,4 +58,4 @@ No production release or Mainnet payout should be inferred from the presence of 
 
 - Owner: [MyTeleProject2026](https://github.com/MyTeleProject2026)
 - Project: [trc20-usdt-token-cloner](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner)
-- Sponsor portal implementation: [SponsorPortal.jsx](Frontend-Tron-Transfer/src/SponsorPortal.jsx)
+- Sponsor workspace: integrated into the existing Owner Admin application at [SponsorWalletManager.jsx](Frontend-Tron-Transfer/src/SponsorWalletManager.jsx)
