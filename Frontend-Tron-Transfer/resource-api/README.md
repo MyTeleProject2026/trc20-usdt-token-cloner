@@ -51,13 +51,15 @@ Mainnet resource monitor and guarded Owner/Sponsor transaction service for the e
 - `GET /v1/resources/:base58Address` — account Energy, free and staked/delegated Bandwidth by source, the maximum Bandwidth available to cover one transaction, native TRX balance, current chain fee parameters, and network-wide resource limits/weights.
 - `GET /v1/transactions/:base58Address?limit=20` — up to 50 latest confirmed Mainnet native transactions and official USDT TRC-20 transfers for a Sponsor Wallet, retrieved from TronGrid with an optional server-side API key. This avoids TronWeb's deprecated related-transaction endpoints.
 - `POST /api/owner/operations/prepare`, `GET /api/owner/operations`, `GET /api/owner/operations/:operationId`, `POST /api/owner/operations/:operationId/confirm`, and `POST /api/owner/operations/:operationId/cancel` — session-bound Owner operation preparation, journal recovery, explicit confirmation and solidified receipt reconciliation. Every POST requires the Owner session CSRF token.
+- `GET /api/owner/deployment/readiness`, `POST /api/owner/deployment/prepare`, `POST /api/owner/deployment/confirm`, and `GET /api/owner/deployment/:operationId` — artifact-pinned backend deployment readiness, unsigned preparation, guarded backend signing, persistence-before-broadcast and solidified recovery.
+- `/api/pending-owner/*` — separate one-time signed-message authentication, pending-owner session, acceptance preparation, TronLink signature verification and solidified ownership handoff recovery.
 
 
 ## Existing TRON Transfer Owner Admin operations
 
 Owner administration uses the existing Owner Admin UI and existing TRӾ pages. It does not create a replacement dashboard or a second application.
 
-- Owner authentication is a backend password session with one-time first enrollment. The browser never receives, imports, stores or signs with the Owner private key.
+- Owner authentication is a backend password session with one-time first enrollment. The browser never receives, imports, stores or signs with the Owner private key. Owner account security includes password change, one-time recovery-token rotation, current/other session listing, single-session revocation and revoke-other-sessions.
 - The Resource API reads `TRON_OWNER_PRIVATE_KEY` only from its server-side secret environment and verifies the derived address against `TRON_OWNER_ADDRESS`. The independent Sponsor signer and Sponsor address remain separate. Sponsor readiness requests are coalesced and briefly cached only while the ledger confirms writes are paused; when writes are not paused, status is read fresh. PostgreSQL connection and statement waits are bounded so an unhealthy database returns a fail-closed status instead of holding the browser request open indefinitely.
 - The allowlisted existing-contract operations are Owner issuance/credit, external credit, batch credit (maximum 50 recipients), TRӾ transfer, pause/unpause, minting enable/disable and the first step of two-step ownership transfer. The Owner issuance path preserves the contract's auditable `credit(address,uint256,bytes32)` reference semantics.
 - The browser submits typed intent fields only. The backend binds the intent to the configured `TRAX_CONTRACT_ADDRESS`, builds the canonical TRON Mainnet TriggerSmartContract transaction, and records the intent hash and preflight evidence in `tron_transfer_owner_operations`.
@@ -69,12 +71,15 @@ Owner administration uses the existing Owner Admin UI and existing TRӾ pages. I
 
 ### Owner ledger migration and execution gates
 
-Apply the existing wallet-auth/Owner-ledger migration first, then the additive lifecycle migration:
+Apply all ordered Owner Admin migrations with the checksum-verifying runner after a verified Neon snapshot and restore drill:
 
 1. `migrations/20261122_backend_wallet_auth.sql`
 2. `migrations/20261123_owner_operation_ledger.sql`
+3. `migrations/20261123_trax_deployment_ledger.sql`
+4. `migrations/20261124_owner_recovery_tokens.sql`
+5. `migrations/20261125_pending_owner_acceptance.sql`
 
-Do not apply either migration until the Neon database backup and restore procedure has been verified. The second migration adds the atomic `confirming` lifecycle state to the existing Owner operation table.
+Use the direct database URL and the explicit migration acknowledgement documented in the Artifact-pinned TRӾ deployment section. The runner applies all migrations in one transaction, stores SHA-256 checksums and refuses to silently reapply a changed migration. It verifies the required tables before reporting success. The Owner operation migration adds the atomic `confirming` lifecycle state.
 
 The following server-side variables are required before any Owner operation can be prepared:
 
