@@ -315,7 +315,103 @@ export function createSponsorResourceApi({
         const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
         const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
         const adminRequired = adminTokenRequired(env)
-        const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.    if (req.method === 'GET' && (path === '/api/sponsor/status' || path === '/api/acceptance/production')) {
+        const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32
+        const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
+        let databaseReady = false
+        let databaseStatus = dbConfigured ? 'unchecked' : 'not-configured'
+        // Unknown or unreadable write-control state must always be treated as paused.
+        let sponsorWritesPaused = true
+        if (dbConfigured) {
+          try {
+            const db = getDatabase()
+            if (!db) {
+              databaseStatus = 'pool-unavailable'
+            } else {
+              // Status checks must never create or migrate production tables.
+              // Confirm the expected schema and control row using read-only queries.
+              const schema = await db.query(`
+                SELECT
+                  to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
+                  to_regclass('public.tron_transfer_sponsor_control') AS control_table
+              `)
+              if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table) {
+                databaseStatus = 'schema-missing'
+              } else {
+                const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
+                if (!control.rows?.length) {
+                  databaseStatus = 'control-row-missing'
+                } else {
+                  sponsorWritesPaused = control.rows[0].writes_paused === true
+                  databaseReady = true
+                  databaseStatus = 'ready'
+                }
+              }
+            }
+          } catch (error) { databaseStatus = classifySponsorDatabaseError(error) }
+        }
+        const acceptanceChecks = [
+          { id: 'owner-address', state: ownerAddressMatches ? 'passed' : 'blocked' },
+          { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
+          { id: 'sponsor-signer-address-match', state: readiness.signerConfigured === true && readiness.sponsorAddressValid === true && readiness.signerAddressMatches === true ? 'passed' : 'blocked' },
+          { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
+          { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
+          { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
+          { id: 'writes-remain-paused-until-release', state: sponsorWritesPaused ? 'passed' : 'blocked' },
+          { id: 'admin-second-factor-configured', state: adminConfigured ? 'passed' : 'blocked' },
+          { id: 'session-authentication-configured', state: sessionSecret(env) ? 'passed' : 'blocked' },
+          { id: 'mainnet-execution-explicitly-disabled', state: readiness.enabled !== true ? 'passed' : 'review-required' },
+        ]
+        const acceptancePassed = acceptanceChecks.every(check => check.state === 'passed')
+        const acceptance = {
+          version: 1,
+          state: acceptancePassed ? 'ready-for-independent-review' : 'blocked',
+          executionEnabled: false,
+          checks: acceptanceChecks,
+          note: 'Read-only diagnostic. Passing checks do not authorize Mainnet execution; operator approval and independent acceptance remain required.',
+        }
+        return {
+          success: true,
+          acceptance,
+          network: 'TRON Mainnet',
+          ownerAddress,
+          sponsorAddress: validAddress(env.SPONSOR_MAINNET_ADDRESS) ? env.SPONSOR_MAINNET_ADDRESS : null,
+          sessionAuthenticationConfigured: Boolean(sessionSecret(env)),
+          databaseConfigured: dbConfigured,
+          databaseConnection,
+          databaseReady,
+          databaseStatus,
+          sponsorWritesPaused,
+          ledgerDurabilityVerified,
+          ownerAddressMatches,
+          sponsorIndependent,
+          engineConfigured: readiness.configured === true,
+          engineEnabled: readiness.enabled === true,
+          transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
+          feePolicy: readiness.feePolicy,
+          stakingPolicy: readiness.stakingPolicy,
+          ownerTopupPolicy: readiness.ownerTopupPolicy,
+          adminTokenRequired: adminRequired,
+          adminTokenConfigured: adminConfigured,
+          checkedAt: new Date(now()).toISOString(),
+        }
+  }
+
+  async function handle(req, res, url, origin) {
+    const path = url.pathname
+    const isRoute = path === '/api/sponsor/status'
+      || path === '/api/acceptance/production'
+      || path === '/api/sponsor/ledger/bootstrap'
+      || path === '/api/sponsor/session/challenge'
+      || path === '/api/sponsor/session/verify'
+      || path === '/api/sponsor/intent'
+      || path === '/api/sponsor/operations'
+      || /^\/api\/sponsor\/operations\/[A-Za-z0-9._:-]+$/.test(path)
+      || path === '/api/tron/sponsorship/resource-delegations'
+      || path === '/api/tron/sponsorship/resource-delegations/verify-wallet'
+    if (!isRoute) return false
+    cleanup(now())
+
+    if (req.method === 'GET' && (path === '/api/sponsor/status' || path === '/api/acceptance/production')) {
       if (sponsorStatusCache.value && now() - sponsorStatusCache.at < 5000) {
         return reply(res, 200, sponsorStatusCache.value, origin)
       }
@@ -337,99 +433,6 @@ export function createSponsorResourceApi({
       } finally {
         if (sponsorStatusInFlight === pending) sponsorStatusInFlight = null
       }
-    }
-
-sponsorship/resource-delegations'
-      || path === '/api/tron/sponsorship/resource-delegations/verify-wallet'
-    if (!isRoute) return false
-    cleanup(now())
-
-    if (req.method === 'GET' && (path === '/api/sponsor/status' || path === '/api/acceptance/production')) {
-      const readiness = engine.readiness()
-      const databaseConnection = sponsorDatabaseConnectionInfo(env)
-      const dbConfigured = databaseConnection.configured
-      const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
-      const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
-      const adminRequired = adminTokenRequired(env)
-      const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32
-      const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
-      let databaseReady = false
-      let databaseStatus = dbConfigured ? 'unchecked' : 'not-configured'
-      // Unknown or unreadable write-control state must always be treated as paused.
-      let sponsorWritesPaused = true
-      if (dbConfigured) {
-        try {
-          const db = getDatabase()
-          if (!db) {
-            databaseStatus = 'pool-unavailable'
-          } else {
-            // Status checks must never create or migrate production tables.
-            // Confirm the expected schema and control row using read-only queries.
-            const schema = await db.query(`
-              SELECT
-                to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
-                to_regclass('public.tron_transfer_sponsor_control') AS control_table
-            `)
-            if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table) {
-              databaseStatus = 'schema-missing'
-            } else {
-              const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
-              if (!control.rows?.length) {
-                databaseStatus = 'control-row-missing'
-              } else {
-                sponsorWritesPaused = control.rows[0].writes_paused === true
-                databaseReady = true
-                databaseStatus = 'ready'
-              }
-            }
-          }
-        } catch (error) { databaseStatus = classifySponsorDatabaseError(error) }
-      }
-      const acceptanceChecks = [
-        { id: 'owner-address', state: ownerAddressMatches ? 'passed' : 'blocked' },
-        { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
-        { id: 'sponsor-signer-address-match', state: readiness.signerConfigured === true && readiness.sponsorAddressValid === true && readiness.signerAddressMatches === true ? 'passed' : 'blocked' },
-        { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
-        { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
-        { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
-        { id: 'writes-remain-paused-until-release', state: sponsorWritesPaused ? 'passed' : 'blocked' },
-        { id: 'admin-second-factor-configured', state: adminConfigured ? 'passed' : 'blocked' },
-        { id: 'session-authentication-configured', state: sessionSecret(env) ? 'passed' : 'blocked' },
-        { id: 'mainnet-execution-explicitly-disabled', state: readiness.enabled !== true ? 'passed' : 'review-required' },
-      ]
-      const acceptancePassed = acceptanceChecks.every(check => check.state === 'passed')
-      const acceptance = {
-        version: 1,
-        state: acceptancePassed ? 'ready-for-independent-review' : 'blocked',
-        executionEnabled: false,
-        checks: acceptanceChecks,
-        note: 'Read-only diagnostic. Passing checks do not authorize Mainnet execution; operator approval and independent acceptance remain required.',
-      }
-      return reply(res, 200, {
-        success: true,
-        acceptance,
-        network: 'TRON Mainnet',
-        ownerAddress,
-        sponsorAddress: validAddress(env.SPONSOR_MAINNET_ADDRESS) ? env.SPONSOR_MAINNET_ADDRESS : null,
-        sessionAuthenticationConfigured: Boolean(sessionSecret(env)),
-        databaseConfigured: dbConfigured,
-        databaseConnection,
-        databaseReady,
-        databaseStatus,
-        sponsorWritesPaused,
-        ledgerDurabilityVerified,
-        ownerAddressMatches,
-        sponsorIndependent,
-        engineConfigured: readiness.configured === true,
-        engineEnabled: readiness.enabled === true,
-        transactionExecutionAvailable: readiness.broadcastAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
-        feePolicy: readiness.feePolicy,
-        stakingPolicy: readiness.stakingPolicy,
-        ownerTopupPolicy: readiness.ownerTopupPolicy,
-        adminTokenRequired: adminRequired,
-        adminTokenConfigured: adminConfigured,
-        checkedAt: new Date(now()).toISOString(),
-      }, origin)
     }
 
     if (req.method === 'POST' && path === '/api/sponsor/ledger/bootstrap') {
