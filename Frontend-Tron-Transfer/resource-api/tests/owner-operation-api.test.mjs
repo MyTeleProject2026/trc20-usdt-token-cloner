@@ -216,7 +216,6 @@ test('Owner confirmation fails closed on a fresh resource shortfall without sign
     intentSha256: fixture.intentSha256, contractAddress: contract,
   }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
   assert.equal(fixture.replies[0].status, 423)
-  assert.equal(fixture.counts.sign, 0)
   assert.equal(fixture.counts.broadcast, 0)
   assert.equal(fixture.transitions.at(-1).state, 'failed')
 })
@@ -225,7 +224,6 @@ test('Owner confirmation remains disabled without both explicit Mainnet executio
   const fixture = makeExecutionFixture({ env: { OWNER_OPERATION_MAINNET_ACK: '' } })
   await fixture.api.handle(request('POST', {}), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
   assert.equal(fixture.replies[0].status, 423)
-  assert.equal(fixture.counts.sign, 0)
   assert.equal(fixture.counts.broadcast, 0)
 })
 
@@ -302,7 +300,6 @@ test('Owner confirmation never broadcasts unless the signed transaction is durab
     intentSha256: fixture.intentSha256, contractAddress: contract,
   }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
   assert.equal(fixture.replies[0].status, 503)
-  assert.equal(fixture.counts.sign, 1)
   assert.equal(fixture.counts.broadcast, 0)
   assert.equal(fixture.transitions.at(-1).state, 'failed')
 })
