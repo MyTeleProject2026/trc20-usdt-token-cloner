@@ -9,33 +9,34 @@ const otherOwner='TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
 function fakeDb() {
   const rows=new Map(), keys=new Map()
   return { rows, async query(sql,p) {
-    if (sql.includes('INSERT INTO public.tron_transfer_owner_operations')) {
+    const statement = sql.trim()
+    if (statement.includes('INSERT INTO public.tron_transfer_owner_operations')) {
       const key=p[2]
       if(keys.has(key)) return {rows:[]}
       const row={operation_id:p[0],session_id:p[1],idempotency_key:p[2],operation_type:p[3],contract_address:p[4],intent:JSON.parse(p[5]),intent_sha256:p[6],state:'created',transaction_id:null,created_at:new Date().toISOString()}
       rows.set(p[0],row);keys.set(key,p[0]);return {rows:[row]}
     }
-    if(sql.includes("WHERE wallet_role='owner' AND idempotency_key=$1")) {
+    if(statement.includes("WHERE wallet_role='owner' AND idempotency_key=$1")) {
       const id=keys.get(p[0]);const row=id&&rows.get(id)
       return {rows:row?[row]:[]}
     }
-    if(sql.includes("SET state='confirming'")) {
+    if(statement.includes("SET state='confirming'")) {
       const row=rows.get(p[0]);if(!row||row.intent?.ownerAddress!==p[1]||row.state!=='awaiting-confirmation')return {rows:[]}
       row.state='confirming';return {rows:[row]}
     }
-    if(sql.includes('WHERE wallet_role=\'owner\' AND intent->>\'ownerAddress\'=$1')) {
+    if(statement.includes('WHERE wallet_role=\'owner\' AND intent->>\'ownerAddress\'=$1')) {
       return {rows:[...rows.values()].filter(row=>row.intent?.ownerAddress===p[0]).slice(0,p[1]).map(row=>({...row,preflight:row.receipt?.preflight,receipt:undefined}))}
     }
-    if(sql.startsWith('SELECT state FROM')) {
+    if(statement.startsWith('SELECT state FROM')) {
       const row=rows.get(p[0]);return {rows:row&&row.intent?.ownerAddress===p[1]?[{state:row.state}]:[]}
     }
-    if(sql.startsWith('UPDATE public.tron_transfer_owner_operations')) {
+    if(statement.startsWith('UPDATE public.tron_transfer_owner_operations')) {
       const row=rows.get(p[0]);if(!row||row.intent?.ownerAddress!==p[1]||row.state!==p[7])return {rows:[]}
       Object.assign(row,{state:p[2],transaction_id:p[3]||row.transaction_id,block_number:p[4]||row.block_number,failure_code:p[5]})
       if(p[6]) row.receipt=JSON.parse(p[6])
       return {rows:[row]}
     }
-    if(sql.includes('WHERE operation_id=$1 AND intent->>\'ownerAddress\'=$2')) {
+    if(statement.includes('WHERE operation_id=$1 AND intent->>\'ownerAddress\'=$2')) {
       const row=rows.get(p[0]);return {rows:row&&row.intent?.ownerAddress===p[1]?[row]:[]}
     }
     throw new Error('unexpected-query')
