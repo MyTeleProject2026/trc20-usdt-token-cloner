@@ -71,7 +71,8 @@ export async function verifySponsorSignedTransaction({
   tronWeb, unsignedTransaction, signedTransaction, operation, resource, amountSun,
   sponsorAddress, ownerAddress,
 } = {}) {
-  if (!tronWeb || !unsignedTransaction || !signedTransaction
+  if (!tronWeb || !ADDRESS.test(sponsorAddress || '') || !ADDRESS.test(ownerAddress || '') || sponsorAddress === ownerAddress
+    || !unsignedTransaction || !signedTransaction
     || signedTransaction.txID !== unsignedTransaction.txID
     || signedTransaction.raw_data_hex !== unsignedTransaction.raw_data_hex
     || !isDeepStrictEqual(signedTransaction.raw_data, unsignedTransaction.raw_data)
