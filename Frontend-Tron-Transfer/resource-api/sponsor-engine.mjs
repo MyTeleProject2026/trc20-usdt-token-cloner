@@ -123,6 +123,7 @@ export function createSponsorTransactionEngine({
       sponsorAddress: addressShapeValid ? sponsorAddress : null,
       databaseRequired: true,
       broadcastAvailable: enabled && keyShapeValid && addressShapeValid && signerMatches && policyValid,
+      clientSigningAvailable: enabled && addressShapeValid && policyValid && sponsorAddress !== ownerAddress,
       stakingPolicy: { enabled: stakingEnabled, maxStakeTrx },
       ownerTopupPolicy: { enabled: ownerTopupEnabled, maxTopupTrx: maxOwnerTopupTrx },
       feePolicy: {
@@ -207,6 +208,152 @@ export function createSponsorTransactionEngine({
     }
     try { return await verifySolidified({ transactionId, operation, resource, amountSun, sponsorAddress, ownerAddress: recipient }) }
     catch { return { confirmed: false, status: 'solidified-provider-unavailable' } }
+  }
+
+
+  // Build and preflight the exact unsigned Mainnet transaction. The returned
+  // transaction is persisted by the API before it is shown to the local vault.
+  async function prepare({ operation, resource, amountSun, ownerAddress: recipient } = {}) {
+    const state = readiness()
+    if (!state.clientSigningAvailable) return { success: false, status: 'client-local-signer-not-enabled' }
+    const validOperation = ['stake', 'delegate', 'undelegate', 'unstake', 'withdraw', 'topup'].includes(operation)
+    const validResource = ['topup', 'withdraw'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
+    if (!validOperation || !validResource || recipient !== ownerAddress || !ADDRESS.test(recipient || '')) return { success: false, status: 'invalid-mainnet-operation' }
+    const amount = positiveSun(amountSun)
+    if (!amount || (['stake', 'delegate', 'undelegate', 'unstake'].includes(operation) && amount < SUN)) return { success: false, status: 'invalid-amount-sun' }
+    if (operation === 'stake') {
+      const cap = decimalTrxToSun(String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
+      if (env.SPONSOR_STAKING_ENABLED !== 'true' || cap === null || cap <= 0n || amount > cap) return { success: false, status: 'staking-disabled-or-amount-exceeds-configured-cap' }
+    }
+    if (operation === 'topup') {
+      const cap = decimalTrxToSun(String(env.SPONSOR_MAX_OWNER_TOPUP_TRX || env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
+      if (cap === null || cap <= 0n || amount > cap) return { success: false, status: 'owner-topup-disabled-or-amount-exceeds-configured-cap' }
+    }
+    try {
+      const tronWeb = tronWebFactory(null)
+      const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
+      if (!ADDRESS.test(sponsorAddress || '') || sponsorAddress === recipient) throw new Error('sponsor-signer-address-mismatch')
+      const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
+      const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
+      const maxFee = maxFeeRaw === '0' ? 0n : positiveSun(String(maxFeeRaw))
+      if (reserve === null || maxFee === null) throw new Error('invalid-sponsor-fee-policy')
+      const balance = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
+      if ((operation === 'stake' || operation === 'topup') && balance < amount + reserve) return { success: false, status: 'insufficient-balance-after-reserve' }
+      if (!['stake', 'topup'].includes(operation) && balance < reserve) return { success: false, status: 'insufficient-fee-reserve' }
+      if (operation === 'delegate') {
+        const maximumResult = await tronWeb.trx.getCanDelegatedMaxSize(sponsorAddress, resource, { confirmed: true })
+        const maximum = BigInt(String(maximumResult?.max_size ?? maximumResult ?? '0'))
+        if (maximum < amount) return { success: false, status: 'insufficient-frozen-resource-capacity' }
+      }
+      if (operation === 'undelegate') {
+        const reader = tronWeb.trx.raw || tronWeb.trx
+        const delegated = await reader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true })
+        const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
+        const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
+        if (rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n) < amount) return { success: false, status: 'undelegation-exceeds-current-owner-delegation' }
+      }
+      if (operation === 'unstake') {
+        const reader = tronWeb.trx.raw || tronWeb.trx
+        const [account, delegated, slots] = await Promise.all([
+          reader.getAccount(sponsorAddress, { confirmed: true }),
+          reader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true }),
+          reader.getAvailableUnfreezeCount(sponsorAddress, { confirmed: true }),
+        ])
+        const frozen = Array.isArray(account?.frozenV2) ? account.frozenV2 : []
+        const type = resource === 'ENERGY' ? 'ENERGY' : 'BANDWIDTH'
+        const selfStaked = frozen.filter(row => (row.type || 'BANDWIDTH') === type).reduce((sum, row) => sum + BigInt(String(row.amount || '0')), 0n)
+        const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
+        const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
+        const delegatedAmount = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
+        if (Number(slots?.count ?? 0) <= 0 || (selfStaked > delegatedAmount ? selfStaked - delegatedAmount : 0n) < amount) return { success: false, status: 'unstake-exceeds-unlocked-self-stake-or-no-slots' }
+      }
+      if (operation === 'withdraw') {
+        const reader = tronWeb.trx.raw || tronWeb.trx
+        const withdrawable = await reader.getCanWithdrawUnfreezeAmount(sponsorAddress, now(), { confirmed: true })
+        const actual = BigInt(String(withdrawable?.amount ?? withdrawable ?? '0'))
+        if (actual <= 0n || actual !== amount) return { success: false, status: 'withdraw-amount-changed-refresh-and-retry' }
+      }
+      const transaction = operation === 'stake'
+        ? await tronWeb.transactionBuilder.freezeBalanceV2(amount.toString(), resource, sponsorAddress)
+        : operation === 'delegate'
+          ? await tronWeb.transactionBuilder.delegateResource(amount.toString(), recipient, resource, false, 0, sponsorAddress)
+          : operation === 'undelegate'
+            ? await tronWeb.transactionBuilder.undelegateResource(amount.toString(), recipient, resource, sponsorAddress)
+            : operation === 'unstake'
+              ? await tronWeb.transactionBuilder.unfreezeBalanceV2(amount.toString(), resource, sponsorAddress)
+              : operation === 'withdraw'
+                ? await tronWeb.transactionBuilder.withdrawExpireUnfreeze(sponsorAddress)
+                : await tronWeb.transactionBuilder.sendTrx(recipient, amount.toString(), sponsorAddress)
+      assertTransaction(transaction, { tronWeb, operation, resource, amountSun: amount.toString(), sponsorAddress, ownerAddress: recipient })
+      const accountResources = await tronWeb.trx.getAccountResources(sponsorAddress)
+      const freeBandwidth = Math.max(0, Number(accountResources.freeNetLimit || 0) - Number(accountResources.freeNetUsed || 0))
+      const stakedBandwidth = Math.max(0, Number(accountResources.NetLimit || 0) - Number(accountResources.NetUsed || 0))
+      const availableBandwidth = Math.max(freeBandwidth, stakedBandwidth)
+      const transactionBytes = Buffer.from(transaction.raw_data_hex, 'hex').length + 100
+      const chainParameters = await tronWeb.trx.getChainParameters()
+      const bandwidthFee = Number((chainParameters || []).find(item => item.key === 'getTransactionFee')?.value || 0)
+      if (!Number.isSafeInteger(transactionBytes) || transactionBytes <= 0 || !Number.isSafeInteger(bandwidthFee) || bandwidthFee <= 0) throw new Error('mainnet-bandwidth-preflight-unavailable')
+      const requiredFeeSun = BigInt(Math.max(0, transactionBytes - availableBandwidth)) * BigInt(bandwidthFee)
+      if (requiredFeeSun > maxFee) return { success: false, status: 'bandwidth-shortfall-exceeds-authorized-fee-cap' }
+      const requiredBalance = (operation === 'stake' || operation === 'topup' ? amount : 0n) + reserve + requiredFeeSun
+      if (balance < requiredBalance) return { success: false, status: 'insufficient-balance-for-authorized-fee-cap' }
+      return {
+        success: true, status: 'prepared', transaction: structuredClone(transaction),
+        sponsorAddress, ownerAddress: recipient, operation, resource, amountSun: amount.toString(),
+        feePolicy: { reserveSun: reserve.toString(), maxBandwidthFeeSun: maxFee.toString(), requiredBandwidthFeeSun: requiredFeeSun.toString() },
+      }
+    } catch (error) {
+      return { success: false, status: safeCode(error) }
+    }
+  }
+
+  // Verify a client-signed payload against the exact transaction retained by
+  // the API, ask the Mainnet node to validate the recovered signer/permission,
+  // persist txID before broadcast, and reconcile only that original txID.
+  async function submitSigned({ signedTransaction, preparedTransaction, operation, resource, amountSun, ownerAddress: recipient, onSigned } = {}) {
+    const state = readiness()
+    if (!state.clientSigningAvailable) return { success: false, status: 'client-local-signer-not-enabled', signed: false, broadcast: false }
+    const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
+    try {
+      if (!signedTransaction || !preparedTransaction
+        || signedTransaction.txID !== preparedTransaction.txID
+        || signedTransaction.raw_data_hex !== preparedTransaction.raw_data_hex
+        || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(preparedTransaction.raw_data)
+        || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length !== 1
+        || !/^[0-9a-f]{130}$/i.test(signedTransaction.signature[0])) {
+        throw new Error('signed-transaction-integrity-failed')
+      }
+      assertTransaction(preparedTransaction, { tronWeb: tronWebFactory(null), operation, resource, amountSun, sponsorAddress, ownerAddress: recipient })
+      const tronWeb = tronWebFactory(null)
+      const txidHash = sha256Hex(Buffer.from(preparedTransaction.raw_data_hex, 'hex'))
+      if (txidHash.toLowerCase() !== String(preparedTransaction.txID).toLowerCase()) throw new Error('signed-transaction-integrity-failed')
+      const signWeight = await tronWeb.trx.getSignWeight({ ...signedTransaction, visible: true })
+      const approved = Array.isArray(signWeight?.approved_list) ? signWeight.approved_list : []
+      const threshold = Number(signWeight?.permission?.threshold || 0)
+      const currentWeight = Number(signWeight?.current_weight || 0)
+      if (signWeight?.result?.code || !approved.includes(sponsorAddress) || !Number.isSafeInteger(threshold)
+        || threshold <= 0 || !Number.isSafeInteger(currentWeight) || currentWeight < threshold) {
+        throw new Error('sponsor-signature-or-permission-invalid')
+      }
+      if (typeof onSigned !== 'function') throw new Error('durable-transaction-id-persistence-required')
+      await onSigned(preparedTransaction.txID)
+      const broadcast = await tronWeb.trx.sendRawTransaction(signedTransaction)
+      if (broadcast?.result !== true) return { success: false, status: 'broadcast-rejected-or-unknown', txid: preparedTransaction.txID, signed: true, broadcast: true }
+      const verification = await verifySolidified({ transactionId: preparedTransaction.txID, operation, resource, amountSun: String(amountSun), sponsorAddress, ownerAddress: recipient })
+      return {
+        success: verification.confirmed, status: verification.status, txid: preparedTransaction.txID,
+        blockNumber: verification.blockNumber || null, sponsorAddress, ownerAddress: recipient,
+        operation, resource, amountSun: String(amountSun), signed: true, broadcast: true,
+        solidified: verification.confirmed, checkedAt: new Date(now()).toISOString(),
+      }
+    } catch (error) {
+      return { success: false, status: safeCode(error), txid: preparedTransaction?.txID || null, signed: false, broadcast: false, solidified: false }
+    }
+  }
+
+  function sha256Hex(bytes) {
+    const { createHash } = require('node:crypto')
+    return createHash('sha256').update(bytes).digest('hex')
   }
 
   async function execute({ operation, resource, amountSun, ownerAddress: recipient, onSigned } = {}) {
@@ -334,5 +481,5 @@ export function createSponsorTransactionEngine({
     }
   }
 
-  return Object.freeze({ readiness, execute, reconcile })
+  return Object.freeze({ readiness, prepare, submitSigned, execute, reconcile })
 }
