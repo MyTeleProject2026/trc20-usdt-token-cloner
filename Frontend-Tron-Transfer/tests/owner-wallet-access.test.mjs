@@ -19,10 +19,14 @@ test('Owner Admin uses the independent backend-managed password account', () => 
   assert.doesNotMatch(access, /localStorage|sessionStorage/)
 })
 
-test('TRӾ writes remain fail-closed until backend operation signing is integrated', () => {
-  assert.ok(panel.includes('Backend-managed TRӾ signing and Mainnet operation preflight are not yet enabled'))
-  assert.ok(panel.includes('const walletReady = Boolean(wallet?.tronWeb && connectedAddress === EXPECTED_OWNER_ADDRESS)'))
+test('TRӾ writes use the guarded backend operation API and remain gated by production readiness', () => {
+  assert.ok(panel.includes('const walletReady = Boolean(wallet?.managedSession && connectedAddress === EXPECTED_OWNER_ADDRESS)'))
+  assert.ok(panel.includes("apiRequest('/api/owner/operations/prepare'"))
+  assert.ok(panel.includes("'/confirm'"))
+  assert.ok(panel.includes('pendingOperation.executionEnabled'))
+  assert.ok(panel.includes('OWNER_OPERATION_EXECUTION_GATES_DISABLED') === false)
   assert.ok(panel.includes('disabled={!walletReady || busy'))
+  assert.doesNotMatch(panel, /sendAndVerifyContractCall|deployContractWithOwnerSigner|tronWeb\.trx\.sign|sendRawTransaction/)
 })
 
 test('Managed Owner session is not represented as a browser-side transaction signer', () => {
