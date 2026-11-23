@@ -550,73 +550,40 @@ test('expired or reused intent cannot be executed twice', async () => {
   assert.deepEqual(calls, [])
 })
 
-test('durable Sponsor idempotency prevents a second signer invocation for the same exact intent', async () => {
-  const rows = new Map()
+test('Sponsor API refuses server-side signing until the imported local Sponsor signer is implemented', async () => {
+  const queries = []
   const database = {
-    async query(sql, params = []) {
+    async query(sql) {
+      queries.push(sql)
       if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
-      if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX')
-        || ['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rowCount: 0, rows: [] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
-      if (sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')) {
-        const [keyHash, requestHash, operation, resource, amountSun, sponsorAddress, ownerAddress] = params
-        if (rows.has(keyHash)) return { rowCount: 0, rows: [] }
-        rows.set(keyHash, { idempotency_key_hash: keyHash, request_hash: requestHash, operation, resource, amount_sun: amountSun, sponsor_address: sponsorAddress, owner_address: ownerAddress, status: 'reserved', transaction_id: null })
-        return { rowCount: 1, rows: [{ id: 1 }] }
-      }
-      if (sql.startsWith('SELECT request_hash,status,transaction_id,result_code,confirmation_block')) {
-        const row = rows.get(params[0])
-        return { rowCount: row ? 1 : 0, rows: row ? [row] : [] }
-      }
-      if (sql.startsWith("UPDATE public.tron_transfer_sponsor_operations SET status='broadcast-unknown'")) {
-        const row = rows.get(params[0])
-        if (!row || row.status !== 'reserved') return { rowCount: 0, rows: [] }
-        row.status = 'broadcast-unknown'
-        row.transaction_id = params[1]
-        return { rowCount: 1, rows: [{ id: 1 }] }
-      }
-      if (sql.startsWith('UPDATE public.tron_transfer_sponsor_operations SET status=$2')) {
-        const row = rows.get(params[0])
-        if (!row) return { rowCount: 0, rows: [] }
-        row.status = params[1]
-        row.transaction_id = params[2] || row.transaction_id
-        row.result_code = params[3]
-        row.confirmation_block = params[4]
-        return { rowCount: 1, rows: [] }
-      }
-      throw new Error('unexpected fake database query: ' + sql)
+      if (sql === 'ROLLBACK' || sql === 'BEGIN') return { rowCount: 0, rows: [] }
+      throw new Error('unexpected database query: ' + sql)
     },
+    async connect() { return this },
+    release() {},
   }
   let executions = 0
   const engine = {
     readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
-    execute: async ({ onSigned }) => {
-      executions += 1
-      await onSigned('b'.repeat(64))
-      return { success: true, status: 'solidified-success', txid: 'b'.repeat(64), signed: true, broadcast: true, solidified: true, blockNumber: 456 }
-    },
-    reconcile: async () => ({ confirmed: true, status: 'solidified-success', blockNumber: 456 }),
+    execute: async () => { executions += 1; return { success: true } },
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
   const { api } = setup({ database, engine })
   const token = await authenticated(api)
-  const idempotencyKey = 'sponsor-idempotency-012345678901'
-  const createIntent = () => call(api, 'POST', '/api/sponsor/intent', {
-    operation: 'delegate', resource: 'ENERGY', amountSun: '127852400', idempotencyKey,
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '127852400',
+    idempotencyKey: 'sponsor-idempotency-012345678901',
   }, token)
-  const firstIntent = await createIntent()
-  const first = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: firstIntent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  assert.equal(intent.status, 201)
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: intent.payload.intentId, signature: SIGNATURE,
+    confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
   }, token)
-  assert.equal(first.status, 200)
-  assert.equal(first.payload.operationStatus, 'confirmed')
-  assert.equal(first.payload.transactionId, 'b'.repeat(64))
-  const secondIntent = await createIntent()
-  const second = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: secondIntent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(second.status, 409)
-  assert.equal(second.payload.error, 'operation-already-recorded')
-  assert.equal(executions, 1)
+  assert.equal(result.status, 423)
+  assert.equal(result.payload.error, 'sponsor-local-signer-not-implemented')
+  assert.equal(executions, 0)
+  assert.equal(queries.some(sql => sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')), false)
 })
 
 
@@ -847,53 +814,31 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
 })
 
 
-test('Sponsor maintenance pause lock remains held until signing and broadcast lifecycle is durably recorded', async () => {
+test('Sponsor maintenance pause lock is released without invoking the legacy server signer', async () => {
   const timeline = []
-  const row = { idempotency_key_hash: '', request_hash: '', status: 'reserved', transaction_id: null }
   const database = {
-    async query(sql, params = []) {
+    async query(sql) {
       if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
-      if (sql.startsWith("UPDATE public.tron_transfer_sponsor_operations SET status='broadcast-unknown'")) {
-        timeline.push('persist-transaction-id')
-        row.transaction_id = params[1]
-        return { rowCount: 1, rows: [{ id: 1 }] }
-      }
-      if (sql.includes('SET status=$2,transaction_id=COALESCE')) {
-        timeline.push('persist-final-status')
-        row.status = params[1]
-        return { rowCount: 1, rows: [] }
-      }
       throw new Error('unexpected database query: ' + sql)
     },
     async connect() {
       return {
-        async query(sql, params = []) {
-          if (sql === 'BEGIN') { timeline.push('begin'); return { rowCount: 0, rows: [] } }
-          if (sql.includes('FOR SHARE')) { timeline.push('acquire-pause-lock'); return { rowCount: 1, rows: [{ writes_paused: false }] } }
-          if (sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')) {
-            timeline.push('reserve')
-            row.idempotency_key_hash = params[0]; row.request_hash = params[1]
-            return { rowCount: 1, rows: [{ id: 1 }] }
-          }
-          if (sql === 'COMMIT') { timeline.push('commit'); return { rowCount: 0, rows: [] } }
-          if (sql === 'ROLLBACK') { timeline.push('rollback'); return { rowCount: 0, rows: [] } }
+        async query(sql) {
+          timeline.push(sql)
+          if (sql === 'BEGIN') return { rowCount: 0, rows: [] }
+          if (sql.includes('FOR SHARE')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+          if (sql === 'ROLLBACK') return { rowCount: 0, rows: [] }
           throw new Error('unexpected transaction query: ' + sql)
         },
         release() { timeline.push('release') },
       }
     },
   }
+  let executions = 0
   const engine = {
     readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
-    execute: async ({ onSigned }) => {
-      assert.equal(timeline.includes('acquire-pause-lock'), true)
-      assert.equal(timeline.includes('commit'), false, 'maintenance lock must remain held during execution')
-      timeline.push('engine-execute')
-      await onSigned('e'.repeat(64))
-      timeline.push('engine-finished')
-      return { success: false, status: 'broadcast-outcome-unknown', txid: 'e'.repeat(64), signed: true, broadcast: true, solidified: false }
-    },
+    execute: async () => { executions += 1; return { success: true } },
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
   const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
@@ -906,12 +851,13 @@ test('Sponsor maintenance pause lock remains held until signing and broadcast li
     intentId: intent.payload.intentId, signature: SIGNATURE,
     confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
   }, token)
-  assert.equal(result.status, 202)
-  assert.ok(timeline.indexOf('acquire-pause-lock') < timeline.indexOf('engine-execute'))
-  assert.ok(timeline.indexOf('engine-finished') < timeline.indexOf('persist-final-status'))
-  assert.ok(timeline.indexOf('persist-final-status') < timeline.indexOf('commit'))
-  assert.equal(timeline.at(-1), 'release')
+  assert.equal(result.status, 423)
+  assert.equal(result.payload.error, 'sponsor-local-signer-not-implemented')
+  assert.equal(executions, 0)
+  assert.equal(timeline.includes('release'), true)
+  assert.equal(timeline.some(value => String(value).startsWith('INSERT INTO')), false)
 })
+
 
 test('PostgreSQL legacy require mode is normalized to explicit verify-full without weakening TLS', () => {
   const input = 'postgresql://user:password@ep-example.neon.tech/db?sslmode=require&channel_binding=require'
