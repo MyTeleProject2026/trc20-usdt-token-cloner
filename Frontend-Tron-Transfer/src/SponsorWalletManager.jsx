@@ -711,7 +711,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   async function submitResourceTransaction(action, options = {}) {
     if (!wallet || !tronWeb || busy) return
-    if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The Resource API requires a verified server signer, durable PostgreSQL ledger, session secret and both explicit Mainnet execution flags. No transaction was sent.'); return }
+    if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The Resource API requires accepted local Sponsor-vault signing, exact transaction verification, a durable PostgreSQL ledger and explicit Mainnet gates. No transaction was sent.'); return }
     try { await ensureOwnerAdmin() } catch { notify('error', 'Owner Admin authorization required', 'Authenticate the independent Owner account before preparing a Sponsor operation. No transaction was sent.'); return }
     const selectedAmount = options.amount || (action === 'withdraw' ? formatSunAsTrx(snapshot?.withdrawableSun || '0') : amount)
     const selectedResource = options.resource || resourceType
@@ -806,7 +806,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       return
     }
     if (sponsorApiStatus?.transactionExecutionAvailable !== true) {
-      notify('error', 'Sponsor execution is not ready', 'The server signer, database ledger, session authentication and Mainnet execution gates must all be ready. No transaction was sent.')
+      notify('error', 'Sponsor execution is not ready', 'Local Sponsor-vault signing and backend verification are not yet accepted. No transaction was sent.')
       return
     }
     try { await ensureOwnerAdmin() } catch { notify('error', 'Owner Admin authorization required', 'Authenticate the independent Owner account before provisioning. No transaction was sent.'); return }
