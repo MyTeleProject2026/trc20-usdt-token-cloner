@@ -64,3 +64,13 @@ test('Sponsor password recovery and account session controls stay inside the exi
   assert.ok(source.includes('Change Sponsor password'))
   assert.ok(source.includes("activePage === \"sponsor\" && wallet"))
 })
+
+test('Sponsor local signer is locked immediately when leaving the Sponsor workspace', () => {
+  const lockOnExit = source.indexOf("if (!workspaceActive && wallet?.address) lockWallet('manual')")
+  const idleEffect = source.indexOf("if (!wallet?.address || !workspaceActive) return undefined")
+  const lockCallback = source.indexOf("setWallet(null)")
+  assert.notEqual(lockOnExit, -1, 'switching to Owner workspace must revoke Sponsor access')
+  assert.notEqual(idleEffect, -1, 'idle timer must not remain active outside Sponsor workspace')
+  assert.notEqual(lockCallback, -1, 'locking must clear the in-memory Sponsor signer')
+  assert.ok(lockOnExit < idleEffect, 'workspace-exit lock must be registered before idle monitoring')
+})
