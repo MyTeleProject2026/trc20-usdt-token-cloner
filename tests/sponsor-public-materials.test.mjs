@@ -30,8 +30,9 @@ test('sponsor brief distinguishes development support from payout capacity and n
 test('repository landing page links the sponsor brief and accurately labels the draft release', () => {
   assert.match(readme, /\[Read the individual sponsor brief\]\(docs\/SPONSOR_BRIEF\.md\)/)
   assert.match(readme, /not merged or verified as deployed to production/i)
-  assert.match(readme, /No individual sponsor is currently verified as approved and funded/i)
-  assert.match(readme, /\$5,000–\$10,000 equivalent in sponsor-controlled/i)
+  assert.match(readme, /historical individual sponsor brief/i)
+  assert.match(readme, /not a current funding claim/i)
+  assert.match(readme, /\$5,000–\$10,000 equivalent target in sponsor-controlled/i)
 })
 
 test('public sponsor inquiry materials remain separate from the internal wallet workspace', () => {
