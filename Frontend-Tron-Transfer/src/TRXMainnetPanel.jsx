@@ -181,7 +181,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   })
 
   const claimTenergyPromo = () => run('Checking TEnergy owner eligibility', async () => {
-    throw new Error('TEnergy message signing is not available in the backend-managed Owner session. No browser key or local Owner vault signing fallback is permitted.')
+    throw new Error('The optional TEnergy message-signing flow is not implemented for the local Owner vault. No promo signature or transaction was requested.')
   })
 
   const deployToken = () => run('Preparing exact artifact-pinned TRӾ deployment transaction', async () => {
