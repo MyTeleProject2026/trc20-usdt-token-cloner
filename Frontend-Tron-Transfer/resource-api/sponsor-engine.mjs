@@ -347,14 +347,16 @@ export function createSponsorTransactionEngine({
       if (bandwidthFeeSun > maxFee) throw new Error('bandwidth-shortfall-exceeds-authorized-fee-cap')
       const principal = ['stake', 'topup'].includes(operation) ? BigInt(String(amountSun)) : 0n
       if (balance < principal + reserve + bandwidthFeeSun) throw new Error('insufficient-balance-for-authorized-fee-cap')
-      const signWeight = await tronWeb.trx.getSignWeight({ ...signedTransaction, visible: true })
-      const approved = Array.isArray(signWeight?.approved_list) ? signWeight.approved_list : []
-      const threshold = Number(signWeight?.permission?.threshold || 0)
-      const currentWeight = Number(signWeight?.current_weight || 0)
-      if (signWeight?.result?.code || !approved.includes(sponsorAddress) || !Number.isSafeInteger(threshold)
-        || threshold <= 0 || !Number.isSafeInteger(currentWeight) || currentWeight < threshold) {
-        throw new Error('sponsor-signature-or-permission-invalid')
-      }
+      await verifySponsorSignedTransaction({
+        tronWeb,
+        unsignedTransaction: preparedTransaction,
+        signedTransaction,
+        operation,
+        resource,
+        amountSun: String(amountSun),
+        sponsorAddress,
+        ownerAddress: recipient,
+      })
       if (typeof onSigned !== 'function') throw new Error('durable-transaction-id-persistence-required')
       signed = true
       await onSigned(preparedTransaction.txID)
