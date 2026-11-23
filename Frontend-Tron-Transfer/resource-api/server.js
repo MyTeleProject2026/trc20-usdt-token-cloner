@@ -25,6 +25,7 @@ const RATE_LIMIT = 30
 const MAX_RATE_LIMIT_ENTRIES = 10_000
 const cache = new Map()
 const resourceReadsInFlight = new Map()
+const transactionReadsInFlight = new Map()
 const mainnetRpcProxyCache = new Map()
 const mainnetRpcProxyInFlight = new Map()
 const MAINNET_READ_RPC_METHODS = new Set([
@@ -768,24 +769,35 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       const cacheKey = 'transactions:' + address + ':' + requestedLimit
       const cached = cache.get(cacheKey)
       if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, cached.value, origin)
+      const inFlight = transactionReadsInFlight.get(cacheKey)
+      if (inFlight) {
+        try { return send(res, 200, await inFlight, origin) }
+        catch { return send(res, 503, { error: 'TRON_TRANSACTION_HISTORY_UNAVAILABLE', message: 'Confirmed Mainnet transaction history is temporarily unavailable.' }, origin) }
+      }
       const ip = observatoryRateLimitIp(req)
       if (!allowRequest(ip, 'mainnet-transaction-history')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 15 }, origin)
-      try {
+      const readPromise = (async () => {
         const apiKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
         const headers = { accept: 'application/json', ...(apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {}) }
         const query = new URLSearchParams({ only_confirmed: 'true', limit: String(requestedLimit), order_by: 'block_timestamp,desc' })
         const trc20Query = new URLSearchParams({ only_confirmed: 'true', limit: String(requestedLimit), order_by: 'block_timestamp,desc', contract_address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' })
         const [nativeResponse, tokenResponse] = await Promise.all([
-          fetchImpl(MAINNET_RPC + '/v1/accounts/' + encodeURIComponent(address) + '/transactions?' + query, { method: 'GET', headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), redirect: 'error' }),
-          fetchImpl(MAINNET_RPC + '/v1/accounts/' + encodeURIComponent(address) + '/transactions/trc20?' + trc20Query, { method: 'GET', headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), redirect: 'error' }).catch(() => null),
+          scheduledRpcFetch(fetchImpl, MAINNET_RPC + '/v1/accounts/' + encodeURIComponent(address) + '/transactions?' + query, { method: 'GET', headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), redirect: 'error' }),
+          scheduledRpcFetch(fetchImpl, MAINNET_RPC + '/v1/accounts/' + encodeURIComponent(address) + '/transactions/trc20?' + trc20Query, { method: 'GET', headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), redirect: 'error' }).catch(() => null),
         ])
         const [nativePayload, tokenPayload] = await Promise.all([nativeResponse.json().catch(() => ({})), tokenResponse?.json().catch(() => ({})) || Promise.resolve({})])
         if (!nativeResponse.ok || !Array.isArray(nativePayload.data)) throw new Error('TronGrid confirmed native transaction history is unavailable')
-        const value = { address, network: 'TRON Mainnet', data: nativePayload.data, trc20Transfers: Array.isArray(tokenPayload.data) ? tokenPayload.data : [], trc20Available: Boolean(tokenResponse?.ok && Array.isArray(tokenPayload.data)), checkedAt: new Date().toISOString(), source: 'trongrid-confirmed-history', tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' }
+        return { address, network: 'TRON Mainnet', data: nativePayload.data, trc20Transfers: Array.isArray(tokenPayload.data) ? tokenPayload.data : [], trc20Available: Boolean(tokenResponse?.ok && Array.isArray(tokenPayload.data)), checkedAt: new Date().toISOString(), source: 'trongrid-confirmed-history', tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' }
+      })()
+      transactionReadsInFlight.set(cacheKey, readPromise)
+      try {
+        const value = await readPromise
         cache.set(cacheKey, { at: Date.now(), value })
         return send(res, 200, value, origin)
       } catch {
-        return send(res, 503, { error: 'TRON_TRANSACTION_HISTORY_UNAVAILABLE', message: 'Could not read confirmed Sponsor Wallet transaction history from TronGrid.' }, origin)
+        return send(res, 503, { error: 'TRON_TRANSACTION_HISTORY_UNAVAILABLE', message: 'Could not read confirmed Mainnet transaction history from TronGrid.' }, origin)
+      } finally {
+        if (transactionReadsInFlight.get(cacheKey) === readPromise) transactionReadsInFlight.delete(cacheKey)
       }
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
