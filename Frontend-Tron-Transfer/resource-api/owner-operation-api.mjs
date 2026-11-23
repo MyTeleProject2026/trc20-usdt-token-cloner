@@ -303,6 +303,24 @@ export function createOwnerOperationApi({
     return pool
   }
   const reply = (res, status, payload, origin) => { send(res, status, payload, origin); return true }
+  const rateBuckets = new Map()
+  function consumeRateLimit(sessionId, action) {
+    const limits = { prepare: 6, confirm: 3, cancel: 6, read: 30 }
+    const limit = limits[action] || 10
+    const now = Date.now()
+    const key = String(sessionId) + ':' + action
+    let bucket = rateBuckets.get(key)
+    if (!bucket || now - bucket.startedAt >= 60_000) {
+      bucket = { startedAt: now, count: 0 }
+      rateBuckets.set(key, bucket)
+    }
+    if (bucket.count >= limit) return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((60_000 - (now - bucket.startedAt)) / 1000)) }
+    bucket.count += 1
+    if (rateBuckets.size > 5000) {
+      for (const [bucketKey, value] of rateBuckets) if (now - value.startedAt >= 60_000) rateBuckets.delete(bucketKey)
+    }
+    return { allowed: true }
+  }
 
   async function handle(req, res, url, origin) {
     const path = url.pathname
@@ -315,6 +333,11 @@ export function createOwnerOperationApi({
     if (!session || session.address !== env.TRON_OWNER_ADDRESS) {
       return reply(res, 401, { success: false, error: 'OWNER_SESSION_REQUIRED' }, origin)
     }
+    const rateAction = req.method === 'POST'
+      ? (path === '/api/owner/operations/prepare' ? 'prepare' : action || 'write')
+      : 'read'
+    const rate = consumeRateLimit(session.sessionId, rateAction)
+    if (!rate.allowed) return reply(res, 429, { success: false, error: 'OWNER_OPERATION_RATE_LIMITED', retryAfterSeconds: rate.retryAfterSeconds }, origin)
     const db = await getDatabase()
     if (!db) return reply(res, 503, { success: false, error: 'OWNER_OPERATION_LEDGER_UNAVAILABLE' }, origin)
     if (env.OWNER_OPERATION_LEDGER_DURABLE !== 'true'
