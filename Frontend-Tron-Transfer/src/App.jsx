@@ -7,7 +7,6 @@ import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
 import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 import OwnerAccountSecurity from './OwnerAccountSecurity.jsx'
-import PendingOwnerAcceptance from './PendingOwnerAcceptance.jsx'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 
 const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
@@ -38,10 +37,8 @@ const NAV_ITEMS = [
   { id: 'minting', label: 'Minting authorization', description: 'Enable or disable owner issuance', icon: ShieldCheck },
   { id: 'transfers', label: 'Token transfers', shortLabel: 'Transfer', description: 'Transfer existing owner-held TRӾ', icon: ArrowLeftRight },
   { id: 'ownership', label: 'Ownership transfer', description: 'Two-step owner handoff', icon: Wallet },
-  { id: 'accept-ownership', label: 'Accept ownership', description: 'Separate pending-owner authentication and acceptance', icon: Wallet },
   { id: 'history', label: 'Credit history', description: 'Confirmed on-chain OwnerCredit events', icon: History },
   { id: 'balance', label: 'External balance lookup', description: 'Read any address token balance', icon: Blocks },
-  { id: 'account-security', label: 'Owner account security', description: 'Change password and manage active Owner sessions', icon: ShieldCheck },
 ]
 
 
@@ -56,6 +53,7 @@ export default function App() {
   const [walletError, setWalletError] = useState('')
   const [walletNotice, setWalletNotice] = useState('')
   const [ownerAccessOpen, setOwnerAccessOpen] = useState(false)
+  const [ownerSecurityOpen, setOwnerSecurityOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -156,7 +154,7 @@ export default function App() {
             <button type="button" className={sponsorWorkspace ? 'active sponsor' : ''} aria-current={sponsorWorkspace ? 'page' : undefined} aria-pressed={sponsorWorkspace} onClick={() => setActivePage('sponsor')}>Sponsor workspace</button>
           </div>
           <span className="trax-mainnet-badge"><i/> TRON MAINNET <b>·</b> {sponsorWorkspace ? "SPONSOR" : "OWNER"}</span>
-          {!sponsorWorkspace && (wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Unlock Owner Wallet</button>)}
+          {!sponsorWorkspace && (wallet ? <><button type="button" className="trax-topbar-security" onClick={() => setOwnerSecurityOpen(true)}>Account security</button><button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button></> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Unlock Owner Wallet</button>)}
         </div>
       </header>
       <main id="trax-workspace-main" className="trax-admin-content" tabIndex={-1}>
@@ -165,10 +163,11 @@ export default function App() {
           <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace}/></SponsorWorkspaceErrorBoundary>
         </div>
         <div hidden={sponsorWorkspace} aria-hidden={sponsorWorkspace}>
-          {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : activePage === 'account-security' ? <OwnerAccountSecurity wallet={wallet} onConnect={connectWallet}/> : activePage === 'accept-ownership' ? <PendingOwnerAcceptance/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+          {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
         </div>
       </main>
       {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
+      {ownerSecurityOpen && wallet && <div className="owner-security-modal-backdrop" role="dialog" aria-modal="true" aria-label="Owner account security" onMouseDown={event => { if (event.target === event.currentTarget) setOwnerSecurityOpen(false) }}><div className="owner-security-modal"><button type="button" className="owner-security-modal-close" onClick={() => setOwnerSecurityOpen(false)}>Close</button><OwnerAccountSecurity wallet={wallet} onConnect={connectWallet}/></div></div>}
     <footer className="trax-admin-footer">TRON TRANSFER · INDEPENDENT OWNER SIGNING · TRON MAINNET</footer>
     </div>
     <MobileNavBar items={visibleNavItems} activePage={activePage} onNavigate={setActivePage} workspace={sponsorWorkspace ? "sponsor" : "owner"}/>
