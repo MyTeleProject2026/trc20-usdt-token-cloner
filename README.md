@@ -48,7 +48,6 @@ The existing `contracts/Restricted1TRAX.sol` source is preserved byte-for-byte. 
 
 - [Integrated Sponsor Wallet architecture](docs/INTEGRATED_SPONSOR_WALLET.md)
 - [Sponsor go-live gates](docs/SPONSOR_GO_LIVE_GATES.md)
-- [TRON Transfer progress update](Tron%20Transfer%20Progress%20Update.txt) (when available in the Project workspace)
 - [Draft implementation PR #263](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/263)
 
 A separate legacy sponsor-direct payout backend remains distinct from the integrated Sponsor resource wallet. It is not exposed as a page in the Owner Admin navigation and is not used for Sponsor staking, delegation, or TRӾ deployment.
