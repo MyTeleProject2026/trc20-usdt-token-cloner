@@ -739,7 +739,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   async function submitResourceTransaction(action, options = {}) {
     if (!wallet || !tronWeb || busy) return
-    if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The Resource API requires accepted local Sponsor-vault signing, exact transaction verification, a durable PostgreSQL ledger and explicit Mainnet gates. No transaction was sent.'); return }
+    if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The local signing protocol is implemented, but the production database, durability, fresh resource preflight, paused-write and explicit Mainnet release gates must all pass. No transaction was sent.'); return }
     try { await ensureOwnerAdmin() } catch { notify('error', 'Owner Admin authorization required', 'Authenticate the independent Owner account before preparing a Sponsor operation. No transaction was sent.'); return }
     const selectedAmount = options.amount || (action === 'withdraw' ? formatSunAsTrx(snapshot?.withdrawableSun || '0') : amount)
     const selectedResource = options.resource || resourceType
@@ -773,7 +773,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
               : `Withdraw all currently matured Stake 2.0 TRX (${selectedAmount}) to Sponsor Wallet ${wallet.address}?`
     if (!window.confirm(`${prompt}
 
-This request is sent to the authenticated TRON Transfer Resource API. The Resource API prepares the exact unsigned Mainnet transaction. The imported Sponsor vault must sign it locally; the API must verify the Sponsor signer and permission, persist the signed payload before a single broadcast, and reconcile a solidified receipt. This flow is not yet accepted, so execution remains blocked.`)) return
+This request is sent to the authenticated TRON Transfer Resource API. The Resource API prepares the exact unsigned Mainnet transaction. The imported Sponsor vault must sign it locally; the API must verify the Sponsor signer and permission, persist the signed payload before a single broadcast, and reconcile a solidified receipt. Mainnet execution remains disabled until the production ledger, durability, resource and explicit release gates all pass.`)) return
     setBusy(true)
     try {
       const idempotencyKey = createIdempotencyKey()
@@ -864,7 +864,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       return
     }
     if (sponsorApiStatus?.transactionExecutionAvailable !== true) {
-      notify('error', 'Sponsor execution is not ready', 'Local Sponsor-vault signing and backend verification are not yet accepted. No transaction was sent.')
+      notify('error', 'Sponsor execution is not ready', 'Local Sponsor-vault signing is implemented. Production database acceptance, durability, fresh resource preflight and explicit Mainnet release gates are still required. No transaction was sent.')
       return
     }
     try { await ensureOwnerAdmin() } catch { notify('error', 'Owner Admin authorization required', 'Authenticate the independent Owner account before provisioning. No transaction was sent.'); return }
@@ -1015,7 +1015,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
     {wallet && activePage === 'sponsor' && <section className="sponsor-card">
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Independent local vault, exact-intent verification and durable operation ledger.</p></div></div>
       <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Local signer acceptance: {sponsorApiStatus?.localSignerReady ? 'verified' : 'blocked'} · Legacy server signer: disabled · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Owner Admin second factor: {sponsorApiStatus?.ownerAdminSessionRequired ? 'required · backend session' : 'not configured'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
-      {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Sponsor local signing is not yet accepted. Stake and delegation actions remain blocked; no server-side private-key signer fallback is permitted.'}</p>}
+      {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Local Sponsor-vault signing is implemented, but live Mainnet execution remains gated by database acceptance, durability, resource preflight and explicit release approval. No server-side private-key signer is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> The imported Sponsor vault signs the exact prepared transaction; the Resource API verifies, persists and reconciles it.</p>}
       {wallet && ['schema-missing', 'control-row-missing'].includes(sponsorApiStatus?.databaseStatus) && <div className="sponsor-ledger-bootstrap">
         <button type="button" className="sponsor-secondary" disabled={busy || !ownerAdminReady} onClick={() => void bootstrapSponsorLedger()}>{busy ? 'Checking database…' : 'Initialize paused Sponsor ledger schema'}</button>
