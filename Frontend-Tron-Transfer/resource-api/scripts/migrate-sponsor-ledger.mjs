@@ -23,17 +23,24 @@ const target = new Pool({ connectionString: normalizePostgresTlsMode(targetUrl),
 const columns = [
   'id', 'idempotency_key_hash', 'request_hash', 'operation', 'resource',
   'amount_sun', 'sponsor_address', 'owner_address', 'status', 'transaction_id',
-  'result_code', 'confirmation_block', 'created_at', 'updated_at',
+  'prepared_transaction', 'signed_transaction', 'result_code', 'confirmation_block', 'created_at', 'updated_at',
 ]
 const table = 'public.tron_transfer_sponsor_operations'
+
+function canonicalValue(value) {
+  if (value instanceof Date) return value.toISOString()
+  if (value === null) return null
+  if (Array.isArray(value)) return value.map(canonicalValue)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalValue(value[key])]))
+  }
+  return String(value)
+}
 
 function rowDigest(rows) {
   const hash = createHash('sha256')
   for (const row of rows) {
-    const normalized = columns.map(column => {
-      const value = row[column]
-      return value instanceof Date ? value.toISOString() : value === null ? null : String(value)
-    })
+    const normalized = columns.map(column => canonicalValue(row[column]))
     hash.update(JSON.stringify(normalized))
     hash.update('\n')
   }
@@ -78,6 +85,14 @@ async function main() {
       "SELECT to_regclass('public.tron_transfer_sponsor_operations') AS table_name"
     )
     if (!sourceCheck.rows[0]?.table_name) throw new Error('Source Sponsor ledger table does not exist.')
+    const sourceColumnRows = await sourceClient.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations'
+    `)
+    const sourceColumnNames = new Set((sourceColumnRows.rows || []).map(row => row.column_name))
+    if (!columns.every(column => sourceColumnNames.has(column))) {
+      throw new Error('Source Sponsor ledger schema is incomplete; transaction payload columns must be present before migration.')
+    }
 
     const rows = await sourceClient.query(`SELECT ${columns.join(', ')} FROM ${table} ORDER BY id ASC`)
     const sourceCount = rows.rowCount
@@ -103,6 +118,8 @@ async function main() {
         owner_address TEXT NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('reserved','signed-not-broadcast','broadcast-unknown','confirmed','failed')),
         transaction_id CHAR(64),
+        prepared_transaction JSONB,
+        signed_transaction JSONB,
         result_code TEXT,
         confirmation_block BIGINT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
