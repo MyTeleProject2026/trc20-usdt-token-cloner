@@ -524,28 +524,3 @@ export function createSponsorTransactionEngine({
   return Object.freeze({ readiness, prepare, submitSigned, execute, reconcile })
 }
 
-
-// Verify the browser-imported Sponsor vault's signature without receiving or
-// deriving a private key on the Resource API.
-export async function verifySponsorSignedTransaction({
-  tronWeb, unsignedTransaction, signedTransaction, operation, resource, amountSun, sponsorAddress, ownerAddress,
-} = {}) {
-  if (!tronWeb || !ADDRESS.test(sponsorAddress || '') || !ADDRESS.test(ownerAddress || '') || sponsorAddress === ownerAddress) {
-    throw new Error('sponsor-signer-address-mismatch')
-  }
-  assertTransaction(unsignedTransaction, { tronWeb, operation, resource, amountSun, sponsorAddress, ownerAddress })
-  assertTransaction(signedTransaction, { tronWeb, operation, resource, amountSun, sponsorAddress, ownerAddress })
-  assertTransactionIntegrity(tronWeb, unsignedTransaction, 'Prepared Sponsor transaction')
-  assertTransactionIntegrity(tronWeb, signedTransaction, 'Signed Sponsor transaction')
-  if (signedTransaction.txID !== unsignedTransaction.txID
-    || signedTransaction.raw_data_hex !== unsignedTransaction.raw_data_hex
-    || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(unsignedTransaction.raw_data)
-    || !Array.isArray(signedTransaction.signature)
-    || signedTransaction.signature.length !== 1
-    || !/^[0-9a-f]{130}$/i.test(String(signedTransaction.signature[0] || ''))) {
-    throw new Error('signed-transaction-integrity-failed')
-  }
-  verifyTransactionSigner(tronWeb, signedTransaction, sponsorAddress)
-  await assertTransactionPermission(tronWeb, signedTransaction, sponsorAddress)
-  return Object.freeze({ verified: true, sponsorAddress, ownerAddress, transactionId: signedTransaction.txID })
-}
