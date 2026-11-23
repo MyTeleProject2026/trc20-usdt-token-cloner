@@ -141,7 +141,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   }, [])
 
   const getToken = useCallback(async () => {
-    if (!walletReady) throw new Error('Authenticate the configured backend Owner session first.')
+    if (!walletReady) throw new Error('Connect the configured TronLink Owner wallet and authenticate the Owner session first.')
     const tronWeb = readOnlyTronWeb
     if (!tronWeb.isAddress(connectedAddress)) throw new Error('The authenticated Owner address is not a valid TRON Mainnet address.')
     if (!tronWeb.isAddress(tokenAddress)) throw new Error('Enter a valid deployed TRON Mainnet TRӾ contract address.')
@@ -479,7 +479,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
     <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>
 
-    {!walletReady ? <div className="trax-connect"><p>{wallet?.managedSession && connectedAddress === EXPECTED_OWNER_ADDRESS ? 'Owner password session authenticated. Backend-managed Owner session authenticated. Read-only contract access is available; contract writes require a prepared operation and the separate production execution gates.' : connectedAddress ? 'Connected account does not match the configured contract owner (' + EXPECTED_OWNER_ADDRESS + '). Sign in to the configured backend Owner account.' : 'Sign in to the configured backend Owner account to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Unlock Owner Wallet</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
+    {!walletReady ? <div className="trax-connect"><p>{wallet?.managedSession && connectedAddress === EXPECTED_OWNER_ADDRESS ? 'Owner password session restored. Connect the matching TronLink wallet to review and approve Mainnet transactions.' : connectedAddress ? 'Connected account does not match the configured contract owner (' + EXPECTED_OWNER_ADDRESS + '). Sign in to the configured backend Owner account.' : 'Sign in to the configured backend Owner account to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Unlock Owner Wallet</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
 
     {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/><div>{error}{typeof onNavigate === 'function' && /resource|energy|bandwidth|zero.TRX|deployment readiness/i.test(error) && <p><button type="button" className="outline-button" onClick={() => onNavigate('sponsor-automation')}>Open Sponsor resource provisioning</button></p>}</div></div>}
     {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
