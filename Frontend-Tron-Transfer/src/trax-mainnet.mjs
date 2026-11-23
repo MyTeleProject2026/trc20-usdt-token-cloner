@@ -515,7 +515,7 @@ export async function getMainnetNativeBalance(tronWeb, address) {
 async function postNode(tronWeb, path, body) {
   for (let attempt = 0; ; attempt += 1) {
     const { response, detail } = await enqueueNodeRequest(async () => {
-      const rpcHost = String(tronWeb?.fullNode?.host || TRON_MAINNET_HOST).replace(/\\/+$/, '')
+      const rpcHost = String(tronWeb?.fullNode?.host || TRON_MAINNET_HOST).replace(/\/+$/, '')
       const response = await fetch(rpcHost + path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
