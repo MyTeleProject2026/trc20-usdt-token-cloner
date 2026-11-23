@@ -1,6 +1,7 @@
 import { TronWeb } from 'tronweb'
 import { assertTransactionIntegrity, verifyTransactionSigner, assertTransactionPermission } from '../src/tron-mainnet-preflight.mjs'
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 
 const MAINNET = 'https://api.trongrid.io'
 const OWNER_FALLBACK = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -73,7 +74,7 @@ export async function verifySponsorSignedTransaction({
   if (!tronWeb || !unsignedTransaction || !signedTransaction
     || signedTransaction.txID !== unsignedTransaction.txID
     || signedTransaction.raw_data_hex !== unsignedTransaction.raw_data_hex
-    || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(unsignedTransaction.raw_data)
+    || !isDeepStrictEqual(signedTransaction.raw_data, unsignedTransaction.raw_data)
     || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length !== 1
     || !/^[0-9a-f]{130}$/i.test(signedTransaction.signature[0])) {
     throw new Error('signed-transaction-integrity-failed')
