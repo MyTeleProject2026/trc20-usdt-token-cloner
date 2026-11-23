@@ -217,9 +217,10 @@ async function assertSchema(db) {
   const schema = await db.query(`
     SELECT
       to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
-      to_regclass('public.tron_transfer_sponsor_control') AS control_table
+      to_regclass('public.tron_transfer_sponsor_control') AS control_table,
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column
   `)
-  if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table) {
+  if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table || !schema.rows?.[0]?.prepared_transaction_column) {
     throw new Error('sponsor-ledger-schema-not-initialized')
   }
   const control = await db.query(
@@ -400,9 +401,10 @@ export function createSponsorResourceApi({
               const schema = await db.query(`
                 SELECT
                   to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
-                  to_regclass('public.tron_transfer_sponsor_control') AS control_table
+                  to_regclass('public.tron_transfer_sponsor_control') AS control_table,
+                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column
               `)
-              if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table) {
+              if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table || !schema.rows?.[0]?.prepared_transaction_column) {
                 databaseStatus = 'schema-missing'
               } else {
                 const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
