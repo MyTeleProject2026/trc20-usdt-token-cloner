@@ -567,7 +567,7 @@ test('Sponsor local transaction preparation refuses to run while the durable Mai
   }
   let prepareCalls = 0
   const engine = {
-    readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, clientSigningAvailable: false, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
+    readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, clientSigningAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
     prepare: async () => { prepareCalls++; return { success: true, transaction: { txID: 'a'.repeat(64) } } },
     submitSigned: async () => { assert.fail('submit must not run while paused') },
     execute: async () => assert.fail('legacy engine must not run'),
