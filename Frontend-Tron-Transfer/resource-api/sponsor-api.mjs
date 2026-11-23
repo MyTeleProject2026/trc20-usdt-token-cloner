@@ -742,22 +742,41 @@ export function createSponsorResourceApi({
           onSigned: async transactionId => {
             if (!TXID.test(transactionId || '') || transactionId !== row.prepared_transaction.txID) throw new Error('signed-transaction-id-mismatch')
             const saved = await client.query(
-              "UPDATE public.tron_transfer_sponsor_operations SET status='signed-not-broadcast',transaction_id=$2,updated_at=now() WHERE idempotency_key_hash=$1 AND status='reserved' RETURNING id",
-              [keyHash, transactionId],
+              "UPDATE public.tron_transfer_sponsor_operations SET status='signed-not-broadcast',transaction_id=$2,signed_transaction=$3::jsonb,updated_at=now() WHERE idempotency_key_hash=$1 AND status='reserved' AND EXISTS (SELECT 1 FROM public.tron_transfer_sponsor_control WHERE id=1 AND writes_paused=false) RETURNING id",
+              [keyHash, transactionId, JSON.stringify(body.signedTransaction)],
             )
-            if (!saved.rowCount) throw new Error('durable-transaction-id-persistence-failed')
+            if (!saved.rowCount) throw new Error('durable-signed-transaction-persistence-or-pause-check-failed')
+            // Commit the signed payload and txID before any broadcast attempt.
+            await client.query('COMMIT'); open = false
+            if (client !== db) { client.release(); client = null }
+            // Reacquire the shared control-row lock after persistence. A pause
+            // that wins this gap prevents broadcast; a pause after this lock
+            // waits until the in-flight broadcast/reconciliation completes.
+            client = typeof db.connect === 'function' ? await db.connect() : db
+            await client.query('BEGIN'); open = true
+            const gate = await client.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1 FOR SHARE')
+            if (gate.rows?.[0]?.writes_paused !== false) throw new Error('sponsor-writes-paused-before-broadcast')
+            const claimed = await client.query(
+              "SELECT status,transaction_id FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2 FOR UPDATE",
+              [keyHash, session.address],
+            )
+            if (claimed.rows?.[0]?.status !== 'signed-not-broadcast' || claimed.rows[0].transaction_id !== transactionId) {
+              throw new Error('durable-signed-operation-claim-failed')
+            }
           },
         })
         const status = result.solidified ? 'confirmed' : result.broadcast ? 'broadcast-unknown' : result.signed ? 'signed-not-broadcast' : 'failed'
-        await client.query(
-          'UPDATE public.tron_transfer_sponsor_operations SET status=$2,transaction_id=COALESCE($3,transaction_id),result_code=$4,confirmation_block=$5,updated_at=now() WHERE idempotency_key_hash=$1',
-          [keyHash, status, result.txid || null, result.status || 'unknown', result.blockNumber || null],
-        )
-        await client.query('COMMIT'); open = false
-        if (client !== db) { client.release(); client = null }
-        return reply(res, result.success ? 200 : result.broadcast ? 202 : 422, {
+        if (client && open) {
+          await client.query(
+            'UPDATE public.tron_transfer_sponsor_operations SET status=$2,result_code=$3,confirmation_block=$4,updated_at=now() WHERE idempotency_key_hash=$1 AND status IN (\'signed-not-broadcast\',\'broadcast-unknown\')',
+            [keyHash, status, result.status || 'unknown', result.blockNumber || null],
+          )
+          await client.query('COMMIT'); open = false
+          if (client !== db) { client.release(); client = null }
+        }
+        return reply(res, result.success ? 200 : result.signed ? 202 : result.broadcast ? 202 : 422, {
           success: result.success === true, operationReference: body.operationReference, operationStatus: status,
-          transactionId: result.txid || null, resultCode: result.status || 'unknown',
+          transactionId: result.txid || row.prepared_transaction.txID || null, resultCode: result.status || 'unknown',
           confirmationBlock: result.blockNumber || null, signed: result.signed === true,
           broadcast: result.broadcast === true, solidified: result.solidified === true, retryAllowed: false,
         }, origin)
