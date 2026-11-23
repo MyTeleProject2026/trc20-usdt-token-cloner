@@ -3,7 +3,7 @@ import { TronWeb } from 'tronweb'
 import pg from 'pg'
 import { createOwnerOperationLedger } from './owner-operation-ledger.mjs'
 import { createOwnerManagedSigner } from './owner-managed-signer.mjs'
-import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget } from '../src/trax-mainnet.mjs'
+import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget } from '../src/tron-mainnet-preflight.mjs'
 import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
