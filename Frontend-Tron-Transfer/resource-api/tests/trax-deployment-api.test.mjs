@@ -35,7 +35,7 @@ test('deployment confirmation is locked even when readiness checks pass', async(
  const {api,replies}=make()
  await api.handle(req('POST'),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
  assert.equal(replies[0].status,423)
- assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_CONFIRMATION_NOT_IMPLEMENTED')
+ assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_EXECUTION_GATES_LOCKED')
 })
 
 
@@ -44,7 +44,7 @@ test('deployment confirmation persists signed payload and broadcast-unknown stat
  const events=[]
  const artifact={contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}
  const rawDataHex='bb'.repeat(32), txID=createHash('sha256').update(Buffer.from(rawDataHex,'hex')).digest('hex')
- const unsigned={txID,raw_data_hex:rawDataHex,raw_data:{expiration:Date.now()+120000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
+ const unsigned={txID,raw_data_hex:rawDataHex,raw_data:{expiration:Date.now()+120000,fee_limit:1000000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
  const signed={...unsigned,signature:['c'.repeat(130)]}
  const db={async query(sql,params=[]){
   if(sql.includes('to_regclass')) return {rows:[{deployments_table:'tron_transfer_deployments'}]}
@@ -82,7 +82,7 @@ test('deployment broadcast ambiguity is retained without automatic rebroadcast',
   if(sql.includes("SET state='broadcast-unknown'")) {state.value='broadcast-unknown';events.push('unknown');return {rows:[{}]}}
   return {rows:[]}
  }}
- const fakeTron={fullNode:{headers:{}},address:{fromPrivateKey:()=>owner},trx:{sign:async()=>signed}}
+ const fakeTron={fullNode:{headers:{}},address:{fromPrivateKey:()=>owner,toHex:()=> '41'+'11'.repeat(20)},trx:{sign:async()=>signed}}
  const {api,replies}=make({
   env:{TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',TRAX_DEPLOYMENT_MAINNET_ACK:'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT',TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',TRON_OWNER_PRIVATE_KEY:'1'.repeat(64)},
   database:db,artifactLoader:async()=>artifact,tronWebFactory:()=>fakeTron,
