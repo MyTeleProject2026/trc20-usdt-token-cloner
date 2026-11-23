@@ -55,6 +55,18 @@ payload.artifactSha256 = sha256(JSON.stringify(payload))
 const outputDir = path.join(apiRoot, 'generated')
 await fs.mkdir(outputDir, { recursive: true })
 await fs.writeFile(path.join(outputDir, 'trax-deployment-artifact.json'), JSON.stringify(payload) + '\n', { mode: 0o600 })
+const frontendGeneratedDir = path.resolve(apiRoot, '..', 'src', 'generated')
+await fs.mkdir(frontendGeneratedDir, { recursive: true })
+const frontendArtifact = {
+  compiler: 'TRON solc ' + compilerVersion,
+  evmVersion: 'paris',
+  optimizer: { enabled: true, runs: 1 },
+  token: { contractName: 'Restricted1TRAX', abi: contract.abi, bytecode, deployedBytecode },
+}
+await fs.writeFile(
+  path.join(frontendGeneratedDir, 'trax-contract-artifacts.js'),
+  'export default ' + JSON.stringify(frontendArtifact) + ';' + String.fromCharCode(10),
+)
 console.log(JSON.stringify({
   contractName: payload.contractName,
   compiler: payload.compiler,
