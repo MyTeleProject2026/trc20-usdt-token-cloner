@@ -116,6 +116,7 @@ function createPacedFetch(fetchImpl, intervalMs = 350) {
       let response = await fetchImpl(...args)
       if (response.status === 429) {
         const retryAfter = Number(response.headers?.get?.('retry-after'))
+        await response.text().catch(() => '')
         const retryMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(5000, retryAfter * 1000) : 1000
         await new Promise(resolve => setTimeout(resolve, retryMs))
         response = await fetchImpl(...args)
@@ -294,7 +295,11 @@ export function createOwnerOperationApi({
   const pacedFetch = createPacedFetch(fetchImpl)
   let pool = database
   async function getDatabase() {
-    if (typeof pool === 'function') return await pool()
+    if (typeof pool === 'function') {
+      const provided = await pool()
+      if (provided && typeof provided.query === 'function') pool = provided
+      return provided
+    }
     if (pool) return pool
     const connection = sponsorDatabaseConnectionString(env)
     if (!connection) return null
@@ -324,7 +329,7 @@ export function createOwnerOperationApi({
 
   async function handle(req, res, url, origin) {
     const path = url.pathname
-    const route = path.match(/^\/api\/owner\/operations\/([0-9a-f-]{36})(?:\/(confirm|cancel))?$/i)
+    const route = path.match(/^\/api\/owner\/operations\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:\/(confirm|cancel))?$/i)
     const operationId = route?.[1] || ''
     const action = route?.[2] || ''
     const listRoute = path === '/api/owner/operations'
@@ -354,7 +359,8 @@ export function createOwnerOperationApi({
       const ledger = ledgerFactory({ database: db })
 
       if (req.method === 'GET' && listRoute) {
-        const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || 20)))
+        const requestedLimit = Number(url.searchParams.get('limit') || 20)
+        const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(50, requestedLimit) : 20
         const rows = await ledger.list(session.sessionId, limit)
         return reply(res, 200, {
           success: true, network: 'TRON Mainnet', executionEnabled: executionGateEnabled(env),
@@ -460,7 +466,10 @@ export function createOwnerOperationApi({
         }
         let claimed
         try { claimed = await ledger.claimConfirmation(operationId, session.sessionId) }
-        catch {
+        catch (claimError) {
+          if (claimError?.code === '23514' || claimError?.code === '42703') {
+            return reply(res, 503, { success: false, error: 'OWNER_OPERATION_CONFIRMING_MIGRATION_REQUIRED', retryAllowed: false }, origin)
+          }
           return reply(res, 409, { success: false, error: 'OWNER_OPERATION_CONFIRMATION_ALREADY_CLAIMED', retryAllowed: false }, origin)
         }
         let state = 'confirming'
