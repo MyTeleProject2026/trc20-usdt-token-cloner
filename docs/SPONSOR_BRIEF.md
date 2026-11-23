@@ -1,5 +1,7 @@
 # TRON Transfer — Individual Sponsor Brief
 
+> **Legacy document notice — 24 November 2026:** this brief describes the separate sponsor-direct USDT payout service and its former standalone TronLink portal. That UI has been removed from the integrated Owner Admin application. This brief is retained as historical documentation for the separate backend only; it is not the active Owner/Sponsor wallet architecture. For the active local-import Sponsor Wallet, see [Integrated Sponsor Wallet](INTEGRATED_SPONSOR_WALLET.md). The status and recruitment target below are dated 12 November 2026 and are not a current funding assertion.
+
 **Status date:** 12 November 2026  
 **Project repository:** https://github.com/MyTeleProject2026/trc20-usdt-token-cloner  
 **Implementation review:** https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/153
