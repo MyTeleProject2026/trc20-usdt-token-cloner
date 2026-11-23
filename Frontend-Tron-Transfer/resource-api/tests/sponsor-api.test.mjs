@@ -229,7 +229,7 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
   assert.equal(calls[0].trimStart().startsWith('CREATE'), false)
 })
 
-test('Sponsor ledger bootstrap requires admin authorization and leaves writes paused', async () => {
+test('Sponsor ledger bootstrap requires admin authorization and explicit confirmation and leaves writes paused', async () => {
   let schemaCreated = false
   const database = {
     async query(sql) {
@@ -246,12 +246,61 @@ test('Sponsor ledger bootstrap requires admin authorization and leaves writes pa
   assert.equal(denied.status, 401)
   assert.equal(schemaCreated, false)
 
-  const initialized = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, TEST_ADMIN_TOKEN)
+  const missingConfirmation = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, TEST_ADMIN_TOKEN)
+  assert.equal(missingConfirmation.status, 400)
+  assert.equal(missingConfirmation.payload.error, 'explicit-ledger-bootstrap-confirmation-required')
+  assert.equal(schemaCreated, false)
+
+  const initialized = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' }, null, TEST_ADMIN_TOKEN)
   assert.equal(initialized.status, 200)
   assert.equal(initialized.payload.schemaInitialized, true)
   assert.equal(initialized.payload.databaseReady, true)
   assert.equal(initialized.payload.sponsorWritesPaused, true)
   assert.equal(initialized.payload.transactionExecutionAvailable, false)
+  assert.equal(schemaCreated, true)
+})
+
+test('managed Owner Admin authorization for Sponsor bootstrap requires the CSRF-protected Owner session', async () => {
+  let schemaCreated = false
+  const database = {
+    async query(sql) {
+      if (sql.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_operations')) {
+        schemaCreated = true
+        return { rowCount: 0, rows: [] }
+      }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      throw new Error('unexpected bootstrap query')
+    },
+  }
+  const { api } = setup({
+    database,
+    databaseUrl: 'postgres://configured',
+    adminToken: '',
+    authenticateOwnerAdminSession: async (req, options) => {
+      assert.equal(options.requireCsrf, true)
+      const valid = String(req.headers.cookie || '').includes('tron_owner_session=owner-session')
+        && req.headers['x-csrf-token'] === 'owner-csrf-proof'
+        && req.headers.origin === 'https://tron-transfer.onrender.com'
+      return valid ? { address: OWNER } : null
+    },
+  })
+  const body = { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' }
+  const denied = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', body, null, '', {
+    headers: { cookie: 'tron_owner_session=owner-session' },
+  })
+  assert.equal(denied.status, 401)
+  assert.equal(schemaCreated, false)
+
+  const accepted = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', body, null, '', {
+    headers: {
+      cookie: 'tron_owner_session=owner-session',
+      'x-csrf-token': 'owner-csrf-proof',
+      origin: 'https://tron-transfer.onrender.com',
+    },
+  })
+  assert.equal(accepted.status, 200)
+  assert.equal(accepted.payload.sponsorWritesPaused, true)
+  assert.equal(accepted.payload.transactionExecutionAvailable, false)
   assert.equal(schemaCreated, true)
 })
 
