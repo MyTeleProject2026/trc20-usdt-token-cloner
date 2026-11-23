@@ -11,6 +11,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
   const [password, setPassword] = useState('')
   const [enrollmentToken, setEnrollmentToken] = useState('')
   const [recoveryToken, setRecoveryToken] = useState('')
+  const [confirmRecoveryPassword, setConfirmRecoveryPassword] = useState('')
   const [recoveryMode, setRecoveryMode] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -41,8 +42,9 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
     setError('')
     try {
       if (recoveryMode) {
+        if (password.length < 12 || password !== confirmRecoveryPassword || recoveryToken.trim().length < 32) throw new Error('Enter a valid recovery token and matching new password of at least 12 characters.')
         await ownerAuth.recoverPassword(recoveryToken.trim(), password)
-        setPassword(''); setRecoveryToken(''); setRecoveryMode(false); setEnrolled(true)
+        setPassword(''); setRecoveryToken(''); setConfirmRecoveryPassword(''); setRecoveryMode(false); setEnrolled(true)
         setMessage('Password recovery completed. All previous Owner sessions were revoked. Sign in with the new password.')
         return
       }
@@ -74,10 +76,12 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       <div className="owner-vault-warning">The Owner private key remains in the Resource API environment. Never paste a private key, recovery phrase or keystore into this page. Contract signing remains disabled until the authenticated backend operation and Mainnet preflight path is enabled.</div>
       <p className="owner-vault-address">{message}</p>
       <form onSubmit={submit}>
-        {!enrolled && <label>One-time Owner enrollment token<input type="password" autoComplete="off" value={enrollmentToken} onChange={event => setEnrollmentToken(event.target.value)} required/></label>}
-        <label>Owner account password<input type="password" autoComplete={enrolled ? 'current-password' : 'new-password'} minLength={12} value={password} onChange={event => setPassword(event.target.value)} required/></label>
-        <button className="owner-vault-primary" disabled={busy || password.length < 12 || enrolled === null || (!enrolled && enrollmentToken.length < 32)}><LockKeyhole size={16}/>{busy ? 'Authenticating…' : enrolled ? 'Sign in to Owner workspace' : 'Enroll Owner password'}</button>
-        <div className="owner-vault-actions"><button type="button" onClick={onClose}>Close</button></div>
+        {!enrolled && !recoveryMode && <label>One-time Owner enrollment token<input type="password" autoComplete="off" value={enrollmentToken} onChange={event => setEnrollmentToken(event.target.value)} required/></label>}
+        {recoveryMode && <label>One-time Owner recovery token<input type="password" autoComplete="off" value={recoveryToken} onChange={event => setRecoveryToken(event.target.value)} required/></label>}
+        <label>{recoveryMode ? 'New Owner account password' : 'Owner account password'}<input type="password" autoComplete={recoveryMode || !enrolled ? 'new-password' : 'current-password'} minLength={12} value={password} onChange={event => setPassword(event.target.value)} required/></label>
+        {recoveryMode && <label>Confirm new Owner password<input type="password" autoComplete="new-password" minLength={12} value={confirmRecoveryPassword} onChange={event => setConfirmRecoveryPassword(event.target.value)} required/></label>}
+        <button className="owner-vault-primary" disabled={busy || password.length < 12 || enrolled === null || (recoveryMode ? recoveryToken.length < 32 || confirmRecoveryPassword !== password : !enrolled && enrollmentToken.length < 32)}><LockKeyhole size={16}/>{busy ? 'Working…' : recoveryMode ? 'Recover Owner password' : enrolled ? 'Sign in to Owner workspace' : 'Enroll Owner password'}</button>
+        <div className="owner-vault-actions">{enrolled && <button type="button" onClick={() => {setRecoveryMode(value => !value);setPassword('');setRecoveryToken('');setConfirmRecoveryPassword('')}}>{recoveryMode ? 'Back to Owner login' : 'Recover Owner password'}</button>}<button type="button" onClick={onClose}>Close</button></div>
       </form>
       {error && <p role="alert" className="owner-vault-error">{error}</p>}
       <p className="owner-vault-footnote">Configured Owner: {EXPECTED_OWNER_ADDRESS}. The password authenticates a backend session; it is not a wallet key and cannot change the on-chain owner. Recovery requires an operator-generated one-time token from the Resource API; the token expires after 30 minutes and is single-use.</p>
