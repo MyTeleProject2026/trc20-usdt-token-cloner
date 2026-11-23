@@ -61,7 +61,7 @@ async function readBody(req) {
   const chunks = []; let size = 0
   for await (const chunk of req) {
     size += chunk.length
-    if (size > 8192) fail('TRAX_DEPLOYMENT_REQUEST_TOO_LARGE', 413)
+    if (size > 128 * 1024) fail('TRAX_DEPLOYMENT_REQUEST_TOO_LARGE', 413)
     chunks.push(chunk)
   }
   try {
