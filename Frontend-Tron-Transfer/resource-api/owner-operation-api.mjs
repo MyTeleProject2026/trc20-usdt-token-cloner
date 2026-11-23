@@ -585,7 +585,10 @@ export function createOwnerOperationApi({
                 nextState: reconciliation.success ? 'confirmed' : 'failed',
                 blockNumber: reconciliation.blockNumber,
                 failureCode: reconciliation.success ? null : String(reconciliation.status || 'SOLIDIFIED_EXECUTION_FAILED').slice(0, 100),
-                receipt: { reconciliation },
+                receipt: {
+                  reconciliation, signedTransaction: operation.receipt?.signedTransaction,
+                  preflight: operation.receipt?.preflight, intentSha256: operation.intent_sha256,
+                },
               })
             }
           } catch { reconciliation = { solidified: false, status: 'receipt-check-unavailable' } }
