@@ -315,6 +315,7 @@ export function createSponsorTransactionEngine({
                 ? await tronWeb.transactionBuilder.withdrawExpireUnfreeze(sponsorAddress)
                 : await tronWeb.transactionBuilder.sendTrx(recipient, amount.toString(), sponsorAddress)
       assertTransaction(transaction, { tronWeb, operation, resource, amountSun: amount.toString(), sponsorAddress, ownerAddress: recipient })
+      assertTransactionIntegrity(tronWeb, transaction, 'Prepared Sponsor transaction')
       const accountResources = await tronWeb.trx.getAccountResources(sponsorAddress)
       const freeBandwidth = Math.max(0, Number(accountResources.freeNetLimit || 0) - Number(accountResources.freeNetUsed || 0))
       const stakedBandwidth = Math.max(0, Number(accountResources.NetLimit || 0) - Number(accountResources.NetUsed || 0))
@@ -368,19 +369,11 @@ export function createSponsorTransactionEngine({
       if (bandwidthFeeSun > maxFee) throw new Error('bandwidth-shortfall-exceeds-authorized-fee-cap')
       const principal = ['stake', 'topup'].includes(operation) ? BigInt(String(amountSun)) : 0n
       if (balance < principal + reserve + bandwidthFeeSun) throw new Error('insufficient-balance-for-authorized-fee-cap')
-      await verifySponsorSignedTransaction({
-        tronWeb,
-        unsignedTransaction: preparedTransaction,
-        signedTransaction,
-        operation,
-        resource,
-        amountSun: String(amountSun),
-        sponsorAddress,
-        ownerAddress: recipient,
-      })
       if (typeof onSigned !== 'function') throw new Error('durable-transaction-id-persistence-required')
-      signed = true
+      // "signed" means the exact signed payload and transaction ID are durable,
+      // not merely that a signature was received in memory.
       await onSigned(preparedTransaction.txID)
+      signed = true
       broadcastAttempted = true
       const broadcast = await tronWeb.trx.sendRawTransaction(signedTransaction)
       if (broadcast?.result !== true) return { success: false, status: 'broadcast-rejected-or-unknown', txid: preparedTransaction.txID, signed: true, broadcast: true }
