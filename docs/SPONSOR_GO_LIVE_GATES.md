@@ -1,3 +1,5 @@
+<!-- Scope note: this checklist covers the separate legacy sponsor-direct USDT payout backend. It is not the go-live checklist for the integrated local Sponsor resource wallet; see INTEGRATED_SPONSOR_WALLET.md for that workflow. -->
+
 # Sponsor integration go-live gates
 
 This checklist is a release gate, not a claim that sponsorship is currently enabled.
