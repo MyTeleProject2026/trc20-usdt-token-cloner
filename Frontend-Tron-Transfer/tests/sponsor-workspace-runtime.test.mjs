@@ -38,9 +38,10 @@ test('Sponsor workspace render errors are contained by an application error boun
   assert.match(app, /This Sponsor page could not be displayed/)
 })
 
-test('Sponsor Admin bootstrap authorization is cleared on wallet lock and workspace exit', () => {
-  assert.match(source, /if \(!wallet \|\| !workspaceActive\) setAdminToken\(''\)/)
+test('Owner Admin re-authentication state is cleared on Sponsor wallet lock and workspace exit', () => {
+  assert.match(source, /if \(!wallet \|\| !workspaceActive\) \{\s*setOwnerAdminPassword\(''\)\s*setOwnerAdminReady\(false\)/)
   assert.match(source, /\[wallet, workspaceActive\]/)
+  assert.match(source, /setOwnerAdminReady\(false\)/)
 })
 
 test('Sponsor TronWeb instance is initialized before any effect dependency reads it', () => {
