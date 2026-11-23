@@ -122,7 +122,7 @@ function getPool(env) {
   const connectionString = sponsorDatabaseConnectionString(env)
   if (!connectionString) return null
   if (!pool) {
-    pool = new Pool({ connectionString: normalizePostgresTlsMode(connectionString), connectionTimeoutMillis: 3500, query_timeout: 4500, statement_timeout: 4000, idleTimeoutMillis: 30_000, max: 3 })
+    pool = new Pool({ connectionString: normalizePostgresTlsMode(connectionString), connectionTimeoutMillis: 2500, query_timeout: 2500, statement_timeout: 2000, idleTimeoutMillis: 30_000, max: 3 })
     pool.on('error', error => process.stderr.write('Sponsor ledger database error: ' + String(error?.code || 'unknown') + '\n'))
   }
   return pool
