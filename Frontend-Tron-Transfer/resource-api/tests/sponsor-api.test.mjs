@@ -21,7 +21,7 @@ function request(method, path, body, token, adminToken, client = {}) {
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '', authenticateManagedSession = null } = {}) {
+function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '', authenticateManagedSession = null, authenticateOwnerAdminSession = null } = {}) {
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
     SPONSOR_LEDGER_DURABLE: 'true',
@@ -40,6 +40,7 @@ function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, 
     allowedAddress: OWNER,
     getDatabase: () => database,
     ...(authenticateManagedSession ? { authenticateManagedSession } : {}),
+    ...(authenticateOwnerAdminSession ? { authenticateOwnerAdminSession } : {}),
     engine: engine || {
       readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, feePolicy: {} }),
       execute: async () => { calls.push('execute'); return { success: true } },
@@ -866,4 +867,19 @@ test('Sponsor readiness coalesces simultaneous status refreshes into one databas
   const cached = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(cached.status, 200)
   assert.equal(queryCount, 2)
+})
+
+test('production Owner Admin session supersedes static Sponsor Admin token for Sponsor intents', async () => {
+  const { api } = setup({
+    authenticateOwnerAdminSession: async req => String(req.headers.cookie || '').includes('owner-admin-session') ? { address: OWNER } : null,
+  })
+  const token = await authenticated(api)
+  const intent = { operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'owner-admin-session-intent-0001' }
+  const tokenOnly = await call(api, 'POST', '/api/sponsor/intent', intent, token, TEST_ADMIN_TOKEN)
+  assert.equal(tokenOnly.status, 403)
+  assert.equal(tokenOnly.payload.error, 'sponsor-admin-authorization-required')
+
+  const ownerAuthorized = await call(api, 'POST', '/api/sponsor/intent', intent, token, '', { headers: { cookie: 'tron_owner_session=owner-admin-session' } })
+  assert.equal(ownerAuthorized.status, 201)
+  assert.equal(ownerAuthorized.payload.success, true)
 })
