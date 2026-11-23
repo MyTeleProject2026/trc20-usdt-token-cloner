@@ -144,13 +144,15 @@ export async function requestTronLinkConnection(
   while (Date.now() <= deadline) {
     const candidate = provider.tronWeb || provider.tronLink?.tronWeb
       || provider.wallet?.tronWeb || windowObject?.tronWeb
-    const address = String(candidate?.defaultAddress?.base58 || accounts[0] || '')
+    const address = String(candidate?.defaultAddress?.base58 || '')
+    const authorizedAddress = String(accounts[0] || '')
     const ready = candidate && candidate.ready !== false && candidate.trx
       && typeof candidate.trx.sign === 'function' && typeof candidate.isAddress === 'function'
-    if (ready && address && candidate.isAddress(address)) {
+    if (ready && address && candidate.isAddress(address)
+      && (!authorizedAddress || authorizedAddress === address)) {
       return { address, tronWeb: candidate, provider, accounts }
     }
     await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
   }
-  throw new Error('The TRON wallet authorized access but did not expose a ready account signer. Reopen its DApp browser, unlock it, select an account, and reconnect.')
+  throw new Error('The TRON wallet did not expose the same active address through account authorization and TronWeb. Reopen its DApp browser, unlock it, select the configured Owner account, and reconnect.')
 }
