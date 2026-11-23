@@ -448,7 +448,7 @@ export function createOwnerOperationApi({
           return reply(res, 423, { success: false, error: 'OWNER_OPERATION_EXECUTION_GATES_DISABLED', executionEnabled: false, retryAllowed: false }, origin)
         }
         const input = await readBody(req)
-        const operation = await ledger.get(operationId, session.sessionId)
+        const operation = await ledger.get(operationId, String(env.TRON_OWNER_ADDRESS || ''))
         if (!operation) return reply(res, 404, { success: false, error: 'OWNER_OPERATION_NOT_FOUND' }, origin)
         if (operation.state !== 'awaiting-confirmation') {
           return reply(res, 409, { success: false, error: 'OWNER_OPERATION_NOT_AWAITING_CONFIRMATION', state: operation.state, retryAllowed: false }, origin)
@@ -501,7 +501,7 @@ export function createOwnerOperationApi({
             || !/^[1-9][0-9]{0,11}$/.test(normalized.feeLimitSun)) fail('OWNER_OPERATION_STORED_INTENT_INVALID', 409)
           const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
           if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
-          const tronWeb = tronWebFactory({ fullHost: MAINNET })
+          const tronWeb = tronWebFactory({ fullHost: MAINNET, headers: rpcHeaders(env) })
           await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
           const unsigned = await prepareTransaction(tronWeb, claimed.contract_address, ownerAddress, normalized)
           const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env })
