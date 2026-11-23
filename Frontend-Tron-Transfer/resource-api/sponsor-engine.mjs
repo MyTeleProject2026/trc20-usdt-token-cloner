@@ -1,4 +1,5 @@
 import { TronWeb } from 'tronweb'
+import { createHash } from 'node:crypto'
 
 const MAINNET = 'https://api.trongrid.io'
 const OWNER_FALLBACK = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -325,8 +326,24 @@ export function createSponsorTransactionEngine({
       }
       assertTransaction(preparedTransaction, { tronWeb: tronWebFactory(null), operation, resource, amountSun, sponsorAddress, ownerAddress: recipient })
       const tronWeb = tronWebFactory(null)
-      const txidHash = sha256Hex(Buffer.from(preparedTransaction.raw_data_hex, 'hex'))
+      const txidHash = createHash('sha256').update(Buffer.from(preparedTransaction.raw_data_hex, 'hex')).digest('hex')
       if (txidHash.toLowerCase() !== String(preparedTransaction.txID).toLowerCase()) throw new Error('signed-transaction-integrity-failed')
+      const balance = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
+      const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
+      const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
+      const maxFee = maxFeeRaw === '0' ? 0n : positiveSun(String(maxFeeRaw))
+      if (reserve === null || maxFee === null) throw new Error('invalid-sponsor-fee-policy')
+      const resources = await tronWeb.trx.getAccountResources(sponsorAddress)
+      const freeBandwidth = Math.max(0, Number(resources.freeNetLimit || 0) - Number(resources.freeNetUsed || 0))
+      const stakedBandwidth = Math.max(0, Number(resources.NetLimit || 0) - Number(resources.NetUsed || 0))
+      const bytes = Buffer.from(preparedTransaction.raw_data_hex, 'hex').length + 100
+      const parameters = await tronWeb.trx.getChainParameters()
+      const bandwidthFee = Number((parameters || []).find(item => item.key === 'getTransactionFee')?.value || 0)
+      if (!Number.isSafeInteger(bytes) || bytes <= 0 || !Number.isSafeInteger(bandwidthFee) || bandwidthFee <= 0) throw new Error('mainnet-bandwidth-preflight-unavailable')
+      const bandwidthFeeSun = BigInt(Math.max(0, bytes - Math.max(freeBandwidth, stakedBandwidth))) * BigInt(bandwidthFee)
+      if (bandwidthFeeSun > maxFee) throw new Error('bandwidth-shortfall-exceeds-authorized-fee-cap')
+      const principal = ['stake', 'topup'].includes(operation) ? BigInt(String(amountSun)) : 0n
+      if (balance < principal + reserve + bandwidthFeeSun) throw new Error('insufficient-balance-for-authorized-fee-cap')
       const signWeight = await tronWeb.trx.getSignWeight({ ...signedTransaction, visible: true })
       const approved = Array.isArray(signWeight?.approved_list) ? signWeight.approved_list : []
       const threshold = Number(signWeight?.permission?.threshold || 0)
@@ -349,11 +366,6 @@ export function createSponsorTransactionEngine({
     } catch (error) {
       return { success: false, status: safeCode(error), txid: preparedTransaction?.txID || null, signed: false, broadcast: false, solidified: false }
     }
-  }
-
-  function sha256Hex(bytes) {
-    const { createHash } = require('node:crypto')
-    return createHash('sha256').update(bytes).digest('hex')
   }
 
   async function execute({ operation, resource, amountSun, ownerAddress: recipient, onSigned } = {}) {
