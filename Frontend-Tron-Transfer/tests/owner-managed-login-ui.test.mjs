@@ -35,3 +35,13 @@ test('TRӾ panel uses the managed Owner session and guarded backend operation wo
   assert.ok(panel.includes('solidified Mainnet block'))
   assert.doesNotMatch(panel, /sendAndVerifyContractCall|deployContractWithOwnerSigner|tronWeb\.trx\.sign|sendRawTransaction/)
 })
+
+test('Owner account security exposes one-time role-scoped password recovery without displaying session tokens', async () => {
+  const ui = await readFile(new URL('OwnerAccountSecurity.jsx', root), 'utf8')
+  assert.ok(ui.includes('auth.recoverPassword(recoveryToken.trim(), recoveryPassword)'))
+  assert.ok(ui.includes('One-time Owner recovery token'))
+  assert.ok(ui.includes('Confirm new Owner password'))
+  assert.ok(ui.includes('Recover Owner password'))
+  assert.ok(ui.includes('all previous Owner sessions were revoked'))
+  assert.doesNotMatch(ui, /sessionToken|privateKey|mnemonic/i)
+})
