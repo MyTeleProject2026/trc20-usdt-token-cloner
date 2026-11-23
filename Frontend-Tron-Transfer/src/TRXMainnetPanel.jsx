@@ -68,6 +68,9 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [lastTx, setLastTx] = useState('')
   const [step, setStep] = useState('')
   const [deploymentReadiness, setDeploymentReadiness] = useState(null)
+  const [deploymentOperation, setDeploymentOperation] = useState(null)
+  const [deploymentConfirmationPhrase, setDeploymentConfirmationPhrase] = useState('')
+  const [deploymentExecutionEnabled, setDeploymentExecutionEnabled] = useState(false)
   const [promoClaimStatus, setPromoClaimStatus] = useState(null)
   const [recentOperations, setRecentOperations] = useState([])
   const prepareInFlightRef = useRef(null)
@@ -95,7 +98,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     } catch { return 0 }
   }, [feeCap])
 
-  const deploymentReady = Boolean(deploymentReadiness
+  const deploymentReady = Boolean(deploymentReadiness?.readyForPreparation
     && deploymentReadiness.owner === connectedAddress
     && deploymentReadiness.feeCapSun === feeCapSun
     && deploymentReadiness.tokenAddress === tokenAddress
@@ -151,23 +154,59 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return next
   })
 
-  const checkDeploymentReadiness = () => run('Backend TRӾ deployment route is not yet available', async () => {
-    throw new Error('Artifact-pinned backend deployment is not yet implemented. Deployment remains locked; no local wallet signing fallback is available.')
+  const checkDeploymentReadiness = () => run('Checking artifact-pinned TRӾ deployment readiness', async () => {
+    if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured Owner session before checking deployment readiness.')
+    const result = await wallet.authClient.apiRequest('/api/owner/deployment/readiness')
+    setDeploymentExecutionEnabled(Boolean(result.executionEnabled))
+    setDeploymentReadiness({ ...result, owner: connectedAddress, feeCapSun, tokenAddress, expiresAt: Date.now() + 60_000 })
+    setNotice(result.readyForPreparation ? 'Artifact pins and durable deployment ledger are ready. Preparation creates only an unsigned Mainnet transaction; execution remains ' + (result.executionEnabled ? 'enabled by configured gates.' : 'locked by production execution gates.') : 'Deployment preparation is blocked: ' + String(result.blocker || 'artifact, database, backup or restore gates are incomplete') + '. No transaction was signed or broadcast.')
+    return result
   })
 
   const claimTenergyPromo = () => run('Checking TEnergy owner eligibility', async () => {
     throw new Error('TEnergy message signing is not available in the backend-managed Owner session. No browser key or TronLink signing fallback is permitted.')
   })
 
-  const deployToken = () => run('TRӾ deployment is locked pending artifact-pinned backend deployment support', async () => {
-    throw new Error('Backend-managed TRӾ deployment is not enabled yet. The existing deployed-contract Owner operations are being migrated first; no local wallet signing is allowed.')
+  const deployToken = () => run('Preparing exact artifact-pinned TRӾ deployment transaction', async () => {
+    if (!walletReady || !deploymentReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Run a successful, unexpired backend deployment readiness check first.')
+    const result = await wallet.authClient.apiRequest('/api/owner/deployment/prepare', { method: 'POST', csrf: true, body: { confirmationPhrase: 'PREPARE TRӾ MAINNET DEPLOYMENT', idempotencyKey: makeIdempotencyKey(), feeLimitSun: String(feeCapSun) } })
+    const deployment = result.deployment || {}
+    setDeploymentOperation({ operationId: result.operationId || deployment.operation_id, intentSha256: result.intentSha256 || deployment.intent_sha256, state: deployment.state || 'prepared', transactionId: deployment.transaction_id || deployment.transactionId, contractAddress: deployment.contract_address || deployment.contractAddress || '', confirmationPhrase: result.confirmationPhrase || 'CONFIRM TRӾ MAINNET DEPLOYMENT', executionEnabled: deploymentExecutionEnabled })
+    setDeploymentConfirmationPhrase('')
+    setNotice('The exact unsigned CreateSmartContract transaction and artifact fingerprints are persisted. No browser key or signature was used. Review the execution gate before confirmation.')
+    return result
+  })
+
+  const confirmDeployment = () => run('Backend signing and broadcasting the approved TRӾ deployment', async () => {
+    if (!deploymentOperation?.operationId || !deploymentOperation.intentSha256) throw new Error('Prepare the exact deployment intent before confirmation.')
+    if (!deploymentExecutionEnabled) throw new Error('Deployment execution remains locked until independent database backup/restore and production acceptance gates are verified.')
+    if (deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase) throw new Error('Type the exact deployment confirmation phrase shown below.')
+    let result
+    try { result = await wallet.authClient.apiRequest('/api/owner/deployment/confirm', { method: 'POST', csrf: true, body: { operationId: deploymentOperation.operationId, intentSha256: deploymentOperation.intentSha256, confirmationPhrase: deploymentOperation.confirmationPhrase } }) }
+    catch (requestError) { const recovered = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId).catch(() => null); if (recovered?.deployment) setDeploymentOperation(current => ({ ...current, ...recovered.deployment, executionEnabled: deploymentExecutionEnabled })); throw requestError }
+    setDeploymentOperation(current => ({ ...current, ...(result.deployment || {}), executionEnabled: deploymentExecutionEnabled }))
+    setDeploymentConfirmationPhrase('')
+    setNotice(result.message || 'Deployment transaction was processed by the backend. Reconcile the original transaction ID until the solidified receipt and runtime verification complete.')
+    return result
+  })
+
+  const refreshDeploymentStatus = () => run('Reconciling TRӾ deployment against solidified Mainnet', async () => {
+    if (!deploymentOperation?.operationId) throw new Error('Prepare or recover a deployment operation first.')
+    const result = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId)
+    const deployment = result.deployment || {}
+    setDeploymentOperation(current => ({ ...current, ...deployment, executionEnabled: deploymentExecutionEnabled }))
+    const deployedAddress = deployment.contractAddress || deployment.contract_address
+    const transactionId = deployment.transactionId || deployment.transaction_id
+    if (deployment.state === 'confirmed' && deployedAddress) { setTokenAddress(deployedAddress); setLastTx(transactionId || ''); setSnapshot(null); setNotice('TRӾ deployment is solidified. The backend verified the exact transaction, runtime bytecode, Owner and token metadata.') }
+    else setNotice('Deployment state: ' + String(deployment.state || 'pending') + '. Automatic re-signing and rebroadcast are disabled.')
+    return deployment
   })
 
   const clearSavedTokenAddress = () => {
     setTokenAddress('')
     setSnapshot(null)
     setLookupBalance('')
-    setNotice('The saved contract address was cleared from this browser only. No blockchain contract or tokens were changed. Backend-managed deployment remains locked until its artifact-pinned flow is implemented.')
+    setNotice('The saved contract address was cleared from this browser only. No blockchain contract or tokens were changed.')
     setError('')
   }
 
@@ -417,10 +456,11 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <label>Maximum transaction fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
       <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Energy and Bandwidth are used first; any shortfall can still burn TRX. Zero-TRX-burn protection remains active, and the application will block signing when its resource preflight detects a shortfall.</p>
       {show('deploy') && <div className="trax-deploy-actions">
-        <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. Deployment remains locked until the backend deployment route pins and verifies the exact compiled artifact. No browser signing fallback is available.</span><span>4. Wait for a solidified receipt and verify bytecode, owner and metadata.</span></div>
+        <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. The backend pins source, creation bytecode, runtime bytecode and manifest; preparation is unsigned and execution remains gated.</span><span>4. Backend signing persists broadcast intent before sending and verifies the solidified receipt, runtime, Owner and metadata.</span></div>
         {promoClaimStatus && <div className="trax-state-banner"><b>Free Energy promotion: {promoClaimStatus.status}</b><span>{promoClaimStatus.energyVerified ? "Provider delegation was independently observed; fresh deployment preflight will verify exact required coverage." : (promoClaimStatus.message || "No grant has been verified. Deployment remains subject to live Mainnet resource checks.")}</span></div>}
-        {deploymentReady && <div className="trax-state-banner success"><b>Readiness passed · expires in 60 seconds</b><span>Energy required with safety margin: {deploymentReadiness.energyWithSafetyMargin} · estimated transaction Bandwidth: {deploymentReadiness.bandwidthBytes} bytes · estimated TRX fallback: 0.</span></div>}
+        {deploymentReadiness && <div className={'trax-state-banner' + (deploymentReady ? ' success' : '')}><b>{deploymentReady ? 'Artifact and ledger readiness passed · expires in 60 seconds' : 'Deployment readiness blocked'}</b><span>{deploymentReadiness.blocker || ('Execution: ' + (deploymentReadiness.executionEnabled ? 'enabled by server gates' : 'locked') + ' · Backup: ' + (deploymentReadiness.gates?.backupVerified ? 'verified' : 'not verified') + ' · Restore test: ' + (deploymentReadiness.gates?.restoreTested ? 'verified' : 'not verified'))}</span></div>}
         <div className="button-row"><button type="button" className="secondary-button" disabled={true} onClick={claimTenergyPromo}><ShieldCheck size={15}/> Check &amp; claim TEnergy Energy</button><button type="button" className="secondary-button" disabled={true} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={true} onClick={deployToken}><Rocket size={15}/> Preflight & deploy TRӾ</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+        {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span><label>Type confirmation phrase<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><div className="button-row"><button type="button" className="primary-button" disabled={!deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Confirm backend deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshDeploymentStatus}><RefreshCw size={15}/> Reconcile status</button></div>{!deploymentExecutionEnabled && <p className="fine-print">Signing and broadcast remain locked until database durability, backup/restore and independent production acceptance gates pass. No wallet signature is requested by this page.</p>}</div>}
       </div>}
       {show('portfolio') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
       {!show('portfolio', 'deploy') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
