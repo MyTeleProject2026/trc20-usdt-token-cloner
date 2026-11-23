@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import { TronWeb } from 'tronweb'
 import pg from 'pg'
 import { createOwnerOperationLedger } from './owner-operation-ledger.mjs'
-import { createOwnerManagedSigner } from './owner-managed-signer.mjs'
 import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget, assertZeroTrxBurnBudget, assertTransactionIntegrity, verifyTransactionSigner, assertTransactionPermission } from '../src/tron-mainnet-preflight.mjs'
 import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
@@ -269,7 +268,6 @@ export function createOwnerOperationApi({
   fetchImpl = fetch, tronWebFactory = options => new TronWeb(options),
   prepareTransaction = buildUnsigned, preflightTransaction = preflight,
   verifyContractState = verifyContract,
-  signerFactory = options => createOwnerManagedSigner(options),
   verifyUnsignedTransaction = (tronWeb, unsigned) => assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ Owner operation'),
   verifySignedTransaction = async (tronWeb, signed, ownerAddress) => {
     assertTransactionIntegrity(tronWeb, signed, 'Signed TRӾ Owner operation')
@@ -398,8 +396,7 @@ export function createOwnerOperationApi({
         }
         if (String(input.contractAddress || '') !== contractAddress) fail('OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', 409)
         const normalized = normalizeIntent(input, ownerAddress)
-        const signer = signerFactory({ env })
-        if (signer.address !== ownerAddress || signer.network !== 'TRON Mainnet') fail('OWNER_MANAGED_SIGNER_IDENTITY_MISMATCH', 403)
+        if (session.address !== ownerAddress) fail('OWNER_SESSION_IDENTITY_MISMATCH', 403)
         const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
         if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
         const intent = { ownerAddress, contractAddress, method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun }
@@ -408,9 +405,11 @@ export function createOwnerOperationApi({
           operationType: normalized.operationType, contractAddress, intent,
         })
         if (record.replay) {
+          const existing = await ledger.get(record.operation_id, ownerAddress)
           return reply(res, 200, {
             success: true, replay: true, operationId: record.operation_id, state: record.state,
             intentSha256: String(record.intent_sha256 || '').trim(),
+            unsignedTransaction: existing?.state === 'awaiting-confirmation' ? existing.receipt?.unsignedTransaction || null : null,
             transactionId: record.transaction_id || null, retryAllowed: false,
             executionEnabled: executionGateEnabled(env),
             note: 'This idempotency key already identifies the same durable Owner intent. It was not rebuilt or resubmitted.',
@@ -441,7 +440,8 @@ export function createOwnerOperationApi({
           ownerAddress, contractAddress, preflight: result, confirmationPhrase: CONFIRMATION_PHRASE,
           intentSha256: String(record.intent_sha256 || '').trim(),
           transactionExpiresAt: transaction.raw_data?.expiration || null,
-          signerConfigured: true, executionEnabled: executionGateEnabled(env),
+          unsignedTransaction: transaction,
+          walletSignatureRequired: true, executionEnabled: executionGateEnabled(env),
           note: executionGateEnabled(env)
             ? 'Review the exact intent and submit a separate confirmation to sign and broadcast.'
             : 'Prepared for review only. Signing and broadcasting remain disabled until the execution and verified-ledger gates are enabled.',
@@ -501,8 +501,7 @@ export function createOwnerOperationApi({
         }
         try {
           const ownerAddress = String(env.TRON_OWNER_ADDRESS || '')
-          const signer = signerFactory({ env })
-          if (signer.address !== ownerAddress || signer.network !== 'TRON Mainnet') fail('OWNER_MANAGED_SIGNER_IDENTITY_MISMATCH', 403)
+          if (!ADDRESS.test(ownerAddress) || ownerAddress !== session.address) fail('OWNER_SESSION_IDENTITY_MISMATCH', 403)
           const normalized = {
             operationType: claimed.operation_type,
             method: String(claimed.intent?.method || ''),
@@ -516,14 +515,22 @@ export function createOwnerOperationApi({
           if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
           const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
-          const unsigned = await prepareTransaction(tronWeb, claimed.contract_address, ownerAddress, normalized)
+          const unsigned = operation.receipt?.unsignedTransaction || claimed.receipt?.unsignedTransaction
+          if (!unsigned || typeof unsigned !== 'object') fail('OWNER_OPERATION_UNSIGNED_TRANSACTION_NOT_PERSISTED', 409)
           const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env })
           const expiration = Number(unsigned?.raw_data?.expiration)
           if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
           }
           verifyUnsignedTransaction(tronWeb, unsigned)
-          const signed = await signer.signContractTransaction(unsigned)
+          const signed = input.signedTransaction
+          if (!signed || typeof signed !== 'object' || Array.isArray(signed)
+            || !Array.isArray(signed.signature) || signed.signature.length !== 1
+            || !/^[0-9a-f]{130}$/i.test(String(signed.signature[0] || ''))
+            || String(signed.txID || '').toLowerCase() !== String(unsigned.txID || '').toLowerCase()
+            || String(signed.raw_data_hex || '').toLowerCase() !== String(unsigned.raw_data_hex || '').toLowerCase()) {
+            fail('OWNER_TRONLINK_SIGNED_TRANSACTION_MISMATCH', 409)
+          }
           await verifySignedTransaction(tronWeb, signed, ownerAddress)
           transactionId = String(signed?.txID || '').toLowerCase()
           if (!TXID.test(transactionId) || transactionId !== String(unsigned.txID).toLowerCase()) {
@@ -628,6 +635,7 @@ export function createOwnerOperationApi({
             method: current.intent?.method || null, args: current.intent?.args || null,
             feeLimitSun: current.intent?.feeLimitSun || null,
             confirmationPhrase: current.state === 'awaiting-confirmation' ? CONFIRMATION_PHRASE : null,
+            unsignedTransaction: current.state === 'awaiting-confirmation' && !current.transaction_id ? current.receipt?.unsignedTransaction || null : null,
             createdAt: current.created_at, updatedAt: current.updated_at,
           },
           reconciliation: reconciliation
