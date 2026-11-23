@@ -125,6 +125,7 @@ function makeExecutionFixture(overrides = {}) {
     state: 'awaiting-confirmation', transaction_id: null, receipt: {},
   }
   const transitions = []
+  const reconciledTransactions = []
   const counts = { sign: 0, broadcast: 0, preflight: 0, verify: 0, signatureCheck: 0 }
   const ledger = {
     async get() { return { ...operation, state: transitions.at(-1)?.state || operation.state } },
@@ -154,17 +155,17 @@ function makeExecutionFixture(overrides = {}) {
     verifyContractState: async () => { counts.verify++ },
     verifyUnsignedTransaction: async () => {},
     verifySignedTransaction: async () => { counts.signatureCheck++; if (overrides.signatureFailure) throw Object.assign(new Error('signature rejected'), { code: 'OWNER_SIGNED_TRANSACTION_PERMISSION_INVALID', status: 403 }) },
-    prepareTransaction: async () => ({ txID: 'b'.repeat(64), raw_data: { expiration: Date.now() + 60_000 } }),
+    prepareTransaction: async () => ({ txID: 'b'.repeat(64), raw_data_hex: 'ab'.repeat(32), raw_data: { expiration: Date.now() + 60_000 } }),
     preflightTransaction: async () => { counts.preflight++; if (overrides.preflightFailure) throw Object.assign(new Error('blocked'), { code: 'OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', status: 423 }); return { estimatedTrxFallbackSun: '0' } },
     signerFactory: () => ({
       address: owner, network: 'TRON Mainnet',
       async signContractTransaction(unsigned) { counts.sign++; return { ...unsigned, signature: ['a'.repeat(130)] } },
     }),
     broadcastTransaction: async (_tronWeb, signed) => { counts.broadcast++; return { result: true, txid: signed.txID } },
-    reconcileTransaction: async () => ({ solidified: true, success: true, status: 'SUCCESS', blockNumber: 123 }),
+    reconcileTransaction: async (_txId, _owner, _contract, options) => { reconciledTransactions.push(options.expectedTransaction); return { solidified: true, success: true, status: 'SUCCESS', blockNumber: 123 } },
   })
   const replies = []
-  return { api, operation, intentSha256, transitions, counts, replies }
+  return { api, operation, intentSha256, transitions, counts, replies, reconciledTransactions }
 }
 
 test('Owner confirmation signs once, durably journals before broadcast and verifies solidified receipt', async () => {
@@ -180,6 +181,8 @@ test('Owner confirmation signs once, durably journals before broadcast and verif
   assert.equal(fixture.counts.sign, 1)
   assert.equal(fixture.counts.broadcast, 1)
   assert.equal(fixture.counts.signatureCheck, 1)
+  assert.equal(fixture.reconciledTransactions[0]?.txID, 'b'.repeat(64))
+  assert.equal(fixture.reconciledTransactions[0]?.raw_data_hex, 'ab'.repeat(32))
   assert.deepEqual(fixture.transitions.map(item => item.state), ['signed', 'broadcast-unknown', 'broadcast', 'confirmed'])
 })
 
