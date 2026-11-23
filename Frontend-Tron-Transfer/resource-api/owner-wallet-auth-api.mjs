@@ -176,6 +176,112 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           res.setHeader('set-cookie', 'tron_owner_csrf=' + encodeURIComponent(csrfToken) + '; Path=/; Secure; SameSite=None; Max-Age=28800')
           send(res, 200, { success: true, role: 'owner', address: session.address, csrfToken }, origin); return true
         }
+        if (url.pathname === '/api/wallet-auth/owner/sessions' && req.method === 'GET') {
+          const session = await authenticate(req, db)
+          if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
+          const result = await db.query(`
+            SELECT session_id,created_at,last_seen_at,expires_at,
+              (session_id=$1) AS current
+            FROM public.tron_transfer_wallet_sessions
+            WHERE wallet_role='owner' AND revoked_at IS NULL AND expires_at>now()
+            ORDER BY last_seen_at DESC LIMIT 50
+          `, [session.sessionId])
+          send(res, 200, { success: true, sessions: result.rows || [] }, origin); return true
+        }
+        const revokeSessionMatch = url.pathname.match(/^\\/api\\/wallet-auth\\/owner\\/sessions\\/([0-9]+)\\/revoke$/)
+        if (revokeSessionMatch && req.method === 'POST') {
+          const session = await authenticate(req, db, true)
+          if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
+          const targetId = Number(revokeSessionMatch[1])
+          if (!Number.isSafeInteger(targetId) || targetId <= 0 || targetId === Number(session.sessionId)) {
+            send(res, 400, { success: false, error: 'CANNOT_REVOKE_CURRENT_SESSION' }, origin); return true
+          }
+          const revoked = await db.query(`
+            UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()
+            WHERE session_id=$1 AND wallet_role='owner' AND revoked_at IS NULL
+            RETURNING session_id
+          `, [targetId])
+          if (revoked.rowCount) await audit(db, 'session_revoked', 'success', { scope: 'single-session' })
+          send(res, 200, { success: true, revoked: Boolean(revoked.rowCount) }, origin); return true
+        }
+        if (url.pathname === '/api/wallet-auth/owner/sessions/revoke-others' && req.method === 'POST') {
+          const session = await authenticate(req, db, true)
+          if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
+          const revoked = await db.query(`
+            UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()
+            WHERE wallet_role='owner' AND session_id<>$1 AND revoked_at IS NULL
+            RETURNING session_id
+          `, [session.sessionId])
+          for (const _row of (revoked.rows || [])) await audit(db, 'session_revoked', 'success', { scope: 'other-session' })
+          send(res, 200, { success: true, revokedCount: revoked.rowCount || 0 }, origin); return true
+        }
+        if (url.pathname === '/api/wallet-auth/owner/password/change' && req.method === 'POST') {
+          const session = await authenticate(req, db, true)
+          if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
+          const input = await body(req)
+          if (!validateWalletPassword(input.newPassword)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 12 }, origin); return true }
+          const accountResult = await db.query("SELECT * FROM public.tron_transfer_wallet_accounts WHERE wallet_role='owner' AND enabled=true")
+          const account = accountResult.rows?.[0]
+          const currentValid = account && await verifyWalletPassword(input.currentPassword, {
+            passwordHash: account.password_hash, passwordSalt: account.password_salt,
+            passwordAlgorithm: account.password_algorithm, passwordParams: account.password_params,
+          })
+          if (!currentValid) { send(res, 401, { success: false, error: 'CURRENT_PASSWORD_INVALID' }, origin); return true }
+          const verifier = await hashWalletPassword(input.newPassword)
+          const client = await db.connect()
+          try {
+            await client.query('BEGIN')
+            await client.query(`
+              UPDATE public.tron_transfer_wallet_accounts
+              SET password_hash=$1,password_salt=$2,password_algorithm='scrypt',
+                  password_params=$3::jsonb,password_changed_at=now(),
+                  failed_attempts=0,locked_until=NULL,updated_at=now()
+              WHERE wallet_role='owner'
+            `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
+            await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='owner' AND revoked_at IS NULL")
+            await client.query('COMMIT')
+          } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+          await audit(db, 'password_changed', 'success', { source: 'authenticated-change' })
+          const nextSession = await issueSession(db, res)
+          send(res, 200, { success: true, passwordChanged: true, session: nextSession }, origin); return true
+        }
+        if (url.pathname === '/api/wallet-auth/owner/recover' && req.method === 'POST') {
+          if (!allowedOrigins.includes(String(req.headers.origin || ''))) { send(res, 403, { success: false, error: 'ORIGIN_NOT_ALLOWED' }, origin); return true }
+          const input = await body(req)
+          const recoveryToken = String(input.recoveryToken || '')
+          if (recoveryToken.length < 32 || recoveryToken.length > 256
+            || !validateWalletPassword(input.newPassword)) {
+            send(res, 400, { success: false, error: 'RECOVERY_INPUT_INVALID', minimumPasswordLength: 12 }, origin); return true
+          }
+          const verifier = await hashWalletPassword(input.newPassword)
+          const tokenHash = digest(recoveryToken)
+          const client = await db.connect()
+          try {
+            await client.query('BEGIN')
+            const tokenResult = await client.query(`
+              SELECT recovery_token_id FROM public.tron_transfer_wallet_recovery_tokens
+              WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>now()
+              FOR UPDATE
+            `, [tokenHash])
+            if (!tokenResult.rows?.[0]) {
+              await client.query('ROLLBACK')
+              send(res, 401, { success: false, error: 'RECOVERY_TOKEN_INVALID_OR_EXPIRED' }, origin); return true
+            }
+            await client.query('UPDATE public.tron_transfer_wallet_recovery_tokens SET consumed_at=now() WHERE recovery_token_id=$1', [tokenResult.rows[0].recovery_token_id])
+            await client.query(`
+              UPDATE public.tron_transfer_wallet_accounts
+              SET password_hash=$1,password_salt=$2,password_algorithm='scrypt',
+                  password_params=$3::jsonb,password_changed_at=now(),
+                  failed_attempts=0,locked_until=NULL,updated_at=now()
+              WHERE wallet_role='owner' AND enabled=true
+            `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
+            await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='owner' AND revoked_at IS NULL")
+            await client.query('COMMIT')
+          } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+          clearSessionCookies(res)
+          await audit(db, 'password_changed', 'success', { source: 'one-time-recovery-token' })
+          send(res, 200, { success: true, passwordRecovered: true, sessionsRevoked: true }, origin); return true
+        }
         if (url.pathname === '/api/wallet-auth/owner/logout' && req.method === 'POST') {
           const session = await authenticate(req, db, true)
           if (session) {
