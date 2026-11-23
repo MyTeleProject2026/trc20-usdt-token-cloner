@@ -550,6 +550,44 @@ test('expired or reused intent cannot be executed twice', async () => {
   assert.deepEqual(calls, [])
 })
 
+
+test('Sponsor local transaction preparation refuses to run while the durable Mainnet write pause is active', async () => {
+  const queries = []
+  const database = {
+    async query(sql) {
+      queries.push(sql)
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      if (sql === 'BEGIN' || sql === 'ROLLBACK') return { rowCount: 0, rows: [] }
+      throw new Error('unexpected database query: ' + sql)
+    },
+    async connect() { return this },
+    release() {},
+  }
+  let prepareCalls = 0
+  const engine = {
+    readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, clientSigningAvailable: false, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
+    prepare: async () => { prepareCalls++; return { success: true, transaction: { txID: 'a'.repeat(64) } } },
+    submitSigned: async () => { assert.fail('submit must not run while paused') },
+    execute: async () => assert.fail('legacy engine must not run'),
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const { api } = setup({ database, engine })
+  const token = await authenticated(api)
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '127852400',
+    idempotencyKey: 'sponsor-paused-prepare-0123456789',
+  }, token)
+  assert.equal(intent.status, 201)
+  const result = await call(api, 'POST', '/api/sponsor/operations/prepare', {
+    intentId: intent.payload.intentId, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  }, token)
+  assert.equal(result.status, 423)
+  assert.equal(result.payload.error, 'sponsor-writes-paused-for-maintenance')
+  assert.equal(prepareCalls, 0)
+  assert.equal(queries.some(sql => sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')), false)
+})
+
 test('legacy one-step Sponsor execution endpoint is disabled in favor of local prepare and submit', async () => {
   const queries = []
   const database = {
