@@ -101,8 +101,113 @@ test('Owner operation preparation rejects arbitrary operations before building a
 
 test('Owner operation preparation API contains no signing or broadcast path', async () => {
   const source = await readFile(new URL('../owner-operation-api.mjs', import.meta.url), 'utf8')
-  assert.match(source, /executionEnabled: false/)
+  assert.match(source, /executionGateEnabled\(env\)/)
   assert.match(source, /OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED/)
   assert.match(source, /TRAX_RUNTIME_BYTECODE_SHA256/)
-  assert.doesNotMatch(source, /sendRawTransaction|signContractTransaction/)
+  assert.match(source, /signer\.signContractTransaction/)
+  assert.match(source, /broadcastTransaction/)
+  assert.match(source, /walletsolidity\/gettransactioninfobyid/)
+})
+
+import { createHash } from 'node:crypto'
+
+function canonical(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
+  if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
+  return JSON.stringify(value)
+}
+function makeExecutionFixture(overrides = {}) {
+  const intent = { method: 'setPaused', args: [true], feeLimitSun: '1000000' }
+  const intentSha256 = createHash('sha256').update('pause:' + canonical(intent)).digest('hex')
+  const operation = {
+    operation_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    session_id: 9, idempotency_key: 'owner-operation-test-00001',
+    operation_type: 'pause', contract_address: contract, intent, intent_sha256: intentSha256,
+    state: 'awaiting-confirmation', transaction_id: null, receipt: {},
+  }
+  const transitions = []
+  const counts = { sign: 0, broadcast: 0, preflight: 0, verify: 0 }
+  const ledger = {
+    async get() { return { ...operation, state: transitions.at(-1)?.state || operation.state } },
+    async claimConfirmation() { operation.state = 'confirming'; return { ...operation } },
+    async transition(input) {
+      transitions.push({ state: input.nextState, ...input })
+      operation.state = input.nextState
+      if (input.transactionId) operation.transaction_id = input.transactionId
+      return { state: input.nextState }
+    },
+  }
+  const api = createOwnerOperationApi({
+    env: {
+      TRON_OWNER_ADDRESS: owner, TRAX_CONTRACT_ADDRESS: contract,
+      OWNER_OPERATION_LEDGER_DURABLE: 'true',
+      OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true',
+      OWNER_OPERATION_LEDGER_RESTORE_TESTED: 'true',
+      OWNER_OPERATION_EXECUTION_ENABLED: 'true',
+      OWNER_OPERATION_MAINNET_ACK: 'CONFIRM_GUARDED_OWNER_EXECUTION',
+      ...overrides.env,
+    },
+    database: { async query() { return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } } },
+    send: (_res, status, payload) => replies.push({ status, payload }),
+    authenticateManagedSession: async () => ({ address: owner, sessionId: 9 }),
+    ledgerFactory: () => ledger,
+    tronWebFactory: () => ({ trx: {} }),
+    verifyContractState: async () => { counts.verify++ },
+    prepareTransaction: async () => ({ txID: 'b'.repeat(64), raw_data: { expiration: Date.now() + 60_000 } }),
+    preflightTransaction: async () => { counts.preflight++; if (overrides.preflightFailure) throw Object.assign(new Error('blocked'), { code: 'OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', status: 423 }); return { estimatedTrxFallbackSun: '0' } },
+    signerFactory: () => ({
+      address: owner, network: 'TRON Mainnet',
+      async signContractTransaction(unsigned) { counts.sign++; return { ...unsigned, signature: ['a'.repeat(130)] } },
+    }),
+    broadcastTransaction: async (_tronWeb, signed) => { counts.broadcast++; return { result: true, txid: signed.txID } },
+    reconcileTransaction: async () => ({ solidified: true, success: true, status: 'SUCCESS', blockNumber: 123 }),
+  })
+  const replies = []
+  return { api, operation, intentSha256, transitions, counts, replies }
+}
+
+test('Owner confirmation signs once, durably journals before broadcast and verifies solidified receipt', async () => {
+  const fixture = makeExecutionFixture()
+  const req = request('POST', {
+    confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
+    intentSha256: fixture.intentSha256,
+    contractAddress: contract,
+  })
+  await fixture.api.handle(req, response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
+  assert.equal(fixture.replies[0].status, 200)
+  assert.equal(fixture.replies[0].payload.state, 'confirmed')
+  assert.equal(fixture.counts.sign, 1)
+  assert.equal(fixture.counts.broadcast, 1)
+  assert.deepEqual(fixture.transitions.map(item => item.state), ['signed', 'broadcast-unknown', 'broadcast', 'confirmed'])
+})
+
+test('Owner confirmation rejects a mismatched phrase or intent hash before claiming or signing', async () => {
+  const fixture = makeExecutionFixture()
+  await fixture.api.handle(request('POST', {
+    confirmationPhrase: 'WRONG PHRASE', intentSha256: fixture.intentSha256, contractAddress: contract,
+  }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
+  assert.equal(fixture.replies[0].status, 400)
+  assert.equal(fixture.counts.sign, 0)
+  assert.equal(fixture.counts.broadcast, 0)
+  assert.equal(fixture.transitions.length, 0)
+})
+
+test('Owner confirmation fails closed on a fresh resource shortfall without signing or broadcast', async () => {
+  const fixture = makeExecutionFixture({ preflightFailure: true })
+  await fixture.api.handle(request('POST', {
+    confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
+    intentSha256: fixture.intentSha256, contractAddress: contract,
+  }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
+  assert.equal(fixture.replies[0].status, 423)
+  assert.equal(fixture.counts.sign, 0)
+  assert.equal(fixture.counts.broadcast, 0)
+  assert.equal(fixture.transitions.at(-1).state, 'failed')
+})
+
+test('Owner confirmation remains disabled without both explicit Mainnet execution gates', async () => {
+  const fixture = makeExecutionFixture({ env: { OWNER_OPERATION_MAINNET_ACK: '' } })
+  await fixture.api.handle(request('POST', {}), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
+  assert.equal(fixture.replies[0].status, 423)
+  assert.equal(fixture.counts.sign, 0)
+  assert.equal(fixture.counts.broadcast, 0)
 })
