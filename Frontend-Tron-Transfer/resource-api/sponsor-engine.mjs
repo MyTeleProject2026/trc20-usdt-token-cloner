@@ -78,7 +78,7 @@ export function createSponsorTransactionEngine({
   // A production HSM/KMS adapter implements { address, signTransaction(tx) }.
   // The adapter receives only the exact, prevalidated transaction; it never
   // receives Owner credentials or controls transaction construction/broadcast.
-  const signerMode = signerAdapter ? 'external-adapter' : 'local-env'
+  const signerMode = signerAdapter ? 'external-adapter' : 'client-local-required'
   const signerAddress = signerAdapter ? signerAdapter.address : null
   const signerAdapterValid = !signerAdapter || (
     typeof signerAddress === 'string' && ADDRESS.test(signerAddress)
@@ -86,18 +86,15 @@ export function createSponsorTransactionEngine({
   )
 
   function readiness() {
-    const privateKey = env.SPONSOR_MAINNET_PRIVATE_KEY
     const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
-    const keyShapeValid = signerAdapter
-      ? signerAdapterValid
-      : typeof privateKey === 'string' && /^[0-9a-f]{64}$/i.test(privateKey)
+    // Never load or derive a Sponsor key from the Resource API environment.
+    // Browser-local Sponsor signing is the required custody boundary.
+    const keyShapeValid = Boolean(signerAdapter && signerAdapterValid)
     const addressShapeValid = typeof sponsorAddress === 'string' && ADDRESS.test(sponsorAddress)
     let signerMatches = false
     if (keyShapeValid && addressShapeValid) {
       try {
-        const derivedAddress = signerAdapter
-          ? signerAdapter.address
-          : tronWebFactory(privateKey).address.fromPrivateKey(privateKey)
+        const derivedAddress = signerAdapter.address
         signerMatches = derivedAddress === sponsorAddress
       } catch {}
     }
@@ -236,9 +233,9 @@ export function createSponsorTransactionEngine({
     let broadcastAttempted = false
     let txid = null
     try {
-      const privateKey = signerAdapter ? null : env.SPONSOR_MAINNET_PRIVATE_KEY
-      const tronWeb = tronWebFactory(privateKey)
-      const sponsorAddress = signerAdapter ? signerAdapter.address : tronWeb.address.fromPrivateKey(privateKey)
+      if (!signerAdapter) return { success: false, status: 'client-local-signer-required', signed: false, broadcast: false }
+      const tronWeb = tronWebFactory(null)
+      const sponsorAddress = signerAdapter.address
       if (sponsorAddress !== env.SPONSOR_MAINNET_ADDRESS || sponsorAddress === recipient) throw new Error('sponsor-signer-address-mismatch')
       const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
       const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
@@ -308,9 +305,7 @@ export function createSponsorTransactionEngine({
       if (requiredFeeSun > maxFee) return { success: false, status: 'bandwidth-shortfall-exceeds-authorized-fee-cap', signed: false, broadcast: false }
       const requiredBalance = (operation === 'stake' || operation === 'topup' ? amount : 0n) + reserve + requiredFeeSun
       if (balance < requiredBalance) return { success: false, status: 'insufficient-balance-for-authorized-fee-cap', signed: false, broadcast: false }
-      const signedTransaction = signerAdapter
-        ? await signerAdapter.signTransaction(structuredClone(transaction))
-        : await tronWeb.trx.sign(transaction, privateKey)
+      const signedTransaction = await signerAdapter.signTransaction(structuredClone(transaction))
       // An external signer may add signatures, but must not mutate the
       // transaction body, txID, expiration, contract parameters or raw bytes.
       const signaturePresent = Array.isArray(signedTransaction?.signature) && signedTransaction.signature.length > 0
