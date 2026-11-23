@@ -247,9 +247,9 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
               WHERE wallet_role='sponsor'
             `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
             await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='sponsor' AND revoked_at IS NULL")
+            await audit(client, 'password_changed', 'success', { source: 'authenticated-change' })
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
-          await audit(db, 'password_changed', 'success', { source: 'authenticated-change' })
           const nextSession = await issueSession(db, res)
           send(res, 200, { success: true, passwordChanged: true, session: nextSession }, origin); return true
         }
@@ -286,9 +286,9 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
             `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
             if (!accountUpdate.rowCount) throw Object.assign(new Error('SPONSOR_ACCOUNT_NOT_AVAILABLE'), { status: 503 })
             await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='sponsor' AND revoked_at IS NULL")
+            await audit(client, 'password_changed', 'success', { source: 'one-time-recovery' })
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error } finally { client.release() }
-          await audit(db, 'password_changed', 'success', { source: 'one-time-recovery' })
           send(res, 200, { success: true, passwordRecovered: true, sessionsRevoked: true }, origin); return true
         }
         send(res, 405, { success: false, error: 'METHOD_NOT_ALLOWED' }, origin); return true
