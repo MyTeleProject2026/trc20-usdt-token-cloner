@@ -131,6 +131,33 @@ export function sponsorDatabaseConnectionString(env = process.env) {
   return info.configured ? env[info.sourceVariable] : null
 }
 
+export function sponsorDatabaseTargetIdentityInfo(env = process.env) {
+  // Sponsor runtime queries may use the Neon pooler; migrations and deployment
+  // ledgers use the direct endpoint. Fingerprint the approved logical target.
+  const direct = typeof env.OWNER_ADMIN_DATABASE_URL === 'string' ? env.OWNER_ADMIN_DATABASE_URL.trim() : ''
+  if (!direct) return sponsorDatabaseConnectionInfo(env)
+  try {
+    const parsed = new URL(direct)
+    if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname || !parsed.pathname || parsed.pathname === '/') throw new Error('invalid-url')
+    const identity = JSON.stringify({
+      hostname: parsed.hostname.toLowerCase(),
+      port: parsed.port || '5432',
+      database: decodeURIComponent(parsed.pathname.slice(1)),
+      username: decodeURIComponent(parsed.username),
+    })
+    const hostname = parsed.hostname.toLowerCase()
+    return {
+      configured: true,
+      sourceVariable: 'OWNER_ADMIN_DATABASE_URL',
+      provider: hostname.endsWith('.neon.tech') ? 'neon' : hostname.endsWith('.render.com') || hostname.includes('render') ? 'render-postgres' : 'external-postgres',
+      connectionMode: 'direct',
+      identityFingerprint: sha(identity),
+    }
+  } catch {
+    return { configured: true, sourceVariable: 'OWNER_ADMIN_DATABASE_URL', provider: 'unrecognized', connectionMode: 'direct', identityFingerprint: null }
+  }
+}
+
 function getPool(env) {
   const connectionString = sponsorDatabaseConnectionString(env)
   if (!connectionString) return null
@@ -338,8 +365,9 @@ export function createSponsorResourceApi({
           ? env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256.trim().toLowerCase()
           : ''
         const expectedDatabaseIdentityValid = /^[0-9a-f]{64}$/.test(expectedDatabaseIdentity)
+        const databaseTargetIdentity = sponsorDatabaseTargetIdentityInfo(env)
         const databaseIdentityMatches = expectedDatabaseIdentityValid
-          && databaseConnection.identityFingerprint === expectedDatabaseIdentity
+          && databaseTargetIdentity.identityFingerprint === expectedDatabaseIdentity
         const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
         const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
         const adminRequired = true
