@@ -41,7 +41,7 @@ function fakeDb() {
     throw new Error('unexpected-query')
   }}
 }
-const base={sessionId,ownerAddress:owner,idempotencyKey:'owner-operation-request-0001',operationType:'credit',contractAddress:contract,intent:{ownerAddress:owner,recipient:'T111111111111111111111111111111111',amount:'1000000'}}
+const base={sessionId,ownerAddress:owner,idempotencyKey:'owner-operation-request-0001',operationType:'credit',contractAddress:contract,intent:{ownerAddress:owner,contractAddress:contract,recipient:'T111111111111111111111111111111111',amount:'1000000'}}
 
 test('Owner ledger persists exact intent and idempotent replay',async()=>{
  const ledger=createOwnerOperationLedger({database:fakeDb()})
