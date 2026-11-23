@@ -83,8 +83,10 @@ export async function verifySponsorSignedTransaction({
   const computed = createHash('sha256').update(Buffer.from(unsignedTransaction.raw_data_hex, 'hex')).digest('hex')
   if (computed.toLowerCase() !== String(unsignedTransaction.txID).toLowerCase()) throw new Error('signed-transaction-protobuf-hash-mismatch')
   if (typeof tronWeb.trx?.getSignWeight !== 'function') throw new Error('sponsor-signature-verification-unavailable')
-  const signWeight = await tronWeb.trx.getSignWeight({ ...signedTransaction, visible: true })
-  const approved = Array.isArray(signWeight?.approved_list) ? signWeight.approved_list : []
+  const signWeight = await tronWeb.trx.getSignWeight({ ...signedTransaction, visible: false })
+  const approved = (Array.isArray(signWeight?.approved_list) ? signWeight.approved_list : []).map(address => {
+    try { return /^41[0-9a-f]{40}$/i.test(address) ? tronWeb.address.fromHex(address) : address } catch { return address }
+  })
   const threshold = Number(signWeight?.permission?.threshold || 0)
   const currentWeight = Number(signWeight?.current_weight || 0)
   if (signWeight?.result?.code || !approved.includes(sponsorAddress) || !Number.isSafeInteger(threshold)
