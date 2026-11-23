@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const migrationUrl = new URL('../migrations/20261122_backend_wallet_auth.sql', import.meta.url)
+const operationMigrationUrl = new URL('../migrations/20261123_owner_operation_ledger.sql', import.meta.url)
 
 test('Owner operation ledger migration has complete bounded validation constraints', async () => {
   const sql = await readFile(migrationUrl, 'utf8')
@@ -19,4 +20,15 @@ test('Owner operation ledger migration remains transactionally wrapped', async (
   assert.match(sql, /^BEGIN;/)
   assert.match(sql.trimEnd(), /COMMIT;$/)
   assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.tron_transfer_owner_operations/)
+})
+
+test('Owner operation lifecycle migration adds an atomic confirming state without enabling execution', async () => {
+  const sql = await readFile(operationMigrationUrl, 'utf8')
+  assert.match(sql, /^BEGIN;/)
+  assert.match(sql.trimEnd(), /COMMIT;$/)
+  assert.match(sql, /DROP CONSTRAINT IF EXISTS tron_transfer_owner_operations_state_check/)
+  assert.match(sql, /ADD CONSTRAINT tron_transfer_owner_operations_state_check CHECK/)
+  assert.match(sql, /'awaiting-confirmation', 'confirming',/)
+  assert.match(sql, /WHERE state IN \('confirming', 'signed', 'broadcast-unknown', 'broadcast'\)/)
+  assert.doesNotMatch(sql, /OWNER_OPERATION_EXECUTION_ENABLED|sendRawTransaction|TRON_OWNER_PRIVATE_KEY/)
 })
