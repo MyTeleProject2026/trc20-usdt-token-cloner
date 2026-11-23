@@ -45,7 +45,7 @@ test('Owner Admin re-authentication state is cleared on Sponsor wallet lock and 
 })
 
 test('Sponsor TronWeb instance is initialized before any effect dependency reads it', () => {
-  const declaration = source.indexOf("const tronWeb = useMemo(() => wallet ? createSponsorTronWeb() : null, [wallet])")
+  const declaration = source.indexOf("const tronWeb = useMemo(() => wallet?.privateKey ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])")
   const firstEffectRead = source.indexOf("if (!workspaceActive || !wallet?.address || !tronWeb)")
   assert.notEqual(declaration, -1, 'Sponsor TronWeb memo must exist')
   assert.notEqual(firstEffectRead, -1, 'resource history effect must exist')
