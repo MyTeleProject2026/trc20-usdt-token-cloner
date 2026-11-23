@@ -46,7 +46,7 @@ const METHODS = Object.freeze({
   unpause: { method: 'setPaused', args: () => [false] },
   'minting-enable': { method: 'setMintingEnabled', args: () => [true] },
   'minting-disable': { method: 'setMintingEnabled', args: () => [false] },
-  'ownership-transfer': { method: 'transferOwnership', args: input => [address(input.nextOwner)] },
+  'ownership-transfer': { method: 'transferOwnership', args: input => { const candidate = address(input.nextOwner); if (candidate === input.ownerAddress) fail('OWNER_OPERATION_NEXT_OWNER_MUST_DIFFER'); return [candidate] } },
 })
 
 function fail(code, status = 400) { throw Object.assign(new Error(code), { code, status }) }
@@ -377,7 +377,7 @@ export function createOwnerOperationApi({
         let transaction
         let result
         try {
-          const tronWeb = tronWebFactory({ fullHost: MAINNET })
+          const tronWeb = tronWebFactory({ fullHost: MAINNET, headers: rpcHeaders(env) })
           await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
           result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env })
