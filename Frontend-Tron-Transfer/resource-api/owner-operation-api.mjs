@@ -204,20 +204,29 @@ async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { 
     rpcPost('/wallet/getchainparameters', {}, { fetchImpl, env }),
   ])
   const resourceSnapshot = normalizeMainnetAccountResources(resourceResponse, chainParameters)
+  if (asAddress(tronWeb, account?.address) !== ownerAddress) fail('OWNER_MAINNET_ACCOUNT_ADDRESS_MISMATCH', 409)
   const permission = normalizeMainnetPermissionSnapshot(account, ownerAddress, tronWeb)
   if (!permission.connectedSignerCanAuthorizeAlone) fail('OWNER_SIGNER_CANNOT_SATISFY_OWNER_PERMISSION', 403)
   const estimate = await estimateMainnetContractCallEnergy(
     tronWeb, contractAddress, data, ownerAddress,
     (_client, path, body) => rpcPost(path, body, { fetchImpl, env }),
   )
-  const budget = calculateDeploymentResourceBudget({
-    energyRequired: estimate.energyUsed,
-    resourceSnapshot,
-    rawDataHex: transaction.raw_data_hex,
-    feeLimitSun: String(transaction.raw_data.fee_limit),
-    safetyMarginBps: 12500,
-    transactionLabel: 'TRӾ owner operation',
-  })
+  let budget
+  try {
+    budget = calculateDeploymentResourceBudget({
+      energyRequired: estimate.energyUsed,
+      resourceSnapshot,
+      rawDataHex: transaction.raw_data_hex,
+      feeLimitSun: String(transaction.raw_data.fee_limit),
+      safetyMarginBps: 12500,
+      transactionLabel: 'TRӾ owner operation',
+    })
+  } catch (error) {
+    const message = String(error?.message || '')
+    if (/ZERO-TRX-BURN PROTECTION BLOCKED/i.test(message)) fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423)
+    if (/fee cap|fee_limit|fee limit/i.test(message)) fail('OWNER_OPERATION_FEE_LIMIT_UNSAFE', 422)
+    throw error
+  }
   const txId = String(transaction.txID || '').toLowerCase()
   if (!TXID.test(txId)) fail('OWNER_UNSIGNED_TRANSACTION_ID_INVALID', 500)
   if (budget.requiredTrxSun !== '0') fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423)
