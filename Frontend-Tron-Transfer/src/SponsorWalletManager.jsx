@@ -233,6 +233,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       if (session.address !== OWNER_ADDRESS) throw new Error('Owner Admin session could not be verified.')
       setOwnerAdminReady(true)
       setOwnerAdminPassword('')
+      window.dispatchEvent(new Event('tron-transfer:owner-session-refreshed'))
       notify('success', 'Owner Admin authenticated', 'Independent Owner authorization is active for guarded Sponsor administration.')
     } catch (error) {
       setOwnerAdminReady(false)
