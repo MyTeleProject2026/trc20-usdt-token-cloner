@@ -114,11 +114,20 @@ async function requestAccounts(provider) {
       if (result && typeof result === 'object' && !Array.isArray(result) && result.code) {
         const code = Number(result.code)
         if (code === 4001 || code === 4000) throw authorizationError({ code })
+        if (Number.isFinite(code) && code !== 200 && code !== 0) {
+          throw authorizationError(new Error('The TRON wallet did not authorize the requested account.'))
+        }
       }
       const values = Array.isArray(result) ? result
         : typeof result === 'string' && result ? [result]
-          : Array.isArray(result?.accounts) ? result.accounts : []
-      const accounts = values.filter(value => typeof value === 'string' && value)
+          : Array.isArray(result?.accounts) ? result.accounts
+            : Array.isArray(result?.data) ? result.data
+              : typeof result?.data?.address === 'string' ? [result.data.address]
+                : typeof result?.data === 'string' ? [result.data] : []
+      const accounts = values.map(value => typeof value === 'string' ? value
+        : typeof value?.address === 'string' ? value.address
+          : typeof value?.base58 === 'string' ? value.base58 : '')
+        .filter(Boolean)
       if (accounts.length || hasTronSigner(provider)) return accounts
       throw new Error('The wallet did not return a TRON account address.')
     } catch (error) {
