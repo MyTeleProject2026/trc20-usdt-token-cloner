@@ -55,9 +55,16 @@ async function readDatabase(pool, role) {
         WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations'
       `)
       const found = new Set((columns.rows || []).map(row => row.column_name))
-      columnsComplete = REQUIRED_COLUMNS.every(column => found.has(column))
+      const payloadColumns = new Set(['prepared_transaction', 'signed_transaction'])
+      const requiredCoreColumns = REQUIRED_COLUMNS.filter(column => !payloadColumns.has(column))
+      const coreColumnsComplete = requiredCoreColumns.every(column => found.has(column))
+      const payloadColumnsComplete = [...payloadColumns].every(column => found.has(column))
       const count = await client.query(`SELECT count(*)::text AS count FROM ${TABLE}`)
       rowCount = String(count.rows?.[0]?.count ?? '-1')
+      // Older restored snapshots may predate the payload columns. They are
+      // safe as a source only when empty; non-empty legacy ledgers are blocked
+      // rather than silently dropping signed transaction history.
+      columnsComplete = coreColumnsComplete && (payloadColumnsComplete || (role === 'source' && rowCount === '0'))
       if (role === 'source') {
         const inFlight = await client.query(
           `SELECT count(*)::text AS count FROM ${TABLE} WHERE status IN ('reserved','signed-not-broadcast','broadcast-unknown')`
