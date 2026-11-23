@@ -306,17 +306,40 @@ export function createSponsorResourceApi({
   }
   const reply = (res, status, value, origin) => { send(res, status, value, origin); return true }
 
-  async function handle(req, res, url, origin) {
-    const path = url.pathname
-    const isRoute = path === '/api/sponsor/status'
-      || path === '/api/acceptance/production'
-      || path === '/api/sponsor/ledger/bootstrap'
-      || path === '/api/sponsor/session/challenge'
-      || path === '/api/sponsor/session/verify'
-      || path === '/api/sponsor/intent'
-      || path === '/api/sponsor/operations'
-      || /^\/api\/sponsor\/operations\/[A-Za-z0-9._:-]+$/.test(path)
-      || path === '/api/tron/sponsorship/resource-delegations'
+  let sponsorStatusCache = { at: 0, value: null }
+  let sponsorStatusInFlight = null
+  const buildStatusPayload = async () => {
+        const readiness = engine.readiness()
+        const databaseConnection = sponsorDatabaseConnectionInfo(env)
+        const dbConfigured = databaseConnection.configured
+        const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
+        const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
+        const adminRequired = adminTokenRequired(env)
+        const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.    if (req.method === 'GET' && (path === '/api/sponsor/status' || path === '/api/acceptance/production')) {
+      if (sponsorStatusCache.value && now() - sponsorStatusCache.at < 5000) {
+        return reply(res, 200, sponsorStatusCache.value, origin)
+      }
+      let pending = sponsorStatusInFlight
+      if (!pending) {
+        pending = buildStatusPayload()
+        sponsorStatusInFlight = pending
+      }
+      try {
+        const payload = await pending
+        sponsorStatusCache = { at: now(), value: payload }
+        return reply(res, 200, payload, origin)
+      } catch {
+        return reply(res, 503, {
+          success: false, error: 'SPONSOR_STATUS_UNAVAILABLE',
+          sponsorWritesPaused: true, transactionExecutionAvailable: false,
+          message: 'Sponsor status could not be read from the configured database. Writes remain paused.',
+        }, origin)
+      } finally {
+        if (sponsorStatusInFlight === pending) sponsorStatusInFlight = null
+      }
+    }
+
+sponsorship/resource-delegations'
       || path === '/api/tron/sponsorship/resource-delegations/verify-wallet'
     if (!isRoute) return false
     cleanup(now())
