@@ -70,6 +70,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [promoClaimStatus, setPromoClaimStatus] = useState(null)
   const [recentOperations, setRecentOperations] = useState([])
   const prepareInFlightRef = useRef(null)
+  const preparationKeyRef = useRef('')
 
   useEffect(() => {
     try { saveContractAddresses({ tokenAddress }) } catch {}
@@ -184,13 +185,21 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured backend Owner session before preparing a write.')
       if (!tokenAddress || tokenAddress.trim() === '') throw new Error('Enter the existing verified TRӾ Mainnet contract address.')
       if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
-      const result = await wallet.authClient.apiRequest('/api/owner/operations/prepare', {
-        method: 'POST', csrf: true,
-        body: {
-          operationType, contractAddress: tokenAddress.trim(),
-          feeLimitSun: String(feeCapSun), idempotencyKey: makeIdempotencyKey(), ...intent,
-        },
-      })
+      const idempotencyKey = preparationKeyRef.current || (preparationKeyRef.current = makeIdempotencyKey())
+      let result
+      try {
+        result = await wallet.authClient.apiRequest('/api/owner/operations/prepare', {
+          method: 'POST', csrf: true,
+          body: {
+            operationType, contractAddress: tokenAddress.trim(),
+            feeLimitSun: String(feeCapSun), idempotencyKey, ...intent,
+          },
+        })
+        preparationKeyRef.current = ''
+      } catch (requestError) {
+        if (requestError?.status) preparationKeyRef.current = ''
+        throw requestError
+      }
       if (!result.success || !result.operationId) throw new Error(result.error || 'OWNER_OPERATION_PREPARATION_FAILED')
       if (result.replay) {
         const recovered = await wallet.authClient.apiRequest('/api/owner/operations/' + result.operationId)
@@ -213,14 +222,30 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     if (!pendingOperation?.operationId) throw new Error('Prepare an Owner operation before confirming.')
     if (!pendingOperation.executionEnabled) throw new Error('Backend Owner execution is still disabled by the independent production safety gates.')
     if (confirmationPhrase !== pendingOperation.confirmationPhrase) throw new Error('Type the exact confirmation phrase shown below.')
-    const result = await wallet.authClient.apiRequest('/api/owner/operations/' + pendingOperation.operationId + '/confirm', {
-      method: 'POST', csrf: true,
-      body: {
-        confirmationPhrase,
-        intentSha256: pendingOperation.intentSha256,
-        contractAddress: pendingOperation.contractAddress,
-      },
-    })
+    let result
+    try {
+      result = await wallet.authClient.apiRequest('/api/owner/operations/' + pendingOperation.operationId + '/confirm', {
+        method: 'POST', csrf: true,
+        body: {
+          confirmationPhrase,
+          intentSha256: pendingOperation.intentSha256,
+          contractAddress: pendingOperation.contractAddress,
+        },
+      })
+    } catch (requestError) {
+      const recovered = await wallet.authClient.apiRequest('/api/owner/operations/' + pendingOperation.operationId).catch(() => null)
+      if (recovered?.operation) {
+        setPendingOperation(current => current ? {
+          ...current, ...recovered.operation,
+          confirmationPhrase: recovered.operation.confirmationPhrase || current.confirmationPhrase,
+          executionEnabled: recovered.executionEnabled,
+        } : current)
+        if (recovered.operation.transactionId) {
+          setNotice('The server recorded transaction ' + recovered.operation.transactionId + ' in state ' + recovered.operation.state + '. Do not retry or rebroadcast it.')
+        }
+      }
+      throw requestError
+    }
     setPendingOperation(current => current ? { ...current, state: result.state || current.state, transactionId: result.transactionId || current.transactionId, blockNumber: result.blockNumber || current.blockNumber } : current)
     if (result.state === 'confirmed' && result.transactionId) {
       setLastTx(result.transactionId)
