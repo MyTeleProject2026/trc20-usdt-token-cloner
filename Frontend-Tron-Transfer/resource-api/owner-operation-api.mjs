@@ -81,7 +81,7 @@ async function readBody(req) {
 }
 function normalizeIntent(input, ownerAddress) {
   const operationType = String(input?.operationType || '')
-  const definition = METHODS[operationType]
+  const definition = Object.hasOwn(METHODS, operationType) ? METHODS[operationType] : null
   if (!definition) fail('OWNER_OPERATION_NOT_ALLOWLISTED')
   const args = definition.args({ ...input, ownerAddress })
   const feeLimitSun = String(input.feeLimitSun ?? '')
@@ -142,9 +142,14 @@ async function verifyContract(tronWeb, contractAddress, ownerAddress, { fetchImp
   return { name: String(name), symbol: String(symbol), decimals: Number(decimals), owner: ownerAddress }
 }
 async function buildUnsigned(tronWeb, contractAddress, ownerAddress, normalized) {
+  if (!tronWeb.isAddress(ownerAddress) || !tronWeb.isAddress(contractAddress)) fail('OWNER_OPERATION_MAINNET_ADDRESS_INVALID')
   const abi = ABI.find(item => item.type === 'function' && item.name === normalized.method)
   if (!abi) fail('OWNER_OPERATION_ABI_METHOD_MISSING', 500)
   const signature = normalized.method + '(' + abi.inputs.map(item => item.type).join(',') + ')'
+  abi.inputs.forEach((input, index) => {
+    if (input.type === 'address' && !tronWeb.isAddress(normalized.args[index])) fail('OWNER_OPERATION_ADDRESS_INVALID')
+    if (input.type === 'address[]' && (!Array.isArray(normalized.args[index]) || normalized.args[index].some(value => !tronWeb.isAddress(value)))) fail('OWNER_OPERATION_BATCH_ADDRESS_INVALID')
+  })
   const built = await tronWeb.transactionBuilder.triggerSmartContract(
     contractAddress,
     signature,
