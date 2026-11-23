@@ -60,6 +60,18 @@ test('missing source schema or required columns blocks migration', () => {
   assert.ok(result.blockers.includes('source-ledger-schema-incomplete'))
 })
 
+test('source and existing target require persisted prepared and signed transaction payload columns', () => {
+  const result = assessMigrationPreflight({
+    ...ready,
+    sourceColumnsComplete: false,
+    targetOperationsTable: true,
+    targetRowCount: '0',
+    targetColumnsComplete: false,
+  })
+  assert.ok(result.blockers.includes('source-ledger-schema-incomplete'))
+  assert.ok(result.blockers.includes('target-ledger-schema-incomplete'))
+})
+
 test('any in-flight or ambiguous operation blocks migration', () => {
   for (const count of ['1', '2', '-1']) {
     const result = assessMigrationPreflight({ ...ready, sourceInFlightCount: count })
