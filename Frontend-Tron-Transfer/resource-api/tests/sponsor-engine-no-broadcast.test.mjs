@@ -36,10 +36,10 @@ function createHarness(overrides = {}) {
   return { engine, calls }
 }
 
-test('Sponsor transaction engine remains disabled unless both execution switches are explicitly enabled', async () => {
+test('Sponsor transaction engine ignores server private-key configuration and remains disabled', async () => {
   const { engine, calls } = createHarness()
   const readiness = engine.readiness()
-  assert.equal(readiness.configured, true)
+  assert.equal(readiness.configured, false)
   assert.equal(readiness.enabled, false)
   assert.equal(readiness.broadcastAvailable, false)
 
