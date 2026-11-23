@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createOwnerWalletAuthApi } from '../owner-wallet-auth-api.mjs'
+import { createManagedWalletIdentityReport } from '../managed-wallet-identities.mjs'
 import { hashWalletPassword, createWalletSessionSecrets } from '../managed-wallet-auth-crypto.mjs'
 
 const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -46,6 +47,45 @@ test('Owner auth exposes an internal cookie-session verifier for future contract
   const api = createOwnerWalletAuthApi({ env: {}, database: fakeDatabase(), send() {} })
   assert.equal(typeof api.authenticateRequest, 'function')
   assert.equal(await api.authenticateRequest({ headers: {} }), null)
+})
+
+test('Owner identity is address-only and never reads or derives a backend Owner private key', () => {
+  const ownerAddress = 'T' + '1'.repeat(33)
+  const sponsorAddress = 'T' + '2'.repeat(33)
+  const sponsorKey = '3'.repeat(64)
+  const derivedKeys = []
+  const report = createManagedWalletIdentityReport({
+    env: {
+      TRON_OWNER_ADDRESS: ownerAddress,
+      TRON_OWNER_PRIVATE_KEY: '4'.repeat(64),
+      SPONSOR_MAINNET_ADDRESS: sponsorAddress,
+      SPONSOR_MAINNET_PRIVATE_KEY: sponsorKey,
+    },
+    deriveAddress: key => { derivedKeys.push(key); return sponsorAddress },
+  })
+  assert.deepEqual(derivedKeys, [sponsorKey])
+  assert.equal(report.owner.address, ownerAddress)
+  assert.equal(report.owner.signerCustody, 'tronlink')
+  assert.equal(report.owner.ready, true)
+  assert.equal(report.sponsor.signerCustody, 'resource-api')
+  assert.equal(report.sponsor.ready, true)
+  assert.equal(report.identitiesDistinct, true)
+  assert.equal(report.ready, true)
+})
+
+test('Owner identity validation rejects malformed or Sponsor-equal configured addresses', () => {
+  const sponsorAddress = 'T' + '2'.repeat(33)
+  const report = createManagedWalletIdentityReport({
+    env: {
+      TRON_OWNER_ADDRESS: 'not-a-tron-address',
+      SPONSOR_MAINNET_ADDRESS: sponsorAddress,
+      SPONSOR_MAINNET_PRIVATE_KEY: '3'.repeat(64),
+    },
+    deriveAddress: () => sponsorAddress,
+  })
+  assert.equal(report.owner.ready, false)
+  assert.equal(report.identitiesDistinct, false)
+  assert.equal(report.ready, false)
 })
 
 test('Owner session verifier rejects the other workspace cookie and enforces its own database role', async () => {
