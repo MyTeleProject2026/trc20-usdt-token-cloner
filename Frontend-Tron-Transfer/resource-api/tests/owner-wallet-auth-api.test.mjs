@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createOwnerWalletAuthApi } from '../owner-wallet-auth-api.mjs'
-import { hashWalletPassword } from '../managed-wallet-auth-crypto.mjs'
+import { hashWalletPassword, createWalletSessionSecrets } from '../managed-wallet-auth-crypto.mjs'
 
 const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const bootstrap = 'owner-enrollment-test-token-with-more-than-32-characters'
@@ -122,4 +122,38 @@ test('Owner recovery token is one-time, expires server-side, and revokes every s
   const second=response()
   await api.handle(request('POST',{origin:'https://tron-transfer.onrender.com'},{recoveryToken,newPassword:'another new owner password phrase 789'}),second,new URL('https://api.test/api/wallet-auth/owner/recover'),'https://tron-transfer.onrender.com')
   assert.equal(second.status,401)
+})
+
+
+test('Owner password change rotates the current session and revokes all old sessions', async () => {
+  const oldPassword='current owner password phrase 123'
+  const verifier=await hashWalletPassword(oldPassword)
+  const current=createWalletSessionSecrets()
+  const state={account:{wallet_address:address,password_hash:verifier.passwordHash,password_salt:verifier.passwordSalt,password_algorithm:verifier.passwordAlgorithm,password_params:verifier.passwordParams,enabled:true},sessions:[{session_id:41,token_hash:current.tokenHash,csrf_hash:current.csrfHash,revoked_at:null},{session_id:40,revoked_at:null}],audits:[]}
+  const db={
+    async connect(){return this},release(){},
+    async query(sql,params=[]){
+      if(/^(BEGIN|COMMIT|ROLLBACK)$/i.test(sql.trim())) return {rowCount:0,rows:[]}
+      if(sql.includes('INSERT INTO public.tron_transfer_wallet_auth_audit')){state.audits.push(params);return {rowCount:1,rows:[]}}
+      if(sql.includes('SELECT s.session_id')) return {rows:[{session_id:41,csrf_hash:current.csrfHash,wallet_address:address}]}
+      if(sql.includes('UPDATE public.tron_transfer_wallet_sessions SET last_seen_at')) return {rowCount:1,rows:[]}
+      if(sql.includes('SELECT * FROM public.tron_transfer_wallet_accounts')) return {rows:[state.account]}
+      if(sql.includes('UPDATE public.tron_transfer_wallet_accounts')){state.account.password_hash=params[0];state.account.password_salt=params[1];state.account.password_params=JSON.parse(params[2]);return {rowCount:1,rows:[]}}
+      if(sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()')){state.sessions.forEach(item=>{item.revoked_at=new Date()});return {rowCount:2,rows:[]}}
+      if(sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')){state.sessions.push({session_id:42,token_hash:params[1],csrf_hash:params[2],revoked_at:null});return {rowCount:1,rows:[]}}
+      throw new Error('unexpected-password-change-query: '+sql.slice(0,100))
+    }
+  }
+  const api=createOwnerWalletAuthApi({env:{},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
+  const res=response()
+  await api.handle(request('POST',{
+    cookie:'tron_owner_session='+current.sessionToken+'; tron_owner_csrf='+current.csrfToken,
+    origin:'https://tron-transfer.onrender.com',
+    'x-csrf-token':current.csrfToken,
+  },{currentPassword:oldPassword,newPassword:'replacement owner password phrase 456'}),res,new URL('https://api.test/api/wallet-auth/owner/password/change'),'https://tron-transfer.onrender.com')
+  assert.equal(res.status,200)
+  assert.equal(JSON.parse(res.body).passwordChanged,true)
+  assert.ok(state.sessions.filter(item=>item.session_id!==42).every(item=>item.revoked_at))
+  assert.equal(state.sessions.find(item=>item.session_id===42).revoked_at,null)
+  assert.ok(state.audits.some(item=>item[1]==='password_changed'))
 })
