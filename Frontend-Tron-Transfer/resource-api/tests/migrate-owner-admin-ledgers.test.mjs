@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOwnerAdminMigrations } from '../scripts/migrate-owner-admin-ledgers.mjs'
+import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope } from '../scripts/migrate-owner-admin-ledgers.mjs'
+import { readFile } from 'node:fs/promises'
 
 test('Owner Admin migrations apply atomically and skip matching checksums',async()=>{
  const applied=new Map(),calls=[]
@@ -44,10 +45,21 @@ test('transaction-wrapped migration files cannot commit the orchestrator transac
   if(statement.startsWith('INSERT INTO public.tron_transfer_owner_admin_schema_migrations')){applied.set(params[0],params[1]);return{rows:[]}}
   return{rows:[]}
  }}
- await applyOwnerAdminMigrations(client,[{version:'20261122_wrapped.sql',sql:'-- migration header\\nBEGIN;\\nCREATE TABLE wrapped_migration(id int);\\nCOMMIT;'}])
+ await applyOwnerAdminMigrations(client,[{version:'20261122_wrapped.sql',sql:`-- migration header
+BEGIN;
+CREATE TABLE wrapped_migration(id int);
+COMMIT;`}])
  assert.equal(statements.filter(x=>x==='BEGIN').length,1)
  assert.equal(statements.filter(x=>x==='COMMIT').length,1)
  assert.ok(statements.includes('CREATE TABLE wrapped_migration(id int);'))
+})
+
+test('real Owner Admin migration files have their inner transaction envelope removed',async()=>{
+ const sql=await readFile(new URL('../migrations/20261122_backend_wallet_auth.sql',import.meta.url),'utf8')
+ const executable=stripOuterTransactionEnvelope(sql)
+ assert.ok(executable.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_wallet_accounts'))
+ assert.equal(executable.trimStart().startsWith('BEGIN;'),false)
+ assert.equal(executable.trimEnd().endsWith('COMMIT;'),false)
 })
 
 test('Owner Admin migration postflight executes before commit and failure rolls back',async()=>{
