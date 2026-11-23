@@ -42,7 +42,7 @@ test('production acceptance endpoint is read-only, secret-free, and keeps execut
   assert.equal(response.status, 200)
   assert.equal(response.body.acceptance.executionEnabled, false)
   assert.equal(response.body.acceptance.state, 'blocked')
-  assert.equal(response.body.acceptance.checks.some(item => item.id === 'sponsor-local-transaction-signer' && item.state === 'passed'), true)
+  assert.equal(response.body.acceptance.checks.some(item => item.id === 'sponsor-local-transaction-signer' && item.state === 'blocked'), true)
   assert.equal(response.body.acceptance.checks.some(item => item.id === 'writes-remain-paused-until-release' && item.state === 'passed'), true)
   assert.equal(response.body.transactionExecutionAvailable, false)
   assert.equal(databaseCalls, 0)
