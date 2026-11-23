@@ -93,7 +93,7 @@ export default function App() {
     setWallet(ownerWallet)
     setOwnerAccessOpen(false)
     setWalletError('')
-    setWalletNotice('Owner application session restored. Connect the matching TronLink wallet before preparing any Mainnet write.')
+    setWalletNotice('Owner application session authenticated and the matching TronLink wallet is connected. Every transaction still requires explicit TronLink approval.')
   }
 
   function lockWallet() {
