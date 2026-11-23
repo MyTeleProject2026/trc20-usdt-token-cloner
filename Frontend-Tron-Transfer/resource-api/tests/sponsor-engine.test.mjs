@@ -247,6 +247,7 @@ test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner a
   const engine = createSponsorTransactionEngine({
     env: configuredEnv(),
     tronWebFactory: () => fakeTronWeb,
+    signerAdapter: { address: SPONSOR, signTransaction: async tx => fakeTronWeb.trx.sign(tx) },
     fetchImpl,
   })
   const result = await engine.execute({
@@ -317,7 +318,7 @@ function lifecycleFixture({ operation, amountSun, resource = 'ENERGY', transacti
       ? { id: TXID, blockNumber: 456, receipt: { result: 'SUCCESS' }, ...(operation === 'withdraw' && includeWithdrawAmount ? { withdraw_expire_amount: amountSun } : {}) }
       : { txID: TXID, raw_data: transaction.raw_data },
   })
-  const engine = createSponsorTransactionEngine({ env: configuredEnv(), tronWebFactory: () => fakeTronWeb, fetchImpl })
+  const engine = createSponsorTransactionEngine({ env: configuredEnv(), tronWebFactory: () => fakeTronWeb, signerAdapter: { address: SPONSOR, signTransaction: async tx => fakeTronWeb.trx.sign(tx) }, fetchImpl })
   return {
     engine,
     counts: () => ({ signed, broadcast }),
