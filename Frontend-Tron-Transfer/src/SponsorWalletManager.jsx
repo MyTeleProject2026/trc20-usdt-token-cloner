@@ -196,6 +196,14 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
 
+  // Clear the Owner Admin re-authentication input and UI assertion whenever Sponsor is locked or its workspace is left.
+  useEffect(() => {
+    if (!wallet || !workspaceActive) {
+      setOwnerAdminPassword('')
+      setOwnerAdminReady(false)
+    }
+  }, [wallet, workspaceActive])
+
   useEffect(() => {
     if (!workspaceActive) return undefined
     let active = true
@@ -481,6 +489,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
         : 'Backend-managed Sponsor session revoked; no private key is held in this browser.',
     )
     void sponsorAuth.logout().catch(() => {})
+    setOwnerAdminPassword('')
+    setOwnerAdminReady(false)
     setAuthCsrfToken('')
     setWallet(null)
     setSaved(true)
