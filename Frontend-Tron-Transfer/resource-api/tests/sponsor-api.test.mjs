@@ -550,7 +550,7 @@ test('expired or reused intent cannot be executed twice', async () => {
   assert.deepEqual(calls, [])
 })
 
-test('Sponsor API refuses server-side signing until the imported local Sponsor signer is implemented', async () => {
+test('legacy one-step Sponsor execution endpoint is disabled in favor of local prepare and submit', async () => {
   const queries = []
   const database = {
     async query(sql) {
@@ -581,7 +581,7 @@ test('Sponsor API refuses server-side signing until the imported local Sponsor s
     confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
   }, token)
   assert.equal(result.status, 423)
-  assert.equal(result.payload.error, 'sponsor-local-signer-not-implemented')
+  assert.equal(result.payload.error, 'legacy-sponsor-execution-endpoint-disabled-use-prepare-and-submit')
   assert.equal(executions, 0)
   assert.equal(queries.some(sql => sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')), false)
 })
