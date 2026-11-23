@@ -4,6 +4,8 @@ import {
   createMainnetDeploymentTransaction,
   estimateMainnetDeploymentEnergy,
   getMainnetAccountResourceSnapshot,
+} from '../src/trax-mainnet.mjs'
+import {
   calculateDeploymentResourceBudget,
   assertZeroTrxBurnBudget,
   assertTransactionIntegrity,
