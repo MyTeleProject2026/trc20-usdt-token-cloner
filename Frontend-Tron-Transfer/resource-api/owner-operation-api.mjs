@@ -3,7 +3,7 @@ import { TronWeb } from 'tronweb'
 import pg from 'pg'
 import { createOwnerOperationLedger } from './owner-operation-ledger.mjs'
 import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget, assertZeroTrxBurnBudget, assertTransactionIntegrity, verifyTransactionSigner, assertTransactionPermission } from '../src/tron-mainnet-preflight.mjs'
-import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
+import { sponsorDatabaseConnectionString, databaseTargetIdentityMatches } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
 const { Pool } = pg
@@ -82,6 +82,7 @@ function executionGateEnabled(env) {
     && env.OWNER_OPERATION_LEDGER_DURABLE === 'true'
     && env.OWNER_OPERATION_LEDGER_BACKUP_VERIFIED === 'true'
     && env.OWNER_OPERATION_LEDGER_RESTORE_TESTED === 'true'
+    && databaseTargetIdentityMatches(env)
 }
 function safeJson(value) {
   return JSON.parse(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item))
@@ -347,6 +348,9 @@ export function createOwnerOperationApi({
     const session = await authenticateManagedSession(req, { requireCsrf: req.method !== 'GET' })
     if (!session || session.address !== env.TRON_OWNER_ADDRESS) {
       return reply(res, 401, { success: false, error: 'OWNER_SESSION_REQUIRED' }, origin)
+    }
+    if (!databaseTargetIdentityMatches(env)) {
+      return reply(res, 503, { success: false, error: 'OWNER_OPERATION_DATABASE_IDENTITY_NOT_ACCEPTED' }, origin)
     }
     const rateAction = req.method === 'POST'
       ? (path === '/api/owner/operations/prepare' ? 'prepare' : action || 'write')
