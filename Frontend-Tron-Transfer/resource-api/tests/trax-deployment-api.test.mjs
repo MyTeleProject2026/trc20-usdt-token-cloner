@@ -14,7 +14,7 @@ function make(overrides={}) {
     send:(_res,status,payload)=>replies.push({status,payload}),
     authenticateManagedSession:async()=>overrides.session || {address:owner,sessionId:1},
     artifactLoader:overrides.artifactLoader || (async()=>({contractName:'Restricted1TRAX',compiler:'solc 0.8.25',sourceSha256:'1'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),artifactSha256:'4'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'})),
-    tronWebFactory:()=>{ throw new Error('must-not-construct-without-prepare') },
+    tronWebFactory:overrides.tronWebFactory || (()=>{ throw new Error('must-not-construct-without-prepare') }),
   })
   return {api,replies}
 }
@@ -33,7 +33,7 @@ test('deployment readiness reports artifact and ledger gates without signing or 
 })
 test('deployment confirmation is locked even when readiness checks pass', async()=>{
  const {api,replies}=make()
- await api.handle(req('POST'),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
+ await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT'}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
  assert.equal(replies[0].status,423)
  assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_EXECUTION_GATES_LOCKED')
 })
