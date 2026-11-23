@@ -49,6 +49,31 @@ test('Owner auth exposes an internal cookie-session verifier for future contract
   assert.equal(await api.authenticateRequest({ headers: {} }), null)
 })
 
+test('Owner session accepts its role-specific CSRF header alongside an independent Sponsor CSRF header', async () => {
+  const secrets = createWalletSessionSecrets()
+  const database = {
+    async query(sql) {
+      if (sql.includes('SELECT s.session_id')) {
+        return { rows: [{ session_id: 7, csrf_hash: secrets.csrfHash, wallet_address: address }] }
+      }
+      return { rowCount: 1, rows: [] }
+    },
+  }
+  const api = createOwnerWalletAuthApi({ env: {}, database, send() {} })
+  const headers = {
+    cookie: 'tron_owner_session=' + secrets.sessionToken + '; tron_sponsor_session=' + 'b'.repeat(64),
+    origin: 'https://tron-transfer.onrender.com',
+    'x-owner-csrf-token': secrets.csrfToken,
+    'x-csrf-token': 'independent-sponsor-csrf-token',
+  }
+  const accepted = await api.authenticateRequest({ headers }, { requireCsrf: true })
+  assert.equal(accepted.address, address)
+  const rejected = await api.authenticateRequest({
+    headers: { ...headers, 'x-owner-csrf-token': undefined },
+  }, { requireCsrf: true })
+  assert.equal(rejected, null)
+})
+
 test('Owner identity is address-only and never reads or derives a backend Owner private key', () => {
   const ownerAddress = 'T' + '1'.repeat(33)
   const sponsorAddress = 'T' + '2'.repeat(33)
