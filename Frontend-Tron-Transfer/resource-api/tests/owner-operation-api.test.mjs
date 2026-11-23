@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { createOwnerOperationApi } from '../owner-operation-api.mjs'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -93,7 +94,7 @@ test('Owner operation preparation rejects arbitrary operations before building a
     database,
   })
   await api.handle(request('POST', {
-    operationType: 'arbitrary-call', idempotencyKey: 'owner-op-test-key-0001', feeLimitSun: '1000000',
+    operationType: 'arbitrary-call', contractAddress: contract, idempotencyKey: 'owner-op-test-key-0001', feeLimitSun: '1000000',
   }), response(), new URL('https://api.test/api/owner/operations/prepare'), 'https://tron-transfer.onrender.com')
   assert.equal(replies[0].status, 400)
   assert.equal(replies[0].payload.error, 'OWNER_OPERATION_NOT_ALLOWLISTED')
@@ -108,8 +109,6 @@ test('Owner operation preparation API contains no signing or broadcast path', as
   assert.match(source, /broadcastTransaction/)
   assert.match(source, /walletsolidity\/gettransactioninfobyid/)
 })
-
-import { createHash } from 'node:crypto'
 
 function canonical(value) {
   if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
