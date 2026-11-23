@@ -227,7 +227,7 @@ test('Owner confirmation never broadcasts if recovered signature or permission e
   assert.equal(fixture.transitions.at(-1).state, 'failed')
 })
 
-test('Owner journal endpoint returns only session-scoped intent and preflight summaries', async () => {
+test('Owner journal endpoint returns only Owner-identity-scoped intent and preflight summaries', async () => {
   const replies = []
   const api = createOwnerOperationApi({
     env: {
