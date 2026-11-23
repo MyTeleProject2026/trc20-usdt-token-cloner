@@ -18,11 +18,13 @@ test('AETHERIA home maps every live monitoring endpoint to a one-to-one function
   assert.ok(source.includes('FUNCTION RETURN BUS'))
 })
 
-test('mesh UI ticks every second while upstream polling respects service cache and rate limits', () => {
-  for (const cadence of ['health: 1_000', 'runtime: 1_000', 'resources: 15_000', 'tenergy: 15_000', 'transactions: 10_000', 'renderEvents: 30_000', 'uptime: 60_000', 'renderMetrics: 60_000']) {
+test('mesh keeps its one-second clock local and polls upstream services conservatively', () => {
+  for (const cadence of ['health: 30_000', 'runtime: 5_000', 'resources: 30_000', 'tenergy: 60_000', 'transactions: 60_000', 'renderEvents: 60_000', 'uptime: 300_000', 'renderMetrics: 300_000']) {
     assert.ok(source.includes(cadence), 'Missing polling cadence: ' + cadence)
   }
-  assert.ok(source.includes("path: '/health', interval: '1s'"))
+  assert.ok(source.includes("path: '/health', interval: '30s'"))
+  assert.ok(source.includes("path: '/api/observatory/snapshot', interval: '5s'"))
+  assert.ok(source.includes('heartbeatAge <= 8000'))
   assert.ok(source.includes('window.setInterval(() => setClockNow(Date.now()), 1000)'))
 })
 
