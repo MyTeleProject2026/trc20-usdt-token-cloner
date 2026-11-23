@@ -226,3 +226,57 @@ test('Owner confirmation never broadcasts if recovered signature or permission e
   assert.equal(fixture.counts.broadcast, 0)
   assert.equal(fixture.transitions.at(-1).state, 'failed')
 })
+
+test('Owner journal endpoint returns only session-scoped intent and preflight summaries', async () => {
+  const replies = []
+  const api = createOwnerOperationApi({
+    env: {
+      TRON_OWNER_ADDRESS: owner,
+      OWNER_OPERATION_LEDGER_DURABLE: 'true',
+      OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true',
+      OWNER_OPERATION_LEDGER_RESTORE_TESTED: 'true',
+    },
+    database: { async query() { return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } } },
+    send: (_res, status, payload) => replies.push({ status, payload }),
+    authenticateManagedSession: async () => ({ address: owner, sessionId: 9 }),
+    ledgerFactory: () => ({ async list(_sessionId, limit) {
+      assert.equal(limit, 5)
+      return [{
+        operation_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        operation_type: 'pause', contract_address: contract, state: 'awaiting-confirmation',
+        intent_sha256: 'c'.repeat(64), intent: { method: 'setPaused', args: [true], feeLimitSun: '1000000' },
+        preflight: { estimatedTrxFallbackSun: '0' }, transaction_id: null,
+      }]
+    } }),
+  })
+  await api.handle(request('GET'), response(), new URL('https://api.test/api/owner/operations?limit=5'), null)
+  assert.equal(replies[0].status, 200)
+  assert.equal(replies[0].payload.operations[0].method, 'setPaused')
+  assert.equal(replies[0].payload.operations[0].preflight.estimatedTrxFallbackSun, '0')
+  assert.equal(JSON.stringify(replies[0].payload).includes('signedTransaction'), false)
+})
+
+test('Owner operation API rate-limits repeated prepared writes per authenticated session', async () => {
+  const replies = []
+  const api = createOwnerOperationApi({
+    env: {
+      TRON_OWNER_ADDRESS: owner, TRAX_CONTRACT_ADDRESS: contract,
+      OWNER_OPERATION_LEDGER_DURABLE: 'true',
+      OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true',
+      OWNER_OPERATION_LEDGER_RESTORE_TESTED: 'true',
+    },
+    database: { async query() { return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } } },
+    send: (_res, status, payload) => replies.push({ status, payload }),
+    authenticateManagedSession: async () => ({ address: owner, sessionId: 99 }),
+  })
+  for (let i = 0; i < 7; i++) {
+    await api.handle(request('POST', {
+      operationType: 'not-allowed', contractAddress: contract,
+      idempotencyKey: 'owner-rate-limit-test-' + String(i).padStart(3, '0'),
+      feeLimitSun: '1000000',
+    }), response(), new URL('https://api.test/api/owner/operations/prepare'), null)
+  }
+  assert.equal(replies.slice(0, 6).every(reply => reply.status === 400), true)
+  assert.equal(replies[6].status, 429)
+  assert.equal(replies[6].payload.error, 'OWNER_OPERATION_RATE_LIMITED')
+})
