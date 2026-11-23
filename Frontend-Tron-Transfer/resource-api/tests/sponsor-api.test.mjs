@@ -536,17 +536,18 @@ test('durable Sponsor maintenance pause blocks a valid signed operation before r
   assert.equal(result.payload.error, 'sponsor-writes-paused-for-maintenance')
 })
 
-test('expired or reused intent cannot be executed twice', async () => {
+test('legacy one-step endpoint rejects all Sponsor execution attempts after migration to two-phase local signing', async () => {
   const { api, calls } = setup()
   const token = await authenticated(api)
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'BANDWIDTH', amountSun: '1000000', idempotencyKey: 'sponsor-op-0123456789012345',
   }, token)
-  const body = { intentId: intent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'wrong phrase' }
+  const body = { intentId: intent.payload.intentId, signature: SIGNATURE, confirmPhrase: intent.payload.confirmationPhrase }
   const first = await call(api, 'POST', '/api/sponsor/operations', body, token)
-  assert.equal(first.status, 400)
+  assert.equal(first.status, 410)
+  assert.equal(first.payload.error, 'legacy-sponsor-server-signer-route-disabled')
   const replay = await call(api, 'POST', '/api/sponsor/operations', body, token)
-  assert.equal(replay.status, 409)
+  assert.equal(replay.status, 410)
   assert.deepEqual(calls, [])
 })
 
