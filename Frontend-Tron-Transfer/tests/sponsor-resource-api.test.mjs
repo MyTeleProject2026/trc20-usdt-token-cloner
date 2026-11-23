@@ -13,7 +13,7 @@ test('Sponsor Wallet no longer falls back to the separate Token Studio API', () 
   assert.doesNotMatch(ui, /API_BASE/)
 })
 
-test('Sponsor password sessions authenticate and authorize exact backend-signed intents', () => {
+test('Sponsor sessions remain separate and transaction execution is blocked until local signing is implemented', () => {
   assert.match(ui, /createManagedWalletAuthClient\(\{ role: 'sponsor'/)
   assert.match(ui, /Sponsor Workspace Login/)
   assert.match(ui, /sponsorAuth\.login\(authPassword\)/)
@@ -45,5 +45,8 @@ test('Sponsor server supports managed password sessions and legacy signed sessio
   assert.match(service, /if \(!managedSessionAuth\)/)
   assert.match(service, /explicit-confirmation-and-authentication-required/)
   assert.match(service, /durable-idempotency-storage-required/)
-  assert.match(service, /onSigned: async transactionId/)
+  assert.match(service, /localSponsorSigningImplemented/)
+  assert.match(service, /sponsor-local-signer-not-implemented/)
+  assert.match(service, /sponsor-local-transaction-signer/)
+  assert.doesNotMatch(service, /engine\\.execute\\(/, 'API route must not call the legacy server-side Sponsor signer')
 })
