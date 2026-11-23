@@ -16,8 +16,11 @@ test('Sponsor Wallet uses backend password login and never exposes a private-key
   assert.doesNotMatch(component, /wallet\.privateKey|signMessageV2|authorization: 'Bearer '/)
   assert.doesNotMatch(component, /trc20-usdt-token-cloner-api\.onrender\.com/)
   assert.doesNotMatch(component, /sendRawTransaction|trx\.sign\(/)
-  assert.ok(vault.includes('AES-GCM'))
-  assert.ok(vault.includes('PBKDF2'))
+  assert.ok(vault.includes("new TronWeb({ fullHost: MAINNET_HOST })"))
+  assert.doesNotMatch(vault, /privateKey|mnemonic|keystore|localStorage|subtle\\.encrypt|subtle\\.decrypt/)
+  assert.ok(component.includes('Independent Owner Admin authorization'))
+  assert.ok(component.includes('ownerAuth.login(ownerAdminPassword)'))
+  assert.doesNotMatch(component, /x-sponsor-admin-token/)
 })
 
 test('Sponsor Wallet authorizes exact Mainnet intents and delegates signing to the Resource API', () => {
