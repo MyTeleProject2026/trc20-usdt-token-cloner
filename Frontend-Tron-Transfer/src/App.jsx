@@ -87,7 +87,7 @@ export default function App() {
   async function connectWallet() {
     setWalletError('')
     setWalletNotice('')
-    if (wallet?.managedSession && !wallet?.tronWeb) {
+    if (wallet?.managedSession) {
       try {
         const session = await ownerAuthClient.session()
         if (!session?.success || session.address !== wallet.address) {
