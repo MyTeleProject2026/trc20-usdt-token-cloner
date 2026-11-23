@@ -106,7 +106,7 @@ function normalizeIntent(input, ownerAddress) {
   if (!/^[A-Za-z0-9._:-]{16,160}$/.test(idempotencyKey)) fail('OWNER_OPERATION_IDEMPOTENCY_KEY_INVALID')
   return { operationType, method: definition.method, args, feeLimitSun, idempotencyKey }
 }
-function createPacedFetch(fetchImpl, intervalMs = 350) {
+function createPacedFetch(fetchImpl, intervalMs = 550) {
   let queue = Promise.resolve()
   let nextAt = 0
   return (...args) => {
@@ -117,7 +117,7 @@ function createPacedFetch(fetchImpl, intervalMs = 350) {
       if (response.status === 429) {
         const retryAfter = Number(response.headers?.get?.('retry-after'))
         await response.text().catch(() => '')
-        const retryMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(5000, retryAfter * 1000) : 1000
+        const retryMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.max(5000, Math.min(30_000, retryAfter * 1000)) : 5000
         await new Promise(resolve => setTimeout(resolve, retryMs))
         response = await fetchImpl(...args)
       }
