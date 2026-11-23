@@ -25,8 +25,9 @@ test('Owner operation ledger migration remains transactionally wrapped', async (
 
 test('Owner operation lifecycle migration adds atomic confirmation and session-independent Owner recovery without enabling execution', async () => {
   const sql = await readFile(operationMigrationUrl, 'utf8')
-  assert.match(sql, /^BEGIN;/)
-  assert.match(sql.trimEnd(), /COMMIT;$/)
+  const executableSql = sql.replace(/^\s*(?:--[^\n]*\n\s*)*/, '')
+  assert.match(executableSql, /^BEGIN;/)
+  assert.match(executableSql.trimEnd(), /COMMIT;$/)
   assert.match(sql, /ALTER COLUMN session_id DROP NOT NULL/)
   assert.match(sql, /FOREIGN KEY \(session_id\).*ON DELETE SET NULL/)
   assert.match(sql, /DROP CONSTRAINT IF EXISTS tron_transfer_owner_operations_state_check/)
