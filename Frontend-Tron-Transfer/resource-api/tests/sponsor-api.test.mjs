@@ -22,6 +22,7 @@ function response() {
   return { status: 0, payload: null }
 }
 function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '', expectedDatabaseIdentitySha256 = '', authenticateManagedSession = null, authenticateOwnerAdminSession = null } = {}) {
+  let clock = Date.now()
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
     SPONSOR_LEDGER_DURABLE: 'true',
@@ -49,9 +50,9 @@ function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, 
     },
     verifyMessage: async (message, signature) => signature === SIGNATURE ? SPONSOR : '',
     send: (res, status, payload) => { res.status = status; res.payload = payload },
-    now: () => Date.now(),
+    now: () => clock,
   })
-  return { api, calls, env }
+  return { api, calls, env, advanceClock: milliseconds => { clock += milliseconds }
 }
 async function call(api, method, path, body, token, adminToken = TEST_ADMIN_TOKEN, client = {}) {
   const res = response()
@@ -478,7 +479,7 @@ test('managed password session authorizes a short-lived exact intent without a b
   }, null, TEST_ADMIN_TOKEN, client)
   assert.equal(result.status, 410)
   assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
-  assert.equal(authCalls.length, 1)
+  assert.equal(authCalls.length, 2)
 })
 
 test('all private Sponsor operations require a valid bearer session', async () => {
@@ -677,6 +678,7 @@ test('Sponsor transaction preparation fails closed until ledger durability, back
   assert.equal(intent.status, 201)
 
   env.SPONSOR_LEDGER_DURABLE = 'false'
+  advanceClock(5_001)
   const unverifiedStatus = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(unverifiedStatus.payload.ledgerDurabilityVerified, false)
   assert.equal(unverifiedStatus.payload.transactionExecutionAvailable, false)
@@ -1041,7 +1043,7 @@ test('Sponsor local-signing API commits the signed transaction before a single b
   }
   const engine = {
     readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, clientSigningAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
-    prepare: async () => ({ success: true, transaction, feePolicy: { reserveSun: '2000000', maxBandwidthFeeSun: '0', requiredBandwidthFeeSun: '0' } }),
+    prepare: async () => ({ success: true, transaction, sponsorAddress: SPONSOR, ownerAddress: OWNER, operation: 'stake', resource: 'ENERGY', amountSun: '1000000', feePolicy: { reserveSun: '2000000', maxBandwidthFeeSun: '0', requiredBandwidthFeeSun: '0' } }),
     submitSigned: async ({ onSigned }) => {
       await onSigned(transaction.txID)
       assert.ok(timeline.indexOf('commit-signed') >= 0, 'signed payload must be committed before broadcast')
