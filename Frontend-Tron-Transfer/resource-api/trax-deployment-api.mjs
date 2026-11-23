@@ -301,6 +301,10 @@ export function createTRAXDeploymentApi({
           ).catch(() => {})
           return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast-unknown', transactionId: unsigned.txID, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'Broadcast response was ambiguous. The original transaction ID is persisted; do not submit a second deployment.' }, origin)
         }
+        if (broadcast?.txid && String(broadcast.txid).toLowerCase() !== String(unsigned.txID).toLowerCase()) {
+          await db.query("UPDATE public.tron_transfer_deployments SET failure_code='BROADCAST_TXID_MISMATCH',updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'", [operationId]).catch(() => {})
+          return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast-unknown', transactionId: unsigned.txID, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'Broadcast returned a different transaction ID. Preserve the original ID and reconcile it against solidified Mainnet.' }, origin)
+        }
         if (broadcast?.result !== true) {
           const message = String(broadcast?.message || broadcast?.code || 'NODE_REJECTED_BROADCAST').slice(0,180)
           await db.query(

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CheckCircle2, KeyRound, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
 import { createPendingOwnerAcceptanceClient } from './pending-owner-acceptance-client.mjs'
 import './pending-owner-acceptance.css'
@@ -15,7 +15,6 @@ export default function PendingOwnerAcceptance() {
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
   const [notice,setNotice]=useState('')
-  const tronWeb=useMemo(()=>typeof window!=='undefined'?window.tronWeb:null,[])
   async function refreshState(){const result=await client.state();setChain(result);return result}
   useEffect(()=>{let active=true;Promise.all([client.state(),client.session().catch(()=>null)]).then(([s,a])=>{if(active){setChain(s);if(a?.authenticated)setSession(a)}}).catch(e=>{if(active)setError(String(e.message||e))});return()=>{active=false}},[])
   async function connectPendingOwner(){
