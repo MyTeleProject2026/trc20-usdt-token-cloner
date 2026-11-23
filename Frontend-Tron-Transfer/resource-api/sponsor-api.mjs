@@ -644,6 +644,7 @@ export function createSponsorResourceApi({
       if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!localSponsorSigningImplemented() || typeof engine.prepare !== 'function') return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented' }, origin)
+      if (engine.readiness().clientSigningAvailable !== true) return reply(res, 423, { success: false, error: 'sponsor-mainnet-execution-gates-disabled' }, origin)
       if (!rateLimit(req, 'prepare', 5)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
@@ -704,6 +705,7 @@ export function createSponsorResourceApi({
       if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!localSponsorSigningImplemented() || typeof engine.submitSigned !== 'function') return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented' }, origin)
+      if (engine.readiness().clientSigningAvailable !== true) return reply(res, 423, { success: false, error: 'sponsor-mainnet-execution-gates-disabled' }, origin)
       if (!rateLimit(req, 'submit', 3)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
       try { body = await readBody(req, 64_000) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
