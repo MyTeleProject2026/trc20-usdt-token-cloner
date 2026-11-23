@@ -19,13 +19,13 @@ const POLL = Object.freeze({
   renderMetrics: 300_000,
 })
 const API_FLOWS = [
-  { id: 'health', hub: 'RESOURCE API', fn: 'platform.health.read', method: 'GET', path: '/health', interval: '5m' },
+  { id: 'health', hub: 'RESOURCE API', fn: 'platform.health.read', method: 'GET', path: '/health', interval: '30s' },
   { id: 'runtime', hub: 'RUNTIME CORE', fn: 'runtime.snapshot.read', method: 'GET', path: '/api/observatory/snapshot', interval: '5s' },
   { id: 'resources', hub: 'TRON MAINNET', fn: 'mainnet.resources.read', method: 'GET', path: '/v1/resources/{owner}', interval: '30s · cached' },
   { id: 'tenergy', hub: 'TENERGY', fn: 'tenergy.promotion.status', method: 'GET', path: '/api/tron/tenergy/promo?address={owner}', interval: '60s' },
   { id: 'transactions', hub: 'TRON MAINNET', fn: 'mainnet.confirmed.transactions', method: 'GET', path: '/api/observatory/transactions?address={owner}', interval: '60s' },
-  { id: 'renderEvents', hub: 'RENDER CONTROL PLANE', fn: 'render.service.events.list', method: 'GET', path: '/api/observatory/render-events', interval: '30s' },
-  { id: 'uptime', hub: 'GITHUB ARCHIVE', fn: 'uptime.history.read', method: 'GET', path: '/api/observatory/uptime-history', interval: '60s' },
+  { id: 'renderEvents', hub: 'RENDER CONTROL PLANE', fn: 'render.service.events.list', method: 'GET', path: '/api/observatory/render-events', interval: '60s' },
+  { id: 'uptime', hub: 'GITHUB ARCHIVE', fn: 'uptime.history.read', method: 'GET', path: '/api/observatory/uptime-history', interval: '5m' },
   { id: 'renderMetrics', hub: 'RENDER CONTROL PLANE', fn: 'render.metrics.read', method: 'GET', path: '/api/observatory/render-metrics', interval: '5m · API cache 5m' },
 ]
 const INITIAL_CALLS = Object.fromEntries(API_FLOWS.map(flow => [flow.id, {
@@ -368,6 +368,6 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
       </section>
     </div>
 
-    <footer className="am-footer"><span><Activity size={13}/> MESH CLOCK · 1 SECOND</span><span>RESOURCE API 15s CACHE · RENDER METRICS 60s POLL / 5m SERVER CACHE</span><span>READ ONLY · NO TRANSACTION SIGNING</span></footer>
+    <footer className="am-footer"><span><Activity size={13}/> MESH CLOCK · 1 SECOND</span><span>RESOURCE API 30s POLL / 15s CACHE · RENDER METRICS 5m POLL / 5m SERVER CACHE</span><span>READ ONLY · NO TRANSACTION SIGNING</span></footer>
   </section>
 }
