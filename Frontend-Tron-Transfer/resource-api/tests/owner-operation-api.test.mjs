@@ -100,7 +100,7 @@ test('Owner operation preparation rejects arbitrary operations before building a
   assert.equal(replies[0].payload.error, 'OWNER_OPERATION_NOT_ALLOWLISTED')
 })
 
-test('Owner operation preparation API contains no signing or broadcast path', async () => {
+test('Owner operation API exposes signing only behind guarded explicit confirmation', async () => {
   const source = await readFile(new URL('../owner-operation-api.mjs', import.meta.url), 'utf8')
   assert.match(source, /executionGateEnabled\(env\)/)
   assert.match(source, /OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED/)
@@ -152,6 +152,7 @@ function makeExecutionFixture(overrides = {}) {
     ledgerFactory: () => ledger,
     tronWebFactory: () => ({ trx: {} }),
     verifyContractState: async () => { counts.verify++ },
+    verifyUnsignedTransaction: async () => {},
     verifySignedTransaction: async () => { counts.signatureCheck++; if (overrides.signatureFailure) throw Object.assign(new Error('signature rejected'), { code: 'OWNER_SIGNED_TRANSACTION_PERMISSION_INVALID', status: 403 }) },
     prepareTransaction: async () => ({ txID: 'b'.repeat(64), raw_data: { expiration: Date.now() + 60_000 } }),
     preflightTransaction: async () => { counts.preflight++; if (overrides.preflightFailure) throw Object.assign(new Error('blocked'), { code: 'OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', status: 423 }); return { estimatedTrxFallbackSun: '0' } },
