@@ -19,7 +19,7 @@ function canonical(value) {
 function fail(code) { throw Object.assign(new Error(code), { code }) }
 function hash(value) { return createHash('sha256').update(value).digest('hex') }
 
-/** Durable, session-scoped idempotency and recovery journal for Owner operations. */
+/** Durable, Owner-identity-scoped idempotency and recovery journal. Session ID is audit provenance only. */
 export function createOwnerOperationLedger({ database }) {
   if (!database || typeof database.query !== 'function') fail('OWNER_LEDGER_DATABASE_REQUIRED')
 
@@ -43,12 +43,12 @@ export function createOwnerOperationLedger({ database }) {
     `, [operationId, Number(sessionId), idempotencyKey, operationType, contractAddress, serialized, intentSha256])
     if (inserted.rows?.[0]) return { ...inserted.rows[0], replay: false }
     const existing = await database.query(`
-      SELECT operation_id,state,intent_sha256,operation_type,transaction_id,created_at
+      SELECT operation_id,state,intent_sha256,operation_type,transaction_id,created_at,intent
       FROM public.tron_transfer_owner_operations
-      WHERE wallet_role='owner' AND idempotency_key=$1 AND session_id=$2
-    `, [idempotencyKey, Number(sessionId)])
+      WHERE wallet_role='owner' AND idempotency_key=$1
+    `, [idempotencyKey])
     const row = existing.rows?.[0]
-    if (!row || row.intent_sha256 !== intentSha256 || row.operation_type !== operationType) fail('OWNER_LEDGER_IDEMPOTENCY_CONFLICT')
+    if (!row || row.intent?.ownerAddress !== ownerAddress || row.intent_sha256 !== intentSha256 || row.operation_type !== operationType) fail('OWNER_LEDGER_IDEMPOTENCY_CONFLICT')
     return { ...row, replay: true }
   }
 
@@ -94,7 +94,7 @@ export function createOwnerOperationLedger({ database }) {
   async function list(ownerAddress, limit = 20) {
     if (typeof ownerAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(ownerAddress)) fail('OWNER_LEDGER_OWNER_ADDRESS_INVALID')
     const requestedLimit = Number(limit)
-    const safeLimit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(50, requestedLimit) : 20)
+    const safeLimit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(50, requestedLimit) : 20
     const result = await database.query(`
       SELECT operation_id,session_id,idempotency_key,operation_type,contract_address,
         intent,intent_sha256,state,transaction_id,block_number,
