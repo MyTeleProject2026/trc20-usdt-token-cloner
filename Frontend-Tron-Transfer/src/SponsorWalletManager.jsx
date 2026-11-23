@@ -232,11 +232,11 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       if (active) setSaved(status.enrolled === true)
     }).catch(() => { if (active) setSaved(false) })
     void ownerAuth.session().then(session => {
-      if (active && session?.address === OWNER_ADDRESS) {
-        setOwnerAdminReady(true)
-        setOwnerAdminCsrfToken(session.csrfToken || '')
-      }
-    }).catch(() => { if (active) setOwnerAdminReady(false) })
+      if (!active) return
+      const ownerSessionValid = session?.address === OWNER_ADDRESS
+      setOwnerAdminReady(ownerSessionValid)
+      setOwnerAdminCsrfToken(ownerSessionValid ? (session.csrfToken || '') : '')
+    }).catch(() => { if (active) { setOwnerAdminReady(false); setOwnerAdminCsrfToken('') } })
     void sponsorAuth.session().then(session => {
       if (active && session?.address && session.address !== OWNER_ADDRESS) {
         setManagedSponsorAddress(session.address)
