@@ -73,7 +73,8 @@ test('deployment confirmation persists signed payload and broadcast-unknown stat
 test('deployment broadcast ambiguity is retained without automatic rebroadcast', async()=>{
  const state={value:'prepared'}, events=[]
  const artifact={contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}
- const unsigned={txID:'a'.repeat(64),raw_data_hex:'bb'.repeat(32),raw_data:{expiration:Date.now()+120000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
+ const rawDataHex='bb'.repeat(32), txID=createHash('sha256').update(Buffer.from(rawDataHex,'hex')).digest('hex')
+ const unsigned={txID,raw_data_hex:rawDataHex,raw_data:{expiration:Date.now()+120000,fee_limit:1000000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
  const signed={...unsigned,signature:['c'.repeat(130)]}
  const db={async query(sql){
   if(sql.includes('to_regclass')) return {rows:[{deployments_table:'tron_transfer_deployments'}]}
