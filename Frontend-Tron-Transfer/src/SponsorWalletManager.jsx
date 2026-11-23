@@ -125,7 +125,7 @@ async function readResourceSnapshot(address, tronWeb) {
   }
 }
 
-async function sponsorApiRequest(path, { method = 'GET', body, csrfToken = '' } = {}) {
+async function sponsorApiRequest(path, { method = 'GET', body, csrfToken = '', ownerCsrfToken = '' } = {}) {
   const csrf = csrfToken || String(document.cookie || '').match(/(?:^|;\s*)tron_sponsor_csrf=([^;]+)/)?.[1]
   const response = await fetch(RESOURCE_API + path, {
     method, cache: 'no-store', credentials: 'include',
@@ -133,6 +133,7 @@ async function sponsorApiRequest(path, { method = 'GET', body, csrfToken = '' } 
       accept: 'application/json',
       ...(body ? { 'content-type': 'application/json' } : {}),
       ...(method !== 'GET' && csrf ? { 'x-csrf-token': decodeURIComponent(csrf) } : {}),
+      ...(method !== 'GET' && ownerCsrfToken ? { 'x-owner-csrf-token': ownerCsrfToken } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
@@ -180,6 +181,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const ownerAuth = useMemo(() => createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: RESOURCE_API }), [])
   const [saved, setSaved] = useState(false)
   const [ownerAdminPassword, setOwnerAdminPassword] = useState('')
+  const [ownerAdminCsrfToken, setOwnerAdminCsrfToken] = useState('')
   const [ownerAdminReady, setOwnerAdminReady] = useState(false)
   const [amount, setAmount] = useState('10')
   const [energyTarget, setEnergyTarget] = useState(() => readSavedTarget('energy', '1278524'))
@@ -229,7 +231,10 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       if (active) setSaved(status.enrolled === true)
     }).catch(() => { if (active) setSaved(false) })
     void ownerAuth.session().then(session => {
-      if (active && session?.address === OWNER_ADDRESS) setOwnerAdminReady(true)
+      if (active && session?.address === OWNER_ADDRESS) {
+        setOwnerAdminReady(true)
+        setOwnerAdminCsrfToken(session.csrfToken || '')
+      }
     }).catch(() => { if (active) setOwnerAdminReady(false) })
     void sponsorAuth.session().then(session => {
       if (active && session?.address && session.address !== OWNER_ADDRESS) {
@@ -251,6 +256,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       if (result.address !== OWNER_ADDRESS) throw new Error('Authenticated Owner account does not match the configured Owner identity.')
       const session = await ownerAuth.session()
       if (session.address !== OWNER_ADDRESS) throw new Error('Owner Admin session could not be verified.')
+      setOwnerAdminCsrfToken(session.csrfToken || '')
       setOwnerAdminReady(true)
       setOwnerAdminPassword('')
       window.dispatchEvent(new Event('tron-transfer:owner-session-refreshed'))
@@ -265,8 +271,10 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     const session = await ownerAuth.session()
     if (session?.address !== OWNER_ADDRESS) {
       setOwnerAdminReady(false)
+      setOwnerAdminCsrfToken('')
       throw new Error('OWNER_ADMIN_SESSION_REQUIRED')
     }
+    setOwnerAdminCsrfToken(session.csrfToken || '')
     setOwnerAdminReady(true)
     return true
   }
@@ -778,7 +786,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
     try {
       const idempotencyKey = createIdempotencyKey()
       const intent = await sponsorApiRequest('/api/sponsor/intent', {
-        method: 'POST', csrfToken: authCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken,
         body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
@@ -815,7 +823,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         + '\\n\\nOnly the imported local Sponsor Wallet signs this transaction. The Resource API will verify the signature and recheck balance and Bandwidth before broadcast.')) {
         try {
           await sponsorApiRequest('/api/sponsor/operations/cancel', {
-            method: 'POST', csrfToken: authCsrfToken, body: { operationReference: idempotencyKey },
+            method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken, body: { operationReference: idempotencyKey },
           })
           recordActivity({ ...preparedActivity, status: 'cancelled-before-signing' })
           setLastOperationReference('')
