@@ -131,6 +131,18 @@ test('production acceptance requires an exact configured database identity finge
   assert.equal(serialized.includes('neon_secret'), false)
 })
 
+test('Sponsor intent is blocked when the configured database identity does not match the approved target', async () => {
+  const databaseUrl = 'postgres://neon_user:secret@ep-production.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
+  const { api } = setup({ databaseUrl, expectedDatabaseIdentitySha256: 'f'.repeat(64) })
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-db-identity-mismatch-0123456789',
+  }, token)
+  assert.equal(result.status, 503)
+  assert.equal(result.payload.error, 'sponsor-ledger-database-identity-not-accepted')
+})
+
 test('Sponsor status reports selected database source but never returns hostnames or credentials', async () => {
   const secretUrl = 'postgres://neon_user:neon_secret@ep-private.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
   const { api } = setup({ databaseUrl: secretUrl })
