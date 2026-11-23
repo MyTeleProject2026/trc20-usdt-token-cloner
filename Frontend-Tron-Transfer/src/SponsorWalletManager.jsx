@@ -315,7 +315,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       setWalletTokenTransfers([])
       setWalletTokenTransfersAvailable(false)
       recordSecurityEvent(session.address, 'Sponsor password session opened', 'Authenticated by the backend-managed Sponsor account.')
-      notify('success', 'Sponsor workspace unlocked', session.address)
+      notify('success', 'Sponsor account authenticated', 'Now unlock or import the matching encrypted local Sponsor Wallet.')
     } catch (error) {
       notify('error', 'Sponsor login failed', error instanceof Error ? error.message : 'Could not authenticate the Sponsor account.')
     } finally { setBusy(false) }
