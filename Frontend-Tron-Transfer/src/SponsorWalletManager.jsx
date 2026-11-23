@@ -865,6 +865,10 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         recordActivity(event)
         if (action === 'delegate') setLastDelegation(result.solidified || !result.broadcast ? null : event)
       }
+      if (!transactionId && result.operationStatus === 'failed') {
+        recordActivity({ ...preparedActivity, status: result.resultCode || 'failed' })
+        setLastOperationReference('')
+      }
       if (result.success && result.solidified) {
         notify('success', `${verb[0].toUpperCase() + verb.slice(1)} confirmed on Mainnet`, `Solidified transaction: ${transactionId}`)
       } else if (result.broadcast || result.operationStatus === 'broadcast-unknown') {
