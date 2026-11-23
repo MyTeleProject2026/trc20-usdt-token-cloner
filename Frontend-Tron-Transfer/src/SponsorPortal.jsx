@@ -24,20 +24,20 @@ export default function SponsorPortal() {
               <div>
                 <span className="eyebrow">INTERNAL SPONSOR CUSTODY · TRON MAINNET</span>
                 <h2 id="sponsor-brief-title">Manage the independent Sponsor account inside TRON TRANSFER</h2>
-                <p>The Sponsor workspace is part of the existing TRON TRANSFER application. It uses its own encrypted Sponsor Wallet vault, separate from the Owner Wallet, and does not require TronLink or another injected wallet provider.</p>
+                <p>The Sponsor workspace is part of the existing TRON TRANSFER application. It uses a backend-managed Sponsor password session, separate from the Owner account, and does not import a private key into the browser or require TronLink.</p>
               </div>
             </div>
             <div className="owner-session-card sponsor-target-card">
               <strong>Independent Sponsor account</strong>
               <p><strong>Separate address, separate private-key custody boundary, separate transaction authorization.</strong></p>
-              <small>Import only an existing Sponsor account. Do not deposit funds into a platform-controlled account or share recovery phrases, private keys or passwords. Sponsor resource operations remain subject to explicit confirmation, server-side readiness, protected reserves, fee caps and solidified Mainnet verification.</small>
+              <small>Use only the separately configured Sponsor account. Do not share recovery phrases, private keys or passwords; the Sponsor private key remains in the Resource API environment. Sponsor resource operations remain subject to explicit confirmation, server-side readiness, protected reserves, fee caps and solidified Mainnet verification.</small>
             </div>
             <div className="sponsor-brief-grid">
               <div>
                 <h3>How Sponsor control works</h3>
                 <ol>
                   <li>Open the Sponsor workspace in the existing TRON TRANSFER app.</li>
-                  <li>Unlock the encrypted local Sponsor Wallet vault.</li>
+                  <li>Sign in to the backend-managed Sponsor account with its enrolled password.</li>
                   <li>Confirm the Sponsor address matches the separately configured Mainnet Sponsor signer.</li>
                   <li>Review each exact operation, resource, amount, Owner recipient and fee/reserve policy.</li>
                   <li>Authorize the operation explicitly and wait for solidified Mainnet verification.</li>
@@ -47,8 +47,8 @@ export default function SponsorPortal() {
                 <h3>Security boundaries</h3>
                 <ul>
                   <li>Owner and Sponsor wallets remain separate.</li>
-                  <li>The Owner workspace never receives the Sponsor private key.</li>
-                  <li>No TronLink, browser-injected wallet or third-party wallet approval is required.</li>
+                  <li>The Owner workspace never receives the Sponsor private key. Sponsor writes additionally require an authenticated Owner Admin session.</li>
+                  <li>No TronLink, browser-injected wallet or third-party wallet approval is required for the backend-managed Sponsor workflow.</li>
                   <li>Never share seed phrases, private keys, vault passwords or remote access.</li>
                   <li>Code availability is not proof of a funded Sponsor account or successful Mainnet operation.</li>
                 </ul>
