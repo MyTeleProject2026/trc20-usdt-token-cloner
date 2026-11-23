@@ -534,7 +534,7 @@ export function createSponsorResourceApi({
     if (!session) return reply(res, 401, { success: false, error: 'sponsor-session-required' }, origin)
 
     if (req.method === 'POST' && path === '/api/sponsor/intent') {
-      if (!verifyAdminToken(req, env)) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!rateLimit(req, 'intent', 10)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
