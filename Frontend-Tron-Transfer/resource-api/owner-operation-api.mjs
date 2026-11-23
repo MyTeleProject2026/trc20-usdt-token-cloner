@@ -43,7 +43,6 @@ const METHODS = Object.freeze({
   'minting-enable': { method: 'setMintingEnabled', args: () => [true] },
   'minting-disable': { method: 'setMintingEnabled', args: () => [false] },
   'ownership-transfer': { method: 'transferOwnership', args: input => [address(input.nextOwner)] },
-  'ownership-accept': { method: 'acceptOwnership', args: () => [] },
 })
 
 function fail(code, status = 400) { throw Object.assign(new Error(code), { code, status }) }
@@ -53,7 +52,7 @@ function address(value) {
 }
 function uint(value) {
   const text = String(value ?? '')
-  if (!UINT.test(text) || BigInt(text) <= 0n) fail('OWNER_OPERATION_AMOUNT_INVALID')
+  if (!UINT.test(text) || BigInt(text) <= 0n || BigInt(text) > (1n << 256n) - 1n) fail('OWNER_OPERATION_AMOUNT_INVALID')
   return text
 }
 function bytes32(value) {
@@ -149,7 +148,8 @@ async function buildUnsigned(tronWeb, contractAddress, ownerAddress, normalized)
     || transaction?.raw_data?.contract?.length !== 1
     || transaction.raw_data.contract[0]?.type !== 'TriggerSmartContract') fail('OWNER_UNSIGNED_TRANSACTION_BUILD_FAILED', 503)
   const value = transaction.raw_data.contract[0]?.parameter?.value || {}
-  if (asAddress(tronWeb, value.owner_address) !== ownerAddress
+  if (Number(transaction.raw_data?.contract?.[0]?.Permission_id ?? 0) !== 0
+    || asAddress(tronWeb, value.owner_address) !== ownerAddress
     || asAddress(tronWeb, value.contract_address) !== contractAddress
     || Number(value.call_value || 0) !== 0
     || !String(value.data || '').toLowerCase().startsWith(String(tronWeb.sha3(signature)).replace(/^0x/i, '').slice(0, 8).toLowerCase())) {
@@ -261,10 +261,20 @@ export function createOwnerOperationApi({
           transactionId: record.transaction_id || null, retryAllowed: false,
           note: 'This idempotency key already identifies the same durable Owner intent. It was not rebuilt or resubmitted.',
         }, origin)
-        const tronWeb = tronWebFactory({ fullHost: MAINNET })
-        await verifyContract(tronWeb, contractAddress, ownerAddress)
-        const transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
-        const result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env })
+        let transaction
+        let result
+        try {
+          const tronWeb = tronWebFactory({ fullHost: MAINNET })
+          await verifyContract(tronWeb, contractAddress, ownerAddress)
+          transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
+          result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env })
+        } catch (error) {
+          await ledger.transition({
+            operationId: record.operation_id, sessionId: session.sessionId,
+            nextState: 'failed', failureCode: String(error?.code || error?.message || 'OWNER_PREFLIGHT_FAILED').slice(0, 100),
+          }).catch(() => {})
+          throw error
+        }
         await ledger.transition({ operationId: record.operation_id, sessionId: session.sessionId, nextState: 'preflight-passed', receipt: { unsignedTransaction: transaction, preflight: result } })
         await ledger.transition({ operationId: record.operation_id, sessionId: session.sessionId, nextState: 'awaiting-confirmation' })
         return reply(res, 201, {
