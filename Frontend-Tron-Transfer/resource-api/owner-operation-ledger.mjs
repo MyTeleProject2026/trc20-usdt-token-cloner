@@ -3,7 +3,8 @@ import { createHash, randomUUID } from 'node:crypto'
 const TRANSITIONS = Object.freeze({
   created: new Set(['preflight-passed','cancelled','failed']),
   'preflight-passed': new Set(['awaiting-confirmation','cancelled','failed']),
-  'awaiting-confirmation': new Set(['signed','cancelled']),
+  'awaiting-confirmation': new Set(['confirming','cancelled']),
+  confirming: new Set(['signed','failed']),
   signed: new Set(['broadcast-unknown','broadcast','failed']),
   'broadcast-unknown': new Set(['broadcast','confirmed','failed']),
   broadcast: new Set(['confirmed','failed','broadcast-unknown']),
@@ -76,6 +77,19 @@ export function createOwnerOperationLedger({ database }) {
     return result.rows[0]
   }
 
+  async function claimConfirmation(operationId, sessionId) {
+    const result = await database.query(`
+      UPDATE public.tron_transfer_owner_operations
+      SET state='confirming',updated_at=now()
+      WHERE operation_id=$1 AND session_id=$2 AND wallet_role='owner' AND state='awaiting-confirmation'
+      RETURNING operation_id,session_id,idempotency_key,operation_type,contract_address,
+        intent,intent_sha256,state,transaction_id,block_number,receipt,failure_code,
+        created_at,updated_at,signed_at,broadcast_at,confirmed_at
+    `, [operationId, Number(sessionId)])
+    if (!result.rows?.[0]) fail('OWNER_LEDGER_CONFIRMATION_ALREADY_CLAIMED_OR_NOT_PENDING')
+    return result.rows[0]
+  }
+
   async function get(operationId, sessionId) {
     const result = await database.query(`
       SELECT operation_id,session_id,idempotency_key,operation_type,contract_address,
@@ -86,5 +100,5 @@ export function createOwnerOperationLedger({ database }) {
     `, [operationId, Number(sessionId)])
     return result.rows?.[0] || null
   }
-  return Object.freeze({ prepare, transition, get })
+  return Object.freeze({ prepare, transition, claimConfirmation, get })
 }
