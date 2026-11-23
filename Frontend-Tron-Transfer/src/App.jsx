@@ -97,6 +97,7 @@ export default function App() {
   }
 
   function lockWallet() {
+    setOwnerSecurityOpen(false)
     ownerAuthClient.logout().catch(() => {})
     setWallet(null)
     setOwnerAccessOpen(true)
