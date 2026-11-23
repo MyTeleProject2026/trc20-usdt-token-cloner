@@ -259,7 +259,9 @@ test('Sponsor ledger bootstrap requires admin authorization and explicit confirm
       throw new Error('unexpected bootstrap query')
     },
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
   const denied = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, '')
   assert.equal(denied.status, 401)
   assert.equal(schemaCreated, false)
@@ -474,10 +476,8 @@ test('managed password session authorizes a short-lived exact intent without a b
     intentId: intent.payload.intentId,
     confirmPhrase: intent.payload.confirmationPhrase,
   }, null, TEST_ADMIN_TOKEN, client)
-  // The request passes the managed-session and explicit-confirmation checks.
-  // It then fails closed because this isolated test intentionally has no ledger DB.
-  assert.equal(result.status, 503)
-  assert.equal(result.payload.error, 'durable-idempotency-storage-required')
+  assert.equal(result.status, 410)
+  assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
   assert.equal(authCalls[1].requireCsrf, true)
 })
 
@@ -501,64 +501,6 @@ test('transaction intent binds exact operation, resource, amount, wallets and id
   assert.match(result.payload.message, /Amount \(sun\): 127852400/)
   assert.match(result.payload.message, new RegExp(OWNER))
   assert.equal(result.payload.confirmationPhrase, 'CONFIRM TRON MAINNET SPONSOR TRANSACTION')
-})
-
-test('unsigned or invalid intent signatures cannot invoke the transaction engine', async () => {
-  const { api, calls } = setup()
-  const token = await authenticated(api)
-  const intent = await call(api, 'POST', '/api/sponsor/intent', {
-    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-op-0123456789012345',
-  }, token)
-  const result = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: intent.payload.intentId, signature: 'invalid', confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(result.status, 400)
-  assert.deepEqual(calls, [])
-})
-
-test('valid signed intent still fails closed when durable idempotency storage is unavailable', async () => {
-  const { api, calls } = setup()
-  const token = await authenticated(api)
-  const intent = await call(api, 'POST', '/api/sponsor/intent', {
-    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-op-0123456789012345',
-  }, token)
-  const result = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: intent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(result.status, 503)
-  assert.deepEqual(calls, [])
-})
-
-test('durable Sponsor maintenance pause blocks a valid signed operation before reservation or signing', async () => {
-  const database = {
-    async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
-      if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX') || sql === 'BEGIN' || sql === 'ROLLBACK' || sql === 'COMMIT' || sql === 'SELECT 1') return { rowCount: 0, rows: [] }
-      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
-      throw new Error('unexpected fake database query: ' + sql)
-    },
-  }
-  const engine = {
-    readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
-    execute: async () => assert.fail('paused Sponsor engine must never sign or broadcast'),
-    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
-  }
-  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
-  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
-  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
-  const status = await call(api, 'GET', '/api/sponsor/status')
-  assert.equal(status.payload.sponsorWritesPaused, true)
-  assert.equal(status.payload.databaseStatus, 'ready')
-  assert.equal(status.payload.transactionExecutionAvailable, false)
-  const token = await authenticated(api)
-  const intent = await call(api, 'POST', '/api/sponsor/intent', {
-    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-pause-0123456789012345',
-  }, token)
-  const result = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: intent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(result.status, 423)
-  assert.equal(result.payload.error, 'sponsor-writes-paused-for-maintenance')
 })
 
 test('legacy one-step endpoint rejects all Sponsor execution attempts after migration to two-phase local signing', async () => {
@@ -720,39 +662,31 @@ test('configured Sponsor Admin token is required as a second factor for write in
 })
 
 
-test('Sponsor writes fail closed until ledger durability, backup and restore are verified', async () => {
-  const { api } = setup()
+test('Sponsor transaction preparation fails closed until ledger durability, backup and restore are verified', async () => {
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api, env } = setup({ databaseUrl, expectedDatabaseIdentitySha256 })
   const token = await authenticated(api)
   const status = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(status.payload.ledgerDurabilityVerified, true)
 
-  const { api: unverifiedApi, env: unverifiedEnv } = setup()
-  const unverifiedToken = await authenticated(unverifiedApi)
-  const prepared = await call(unverifiedApi, 'POST', '/api/sponsor/intent', {
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
     idempotencyKey: 'sponsor-unverified-ledger-0123456789',
-  }, unverifiedToken)
-  assert.equal(prepared.status, 201)
+  }, token)
+  assert.equal(intent.status, 201)
 
-  unverifiedEnv.SPONSOR_LEDGER_DURABLE = 'false'
-  const unverifiedStatus = await call(unverifiedApi, 'GET', '/api/sponsor/status')
+  env.SPONSOR_LEDGER_DURABLE = 'false'
+  const unverifiedStatus = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(unverifiedStatus.payload.ledgerDurabilityVerified, false)
   assert.equal(unverifiedStatus.payload.transactionExecutionAvailable, false)
 
-  const intent = await call(unverifiedApi, 'POST', '/api/sponsor/intent', {
-    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
-    idempotencyKey: 'sponsor-unverified-ledger-second-012345',
-  }, unverifiedToken)
-  assert.equal(intent.status, 503)
-  assert.equal(intent.payload.error, 'sponsor-ledger-durability-not-verified')
-
-  const execution = await call(unverifiedApi, 'POST', '/api/sponsor/operations', {
-    intentId: prepared.payload.intentId,
-    signature: SIGNATURE,
-    confirmPhrase: prepared.payload.confirmationPhrase,
-  }, unverifiedToken)
-  assert.equal(execution.status, 503)
-  assert.equal(execution.payload.error, 'sponsor-ledger-durability-not-verified')
+  const prepared = await call(api, 'POST', '/api/sponsor/operations/prepare', {
+    intentId: intent.payload.intentId,
+    confirmPhrase: intent.payload.confirmationPhrase,
+  }, token)
+  assert.equal(prepared.status, 503)
+  assert.equal(prepared.payload.error, 'sponsor-ledger-durability-not-verified')
 })
 
 test('missing Sponsor Admin token configuration fails closed for every write', async () => {
@@ -770,16 +704,7 @@ test('missing Sponsor Admin token configuration fails closed for every write', a
   assert.equal(result.payload.error, 'sponsor-admin-authorization-required')
 })
 
-test('Sponsor Admin token comparison is required for execution route too', async () => {
-  const adminToken = 'admin-token-with-at-least-thirty-two-bytes-long'
-  const { api, calls } = setup({ adminToken })
-  const token = await authenticated(api)
-  const result = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: 'untrusted-intent', signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(result.status, 403)
-  assert.deepEqual(calls, [])
-})
+
 
 
 test('Stake 2.0 reclaim and withdrawal intents are accepted with exact resource bindings', async () => {
