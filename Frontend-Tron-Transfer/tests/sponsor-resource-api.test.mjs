@@ -13,7 +13,7 @@ test('Sponsor Wallet no longer falls back to the separate Token Studio API', () 
   assert.doesNotMatch(ui, /API_BASE/)
 })
 
-test('Sponsor sessions remain separate and transaction execution is blocked until local signing is implemented', () => {
+test('Sponsor sessions remain separate and local vault signing is gated by Mainnet acceptance', () => {
   assert.match(ui, /createManagedWalletAuthClient\(\{ role: 'sponsor'/)
   assert.match(ui, /Sponsor Workspace Login/)
   assert.match(ui, /sponsorAuth\.login\(authPassword\)/)
@@ -58,5 +58,8 @@ test('Sponsor server supports managed password sessions and legacy signed sessio
   assert.match(service, /engine\\.prepare\\(/)
   assert.match(service, /engine\\.submitSigned\\(/)
   assert.match(service, /sponsor-local-transaction-signer/)
-  assert.ok(service.indexOf('if (!localSponsorSigningImplemented())') < service.indexOf('engine.execute({'), 'local signer gate must run before the legacy signer call')
+  assert.match(service, /path === '\/api\/sponsor\/operations\/prepare'/)
+  assert.match(service, /path === '\/api\/sponsor\/operations\/submit'/)
+  assert.match(service, /signed_transaction=\\$3::jsonb/)
+  assert.doesNotMatch(service, /engine\\.execute\\(\\{/)
 })
