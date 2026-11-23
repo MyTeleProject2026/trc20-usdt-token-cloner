@@ -437,22 +437,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [workspaceActive])
 
 
-  const bootstrapSponsorLedger = useCallback(async () => {
-    if (!wallet?.address) return
-    setBusy(true)
-    try {
-      await ensureOwnerAdmin()
-      const result = await sponsorApiRequest('/api/sponsor/ledger/bootstrap', {
-        method: 'POST', csrfToken: authCsrfToken, body: { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' },
-      })
-      const status = await sponsorApiRequest('/api/sponsor/status')
-      setSponsorApiStatus(status)
-      notify(result.success ? 'success' : 'error', result.success ? 'Sponsor ledger schema initialized' : 'Sponsor ledger bootstrap not ready', result.message || 'The ledger remains write-paused. Migration, backup/restore verification and explicit cutover are still required.')
-    } catch (error) {
-      notify('error', 'Sponsor ledger bootstrap failed', String(error?.message || 'The Resource API could not initialize the schema.'))
-    } finally { setBusy(false) }
-  }, [wallet?.address, authCsrfToken, notify, ownerAuth])
-
   useEffect(() => {
     setDurableOperations([])
     setDurableLedgerState('idle')
