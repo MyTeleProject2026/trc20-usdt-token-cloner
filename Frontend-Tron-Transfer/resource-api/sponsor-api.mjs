@@ -828,14 +828,9 @@ export function createSponsorResourceApi({
           reservationTransactionOpen = false
           return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
         }
-        // The legacy engine exposes server-side adapter signing. Do not invoke it:
-        // Sponsor execution stays blocked until the browser-imported Sponsor
-        // vault signs the exact prepared transaction and the API verifies it.
-        if (!localSponsorSigningImplemented()) {
-          await reservationClient.query('ROLLBACK')
-          reservationTransactionOpen = false
-          return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented', retryAllowed: false }, origin)
-        }
+        await reservationClient.query('ROLLBACK')
+        reservationTransactionOpen = false
+        return reply(res, 423, { success: false, error: 'legacy-sponsor-execution-endpoint-disabled-use-prepare-and-submit', retryAllowed: false }, origin)
         const reserved = await reservationClient.query(
           'INSERT INTO public.tron_transfer_sponsor_operations (idempotency_key_hash,request_hash,operation,resource,amount_sun,sponsor_address,owner_address,status) VALUES ($1,$2,$3,$4,$5,$6,$7,\'reserved\') ON CONFLICT (idempotency_key_hash) DO NOTHING RETURNING id',
           [keyHash, requestHash, intent.operation, intent.resource, intent.amountSun, session.address, ownerAddress],
