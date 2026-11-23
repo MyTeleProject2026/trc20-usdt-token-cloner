@@ -209,7 +209,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     }
     let result
     try { result = await wallet.authClient.apiRequest('/api/owner/deployment/confirm', { method: 'POST', csrf: true, body: { operationId: deploymentOperation.operationId, intentSha256: deploymentOperation.intentSha256, confirmationPhrase: deploymentOperation.confirmationPhrase, signedTransaction } }) }
-    catch (requestError) { const recovered = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId).catch(() => null); if (recovered?.deployment) setDeploymentOperation(current => ({ ...current, ...recovered.deployment, executionEnabled: deploymentExecutionEnabled })); throw requestError }
+    catch (requestError) { const recovered = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId).catch(() => null); if (recovered?.deployment) setDeploymentOperation(current => ({ ...current, ...recovered.deployment, unsignedTransaction: recovered.unsignedTransaction || current?.unsignedTransaction || null, executionEnabled: deploymentExecutionEnabled })); throw requestError }
     setDeploymentOperation(current => ({ ...current, ...(result.deployment || {}), executionEnabled: deploymentExecutionEnabled }))
     setDeploymentConfirmationPhrase('')
     setNotice(result.message || 'TronLink approved the transaction. The Resource API verified the signature, persisted it, and submitted the original transaction for Mainnet confirmation.')
@@ -220,7 +220,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     if (!deploymentOperation?.operationId) throw new Error('Prepare or recover a deployment operation first.')
     const result = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId)
     const deployment = result.deployment || {}
-    setDeploymentOperation(current => ({ ...current, ...deployment, executionEnabled: deploymentExecutionEnabled }))
+    setDeploymentOperation(current => ({ ...current, ...deployment, unsignedTransaction: result.unsignedTransaction || current?.unsignedTransaction || null, executionEnabled: deploymentExecutionEnabled }))
     const deployedAddress = deployment.contractAddress || deployment.contract_address
     const transactionId = deployment.transactionId || deployment.transaction_id
     if (deployment.state === 'confirmed' && deployedAddress) { setTokenAddress(deployedAddress); setLastTx(transactionId || ''); setSnapshot(null); setNotice('TRӾ deployment is solidified. The backend verified the exact transaction, runtime bytecode, Owner and token metadata.') }
