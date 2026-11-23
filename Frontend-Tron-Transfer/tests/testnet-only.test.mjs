@@ -84,18 +84,17 @@ test('Mainnet deployment signs a canonical FullNode transaction, not a locally e
     < deployment.indexOf('walletTronWeb.trx.sendRawTransaction(signedTransaction)'))
 })
 
-test('wallet discovery supports injected TRON providers without importing private keys', async () => {
-  const provider = await read('../src/tronlink-provider.mjs')
-  for (const value of [
-    'TIP6963:announceProvider',
-    'windowObject?.tron',
-    'windowObject?.okxwallet',
-    'windowObject?.bitkeep',
-    'windowObject?.tokenpocket',
-    'windowObject?.trustwallet',
-    'tron_requestAccounts',
-  ]) assert.ok(provider.includes(value), 'missing provider discovery path: ' + value)
-  assert.doesNotMatch(provider, /privateKey\s*[:=]/i)
+test('Owner and Sponsor workspaces do not depend on injected TRON wallet providers', async () => {
+  const app = await read('../src/App.jsx')
+  const ownerAccess = await read('../src/OwnerWalletAccess.jsx')
+  const sponsor = await read('../src/SponsorWalletManager.jsx')
+  assert.ok(app.includes('OwnerWalletAccess'))
+  assert.ok(app.includes('SponsorWalletManager'))
+  assert.ok(ownerAccess.includes('encrypted-local-owner-vault'))
+  assert.ok(ownerAccess.includes('no TronLink connection required'))
+  for (const source of [app, ownerAccess, sponsor]) {
+    assert.doesNotMatch(source, /tronlink-provider|requestTronLinkConnection|discoverTronLinkProvider/)
+  }
 })
 
 test('contract administration checks the configured owner against the on-chain token owner', async () => {
