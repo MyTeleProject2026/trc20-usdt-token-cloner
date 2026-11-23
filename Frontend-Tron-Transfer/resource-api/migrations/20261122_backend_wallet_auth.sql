@@ -63,23 +63,23 @@ CREATE TABLE IF NOT EXISTS public.tron_transfer_owner_operations (
   operation_id UUID PRIMARY KEY,
   wallet_role TEXT NOT NULL DEFAULT 'owner' CHECK (wallet_role = 'owner'),
   session_id BIGINT NOT NULL REFERENCES public.tron_transfer_wallet_sessions(session_id) ON DELETE RESTRICT,
-  idempotency_key TEXT NOT NULL CHECK (idempotency_key ~ '^[A-Za-z0-9._:-]{16,160}
-),
+  idempotency_key TEXT NOT NULL CHECK (idempotency_key ~ '^[A-Za-z0-9._:-]{16,160}$'),
+
   operation_type TEXT NOT NULL CHECK (operation_type IN (
     'deploy','owner-issue','credit','batch-credit','transfer','pause','unpause',
     'minting-enable','minting-disable','ownership-transfer','ownership-accept'
   )),
-  contract_address TEXT NOT NULL CHECK (contract_address ~ '^T[1-9A-HJ-NP-Za-km-z]{33}
-),
+  contract_address TEXT NOT NULL CHECK (contract_address ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'),
+
   intent JSONB NOT NULL CHECK (jsonb_typeof(intent) = 'object'),
-  intent_sha256 CHAR(64) NOT NULL CHECK (intent_sha256 ~ '^[0-9a-f]{64}
-),
+  intent_sha256 CHAR(64) NOT NULL CHECK (intent_sha256 ~ '^[0-9a-f]{64}$'),
+
   state TEXT NOT NULL DEFAULT 'created' CHECK (state IN (
     'created','preflight-passed','awaiting-confirmation','signed',
     'broadcast-unknown','broadcast','confirmed','failed','cancelled'
   )),
-  transaction_id CHAR(64) CHECK (transaction_id IS NULL OR transaction_id ~ '^[0-9a-f]{64}
-),
+  transaction_id CHAR(64) CHECK (transaction_id IS NULL OR transaction_id ~ '^[0-9a-f]{64}$'),
+
   block_number BIGINT CHECK (block_number IS NULL OR block_number >= 0),
   receipt JSONB,
   failure_code TEXT,
