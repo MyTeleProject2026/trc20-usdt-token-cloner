@@ -101,7 +101,6 @@ export function createTRAXDeploymentApi({
   verifyPermission = assertTransactionPermission,
   predictAddress = predictMainnetContractAddress,
   recoverDeployment = recoverMainnetDeployment,
-  signDeployment = (client, unsigned) => client.trx.sign(unsigned),
   broadcastDeployment = (client, signed) => client.trx.sendRawTransaction(signed),
 } = {}) {
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('TRӾ deployment API requires response and Owner-session adapters.')
@@ -169,7 +168,7 @@ export function createTRAXDeploymentApi({
     if (statusPath) {
       if (!db || !ledgerReady) return send(res, 503, { error: 'TRAX_DEPLOYMENT_LEDGER_DATABASE_UNAVAILABLE' }, origin)
       const rowResult = await db.query(
-        'SELECT operation_id,owner_address,idempotency_key,intent,intent_sha256,artifact_sha256,transaction_id,preflight,receipt,contract_address,state,failure_code,created_at,updated_at,signed_at,broadcast_at,confirmed_at FROM public.tron_transfer_deployments WHERE operation_id=$1 AND owner_address=$2',
+        'SELECT operation_id,owner_address,idempotency_key,intent,intent_sha256,artifact_sha256,transaction_id,unsigned_transaction,preflight,receipt,contract_address,state,failure_code,created_at,updated_at,signed_at,broadcast_at,confirmed_at FROM public.tron_transfer_deployments WHERE operation_id=$1 AND owner_address=$2',
         [statusMatch[1], session.address],
       )
       const row = rowResult.rows?.[0]
@@ -218,7 +217,12 @@ export function createTRAXDeploymentApi({
           }, origin)
         }
       }
-      return send(res, 200, { success: true, deployment: publicRow, recovery: { available: false, automaticRebroadcast: false } }, origin)
+      return send(res, 200, {
+        success: true,
+        deployment: publicRow,
+        unsignedTransaction: row.state === 'prepared' ? row.unsigned_transaction : null,
+        recovery: { available: false, automaticRebroadcast: false },
+      }, origin)
     }
     if (confirmPath) {
       if (!db || !ledgerReady) return send(res, 503, { error: 'TRAX_DEPLOYMENT_LEDGER_NOT_READY' }, origin)
@@ -251,14 +255,11 @@ export function createTRAXDeploymentApi({
         if (artifactNow.artifactSha256 !== claimed.artifact_sha256
           || artifactNow.creationBytecodeSha256 !== claimed.creation_bytecode_sha256
           || artifactNow.runtimeBytecodeSha256 !== claimed.runtime_bytecode_sha256) fail('TRAX_DEPLOYMENT_ARTIFACT_CHANGED', 409)
-        const key = String(env.TRON_OWNER_PRIVATE_KEY || '').trim().replace(/^0x/i, '')
-        if (!/^[0-9a-f]{64}$/i.test(key)) fail('TRAX_DEPLOYMENT_OWNER_SIGNER_NOT_CONFIGURED', 503)
-        const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), privateKey: key })
+        const tronWeb = tronWebFactory({ fullHost: mainnetHost(env) })
         tronWeb.fullNode.headers = env.TATUM_API_KEY && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet'
           ? { 'x-api-key': String(env.TATUM_API_KEY).trim() }
           : (env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': String(env.TRONGRID_API_KEY).trim() } : {})
-        const derivedOwner = tronWeb.address.fromPrivateKey(key)
-        if (derivedOwner !== session.address || derivedOwner !== env.TRON_OWNER_ADDRESS) fail('TRAX_DEPLOYMENT_SIGNER_OWNER_MISMATCH', 403)
+        if (session.address !== env.TRON_OWNER_ADDRESS) fail('TRAX_DEPLOYMENT_OWNER_SESSION_MISMATCH', 403)
         const unsigned = claimed.unsigned_transaction
         assertIntegrity(tronWeb, unsigned, 'Persisted TRӾ deployment transaction')
         const contract = unsigned?.raw_data?.contract?.[0]
@@ -277,12 +278,13 @@ export function createTRAXDeploymentApi({
           || Number(unsigned.raw_data?.expiration || 0) <= Date.now() + 5000
           || Number(unsigned.raw_data?.expiration || 0) > Date.now() + 10 * 60_000) fail('TRAX_DEPLOYMENT_PERSISTED_TRANSACTION_INVALID', 409)
         const predictedAddress = predictAddress(tronWeb, session.address, unsigned.txID)
-        const signed = await signDeployment(tronWeb, unsigned)
-        if (!Array.isArray(signed?.signature) || signed.signature.length !== 1
+        const signed = body.signedTransaction
+        if (!signed || typeof signed !== 'object' || Array.isArray(signed)
+          || !Array.isArray(signed.signature) || signed.signature.length !== 1
           || !/^[0-9a-f]{130}$/i.test(String(signed.signature[0] || ''))
           || String(signed.txID || '').toLowerCase() !== String(unsigned.txID).toLowerCase()
           || String(signed.raw_data_hex || '').toLowerCase() !== String(unsigned.raw_data_hex).toLowerCase()) {
-          fail('TRAX_DEPLOYMENT_SIGNED_TRANSACTION_MISMATCH', 409)
+          fail('TRAX_DEPLOYMENT_TRONLINK_SIGNATURE_REQUIRED', 409)
         }
         assertIntegrity(tronWeb, signed, 'Signed TRӾ CreateSmartContract transaction')
         await verifySigner(tronWeb, signed, session.address)
@@ -434,16 +436,20 @@ export function createTRAXDeploymentApi({
       ])
       if (!inserted.rows?.[0]) {
         const existing = await db.query(
-          'SELECT operation_id,state,transaction_id,intent_sha256 FROM public.tron_transfer_deployments WHERE owner_address=$1 AND idempotency_key=$2',
+          'SELECT operation_id,state,transaction_id,intent_sha256,unsigned_transaction FROM public.tron_transfer_deployments WHERE owner_address=$1 AND idempotency_key=$2',
           [session.address, idempotencyKey],
         )
         const row = existing.rows?.[0]
         if (!row || row.intent?.artifactSha256 !== artifactNow.artifactSha256 || row.intent?.feeLimitSun !== feeLimitSun || row.intent?.ownerAddress !== session.address) fail('TRAX_DEPLOYMENT_IDEMPOTENCY_CONFLICT', 409)
-        return send(res, 200, { success: true, replay: true, deployment: row }, origin)
+        return send(res, 200, {
+          success: true, replay: true, deployment: row,
+          unsignedTransaction: row.state === 'prepared' ? row.unsigned_transaction : null,
+        }, origin)
       }
       return send(res, 201, {
         success: true, replay: false, deployment: inserted.rows[0],
-        intent, intentSha256, preflight: { estimate, resources: resource, ownerBalanceSun: balanceSun, budget },
+        intent, intentSha256, unsignedTransaction: unsigned,
+        preflight: { estimate, resources: resource, ownerBalanceSun: balanceSun, budget },
         confirmationPhrase: 'CONFIRM TRӾ MAINNET DEPLOYMENT',
         operationId: inserted.rows[0].operation_id,
         message: 'Unsigned deployment transaction and exact artifact fingerprints are durably recorded. No signature or broadcast was requested.',
