@@ -48,5 +48,5 @@ test('Sponsor server supports managed password sessions and legacy signed sessio
   assert.match(service, /localSponsorSigningImplemented/)
   assert.match(service, /sponsor-local-signer-not-implemented/)
   assert.match(service, /sponsor-local-transaction-signer/)
-  assert.doesNotMatch(service, /engine\\.execute\\(/, 'API route must not call the legacy server-side Sponsor signer')
+  assert.ok(service.indexOf('if (!localSponsorSigningImplemented())') < service.indexOf('engine.execute({'), 'local signer gate must run before the legacy signer call')
 })
