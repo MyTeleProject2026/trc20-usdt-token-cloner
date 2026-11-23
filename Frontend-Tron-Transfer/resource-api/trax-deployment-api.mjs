@@ -88,7 +88,7 @@ export function createTRAXDeploymentApi({
     const readinessPath = url.pathname === '/api/owner/deployment/readiness'
     const preparePath = url.pathname === '/api/owner/deployment/prepare'
     const confirmPath = url.pathname === '/api/owner/deployment/confirm'
-    const statusMatch = url.pathname.match(/^\\/api\\/owner\\/deployment\\/([0-9a-f-]{36})$/i)
+    const statusMatch = url.pathname.match(/^\/api\/owner\/deployment\/([0-9a-f-]{36})$/i)
     const statusPath = Boolean(statusMatch)
     if (!readinessPath && !preparePath && !confirmPath && !statusPath) return false
     if (req.method !== (readinessPath || statusPath ? 'GET' : 'POST')) return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
