@@ -311,7 +311,7 @@ export function createOwnerOperationApi({
     if (pool) return pool
     const connection = sponsorDatabaseConnectionString(env)
     if (!connection) return null
-    pool = new Pool({ connectionString: normalizePostgresTlsMode(connection), connectionTimeoutMillis: 3500, query_timeout: 4500, statement_timeout: 4000, idleTimeoutMillis: 30_000, max: 3 })
+    pool = new Pool({ connectionString: normalizePostgresTlsMode(connection), connectionTimeoutMillis: 2500, query_timeout: 2500, statement_timeout: 2000, idleTimeoutMillis: 30_000, max: 3 })
     pool.on('error', error => process.stderr.write('Owner operation ledger database error: ' + String(error?.code || 'unknown') + '\n'))
     return pool
   }
