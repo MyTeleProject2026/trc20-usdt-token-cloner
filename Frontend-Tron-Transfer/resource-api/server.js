@@ -25,6 +25,37 @@ const RATE_LIMIT = 30
 const MAX_RATE_LIMIT_ENTRIES = 10_000
 const cache = new Map()
 const resourceReadsInFlight = new Map()
+const mainnetRpcProxyCache = new Map()
+const mainnetRpcProxyInFlight = new Map()
+const MAINNET_READ_RPC_METHODS = new Set([
+  '/wallet/getaccount', '/walletsolidity/getaccount', '/wallet/getaccountresource',
+  '/wallet/getaccountnet', '/wallet/getchainparameters', '/wallet/getcontract',
+  '/wallet/triggerconstantcontract', '/wallet/estimateenergy',
+  '/walletsolidity/gettransactionbyid', '/walletsolidity/gettransactioninfobyid',
+  '/walletsolidity/getavailableunfreezecount', '/walletsolidity/getcanwithdrawunfreezeamount',
+  '/walletsolidity/getcandelegatedmaxsize', '/wallet/getnowblock', '/walletsolidity/getnowblock',
+])
+let mainnetRpcQueue = Promise.resolve()
+let mainnetRpcNextAt = 0
+let mainnetRpcCooldownUntil = 0
+
+async function scheduledRpcFetch(fetchImpl, url, options) {
+  const task = mainnetRpcQueue.then(async () => {
+    const waitMs = Math.max(0, mainnetRpcNextAt, mainnetRpcCooldownUntil) - Date.now()
+    if (waitMs > 0) await new Promise(resolveWait => setTimeout(resolveWait, waitMs))
+    const response = await fetchImpl(url, options)
+    mainnetRpcNextAt = Date.now() + 550
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers?.get?.('retry-after'))
+      const providerCooldown = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.max(5000, Math.min(30_000, retryAfter * 1000)) : 5000
+      mainnetRpcCooldownUntil = Date.now() + providerCooldown
+    }
+    return response
+  })
+  mainnetRpcQueue = task.catch(() => {})
+  return task
+}
 
 const number = value => {
   const parsed = Number(value ?? 0)
@@ -166,7 +197,7 @@ async function rpcPost(path, body, { fetchImpl = fetch, env = process.env } = {}
   let lastError
   for (const provider of rpcProviders(env)) {
     try {
-      const response = await fetchImpl(provider.baseUrl + path, {
+      const response = await scheduledRpcFetch(fetchImpl, provider.baseUrl + path, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -346,6 +377,45 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       return res.end()
     }
     const url = new URL(req.url || '/', 'http://localhost')
+    const rpcProxyMatch = url.pathname.match(/^\/api\/tron\/mainnet\/rpc(\/wallet(?:solidity)?\/[a-zA-Z0-9]+)$/)
+    if (rpcProxyMatch) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
+      const rpcPath = rpcProxyMatch[1]
+      if (!MAINNET_READ_RPC_METHODS.has(rpcPath)) return send(res, 404, { error: 'MAINNET_RPC_METHOD_NOT_ALLOWED' }, origin)
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'mainnet-rpc-proxy', 120)) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 15 }, origin)
+      let raw = ''
+      try {
+        for await (const chunk of req) {
+          raw += chunk.toString('utf8')
+          if (raw.length > 32_768) return send(res, 413, { error: 'RPC_REQUEST_TOO_LARGE' }, origin)
+        }
+        const body = JSON.parse(raw || '{}')
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return send(res, 400, { error: 'INVALID_RPC_REQUEST' }, origin)
+        const key = rpcPath + ':' + JSON.stringify(body)
+        const cached = mainnetRpcProxyCache.get(key)
+        if (cached && Date.now() - cached.at < 1500) return send(res, 200, cached.value, origin)
+        let pending = mainnetRpcProxyInFlight.get(key)
+        if (!pending) {
+          pending = rpcPost(rpcPath, body, { fetchImpl, env }).then(result => result.data)
+          mainnetRpcProxyInFlight.set(key, pending)
+        }
+        try {
+          const value = await pending
+          mainnetRpcProxyCache.set(key, { at: Date.now(), value })
+          return send(res, 200, value, origin)
+        } finally {
+          if (mainnetRpcProxyInFlight.get(key) === pending) mainnetRpcProxyInFlight.delete(key)
+        }
+      } catch (error) {
+        const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600 ? error.status : 503
+        return send(res, status === 429 ? 503 : status, {
+          Error: status === 429 ? 'TRON Mainnet provider is rate-limited; retry after cooldown.' : 'TRON Mainnet RPC is temporarily unavailable.',
+          code: status === 401 || status === 403 ? 'MAINNET_RPC_PROVIDER_AUTH_FAILED' : status === 429 ? 'MAINNET_RPC_RATE_LIMITED' : 'MAINNET_RPC_UNAVAILABLE',
+          retryAfterSeconds: status === 429 ? 5 : undefined,
+        }, origin)
+      }
+    }
     if (await ownerWalletAuthApi.handle(req, res, url, origin)) return
     if (await ownerOperationApi.handle(req, res, url, origin)) return
     if (await sponsorWalletAuthApi.handle(req, res, url, origin)) return
