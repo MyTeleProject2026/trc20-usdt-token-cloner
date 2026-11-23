@@ -2,7 +2,6 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import pg from 'pg'
 import { isIP } from 'node:net'
 import { TronWeb } from 'tronweb'
-import { isDeepStrictEqual } from 'node:util'
 import { createSponsorTransactionEngine } from './sponsor-engine.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
@@ -857,7 +856,7 @@ export function createSponsorResourceApi({
             if (!TXID.test(transactionId || '')) throw new Error('invalid-signed-transaction-id')
             const saved = await db.query(
               'UPDATE public.tron_transfer_sponsor_operations SET status=\'broadcast-unknown\',transaction_id=$2,updated_at=now() WHERE idempotency_key_hash=$1 AND status=\'reserved\' RETURNING id',
-              [keyHash, transactionId],
+              [keyHash, transactionId, JSON.stringify(body.signedTransaction)],
             )
             if (!saved.rowCount) throw new Error('durable-transaction-id-persistence-failed')
           },
