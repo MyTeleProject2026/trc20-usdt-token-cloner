@@ -321,6 +321,14 @@ function classifySponsorDatabaseError(error) {
   return 'query-failed'
 }
 
+function databaseTargetIdentityMatches(env = process.env) {
+  const expected = typeof env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256 === 'string'
+    ? env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256.trim().toLowerCase()
+    : ''
+  return /^[0-9a-f]{64}$/.test(expected)
+    && sponsorDatabaseTargetIdentityInfo(env).identityFingerprint === expected
+}
+
 export function createSponsorResourceApi({
   env = process.env,
   allowedAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
@@ -465,7 +473,7 @@ export function createSponsorResourceApi({
           engineConfigured: readiness.configured === true,
           engineEnabled: readiness.enabled === true,
           localSignerReady,
-          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && databaseReady && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
+          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
@@ -518,6 +526,7 @@ export function createSponsorResourceApi({
 
     if (req.method === 'POST' && path === '/api/sponsor/ledger/bootstrap') {
       if (!(await verifyAdminAuthorization(req))) return reply(res, 401, { success: false, error: 'admin-authorization-required' }, origin)
+      if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       let bootstrapInput
       try { bootstrapInput = await readBody(req) } catch (error) {
         return reply(res, Number(error?.status) || 400, { success: false, error: 'invalid-bootstrap-request' }, origin)
@@ -620,6 +629,7 @@ export function createSponsorResourceApi({
 
     if (req.method === 'POST' && path === '/api/sponsor/intent') {
       if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!rateLimit(req, 'intent', 10)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
@@ -853,6 +863,7 @@ export function createSponsorResourceApi({
     }
 
     if (req.method === 'POST' && path === '/api/tron/sponsorship/resource-delegations/verify-wallet') {
+      if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
       if (body.network !== 'mainnet' || body.sponsorAddress !== session.address || body.receiverAddress !== ownerAddress
@@ -886,6 +897,7 @@ export function createSponsorResourceApi({
 
     const operationMatch = path.match(/^\/api\/sponsor\/operations\/([A-Za-z0-9._:-]+)$/)
     if (req.method === 'GET' && operationMatch) {
+      if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       const key = operationMatch[1]
       if (!IDEMPOTENCY.test(key)) return reply(res, 400, { success: false, error: 'invalid-idempotency-key' }, origin)
       const db = getDatabase()
