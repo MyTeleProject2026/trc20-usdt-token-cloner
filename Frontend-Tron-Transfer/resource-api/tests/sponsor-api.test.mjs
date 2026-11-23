@@ -839,3 +839,31 @@ test('PostgreSQL explicit verify-full and local disable modes are preserved', ()
   assert.equal(normalizePostgresTlsMode(strict), new URL(strict).toString())
   assert.equal(normalizePostgresTlsMode(local), new URL(local).toString())
 })
+
+test('Sponsor readiness coalesces simultaneous status refreshes into one database snapshot', async () => {
+  let queryCount = 0
+  const database = {
+    async query(sql) {
+      queryCount += 1
+      await new Promise(resolve => setTimeout(resolve, 20))
+      if (sql.includes('to_regclass')) {
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+      }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      throw new Error('unexpected Sponsor status query')
+    },
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const [first, second] = await Promise.all([
+    call(api, 'GET', '/api/sponsor/status'),
+    call(api, 'GET', '/api/sponsor/status'),
+  ])
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
+  assert.equal(first.payload.sponsorWritesPaused, true)
+  assert.equal(second.payload.sponsorWritesPaused, true)
+  assert.equal(queryCount, 2)
+  const cached = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(cached.status, 200)
+  assert.equal(queryCount, 2)
+})
