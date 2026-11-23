@@ -597,7 +597,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
       if (!window.confirm('Confirm this exact Sponsor operation?\n\n' + intent.message + '\n\nYour authenticated Sponsor password session, independent Owner Admin session and CSRF protection will be checked by the backend. The backend signs and submits only this exact intent.')) return
       const result = await sponsorApiRequest('/api/sponsor/operations', {
-        method: 'POST', adminToken, csrfToken: authCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken,
         body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
       })
       const transactionId = typeof result.transactionId === 'string' ? result.transactionId : ''
@@ -799,10 +799,9 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Server-side signing, exact-intent authorization and durable operation ledger.</p></div></div>
       <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Owner Admin second factor: {sponsorApiStatus?.ownerAdminSessionRequired ? 'required · backend session' : 'not configured'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
-      {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Exact Sponsor message signature, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
+      {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Sponsor password session, independent Owner Admin session, explicit intent confirmation, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
       {wallet && ['schema-missing', 'control-row-missing'].includes(sponsorApiStatus?.databaseStatus) && <div className="sponsor-ledger-bootstrap">
-        <label className="sponsor-field">Sponsor Admin authorization token<input type="password" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" spellCheck="false"/><small>Used only for this authenticated schema-bootstrap request. Held in memory and cleared when the Sponsor wallet locks.</small></label>
-        <button type="button" className="sponsor-secondary" disabled={busy || adminToken.length < 32} onClick={() => void bootstrapSponsorLedger()}>{busy ? 'Checking database…' : 'Initialize paused Sponsor ledger schema'}</button>
+        <button type="button" className="sponsor-secondary" disabled={busy || !ownerAdminReady} onClick={() => void bootstrapSponsorLedger()}>{busy ? 'Checking database…' : 'Initialize paused Sponsor ledger schema'}
         <p className="sponsor-warning">This creates the missing ledger tables only. It does not migrate historical records, enable writes, sign transactions or broadcast to Mainnet.</p>
       </div>}
     </section>}
@@ -833,9 +832,15 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         {lastTx && <p className="sponsor-tx-link">Last transaction: <a href={`https://tronscan.org/#/transaction/${lastTx}`} target="_blank" rel="noreferrer">{lastTx}</a></p>}
       </section>}
 
+      {wallet && <section className="sponsor-card sponsor-admin-authorization">
+        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Independent Owner Admin authorization</h3><p>{ownerAdminReady ? 'Owner account session verified.' : 'Authenticate the separate Owner account to authorize Sponsor administration.'}</p></div></div>
+        {!ownerAdminReady && <label className="sponsor-field">Owner account password<input type="password" value={ownerAdminPassword} onChange={event => setOwnerAdminPassword(event.target.value)} autoComplete="current-password" minLength={12}/></label>}
+        <div className="sponsor-actions"><button type="button" className="sponsor-secondary" disabled={busy || ownerAdminPassword.length < 12 || ownerAdminReady} onClick={() => void loginOwnerAdmin()}>{ownerAdminReady ? 'Owner Admin session active' : 'Authenticate Owner Admin'}</button></div>
+        <p className="sponsor-muted">Sponsor write and ledger-bootstrap requests require both the Sponsor session and the independent Owner session. No static Sponsor Admin token is sent from the browser.</p>
+      </section>}
+
       {activePage === "sponsor-resources" && <section id="sponsor-resources" className="sponsor-card">
         <div className="sponsor-card-heading"><ArrowDownUp/><div><h3>Resource &amp; Stake 2.0 Management</h3><p>Stake, delegate, reclaim, initiate unstaking, and withdraw matured Sponsor TRX.</p></div></div>
-        {sponsorApiStatus?.adminTokenRequired === true && <label className="sponsor-field">Sponsor Admin authorization token<input type="password" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" spellCheck="false"/><small>Required by the Resource API for Sponsor writes. Sent only over HTTPS, held in memory, and cleared when the Sponsor wallet locks or disconnects.</small></label>}
         <div className="sponsor-resource-controls">
           <label className="sponsor-field">Amount (TRX)<input inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)}/></label>
           <label className="sponsor-field">Resource<select value={resourceType} onChange={event => setResourceType(event.target.value)}><option value="ENERGY">Energy</option><option value="BANDWIDTH">Bandwidth</option></select></label>
