@@ -104,7 +104,7 @@ Do not set the database evidence flags or Mainnet execution gates until the migr
 
 ### Deliberately separate operations
 
-- TRӾ contract deployment remains locked in the existing UI until a separate backend deployment route pins the exact creation bytecode/ABI artifact and performs its own deployment-specific preflight. The TriggerSmartContract Owner signer does not sign CreateSmartContract deployment transactions.
+- TRӾ contract deployment uses the artifact-pinned backend preparation route and the same connected TronLink Owner signer as existing-contract operations. The UI asks TronLink to sign the exact prepared CreateSmartContract transaction only after deployment-specific resource/fee preflight and explicit confirmation; execution remains locked until all production gates are accepted.
 - The current Owner signer cannot accept a two-step ownership transfer on behalf of a different pending-owner address. The new pending owner must authorize its own acceptance transaction; the existing Owner session does not impersonate it.
 - No Solidity contract rewrite, upgrade or Mainnet deployment is included in this change.
 
