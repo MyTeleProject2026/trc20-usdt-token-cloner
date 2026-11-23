@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { TronWeb } from 'tronweb'
 import pg from 'pg'
 import { createOwnerOperationLedger } from './owner-operation-ledger.mjs'
+import { createOwnerManagedSigner } from './owner-managed-signer.mjs'
 import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
@@ -112,6 +113,7 @@ function asAddress(tronWeb, value) {
   try { return value && (String(value).startsWith('T') ? value : tronWeb.address.fromHex(value)) } catch { return '' }
 }
 function verifyPermission(tronWeb, account, ownerAddress) {
+  if (asAddress(tronWeb, account?.address) !== ownerAddress) fail('OWNER_MAINNET_ACCOUNT_ADDRESS_MISMATCH', 409)
   const permission = account?.owner_permission
   const threshold = Number(permission?.threshold)
   if (!permission || !Number.isSafeInteger(threshold) || threshold <= 0 || !Array.isArray(permission.keys)) {
@@ -233,6 +235,7 @@ export function createOwnerOperationApi({
   env = process.env, send, authenticateManagedSession, database = null,
   fetchImpl = fetch, tronWebFactory = options => new TronWeb(options),
   prepareTransaction = buildUnsigned, preflightTransaction = preflight,
+  signerFactory = options => createOwnerManagedSigner(options),
 } = {}) {
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('Owner operation API dependencies are required')
   let pool = database
@@ -269,6 +272,8 @@ export function createOwnerOperationApi({
         const contractAddress = String(env.TRAX_CONTRACT_ADDRESS || '')
         if (!ADDRESS.test(ownerAddress) || !ADDRESS.test(contractAddress)) return reply(res, 503, { success: false, error: 'OWNER_MAINNET_IDENTITY_OR_TRAX_CONTRACT_NOT_CONFIGURED' }, origin)
         const normalized = normalizeIntent(input, ownerAddress)
+        const signer = signerFactory({ env })
+        if (signer.address !== ownerAddress || signer.network !== 'TRON Mainnet') fail('OWNER_MANAGED_SIGNER_IDENTITY_MISMATCH', 403)
         const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
         if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
         const record = await ledger.prepare({
@@ -302,7 +307,7 @@ export function createOwnerOperationApi({
           operationType: normalized.operationType, method: normalized.method, args: normalized.args,
           ownerAddress, contractAddress, preflight: result, confirmationPhrase: CONFIRMATION_PHRASE,
           transactionExpiresAt: transaction.raw_data?.expiration || null,
-          executionEnabled: false,
+          signerConfigured: true, executionEnabled: false,
           note: 'This endpoint prepares and durably records the exact operation only. Signing and broadcasting are intentionally disabled in this release.',
         }, origin)
       }
