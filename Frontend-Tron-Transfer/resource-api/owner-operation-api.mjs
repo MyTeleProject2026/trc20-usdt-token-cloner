@@ -361,7 +361,7 @@ export function createOwnerOperationApi({
       if (req.method === 'GET' && listRoute) {
         const requestedLimit = Number(url.searchParams.get('limit') || 20)
         const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(50, requestedLimit) : 20
-        const rows = await ledger.list(session.sessionId, limit)
+        const rows = await ledger.list(String(env.TRON_OWNER_ADDRESS || ''), limit)
         return reply(res, 200, {
           success: true, network: 'TRON Mainnet', executionEnabled: executionGateEnabled(env),
           operations: rows.map(row => ({
@@ -390,9 +390,9 @@ export function createOwnerOperationApi({
         if (signer.address !== ownerAddress || signer.network !== 'TRON Mainnet') fail('OWNER_MANAGED_SIGNER_IDENTITY_MISMATCH', 403)
         const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
         if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
-        const intent = { method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun }
+        const intent = { ownerAddress, method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun }
         const record = await ledger.prepare({
-          sessionId: session.sessionId, idempotencyKey: normalized.idempotencyKey,
+          sessionId: session.sessionId, ownerAddress, idempotencyKey: normalized.idempotencyKey,
           operationType: normalized.operationType, contractAddress, intent,
         })
         if (record.replay) {
@@ -413,16 +413,16 @@ export function createOwnerOperationApi({
           result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env })
         } catch (error) {
           await ledger.transition({
-            operationId: record.operation_id, sessionId: session.sessionId,
+            operationId: record.operation_id, ownerAddress,
             nextState: 'failed', failureCode: String(error?.code || error?.message || 'OWNER_PREFLIGHT_FAILED').slice(0, 100),
           }).catch(() => {})
           throw error
         }
         await ledger.transition({
-          operationId: record.operation_id, sessionId: session.sessionId,
+          operationId: record.operation_id, ownerAddress,
           nextState: 'preflight-passed', receipt: { unsignedTransaction: transaction, preflight: result },
         })
-        await ledger.transition({ operationId: record.operation_id, sessionId: session.sessionId, nextState: 'awaiting-confirmation' })
+        await ledger.transition({ operationId: record.operation_id, ownerAddress, nextState: 'awaiting-confirmation' })
         return reply(res, 201, {
           success: true, replay: false, operationId: record.operation_id, state: 'awaiting-confirmation',
           operationType: normalized.operationType, method: normalized.method, args: normalized.args,
@@ -437,9 +437,9 @@ export function createOwnerOperationApi({
       }
 
       if (req.method === 'POST' && route && action === 'cancel') {
-        const operation = await ledger.get(operationId, session.sessionId)
+        const operation = await ledger.get(operationId, String(env.TRON_OWNER_ADDRESS || ''))
         if (!operation) return reply(res, 404, { success: false, error: 'OWNER_OPERATION_NOT_FOUND' }, origin)
-        const cancelled = await ledger.transition({ operationId, sessionId: session.sessionId, nextState: 'cancelled' })
+        const cancelled = await ledger.transition({ operationId, ownerAddress: String(env.TRON_OWNER_ADDRESS || ''), nextState: 'cancelled' })
         return reply(res, 200, { success: true, operationId, state: cancelled.state, retryAllowed: false }, origin)
       }
 
@@ -457,7 +457,8 @@ export function createOwnerOperationApi({
         if (input.confirmationPhrase !== CONFIRMATION_PHRASE || String(input.intentSha256 || '').toLowerCase() !== intentHash) {
           return reply(res, 400, { success: false, error: 'OWNER_OPERATION_EXPLICIT_CONFIRMATION_MISMATCH', retryAllowed: false }, origin)
         }
-        if (operationIntentHash(operation.operation_type, operation.intent) !== intentHash) {
+        if (operation.intent?.ownerAddress !== String(env.TRON_OWNER_ADDRESS || '')
+          || operationIntentHash(operation.operation_type, operation.intent) !== intentHash) {
           return reply(res, 409, { success: false, error: 'OWNER_OPERATION_LEDGER_INTENT_INTEGRITY_FAILED', retryAllowed: false }, origin)
         }
         if (operation.contract_address !== env.TRAX_CONTRACT_ADDRESS
@@ -465,7 +466,7 @@ export function createOwnerOperationApi({
           return reply(res, 409, { success: false, error: 'OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', retryAllowed: false }, origin)
         }
         let claimed
-        try { claimed = await ledger.claimConfirmation(operationId, session.sessionId) }
+        try { claimed = await ledger.claimConfirmation(operationId, String(env.TRON_OWNER_ADDRESS || '')) }
         catch (claimError) {
           if (claimError?.code === '23514' || claimError?.code === '42703') {
             return reply(res, 503, { success: false, error: 'OWNER_OPERATION_CONFIRMING_MIGRATION_REQUIRED', retryAllowed: false }, origin)
@@ -476,7 +477,7 @@ export function createOwnerOperationApi({
         let transactionId = null
         const transition = async (nextState, details = {}) => {
           const saved = await ledger.transition({
-            operationId, sessionId: session.sessionId, nextState,
+            operationId, ownerAddress: String(env.TRON_OWNER_ADDRESS || ''), nextState,
             transactionId: details.transactionId || null,
             blockNumber: details.blockNumber || null,
             failureCode: details.failureCode || null,
@@ -579,7 +580,7 @@ export function createOwnerOperationApi({
         let reconciliation = null
         if (operation.state === 'confirming' && !operation.transaction_id
           && Date.now() - new Date(operation.updated_at).getTime() > 5 * 60_000) {
-          await ledger.transition({ operationId, sessionId: session.sessionId, nextState: 'failed', failureCode: 'OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE' })
+          await ledger.transition({ operationId, ownerAddress: String(env.TRON_OWNER_ADDRESS || ''), nextState: 'failed', failureCode: 'OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE' })
         }
         if (operation.transaction_id && ['signed', 'broadcast-unknown', 'broadcast'].includes(operation.state)) {
           const tronWeb = tronWebFactory({ fullHost: MAINNET })
@@ -587,10 +588,10 @@ export function createOwnerOperationApi({
             reconciliation = await reconcileTransaction(operation.transaction_id, String(env.TRON_OWNER_ADDRESS || ''), operation.contract_address, { fetchImpl: pacedFetch, env, tronWeb })
             if (reconciliation?.solidified) {
               if (operation.state === 'signed') {
-                await ledger.transition({ operationId, sessionId: session.sessionId, nextState: 'broadcast-unknown' })
+                await ledger.transition({ operationId, ownerAddress: String(env.TRON_OWNER_ADDRESS || ''), nextState: 'broadcast-unknown' })
               }
               await ledger.transition({
-                operationId, sessionId: session.sessionId,
+                operationId, ownerAddress: String(env.TRON_OWNER_ADDRESS || ''),
                 nextState: reconciliation.success ? 'confirmed' : 'failed',
                 blockNumber: reconciliation.blockNumber,
                 failureCode: reconciliation.success ? null : String(reconciliation.status || 'SOLIDIFIED_EXECUTION_FAILED').slice(0, 100),
