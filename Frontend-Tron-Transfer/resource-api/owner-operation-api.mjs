@@ -107,6 +107,28 @@ function normalizeIntent(input, ownerAddress) {
   if (!/^[A-Za-z0-9._:-]{16,160}$/.test(idempotencyKey)) fail('OWNER_OPERATION_IDEMPOTENCY_KEY_INVALID')
   return { operationType, method: definition.method, args, feeLimitSun, idempotencyKey }
 }
+function createPacedFetch(fetchImpl, intervalMs = 350) {
+  let queue = Promise.resolve()
+  let nextAt = 0
+  return (...args) => {
+    const task = queue.then(async () => {
+      const wait = Math.max(0, nextAt - Date.now())
+      if (wait) await new Promise(resolve => setTimeout(resolve, wait))
+      let response = await fetchImpl(...args)
+      if (response.status === 429) {
+        const retryAfter = Number(response.headers?.get?.('retry-after'))
+        const retryMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(5000, retryAfter * 1000) : 1000
+        await new Promise(resolve => setTimeout(resolve, retryMs))
+        response = await fetchImpl(...args)
+      }
+      nextAt = Date.now() + intervalMs
+      return response
+    })
+    queue = task.catch(() => {})
+    return task
+  }
+}
+
 function rpcHeaders(env) {
   return { accept: 'application/json', 'content-type': 'application/json',
     ...(typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim()
@@ -153,9 +175,13 @@ async function verifyContract(tronWeb, contractAddress, ownerAddress, { fetchImp
     fail('OWNER_TRAX_RUNTIME_BYTECODE_MISMATCH', 409)
   }
   const contract = await tronWeb.contract(ABI).at(contractAddress)
-  const [name, symbol, decimals, owner] = await Promise.all([
-    contract.name().call(), contract.symbol().call(), contract.decimals().call(), contract.owner().call(),
-  ])
+  const name = await contract.name().call()
+  await new Promise(resolve => setTimeout(resolve, 350))
+  const symbol = await contract.symbol().call()
+  await new Promise(resolve => setTimeout(resolve, 350))
+  const decimals = await contract.decimals().call()
+  await new Promise(resolve => setTimeout(resolve, 350))
+  const owner = await contract.owner().call()
   if (String(name) !== 'TRӾ' || String(symbol) !== 'TRӾ' || Number(decimals) !== 6) fail('OWNER_TRAX_CONTRACT_METADATA_MISMATCH', 409)
   if (asAddress(tronWeb, owner) !== ownerAddress) fail('OWNER_NOT_CURRENT_ONCHAIN_CONTRACT_OWNER', 403)
   return { name: String(name), symbol: String(symbol), decimals: Number(decimals), owner: ownerAddress }
@@ -198,11 +224,9 @@ async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { 
   const value = transaction?.raw_data?.contract?.[0]?.parameter?.value
   const data = String(value?.data || '').replace(/^0x/i, '')
   if (!/^(?:[0-9a-f]{2}){4,}$/i.test(data)) fail('OWNER_OPERATION_CALL_DATA_INVALID', 409)
-  const [resourceResponse, account, chainParameters] = await Promise.all([
-    rpcPost('/wallet/getaccountresource', { address: ownerAddress, visible: true }, { fetchImpl, env }),
-    rpcPost('/wallet/getaccount', { address: ownerAddress, visible: true }, { fetchImpl, env }),
-    rpcPost('/wallet/getchainparameters', {}, { fetchImpl, env }),
-  ])
+  const resourceResponse = await rpcPost('/wallet/getaccountresource', { address: ownerAddress, visible: true }, { fetchImpl, env })
+  const account = await rpcPost('/wallet/getaccount', { address: ownerAddress, visible: true }, { fetchImpl, env })
+  const chainParameters = await rpcPost('/wallet/getchainparameters', {}, { fetchImpl, env })
   const resourceSnapshot = normalizeMainnetAccountResources(resourceResponse, chainParameters)
   if (asAddress(tronWeb, account?.address) !== ownerAddress) fail('OWNER_MAINNET_ACCOUNT_ADDRESS_MISMATCH', 409)
   const permission = normalizeMainnetPermissionSnapshot(account, ownerAddress, tronWeb)
@@ -261,10 +285,8 @@ export function createOwnerOperationApi({
   },
   broadcastTransaction = (tronWeb, signed) => tronWeb.trx.sendRawTransaction(signed),
   reconcileTransaction = async (txId, ownerAddress, contractAddress, { fetchImpl: requestFetch, env: requestEnv, tronWeb }) => {
-    const [info, transaction] = await Promise.all([
-      rpcPost('/walletsolidity/gettransactioninfobyid', { value: txId }, { fetchImpl: requestFetch, env: requestEnv }),
-      rpcPost('/walletsolidity/gettransactionbyid', { value: txId }, { fetchImpl: requestFetch, env: requestEnv }),
-    ])
+    const info = await rpcPost('/walletsolidity/gettransactioninfobyid', { value: txId }, { fetchImpl: requestFetch, env: requestEnv })
+    const transaction = await rpcPost('/walletsolidity/gettransactionbyid', { value: txId }, { fetchImpl: requestFetch, env: requestEnv })
     const confirmedId = String(info?.id || info?.txID || transaction?.txID || '').toLowerCase()
     if (confirmedId && confirmedId !== txId.toLowerCase()) fail('OWNER_SOLIDIFIED_RECEIPT_TXID_MISMATCH', 409)
     const blockNumber = Number(info?.blockNumber)
@@ -284,6 +306,7 @@ export function createOwnerOperationApi({
   ledgerFactory = options => createOwnerOperationLedger(options),
 } = {}) {
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('Owner operation API dependencies are required')
+  const pacedFetch = createPacedFetch(fetchImpl)
   let pool = database
   function getDatabase() {
     if (typeof pool === 'function') return pool()
@@ -371,9 +394,9 @@ export function createOwnerOperationApi({
         let result
         try {
           const tronWeb = tronWebFactory({ fullHost: MAINNET })
-          await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl, env })
+          await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
-          result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env })
+          result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env })
         } catch (error) {
           await ledger.transition({
             operationId: record.operation_id, sessionId: session.sessionId,
@@ -461,9 +484,9 @@ export function createOwnerOperationApi({
           const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
           if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
           const tronWeb = tronWebFactory({ fullHost: MAINNET })
-          await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl, env })
+          await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
           const unsigned = await prepareTransaction(tronWeb, claimed.contract_address, ownerAddress, normalized)
-          const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl, env })
+          const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env })
           const expiration = Number(unsigned?.raw_data?.expiration)
           if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
@@ -488,7 +511,7 @@ export function createOwnerOperationApi({
             await transition('broadcast')
           }
           let reconciliation
-          try { reconciliation = await reconcileTransaction(transactionId, ownerAddress, claimed.contract_address, { fetchImpl, env, tronWeb }) }
+          try { reconciliation = await reconcileTransaction(transactionId, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env, tronWeb }) }
           catch { reconciliation = { solidified: false, status: 'receipt-check-unavailable' } }
           if (reconciliation?.solidified && reconciliation.success === true) {
             await transition('confirmed', {
