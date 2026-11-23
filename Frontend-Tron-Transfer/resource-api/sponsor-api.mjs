@@ -824,7 +824,7 @@ export function createSponsorResourceApi({
         const persistedSignature = durableSigned || result.signed === true
         return reply(res, result.success ? 200 : persistedSignature || result.broadcast ? 202 : 422, {
           success: result.success === true, operationReference: body.operationReference, operationStatus: status,
-          transactionId: result.txid || durableRow?.transaction_id || row.prepared_transaction.txID || null, resultCode: result.status || 'unknown',
+          transactionId: result.txid || durableRow?.transaction_id || null, resultCode: result.status || 'unknown',
           confirmationBlock: result.blockNumber || null, signed: persistedSignature,
           broadcast: result.broadcast === true || status === 'broadcast-unknown', solidified: result.solidified === true, retryAllowed: false,
         }, origin)
