@@ -105,7 +105,9 @@ test('Owner operation API exposes signing only behind guarded explicit confirmat
   assert.match(source, /executionGateEnabled\(env\)/)
   assert.match(source, /OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED/)
   assert.match(source, /TRAX_RUNTIME_BYTECODE_SHA256/)
-  assert.match(source, /signer\.signContractTransaction/)
+  assert.match(source, /input\.signedTransaction/)
+  assert.match(source, /verifySignedTransaction\(tronWeb, signed, ownerAddress\)/)
+  assert.doesNotMatch(source, /signerFactory|signContractTransaction|createOwnerManagedSigner/)
   assert.match(source, /broadcastTransaction/)
   assert.match(source, /walletsolidity\/gettransactioninfobyid/)
 })
@@ -122,11 +124,12 @@ function makeExecutionFixture(overrides = {}) {
     operation_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
     session_id: 9, idempotency_key: 'owner-operation-test-00001',
     operation_type: 'pause', contract_address: contract, intent, intent_sha256: intentSha256,
-    state: 'awaiting-confirmation', transaction_id: null, receipt: {},
+    state: 'awaiting-confirmation', transaction_id: null,
+    receipt: { unsignedTransaction: { txID: 'b'.repeat(64), raw_data_hex: 'ab'.repeat(32), raw_data: { expiration: Date.now() + 60_000 } } },
   }
   const transitions = []
   const reconciledTransactions = []
-  const counts = { sign: 0, broadcast: 0, preflight: 0, verify: 0, signatureCheck: 0 }
+  const counts = { broadcast: 0, preflight: 0, verify: 0, signatureCheck: 0 }
   const ledger = {
     async get() { return { ...operation, state: transitions.at(-1)?.state || operation.state } },
     async claimConfirmation() { operation.state = 'confirming'; return { ...operation } },
@@ -158,10 +161,6 @@ function makeExecutionFixture(overrides = {}) {
     verifySignedTransaction: async () => { counts.signatureCheck++; if (overrides.signatureFailure) throw Object.assign(new Error('signature rejected'), { code: 'OWNER_SIGNED_TRANSACTION_PERMISSION_INVALID', status: 403 }) },
     prepareTransaction: async () => ({ txID: 'b'.repeat(64), raw_data_hex: 'ab'.repeat(32), raw_data: { expiration: Date.now() + 60_000 } }),
     preflightTransaction: async () => { counts.preflight++; if (overrides.preflightFailure) throw Object.assign(new Error('blocked'), { code: 'OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', status: 423 }); return { estimatedTrxFallbackSun: '0' } },
-    signerFactory: () => ({
-      address: owner, network: 'TRON Mainnet',
-      async signContractTransaction(unsigned) { counts.sign++; return { ...unsigned, signature: ['a'.repeat(130)] } },
-    }),
     broadcastTransaction: async (_tronWeb, signed) => { counts.broadcast++; return { result: true, txid: signed.txID } },
     reconcileTransaction: async (_txId, _owner, _contract, options) => { reconciledTransactions.push(options.expectedTransaction); return { solidified: true, success: true, status: 'SUCCESS', blockNumber: 123 } },
   })
@@ -169,22 +168,35 @@ function makeExecutionFixture(overrides = {}) {
   return { api, operation, intentSha256, transitions, counts, replies, reconciledTransactions }
 }
 
-test('Owner confirmation signs once, durably journals before broadcast and verifies solidified receipt', async () => {
+test('Owner confirmation verifies the TronLink signature and durably journals before broadcast', async () => {
   const fixture = makeExecutionFixture()
   const req = request('POST', {
     confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
     intentSha256: fixture.intentSha256,
     contractAddress: contract,
+    signedTransaction: { txID: 'b'.repeat(64), raw_data_hex: 'ab'.repeat(32), raw_data: { expiration: Date.now() + 60_000 }, signature: ['a'.repeat(130)] },
   })
   await fixture.api.handle(req, response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
   assert.equal(fixture.replies[0].status, 200)
   assert.equal(fixture.replies[0].payload.state, 'confirmed')
-  assert.equal(fixture.counts.sign, 1)
   assert.equal(fixture.counts.broadcast, 1)
   assert.equal(fixture.counts.signatureCheck, 1)
   assert.equal(fixture.reconciledTransactions[0]?.txID, 'b'.repeat(64))
   assert.equal(fixture.reconciledTransactions[0]?.raw_data_hex, 'ab'.repeat(32))
   assert.deepEqual(fixture.transitions.map(item => item.state), ['signed', 'broadcast-unknown', 'broadcast', 'confirmed'])
+})
+
+test('Owner confirmation refuses to sign or broadcast without the TronLink-signed transaction', async () => {
+  const fixture = makeExecutionFixture()
+  await fixture.api.handle(request('POST', {
+    confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
+    intentSha256: fixture.intentSha256,
+    contractAddress: contract,
+  }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
+  assert.equal(fixture.replies[0].status, 409)
+  assert.equal(fixture.replies[0].payload.error, 'OWNER_TRONLINK_SIGNED_TRANSACTION_MISMATCH')
+  assert.equal(fixture.counts.signatureCheck, 0)
+  assert.equal(fixture.counts.broadcast, 0)
 })
 
 test('Owner confirmation rejects a mismatched phrase or intent hash before claiming or signing', async () => {
@@ -193,7 +205,6 @@ test('Owner confirmation rejects a mismatched phrase or intent hash before claim
     confirmationPhrase: 'WRONG PHRASE', intentSha256: fixture.intentSha256, contractAddress: contract,
   }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
   assert.equal(fixture.replies[0].status, 400)
-  assert.equal(fixture.counts.sign, 0)
   assert.equal(fixture.counts.broadcast, 0)
   assert.equal(fixture.transitions.length, 0)
 })
@@ -225,7 +236,6 @@ test('Owner confirmation never broadcasts if recovered signature or permission e
     intentSha256: fixture.intentSha256, contractAddress: contract,
   }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
   assert.equal(fixture.replies[0].status, 403)
-  assert.equal(fixture.counts.sign, 1)
   assert.equal(fixture.counts.signatureCheck, 1)
   assert.equal(fixture.counts.broadcast, 0)
   assert.equal(fixture.transitions.at(-1).state, 'failed')
