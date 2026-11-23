@@ -23,8 +23,9 @@ function hash(value) { return createHash('sha256').update(value).digest('hex') }
 export function createOwnerOperationLedger({ database }) {
   if (!database || typeof database.query !== 'function') fail('OWNER_LEDGER_DATABASE_REQUIRED')
 
-  async function prepare({ sessionId, idempotencyKey, operationType, contractAddress, intent }) {
+  async function prepare({ sessionId, ownerAddress, idempotencyKey, operationType, contractAddress, intent }) {
     if (!Number.isSafeInteger(Number(sessionId)) || Number(sessionId) <= 0) fail('OWNER_LEDGER_SESSION_REQUIRED')
+    if (typeof ownerAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(ownerAddress) || intent?.ownerAddress !== ownerAddress) fail('OWNER_LEDGER_OWNER_ADDRESS_INVALID')
     if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{16,160}$/.test(idempotencyKey)) fail('OWNER_LEDGER_IDEMPOTENCY_KEY_INVALID')
     if (!OPERATION_TYPES.has(operationType)) fail('OWNER_LEDGER_OPERATION_NOT_ALLOWED')
     if (typeof contractAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(contractAddress)) fail('OWNER_LEDGER_CONTRACT_ADDRESS_INVALID')
@@ -51,12 +52,12 @@ export function createOwnerOperationLedger({ database }) {
     return { ...row, replay: true }
   }
 
-  async function transition({ operationId, sessionId, nextState, transactionId = null, blockNumber = null, failureCode = null, receipt = null }) {
+  async function transition({ operationId, ownerAddress, nextState, transactionId = null, blockNumber = null, failureCode = null, receipt = null }) {
     if (!TRANSITIONS[nextState]) fail('OWNER_LEDGER_STATE_INVALID')
     if (transactionId !== null && !/^[0-9a-f]{64}$/i.test(String(transactionId))) fail('OWNER_LEDGER_TXID_INVALID')
     const current = await database.query(
-      "SELECT state FROM public.tron_transfer_owner_operations WHERE operation_id=$1 AND session_id=$2 AND wallet_role='owner'",
-      [operationId, Number(sessionId)],
+      "SELECT state FROM public.tron_transfer_owner_operations WHERE operation_id=$1 AND wallet_role='owner' AND intent->>'ownerAddress'=$2",
+      [operationId, ownerAddress],
     )
     const state = current.rows?.[0]?.state
     if (!state) fail('OWNER_LEDGER_OPERATION_NOT_FOUND')
@@ -70,28 +71,28 @@ export function createOwnerOperationLedger({ database }) {
           signed_at=CASE WHEN $3='signed' THEN now() ELSE signed_at END,
           broadcast_at=CASE WHEN $3 IN ('broadcast','broadcast-unknown') THEN now() ELSE broadcast_at END,
           confirmed_at=CASE WHEN $3='confirmed' THEN now() ELSE confirmed_at END
-      WHERE operation_id=$1 AND session_id=$2 AND state=$8 AND wallet_role='owner'
+      WHERE operation_id=$1 AND intent->>'ownerAddress'=$2 AND state=$8 AND wallet_role='owner'
       RETURNING operation_id,state,transaction_id,block_number,updated_at,confirmed_at
-    `, [operationId, Number(sessionId), nextState, transactionId, blockNumber, failureCode, receipt === null ? null : JSON.stringify(receipt), state])
+    `, [operationId, ownerAddress, nextState, transactionId, blockNumber, failureCode, receipt === null ? null : JSON.stringify(receipt), state])
     if (!result.rows?.[0]) fail('OWNER_LEDGER_CONCURRENT_TRANSITION')
     return result.rows[0]
   }
 
-  async function claimConfirmation(operationId, sessionId) {
+  async function claimConfirmation(operationId, ownerAddress) {
     const result = await database.query(`
       UPDATE public.tron_transfer_owner_operations
       SET state='confirming',updated_at=now()
-      WHERE operation_id=$1 AND session_id=$2 AND wallet_role='owner' AND state='awaiting-confirmation'
+      WHERE operation_id=$1 AND intent->>'ownerAddress'=$2 AND wallet_role='owner' AND state='awaiting-confirmation'
       RETURNING operation_id,session_id,idempotency_key,operation_type,contract_address,
         intent,intent_sha256,state,transaction_id,block_number,receipt,failure_code,
         created_at,updated_at,signed_at,broadcast_at,confirmed_at
-    `, [operationId, Number(sessionId)])
+    `, [operationId, ownerAddress])
     if (!result.rows?.[0]) fail('OWNER_LEDGER_CONFIRMATION_ALREADY_CLAIMED_OR_NOT_PENDING')
     return result.rows[0]
   }
 
-  async function list(sessionId, limit = 20) {
-    if (!Number.isSafeInteger(Number(sessionId)) || Number(sessionId) <= 0) fail('OWNER_LEDGER_SESSION_REQUIRED')
+  async function list(ownerAddress, limit = 20) {
+    if (typeof ownerAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(ownerAddress)) fail('OWNER_LEDGER_OWNER_ADDRESS_INVALID')
     const requestedLimit = Number(limit)
     const safeLimit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(50, requestedLimit) : 20)
     const result = await database.query(`
@@ -100,20 +101,20 @@ export function createOwnerOperationLedger({ database }) {
         receipt->'preflight' AS preflight,failure_code,created_at,updated_at,
         signed_at,broadcast_at,confirmed_at
       FROM public.tron_transfer_owner_operations
-      WHERE session_id=$1 AND wallet_role='owner'
+      WHERE wallet_role='owner' AND intent->>'ownerAddress'=$1
       ORDER BY created_at DESC LIMIT $2
-    `, [Number(sessionId), safeLimit])
+    `, [ownerAddress, safeLimit])
     return result.rows || []
   }
 
-  async function get(operationId, sessionId) {
+  async function get(operationId, ownerAddress) {
     const result = await database.query(`
       SELECT operation_id,session_id,idempotency_key,operation_type,contract_address,
         intent,intent_sha256,state,transaction_id,block_number,receipt,failure_code,
         created_at,updated_at,signed_at,broadcast_at,confirmed_at
       FROM public.tron_transfer_owner_operations
-      WHERE operation_id=$1 AND session_id=$2 AND wallet_role='owner'
-    `, [operationId, Number(sessionId)])
+      WHERE operation_id=$1 AND intent->>'ownerAddress'=$2 AND wallet_role='owner'
+    `, [operationId, ownerAddress])
     return result.rows?.[0] || null
   }
   return Object.freeze({ prepare, transition, claimConfirmation, get, list })
