@@ -3,9 +3,12 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { createOwnerOperationApi } from '../owner-operation-api.mjs'
+import { sponsorDatabaseTargetIdentityInfo } from '../sponsor-api.mjs'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const contract = 'TQn9Y2khEsLJW1ChVWFMSMeNT3h6vTq6t4'
+const testDatabaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+const testDatabaseIdentity = sponsorDatabaseTargetIdentityInfo({ DATABASE_URL: testDatabaseUrl }).identityFingerprint
 
 function request(method = 'GET', payload = {}) {
   return {
@@ -27,7 +30,7 @@ function makeApi({ env = {}, session = null, database = null, authenticateManage
   const replies = []
   const authCalls = []
   const api = createOwnerOperationApi({
-    env,
+    env: { DATABASE_URL: testDatabaseUrl, OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: testDatabaseIdentity, ...env },
     database,
     send: (_res, status, payload) => { replies.push({ status, payload }) },
     authenticateManagedSession: authenticateManagedSession || (async (_req, options) => {
@@ -63,6 +66,20 @@ test('Owner operation API rejects a session that is not the configured Mainnet o
   await api.handle(request('POST'), response(), new URL('https://api.test/api/owner/operations/prepare'), 'https://tron-transfer.onrender.com')
   assert.equal(replies[0].status, 401)
   assert.equal(replies[0].payload.error, 'OWNER_SESSION_REQUIRED')
+})
+
+test('Owner operation ledger fails closed when its database target differs from the approved fingerprint', async () => {
+  const database = { async query() { throw new Error('database must not be touched on identity mismatch') } }
+  const { api, replies } = makeApi({
+    env: { TRON_OWNER_ADDRESS: owner, OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: 'f'.repeat(64) },
+    session: { address: owner, sessionId: 4 },
+    database,
+  })
+  await api.handle(request('POST', {
+    operationType: 'mint', contractAddress: contract, idempotencyKey: 'owner-op-db-identity-0001', feeLimitSun: '1000000',
+  }), response(), new URL('https://api.test/api/owner/operations/prepare'), 'https://tron-transfer.onrender.com')
+  assert.equal(replies[0].status, 503)
+  assert.equal(replies[0].payload.error, 'OWNER_OPERATION_DATABASE_IDENTITY_NOT_ACCEPTED')
 })
 
 test('Owner operation preparation fails closed until ledger backup and restore are verified', async () => {
@@ -168,7 +185,7 @@ function makeExecutionFixture(overrides = {}) {
   return { api, operation, intentSha256, transitions, counts, replies, reconciledTransactions }
 }
 
-test('Owner confirmation verifies the TronLink signature and durably journals before broadcast', async () => {
+test('Owner confirmation verifies the encrypted local Owner Wallet signature and durably journals before broadcast', async () => {
   const fixture = makeExecutionFixture()
   const req = request('POST', {
     confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
@@ -186,7 +203,7 @@ test('Owner confirmation verifies the TronLink signature and durably journals be
   assert.deepEqual(fixture.transitions.map(item => item.state), ['signed', 'broadcast-unknown', 'broadcast', 'confirmed'])
 })
 
-test('Owner confirmation accepts full-size TronLink batch transaction payloads before execution gates', async () => {
+test('Owner confirmation accepts full-size local Owner Wallet batch transaction payloads before execution gates', async () => {
   const fixture = makeExecutionFixture({ env: { OWNER_OPERATION_EXECUTION_ENABLED: 'false' } })
   await fixture.api.handle(request('POST', {
     confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
@@ -199,7 +216,7 @@ test('Owner confirmation accepts full-size TronLink batch transaction payloads b
   assert.equal(fixture.transitions.length, 0)
 })
 
-test('Owner confirmation refuses to sign or broadcast without the TronLink-signed transaction', async () => {
+test('Owner confirmation refuses to sign or broadcast without the locally signed Owner transaction', async () => {
   const fixture = makeExecutionFixture()
   await fixture.api.handle(request('POST', {
     confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
