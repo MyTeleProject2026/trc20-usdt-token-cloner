@@ -884,11 +884,19 @@ export function createSponsorResourceApi({
       try {
         await assertSchema(db)
         const result = await db.query(
-          'SELECT idempotency_key_hash,operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,transaction_id,result_code,confirmation_block FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2',
+          'SELECT idempotency_key_hash,operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,transaction_id,result_code,confirmation_block,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2',
           [sha(key), session.address],
         )
         const row = result.rows?.[0]
         if (!row) return reply(res, 404, { success: false, error: 'sponsor-operation-not-found' }, origin)
+        if (row.status === 'reserved' && Number(row.prepared_transaction?.raw_data?.expiration || 0) <= now()) {
+          await db.query(
+            "UPDATE public.tron_transfer_sponsor_operations SET status='failed',result_code='prepared-transaction-expired-before-signing',updated_at=now() WHERE idempotency_key_hash=$1 AND status='reserved' AND transaction_id IS NULL AND signed_transaction IS NULL",
+            [row.idempotency_key_hash],
+          )
+          row.status = 'failed'
+          row.result_code = 'prepared-transaction-expired-before-signing'
+        }
         let reconciliation = null
         // The transaction ID is persisted before broadcast. Reconcile both
         // signed-not-broadcast and broadcast-unknown rows against solidified
