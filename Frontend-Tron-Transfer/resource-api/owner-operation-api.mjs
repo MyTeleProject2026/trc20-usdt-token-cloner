@@ -3,6 +3,7 @@ import { TronWeb } from 'tronweb'
 import pg from 'pg'
 import { createOwnerOperationLedger } from './owner-operation-ledger.mjs'
 import { createOwnerManagedSigner } from './owner-managed-signer.mjs'
+import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget } from '../src/trax-mainnet.mjs'
 import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
@@ -117,7 +118,8 @@ async function rpcPost(path, payload, { fetchImpl, env }) {
     redirect: 'error', signal: AbortSignal.timeout(8_000),
   })
   const result = await response.json().catch(() => ({}))
-  if (!response.ok || result?.Error || result?.error) fail('OWNER_MAINNET_RPC_UNAVAILABLE', 503)
+  if (!response.ok) throw Object.assign(new Error('TRON Mainnet node returned HTTP ' + response.status + ' for ' + path), { code: 'OWNER_MAINNET_RPC_UNAVAILABLE', status: 503, upstreamStatus: response.status })
+  if (result?.Error || result?.error) throw Object.assign(new Error(String(result?.Error || result?.error).slice(0, 160)), { code: 'OWNER_MAINNET_RPC_UNAVAILABLE', status: 503 })
   return result
 }
 function available(limit, used) {
@@ -193,56 +195,47 @@ async function buildUnsigned(tronWeb, contractAddress, ownerAddress, normalized)
   return safeJson(transaction)
 }
 async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env }) {
-  const value = transaction.raw_data.contract[0].parameter.value
-  const [resource, account, parameters] = await Promise.all([
+  const value = transaction?.raw_data?.contract?.[0]?.parameter?.value
+  const data = String(value?.data || '').replace(/^0x/i, '')
+  if (!/^(?:[0-9a-f]{2}){4,}$/i.test(data)) fail('OWNER_OPERATION_CALL_DATA_INVALID', 409)
+  const [resourceResponse, account, chainParameters] = await Promise.all([
     rpcPost('/wallet/getaccountresource', { address: ownerAddress, visible: true }, { fetchImpl, env }),
     rpcPost('/wallet/getaccount', { address: ownerAddress, visible: true }, { fetchImpl, env }),
     rpcPost('/wallet/getchainparameters', {}, { fetchImpl, env }),
   ])
-  const data = String(value.data || '').replace(/^0x/i, '')
-  let energyResult
-  try {
-    energyResult = await rpcPost('/wallet/estimateenergy', {
-      owner_address: tronWeb.address.toHex(ownerAddress),
-      contract_address: tronWeb.address.toHex(contractAddress),
-      data, call_value: 0, visible: false,
-    }, { fetchImpl, env })
-  } catch {
-    energyResult = await rpcPost('/wallet/triggerconstantcontract', {
-      owner_address: tronWeb.address.toHex(ownerAddress),
-      contract_address: tronWeb.address.toHex(contractAddress),
-      data, call_value: 0, visible: false,
-    }, { fetchImpl, env })
-  }
-  const energyRaw = energyResult?.energy_required ?? energyResult?.energy_used
-  if (!Number.isSafeInteger(Number(energyRaw)) || Number(energyRaw) <= 0
-    || energyResult?.result?.result === false) fail('OWNER_ENERGY_ESTIMATE_UNAVAILABLE', 503)
-  const chain = Object.fromEntries((parameters.chainParameter || []).map(item => [item.key, String(item.value)]))
-  const energyAvailable = available(resource.EnergyLimit, resource.EnergyUsed)
-  const freeBandwidth = available(resource.freeNetLimit, resource.freeNetUsed)
-  const stakedBandwidth = available(resource.NetLimit, resource.NetUsed)
-  const bandwidthAvailable = freeBandwidth > stakedBandwidth ? freeBandwidth : stakedBandwidth
-  const requiredEnergy = (BigInt(String(energyRaw)) * 12500n + 9999n) / 10000n
-  const transactionBytes = BigInt(Buffer.from(transaction.raw_data_hex, 'hex').length + 100)
-  const energyShortfall = requiredEnergy > energyAvailable ? requiredEnergy - energyAvailable : 0n
-  const bandwidthShortfall = transactionBytes > bandwidthAvailable ? transactionBytes - bandwidthAvailable : 0n
-  const energyFee = BigInt(chain.getEnergyFee || '0')
-  const bandwidthFee = BigInt(chain.getTransactionFee || '0')
-  if (energyFee <= 0n || bandwidthFee <= 0n) fail('OWNER_MAINNET_CHAIN_FEES_UNAVAILABLE', 503)
-  const estimatedTrxFallbackSun = energyShortfall * energyFee + bandwidthShortfall * bandwidthFee
-  const permission = verifyPermission(tronWeb, account, ownerAddress)
-  const txId = String(transaction.txID).toLowerCase()
+  const resourceSnapshot = normalizeMainnetAccountResources(resourceResponse, chainParameters)
+  const permission = normalizeMainnetPermissionSnapshot(account, ownerAddress, tronWeb)
+  if (!permission.connectedSignerCanAuthorizeAlone) fail('OWNER_SIGNER_CANNOT_SATISFY_OWNER_PERMISSION', 403)
+  const estimate = await estimateMainnetContractCallEnergy(
+    tronWeb, contractAddress, data, ownerAddress,
+    (_client, path, body) => rpcPost(path, body, { fetchImpl, env }),
+  )
+  const budget = calculateDeploymentResourceBudget({
+    energyRequired: estimate.energyUsed,
+    resourceSnapshot,
+    rawDataHex: transaction.raw_data_hex,
+    feeLimitSun: String(transaction.raw_data.fee_limit),
+    safetyMarginBps: 12500,
+    transactionLabel: 'TRӾ owner operation',
+  })
+  const txId = String(transaction.txID || '').toLowerCase()
   if (!TXID.test(txId)) fail('OWNER_UNSIGNED_TRANSACTION_ID_INVALID', 500)
-  if (estimatedTrxFallbackSun !== 0n) {
-    fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423)
-  }
+  if (budget.requiredTrxSun !== '0') fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423)
   return {
     network: 'TRON Mainnet', ownerAddress, contractAddress, permission,
-    estimatedEnergy: String(energyRaw), requiredEnergyWithSafetyMargin: requiredEnergy.toString(),
-    availableEnergy: energyAvailable.toString(), transactionBytes: transactionBytes.toString(),
-    availableBandwidth: bandwidthAvailable.toString(), estimatedTrxFallbackSun: estimatedTrxFallbackSun.toString(),
-    feeLimitSun: String(transaction.raw_data.fee_limit), txID: txId,
-    accountBalanceSun: String(account.balance ?? '0'), checkedAt: new Date().toISOString(),
+    estimatedEnergy: estimate.energyUsed,
+    energyPenalty: estimate.energyPenalty,
+    requiredEnergyWithSafetyMargin: budget.energyWithSafetyMargin,
+    availableEnergy: budget.availableEnergy,
+    transactionBytes: budget.estimatedBandwidthBytes,
+    availableBandwidth: budget.availableBandwidth,
+    estimatedTrxFallbackSun: budget.requiredTrxSun,
+    energyBurnSun: budget.energyBurnSun,
+    bandwidthBurnSun: budget.bandwidthBurnSun,
+    feeLimitSun: budget.feeLimitSun,
+    maxFeeLimitSun: resourceSnapshot.maxFeeLimitSun,
+    accountBalanceSun: String(account.balance ?? '0'),
+    txID: txId, checkedAt: new Date().toISOString(),
   }
 }
 
