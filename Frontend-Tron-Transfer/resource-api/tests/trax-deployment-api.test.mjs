@@ -65,6 +65,23 @@ test('deployment confirmation is locked even when readiness checks pass', async(
 })
 
 
+test('deployment confirmation refuses to claim an operation without a TronLink signature', async()=>{
+ const {api,replies}=make({env:{
+  TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',
+  TRAX_DEPLOYMENT_MAINNET_ACK:'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT',
+  TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',
+  TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',
+  TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',
+ }})
+ await api.handle(req('POST',{
+  operationId:'123e4567-e89b-42d3-a456-426614174000',
+  intentSha256:'d'.repeat(64),
+  confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT',
+ }),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
+ assert.equal(replies[0].status,409)
+ assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_TRONLINK_SIGNATURE_REQUIRED')
+})
+
 test('deployment confirmation persists signed payload and broadcast-unknown state before network broadcast', async()=>{
  const state={value:'prepared'}
  const events=[]
