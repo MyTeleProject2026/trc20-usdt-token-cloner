@@ -764,20 +764,31 @@ export function createSponsorResourceApi({
             }
           },
         })
-        const status = result.solidified ? 'confirmed' : result.broadcast ? 'broadcast-unknown' : result.signed ? 'signed-not-broadcast' : 'failed'
+        const stateDb = client && open ? client : db
+        const durable = await stateDb.query(
+          'SELECT status,transaction_id FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2',
+          [keyHash, session.address],
+        )
+        const durableRow = durable.rows?.[0]
+        const durableSigned = durableRow?.status === 'signed-not-broadcast' || durableRow?.status === 'broadcast-unknown' || Boolean(durableRow?.transaction_id)
+        const status = result.solidified ? 'confirmed'
+          : result.broadcast || durableRow?.status === 'broadcast-unknown' ? 'broadcast-unknown'
+            : durableSigned ? 'signed-not-broadcast'
+              : result.signed ? 'signed-not-broadcast' : 'failed'
+        await stateDb.query(
+          'UPDATE public.tron_transfer_sponsor_operations SET status=$2,result_code=$3,confirmation_block=$4,updated_at=now() WHERE idempotency_key_hash=$1',
+          [keyHash, status, result.status || 'unknown', result.blockNumber || null],
+        )
         if (client && open) {
-          await client.query(
-            'UPDATE public.tron_transfer_sponsor_operations SET status=$2,result_code=$3,confirmation_block=$4,updated_at=now() WHERE idempotency_key_hash=$1 AND status IN (\'signed-not-broadcast\',\'broadcast-unknown\')',
-            [keyHash, status, result.status || 'unknown', result.blockNumber || null],
-          )
           await client.query('COMMIT'); open = false
           if (client !== db) { client.release(); client = null }
         }
-        return reply(res, result.success ? 200 : result.signed ? 202 : result.broadcast ? 202 : 422, {
+        const persistedSignature = durableSigned || result.signed === true
+        return reply(res, result.success ? 200 : persistedSignature || result.broadcast ? 202 : 422, {
           success: result.success === true, operationReference: body.operationReference, operationStatus: status,
-          transactionId: result.txid || row.prepared_transaction.txID || null, resultCode: result.status || 'unknown',
-          confirmationBlock: result.blockNumber || null, signed: result.signed === true,
-          broadcast: result.broadcast === true, solidified: result.solidified === true, retryAllowed: false,
+          transactionId: result.txid || durableRow?.transaction_id || row.prepared_transaction.txID || null, resultCode: result.status || 'unknown',
+          confirmationBlock: result.blockNumber || null, signed: persistedSignature,
+          broadcast: result.broadcast === true || status === 'broadcast-unknown', solidified: result.solidified === true, retryAllowed: false,
         }, origin)
       } catch {
         if (client && open) await client.query('ROLLBACK').catch(() => {})
