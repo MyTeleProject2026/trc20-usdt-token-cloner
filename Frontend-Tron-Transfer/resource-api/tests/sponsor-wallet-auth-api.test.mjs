@@ -136,6 +136,5 @@ test('Sponsor one-time recovery consumes only Sponsor token and revokes Sponsor 
  assert.equal(JSON.parse(recovered.body).passwordRecovered,true)
  assert.ok(db.state.recoveryTokens[0].consumed_at)
  assert.ok(db.state.sessions[0].revoked_at)
- const check=await hashWalletPassword('recovered sponsor password phrase 789')
- assert.notEqual(check.passwordHash,db.state.account.password_hash)
+ assert.equal(await verifyWalletPassword('recovered sponsor password phrase 789',{passwordHash:db.state.account.password_hash,passwordSalt:db.state.account.password_salt,passwordAlgorithm:db.state.account.password_algorithm,passwordParams:db.state.account.password_params}),true)
 })
