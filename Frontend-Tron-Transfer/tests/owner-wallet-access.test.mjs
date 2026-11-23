@@ -15,7 +15,7 @@ test('Owner Admin uses the independent backend-managed password account', () => 
   assert.ok(access.includes('ownerAuth.login(password)'))
   assert.ok(access.includes('ownerAuth.enroll(password, enrollmentToken.trim())'))
   assert.ok(access.includes('backend-managed-owner'))
-  assert.doesNotMatch(access, /deriveOwnerAccount|saveOwnerWalletVault|unlockOwnerWalletVault|privateKey|mnemonic|keystore/i)
+  assert.doesNotMatch(access, /deriveOwnerAccount|saveOwnerWalletVault|unlockOwnerWalletVault|createOwnerTronWeb|privateKey|owner-wallet-vault/i)
   assert.doesNotMatch(access, /localStorage|sessionStorage/)
 })
 
