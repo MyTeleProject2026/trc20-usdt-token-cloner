@@ -51,3 +51,16 @@ test('Sponsor TronWeb instance is initialized before any effect dependency reads
   assert.notEqual(firstEffectRead, -1, 'resource history effect must exist')
   assert.ok(declaration < firstEffectRead, 'tronWeb must be initialized before effect callbacks and dependency arrays reference it')
 })
+
+
+test('Sponsor password recovery and account session controls stay inside the existing workspace',()=>{
+  assert.ok(source.includes('sponsorAuth.recoverPassword(authRecoveryToken.trim(), authPassword)'))
+  assert.ok(source.includes('sponsorAuth.changePassword(currentSponsorPassword, newSponsorPassword)'))
+  assert.ok(source.includes('sponsorAuth.sessions()'))
+  assert.ok(source.includes('sponsorAuth.revokeSession(sessionId)'))
+  assert.ok(source.includes('sponsorAuth.revokeOtherSessions()'))
+  assert.ok(source.includes('Sponsor account security and active sessions'))
+  assert.ok(source.includes('Recover Sponsor password'))
+  assert.ok(source.includes('Change Sponsor password'))
+  assert.ok(source.includes("activePage === \"sponsor\" && wallet"))
+})
