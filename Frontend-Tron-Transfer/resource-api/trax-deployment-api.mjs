@@ -147,7 +147,7 @@ export function createTRAXDeploymentApi({
     if (readinessPath) {
       return send(res, 200, {
         success: true, network: 'TRON Mainnet', ownerAddress: session.address,
-        signerCustody: 'connected-tronlink', walletSignatureRequired: true,
+        signerCustody: 'encrypted-local-owner-vault', walletSignatureRequired: true,
         artifact: artifact ? {
           contractName: artifact.contractName, compiler: artifact.compiler,
           sourceSha256: artifact.sourceSha256, creationBytecodeSha256: artifact.creationBytecodeSha256,
@@ -163,7 +163,7 @@ export function createTRAXDeploymentApi({
         blocker: artifactError || (!ledgerReady ? 'TRAX_DEPLOYMENT_LEDGER_NOT_INSTALLED' : !databaseIdentityMatches ? 'TRAX_DEPLOYMENT_DATABASE_TARGET_IDENTITY_NOT_VERIFIED' : !durabilityReady(env) ? 'TRAX_DEPLOYMENT_LEDGER_DURABILITY_NOT_VERIFIED' : !pinsConfigured ? 'TRAX_DEPLOYMENT_ARTIFACT_PINS_NOT_CONFIGURED' : null),
         readyForPreparation: ready,
         executionEnabled: mainnetEnabled(),
-        note: 'Readiness checks never sign or broadcast. Owner transactions require the connected TronLink signer; the Resource API never signs with an Owner private key.',
+        note: 'Readiness checks never sign or broadcast. Owner transactions require the encrypted local Owner Wallet signer; the Resource API never receives or signs with an Owner private key.',
       }, origin)
     }
     if (statusPath) {
@@ -175,7 +175,7 @@ export function createTRAXDeploymentApi({
       const row = rowResult.rows?.[0]
       if (!row) return send(res, 404, { error: 'TRAX_DEPLOYMENT_NOT_FOUND' }, origin)
       // Keep signed transaction payloads server-side. Only a still-prepared
-      // unsigned transaction is returned so the authenticated Owner can approve it in TronLink.
+      // unsigned transaction is returned so the authenticated Owner can approve it in the encrypted local Owner Wallet.
       const { unsigned_transaction: _unsignedTransaction, signed_transaction: _signedTransaction, ...publicRow } = row
       if (['signed','broadcast-unknown','broadcast'].includes(row.state)) {
         try {
@@ -239,7 +239,7 @@ export function createTRAXDeploymentApi({
       if (!signedCandidate || typeof signedCandidate !== 'object' || Array.isArray(signedCandidate)
         || !Array.isArray(signedCandidate.signature) || signedCandidate.signature.length !== 1
         || !/^[0-9a-f]{130}$/i.test(String(signedCandidate.signature[0] || ''))) {
-        return send(res, 409, { error: 'TRAX_DEPLOYMENT_TRONLINK_SIGNATURE_REQUIRED', message: 'Approve the exact prepared deployment with the connected Owner TronLink wallet first.' }, origin)
+        return send(res, 409, { error: 'TRAX_DEPLOYMENT_OWNER_SIGNATURE_REQUIRED', message: 'Approve the exact prepared deployment with the unlocked encrypted local Owner Wallet first.' }, origin)
       }
       let claimed
       try {
