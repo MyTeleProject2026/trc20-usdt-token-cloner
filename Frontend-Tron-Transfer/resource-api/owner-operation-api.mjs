@@ -478,6 +478,15 @@ export function createOwnerOperationApi({
           || operation.contract_address !== String(input.contractAddress || '')) {
           return reply(res, 409, { success: false, error: 'OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', retryAllowed: false }, origin)
         }
+        const preparedUnsigned = operation.receipt?.unsignedTransaction
+        const signedCandidate = input.signedTransaction
+        if (!preparedUnsigned || !signedCandidate || typeof signedCandidate !== 'object' || Array.isArray(signedCandidate)
+          || !Array.isArray(signedCandidate.signature) || signedCandidate.signature.length !== 1
+          || !/^[0-9a-f]{130}$/i.test(String(signedCandidate.signature[0] || ''))
+          || String(signedCandidate.txID || '').toLowerCase() !== String(preparedUnsigned.txID || '').toLowerCase()
+          || String(signedCandidate.raw_data_hex || '').toLowerCase() !== String(preparedUnsigned.raw_data_hex || '').toLowerCase()) {
+          return reply(res, 409, { success: false, error: 'OWNER_TRONLINK_SIGNED_TRANSACTION_MISMATCH', retryAllowed: true }, origin)
+        }
         let claimed
         try { claimed = await ledger.claimConfirmation(operationId, String(env.TRON_OWNER_ADDRESS || '')) }
         catch (claimError) {
@@ -515,22 +524,14 @@ export function createOwnerOperationApi({
           if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
           const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
-          const unsigned = operation.receipt?.unsignedTransaction || claimed.receipt?.unsignedTransaction
-          if (!unsigned || typeof unsigned !== 'object') fail('OWNER_OPERATION_UNSIGNED_TRANSACTION_NOT_PERSISTED', 409)
+          const unsigned = preparedUnsigned
           const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env })
           const expiration = Number(unsigned?.raw_data?.expiration)
           if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
           }
           verifyUnsignedTransaction(tronWeb, unsigned)
-          const signed = input.signedTransaction
-          if (!signed || typeof signed !== 'object' || Array.isArray(signed)
-            || !Array.isArray(signed.signature) || signed.signature.length !== 1
-            || !/^[0-9a-f]{130}$/i.test(String(signed.signature[0] || ''))
-            || String(signed.txID || '').toLowerCase() !== String(unsigned.txID || '').toLowerCase()
-            || String(signed.raw_data_hex || '').toLowerCase() !== String(unsigned.raw_data_hex || '').toLowerCase()) {
-            fail('OWNER_TRONLINK_SIGNED_TRANSACTION_MISMATCH', 409)
-          }
+          const signed = signedCandidate
           await verifySignedTransaction(tronWeb, signed, ownerAddress)
           transactionId = String(signed?.txID || '').toLowerCase()
           if (!TXID.test(transactionId) || transactionId !== String(unsigned.txID).toLowerCase()) {
