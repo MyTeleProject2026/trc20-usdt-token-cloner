@@ -9,7 +9,7 @@ test('Sponsor workspace exposes only an Owner-Admin-authorized paused ledger boo
   assert.ok(source.includes('async function bootstrapSponsorLedger()'))
   assert.ok(source.includes("await ensureOwnerAdmin()"))
   assert.ok(source.includes("ownerAuth.apiRequest('/api/sponsor/ledger/bootstrap'"))
-  assert.match(source, /method: 'POST',[\\s\\S]{0,80}csrf: true/)
+  assert.ok(source.includes("method: 'POST',\n        csrf: true,"))
   assert.ok(source.includes("body: { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' }"))
   assert.ok(source.includes("setSponsorApiStatus(status)"))
   assert.ok(source.includes('Initialize paused Sponsor ledger schema'))
