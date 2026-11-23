@@ -234,6 +234,12 @@ export function createTRAXDeploymentApi({
         return send(res, 400, { error: 'TRAX_DEPLOYMENT_CONFIRMATION_INVALID' }, origin)
       }
       if (!mainnetEnabled()) return send(res, 423, { error: 'TRAX_DEPLOYMENT_EXECUTION_GATES_LOCKED', message: 'Execution requires explicit Mainnet enablement plus verified ledger backup and restore gates.' }, origin)
+      const signedCandidate = body.signedTransaction
+      if (!signedCandidate || typeof signedCandidate !== 'object' || Array.isArray(signedCandidate)
+        || !Array.isArray(signedCandidate.signature) || signedCandidate.signature.length !== 1
+        || !/^[0-9a-f]{130}$/i.test(String(signedCandidate.signature[0] || ''))) {
+        return send(res, 409, { error: 'TRAX_DEPLOYMENT_TRONLINK_SIGNATURE_REQUIRED', message: 'Approve the exact prepared deployment with the connected Owner TronLink wallet first.' }, origin)
+      }
       let claimed
       try {
         const claim = await db.query(`
@@ -278,7 +284,7 @@ export function createTRAXDeploymentApi({
           || Number(unsigned.raw_data?.expiration || 0) <= Date.now() + 5000
           || Number(unsigned.raw_data?.expiration || 0) > Date.now() + 10 * 60_000) fail('TRAX_DEPLOYMENT_PERSISTED_TRANSACTION_INVALID', 409)
         const predictedAddress = predictAddress(tronWeb, session.address, unsigned.txID)
-        const signed = body.signedTransaction
+        const signed = signedCandidate
         if (!signed || typeof signed !== 'object' || Array.isArray(signed)
           || !Array.isArray(signed.signature) || signed.signature.length !== 1
           || !/^[0-9a-f]{130}$/i.test(String(signed.signature[0] || ''))
