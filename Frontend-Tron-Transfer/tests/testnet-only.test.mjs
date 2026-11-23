@@ -20,7 +20,7 @@ test('TRӾ workspace exposes dedicated owner-admin pages and one Mainnet deploym
   assert.ok(panel.includes("apiRequest('/api/owner/deployment/readiness')"))
   assert.ok(panel.includes("'/api/owner/deployment/prepare'"))
   assert.ok(panel.includes("'/api/owner/deployment/confirm'"))
-  assert.ok(panel.includes('TronLink must approve the exact prepared transaction'))
+  assert.ok(panel.includes('local Owner vault must approve the exact prepared transaction'))
   assert.ok(panel.includes('signer.trx.sign(deploymentOperation.unsignedTransaction)'))
   assert.ok(panel.includes('signer.trx.sign(pendingOperation.unsignedTransaction)'))
   assert.doesNotMatch(panel, /deployContractWithOwnerSigner|sendAndVerifyContractCall|tronWeb\.trx\.sign|sendRawTransaction/)
@@ -114,7 +114,7 @@ test('production build runs the complete frontend regression suite', async () =>
   assert.equal(pkg.overrides.tmp, '0.2.7')
 })
 
-test('TronLink receives the exact canonical node-issued CreateSmartContract transaction', () => {
+test('the local Owner signer receives the exact canonical node-issued CreateSmartContract transaction', () => {
   const transaction = {
     visible: false,
     txID: 'a'.repeat(64),
