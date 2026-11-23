@@ -15,6 +15,7 @@ function make(overrides={}) {
     authenticateManagedSession:async()=>overrides.session || {address:owner,sessionId:1},
     artifactLoader:overrides.artifactLoader || (async()=>({contractName:'Restricted1TRAX',compiler:'solc 0.8.25',sourceSha256:'1'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),artifactSha256:'4'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'})),
     tronWebFactory:overrides.tronWebFactory || (()=>{ throw new Error('must-not-construct-without-prepare') }),
+    recoverDeployment:overrides.recoverDeployment,
   })
   return {api,replies}
 }
@@ -95,5 +96,28 @@ test('deployment broadcast ambiguity is retained without automatic rebroadcast',
  assert.deepEqual(events,['signed','unknown','broadcast-attempt'])
  assert.equal(state.value,'broadcast-unknown')
  assert.equal(replies[0].status,202)
+ assert.equal(replies[0].payload.recovery.automaticRebroadcast,false)
+})
+
+
+test('deployment recovery verifies only the original txID and persists solidified confirmation', async()=>{
+ const events=[]
+ const artifact={contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}
+ const row={operation_id:'123e4567-e89b-42d3-a456-426614174000',owner_address:owner,artifact_sha256:'4'.repeat(64),transaction_id:'a'.repeat(64),state:'broadcast-unknown'}
+ const db={async query(sql){
+  if(sql.includes('to_regclass')) return {rows:[{deployments_table:'tron_transfer_deployments'}]}
+  if(sql.includes('SELECT operation_id,owner_address,idempotency_key,intent,intent_sha256')) return {rows:[row]}
+  if(sql.includes("SET state='confirmed'")) {events.push('persist-confirmed');return {rows:[{...row,state:'confirmed',contract_address:'T'+'B'.repeat(33)}]}}
+  return {rows:[]}
+ }}
+ const fakeTron={fullNode:{headers:{}}}
+ const {api,replies}=make({
+  database:db,artifactLoader:async()=>artifact,tronWebFactory:()=>fakeTron,
+  recoverDeployment:async(client,input)=>{events.push('verify-solidified');assert.equal(input.txID,row.transaction_id);assert.equal(input.ownerAddress,owner);return {address:'T'+'B'.repeat(33),txID:row.transaction_id,verified:true,receipt:{receipt:{result:'SUCCESS'}}}},
+ })
+ await api.handle(req('GET'),res(),new URL('https://api.test/api/owner/deployment/123e4567-e89b-42d3-a456-426614174000'),null)
+ assert.deepEqual(events,['verify-solidified','persist-confirmed'])
+ assert.equal(replies[0].status,200)
+ assert.equal(replies[0].payload.recovery.solidified,true)
  assert.equal(replies[0].payload.recovery.automaticRebroadcast,false)
 })
