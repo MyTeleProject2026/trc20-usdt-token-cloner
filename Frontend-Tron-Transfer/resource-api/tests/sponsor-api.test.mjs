@@ -356,7 +356,9 @@ test('Sponsor status fails closed when the ledger control row is missing', async
     execute: async () => assert.fail('missing control row must never enable execution'),
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
   assert.equal(result.payload.databaseReady, false)
@@ -536,7 +538,9 @@ test('durable Sponsor maintenance pause blocks a valid signed operation before r
     execute: async () => assert.fail('paused Sponsor engine must never sign or broadcast'),
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
   const status = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(status.payload.sponsorWritesPaused, true)
   assert.equal(status.payload.databaseStatus, 'ready')
@@ -589,7 +593,9 @@ test('Sponsor local transaction preparation refuses to run while the durable Mai
     execute: async () => assert.fail('legacy engine must not run'),
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, engine, databaseUrl, expectedDatabaseIdentitySha256 })
   const token = await authenticated(api)
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '127852400',
@@ -617,7 +623,9 @@ test('Sponsor cancellation can only close an unsigned reserved operation', async
       throw new Error('unexpected database query: ' + sql)
     },
   }
-  const { api } = setup({ database })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
   const token = await authenticated(api)
   const result = await call(api, 'POST', '/api/sponsor/operations/cancel', {
     operationReference: 'sponsor-cancel-reservation-0123456789',
@@ -841,7 +849,9 @@ test('signed-not-broadcast operation is reconciled against solidified Mainnet st
       return { confirmed: true, status: 'solidified-success', blockNumber: 987654 }
     },
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
   const token = await authenticated(api)
   const result = await call(api, 'GET', '/api/sponsor/operations/' + key, undefined, token)
   assert.equal(result.status, 200)
@@ -879,7 +889,9 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
     execute: async () => { executions += 1; return assert.fail('ambiguous operation must never be replayed') },
     reconcile: async () => ({ confirmed: false, status: 'solidified-provider-unavailable' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
   const token = await authenticated(api)
   const result = await call(api, 'GET', '/api/sponsor/operations/' + key, undefined, token)
   assert.equal(result.status, 200)
@@ -919,7 +931,9 @@ test('legacy Sponsor server-signed execution endpoint is permanently disabled', 
     execute: async () => { executions += 1; return { success: true } },
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
   const token = await authenticated(api)
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
@@ -1025,7 +1039,9 @@ test('managed Sponsor session cannot invoke the legacy server signer endpoint', 
     execute: async () => { engineCalls += 1; return { success: true, signed: true, broadcast: true } },
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
   const token = await authenticated(api)
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
@@ -1105,7 +1121,9 @@ test('Sponsor local-signing API commits the signed transaction before a single b
     execute: async () => assert.fail('legacy server signer must never run'),
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
   const token = await authenticated(api)
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'stake', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: operationReference,
