@@ -52,7 +52,6 @@ Use the existing production frontend in a real desktop and mobile browser. Do no
 - Confirm navigation, reload, logout/session expiry, narrow mobile viewport, keyboard focus, and error/empty states.
 - Confirm no Owner or Sponsor page silently submits, signs, or broadcasts a transaction during page load or status refresh.
 - Confirm Owner deployment and contract-operation prompts appear only after explicit confirmation and fresh resource preflight. TronLink must sign the exact persisted unsigned transaction; the Resource API must reject missing, mismatched or invalid signatures and must persist the verified signature before broadcasting.
-- Confirm Owner deployment and contract-operation prompts appear only after explicit confirmation and fresh resource preflight. TronLink must sign the exact persisted unsigned transaction; the Resource API must reject missing, mismatched or invalid signatures and must persist the verified signature before broadcasting.
 - Keep all write controls disabled while acceptance is in progress.
 
 Browser acceptance must be recorded with browser/version, viewport, build commit, route, observed result, and timestamp. A screenshot alone does not prove signing custody or transaction safety.
@@ -61,7 +60,6 @@ Browser acceptance must be recorded with browser/version, viewport, build commit
 
 - A real Neon database snapshot/backup and restoration drill must be evidenced independently; environment flags are operator attestations, not proof.
 - Apply Owner Admin migrations only with the direct PostgreSQL endpoint after the backup/restore gate, then verify migration checksums and required tables.
-- Owner TronLink signing must be tested with broadcast disabled and the recovered signature verified against the configured Owner address and live permission.
 - Owner TronLink signing must be tested with broadcast disabled and the recovered signature verified against the configured Owner address and live permission.
 - Sponsor signing must be tested with broadcast disabled and the signature recovered/verified against the configured Sponsor address.
 - Owner and Sponsor recovery tokens must be generated for the intended role, consumed once, and verified not to cross-authenticate the other wallet role.
