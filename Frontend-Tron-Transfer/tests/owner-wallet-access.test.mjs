@@ -24,7 +24,7 @@ test('TRӾ writes use the guarded backend operation API and remain gated by prod
   assert.ok(panel.includes("apiRequest('/api/owner/operations/prepare'"))
   assert.ok(panel.includes("'/confirm'"))
   assert.ok(panel.includes('pendingOperation.executionEnabled'))
-  assert.ok(panel.includes('OWNER_OPERATION_EXECUTION_GATES_DISABLED') === false)
+  assert.ok(panel.includes('Execution remains disabled'))
   assert.ok(panel.includes('disabled={!walletReady || busy'))
   assert.doesNotMatch(panel, /sendAndVerifyContractCall|deployContractWithOwnerSigner|tronWeb\.trx\.sign|sendRawTransaction/)
 })
