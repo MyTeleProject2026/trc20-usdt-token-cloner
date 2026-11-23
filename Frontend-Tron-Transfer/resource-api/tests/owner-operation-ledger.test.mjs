@@ -22,7 +22,7 @@ function fakeDb() {
       row.state='confirming';return {rows:[row]}
     }
     if(sql.includes('WHERE session_id=$1 AND wallet_role=\'owner\'')) {
-      return {rows:[...rows.values()].filter(row=>row.session_id===p[0]).slice(0,p[1])}
+      return {rows:[...rows.values()].filter(row=>row.session_id===p[0]).slice(0,p[1]).map(row=>({...row,preflight:row.receipt?.preflight,receipt:undefined}))}
     }
     if(sql.startsWith('SELECT state FROM')) {
       const row=rows.get(p[0]);return {rows:row&&row.session_id===p[1]?[{state:row.state}]:[]}
@@ -30,6 +30,7 @@ function fakeDb() {
     if(sql.startsWith('UPDATE public.tron_transfer_owner_operations')) {
       const row=rows.get(p[0]);if(!row||row.session_id!==p[1]||row.state!==p[7])return {rows:[]}
       Object.assign(row,{state:p[2],transaction_id:p[3]||row.transaction_id,block_number:p[4]||row.block_number,failure_code:p[5]})
+      if(p[6]) row.receipt=JSON.parse(p[6])
       return {rows:[row]}
     }
     if(sql.includes('WHERE operation_id=$1 AND session_id=$2')) {
