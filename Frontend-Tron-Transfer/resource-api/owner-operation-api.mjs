@@ -575,7 +575,7 @@ export function createOwnerOperationApi({
       }
 
       if (req.method === 'GET' && route && !action) {
-        const operation = await ledger.get(operationId, session.sessionId)
+        const operation = await ledger.get(operationId, String(env.TRON_OWNER_ADDRESS || ''))
         if (!operation) return reply(res, 404, { success: false, error: 'OWNER_OPERATION_NOT_FOUND' }, origin)
         let reconciliation = null
         if (operation.state === 'confirming' && !operation.transaction_id
@@ -583,7 +583,7 @@ export function createOwnerOperationApi({
           await ledger.transition({ operationId, ownerAddress: String(env.TRON_OWNER_ADDRESS || ''), nextState: 'failed', failureCode: 'OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE' })
         }
         if (operation.transaction_id && ['signed', 'broadcast-unknown', 'broadcast'].includes(operation.state)) {
-          const tronWeb = tronWebFactory({ fullHost: MAINNET })
+          const tronWeb = tronWebFactory({ fullHost: MAINNET, headers: rpcHeaders(env) })
           try {
             reconciliation = await reconcileTransaction(operation.transaction_id, String(env.TRON_OWNER_ADDRESS || ''), operation.contract_address, { fetchImpl: pacedFetch, env, tronWeb })
             if (reconciliation?.solidified) {
