@@ -186,6 +186,19 @@ test('Owner confirmation verifies the TronLink signature and durably journals be
   assert.deepEqual(fixture.transitions.map(item => item.state), ['signed', 'broadcast-unknown', 'broadcast', 'confirmed'])
 })
 
+test('Owner confirmation accepts full-size TronLink batch transaction payloads before execution gates', async () => {
+  const fixture = makeExecutionFixture({ env: { OWNER_OPERATION_EXECUTION_ENABLED: 'false' } })
+  await fixture.api.handle(request('POST', {
+    confirmationPhrase: 'CONFIRM TRON MAINNET OWNER OPERATION',
+    intentSha256: fixture.intentSha256,
+    contractAddress: contract,
+    signedTransaction: { txID: 'b'.repeat(64), raw_data_hex: 'ab'.repeat(32), raw_data: { expiration: Date.now() + 60_000 }, signature: ['a'.repeat(130)] },
+    padding: 'x'.repeat(20_000),
+  }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
+  assert.equal(fixture.replies[0].status, 423)
+  assert.equal(fixture.transitions.length, 0)
+})
+
 test('Owner confirmation refuses to sign or broadcast without the TronLink-signed transaction', async () => {
   const fixture = makeExecutionFixture()
   await fixture.api.handle(request('POST', {
