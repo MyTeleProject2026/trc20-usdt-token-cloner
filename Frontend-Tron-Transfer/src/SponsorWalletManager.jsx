@@ -122,7 +122,7 @@ async function readResourceSnapshot(address, tronWeb) {
   }
 }
 
-async function sponsorApiRequest(path, { method = 'GET', adminToken, body, csrfToken = '' } = {}) {
+async function sponsorApiRequest(path, { method = 'GET', body, csrfToken = '' } = {}) {
   const csrf = csrfToken || String(document.cookie || '').match(/(?:^|;\s*)tron_sponsor_csrf=([^;]+)/)?.[1]
   const response = await fetch(RESOURCE_API + path, {
     method, cache: 'no-store', credentials: 'include',
@@ -130,7 +130,6 @@ async function sponsorApiRequest(path, { method = 'GET', adminToken, body, csrfT
       accept: 'application/json',
       ...(body ? { 'content-type': 'application/json' } : {}),
       ...(method !== 'GET' && csrf ? { 'x-csrf-token': decodeURIComponent(csrf) } : {}),
-      ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
@@ -160,8 +159,10 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [authPassword, setAuthPassword] = useState('')
   const [authCsrfToken, setAuthCsrfToken] = useState('')
   const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
+  const ownerAuth = useMemo(() => createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: RESOURCE_API }), [])
   const [saved, setSaved] = useState(false)
-  const [adminToken, setAdminToken] = useState('')
+  const [ownerAdminPassword, setOwnerAdminPassword] = useState('')
+  const [ownerAdminReady, setOwnerAdminReady] = useState(false)
   const [amount, setAmount] = useState('10')
   const [energyTarget, setEnergyTarget] = useState(() => readSavedTarget('energy', '1278524'))
   const [bandwidthTarget, setBandwidthTarget] = useState(() => readSavedTarget('bandwidth', '1000'))
@@ -201,6 +202,9 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     void sponsorAuth.status().then(status => {
       if (active) setSaved(status.enrolled === true)
     }).catch(() => { if (active) setSaved(false) })
+    void ownerAuth.session().then(session => {
+      if (active && session?.address === OWNER_ADDRESS) setOwnerAdminReady(true)
+    }).catch(() => { if (active) setOwnerAdminReady(false) })
     void sponsorAuth.session().then(session => {
       if (active && session?.address) {
         setWallet({ address: session.address })
@@ -209,7 +213,34 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       }
     }).catch(() => {})
     return () => { active = false }
-  }, [workspaceActive, sponsorAuth])
+  }, [workspaceActive, sponsorAuth, ownerAuth])
+
+  async function loginOwnerAdmin() {
+    if (busy || ownerAdminPassword.length < 12) return
+    setBusy(true)
+    try {
+      const result = await ownerAuth.login(ownerAdminPassword)
+      if (result.address !== OWNER_ADDRESS) throw new Error('Authenticated Owner account does not match the configured Owner identity.')
+      const session = await ownerAuth.session()
+      if (session.address !== OWNER_ADDRESS) throw new Error('Owner Admin session could not be verified.')
+      setOwnerAdminReady(true)
+      setOwnerAdminPassword('')
+      notify('success', 'Owner Admin authenticated', 'Independent Owner authorization is active for guarded Sponsor administration.')
+    } catch (error) {
+      setOwnerAdminReady(false)
+      notify('error', 'Owner Admin authentication failed', error instanceof Error ? error.message : 'Could not authenticate the Owner account.')
+    } finally { setBusy(false) }
+  }
+
+  async function ensureOwnerAdmin() {
+    const session = await ownerAuth.session()
+    if (session?.address !== OWNER_ADDRESS) {
+      setOwnerAdminReady(false)
+      throw new Error('OWNER_ADMIN_SESSION_REQUIRED')
+    }
+    setOwnerAdminReady(true)
+    return true
+  }
 
   async function loginSponsorWallet() {
     if (busy || authPassword.length < 12) return
@@ -297,8 +328,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     return () => { cancelled = true }
   }, [wallet?.address, tronWeb, recordActivity, workspaceActive])
 
-  // Owner Admin bootstrap authorization is short-lived UI state: clear it on wallet lock/logout and whenever the Sponsor workspace is left.
-  useEffect(() => { if (!wallet || !workspaceActive) setAdminToken('') }, [wallet, workspaceActive])
 
   useEffect(() => {
     if (!workspaceActive) return undefined
@@ -319,14 +348,11 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   const bootstrapSponsorLedger = useCallback(async () => {
     if (!wallet?.address) return
-    if (adminToken.length < 32) {
-      notify('error', 'Owner Admin authorization required', 'Enter the configured Sponsor Admin token. It is held in memory only and is never stored in browser storage.')
-      return
-    }
     setBusy(true)
     try {
+      await ensureOwnerAdmin()
       const result = await sponsorApiRequest('/api/sponsor/ledger/bootstrap', {
-        method: 'POST', adminToken, csrfToken: authCsrfToken, body: { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' },
+        method: 'POST', csrfToken: authCsrfToken, body: { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' },
       })
       const status = await sponsorApiRequest('/api/sponsor/status')
       setSponsorApiStatus(status)
@@ -334,7 +360,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     } catch (error) {
       notify('error', 'Sponsor ledger bootstrap failed', String(error?.message || 'The Resource API could not initialize the schema.'))
     } finally { setBusy(false) }
-  }, [wallet?.address, adminToken, notify])
+  }, [wallet?.address, authCsrfToken, notify, ownerAuth])
 
   useEffect(() => {
     setDurableOperations([])
@@ -527,7 +553,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   async function submitResourceTransaction(action, options = {}) {
     if (!wallet || !tronWeb || busy) return
     if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The Resource API requires a verified server signer, durable PostgreSQL ledger, session secret and both explicit Mainnet execution flags. No transaction was sent.'); return }
-    if (sponsorApiStatus?.adminTokenRequired === true && adminToken.length < 32) { notify('error', 'Owner Admin authorization required', 'Enter the configured Sponsor Admin token. It is held in memory only and is not saved to browser storage.'); return }
+    try { await ensureOwnerAdmin() } catch { notify('error', 'Owner Admin authorization required', 'Authenticate the independent Owner account before preparing a Sponsor operation. No transaction was sent.'); return }
     const selectedAmount = options.amount || (action === 'withdraw' ? formatSunAsTrx(snapshot?.withdrawableSun || '0') : amount)
     const selectedResource = options.resource || resourceType
     let amountSun
@@ -565,11 +591,11 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     try {
       const idempotencyKey = createIdempotencyKey()
       const intent = await sponsorApiRequest('/api/sponsor/intent', {
-        method: 'POST', adminToken, csrfToken: authCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken,
         body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
-      if (!window.confirm('Confirm this exact Sponsor operation?\n\n' + intent.message + '\n\nYour authenticated Sponsor password session, CSRF protection and Sponsor Admin authorization will be checked by the backend. The backend signs and submits only this exact intent.')) return
+      if (!window.confirm('Confirm this exact Sponsor operation?\n\n' + intent.message + '\n\nYour authenticated Sponsor password session, independent Owner Admin session and CSRF protection will be checked by the backend. The backend signs and submits only this exact intent.')) return
       const result = await sponsorApiRequest('/api/sponsor/operations', {
         method: 'POST', adminToken, csrfToken: authCsrfToken,
         body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
@@ -624,10 +650,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
       notify('error', 'Sponsor execution is not ready', 'The server signer, database ledger, session authentication and Mainnet execution gates must all be ready. No transaction was sent.')
       return
     }
-    if (sponsorApiStatus?.adminTokenRequired === true && adminToken.length < 32) {
-      notify('error', 'Owner Admin authorization required', 'Enter the configured Sponsor Admin token before provisioning. No transaction was sent.')
-      return
-    }
+    try { await ensureOwnerAdmin() } catch { notify('error', 'Owner Admin authorization required', 'Authenticate the independent Owner account before provisioning. No transaction was sent.'); return }
     try {
       const protectedReserveSun = parseTrx(String(sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'))
       const maxStakeSun = sponsorApiStatus?.stakingPolicy?.enabled === true ? parseTrx(String(sponsorApiStatus.stakingPolicy.maxStakeTrx)) : 0
@@ -774,7 +797,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
 
     {wallet && activePage === 'sponsor' && <section className="sponsor-card">
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Server-side signing, exact-intent authorization and durable operation ledger.</p></div></div>
-      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Admin authorization: {sponsorApiStatus?.adminTokenRequired ? (sponsorApiStatus?.adminTokenConfigured ? 'required · valid policy' : 'required · token must be at least 32 characters') : 'not required'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
+      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Owner Admin second factor: {sponsorApiStatus?.ownerAdminSessionRequired ? 'required · backend session' : 'not configured'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Exact Sponsor message signature, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
       {wallet && ['schema-missing', 'control-row-missing'].includes(sponsorApiStatus?.databaseStatus) && <div className="sponsor-ledger-bootstrap">
