@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { TronWeb } from 'tronweb'
 import pg from 'pg'
 import { createOwnerOperationLedger } from './owner-operation-ledger.mjs'
@@ -123,7 +124,15 @@ function verifyPermission(tronWeb, account, ownerAddress) {
   if (!Number.isSafeInteger(weight) || weight < threshold) fail('OWNER_SIGNER_CANNOT_SATISFY_OWNER_PERMISSION', 403)
   return { permissionId: 0, threshold, signerWeight: weight, satisfied: true }
 }
-async function verifyContract(tronWeb, contractAddress, ownerAddress) {
+async function verifyContract(tronWeb, contractAddress, ownerAddress, { fetchImpl, env }) {
+  const expectedRuntimeHash = String(env.TRAX_RUNTIME_BYTECODE_SHA256 || '').trim().toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(expectedRuntimeHash)) fail('OWNER_TRAX_RUNTIME_HASH_NOT_CONFIGURED', 503)
+  const info = await rpcPost('/wallet/getcontractinfo', { value: contractAddress, visible: true }, { fetchImpl, env })
+  const runtimeCode = String(info?.runtimecode || '').replace(/^0x/i, '').toLowerCase()
+  if (!/^(?:[0-9a-f]{2})+$/i.test(runtimeCode)
+    || createHash('sha256').update(Buffer.from(runtimeCode, 'hex')).digest('hex') !== expectedRuntimeHash) {
+    fail('OWNER_TRAX_RUNTIME_BYTECODE_MISMATCH', 409)
+  }
   const contract = await tronWeb.contract(ABI).at(contractAddress)
   const [name, symbol, decimals, owner] = await Promise.all([
     contract.name().call(), contract.symbol().call(), contract.decimals().call(), contract.owner().call(),
@@ -148,7 +157,9 @@ async function buildUnsigned(tronWeb, contractAddress, ownerAddress, normalized)
     || !/^(?:[0-9a-f]{2})+$/i.test(String(transaction?.raw_data_hex || ''))
     || transaction?.raw_data?.contract?.length !== 1
     || transaction.raw_data.contract[0]?.type !== 'TriggerSmartContract') fail('OWNER_UNSIGNED_TRANSACTION_BUILD_FAILED', 503)
+  const rawHash = createHash('sha256').update(Buffer.from(transaction.raw_data_hex, 'hex')).digest('hex')
   const value = transaction.raw_data.contract[0]?.parameter?.value || {}
+  if (rawHash.toLowerCase() !== String(transaction.txID).toLowerCase()) fail('OWNER_UNSIGNED_TRANSACTION_ID_MISMATCH', 409)
   if (Number(transaction.raw_data?.contract?.[0]?.Permission_id ?? 0) !== 0
     || asAddress(tronWeb, value.owner_address) !== ownerAddress
     || asAddress(tronWeb, value.contract_address) !== contractAddress
@@ -267,7 +278,7 @@ export function createOwnerOperationApi({
         let result
         try {
           const tronWeb = tronWebFactory({ fullHost: MAINNET })
-          await verifyContract(tronWeb, contractAddress, ownerAddress)
+          await verifyContract(tronWeb, contractAddress, ownerAddress, { fetchImpl, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
           result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env })
         } catch (error) {
