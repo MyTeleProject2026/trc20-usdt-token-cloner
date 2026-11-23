@@ -7,6 +7,11 @@ const CONTRACT_ADDRESS_ENV = 'TRAX_CONTRACT_ADDRESS'
 const MAINNET_HOST = 'https://api.trongrid.io'
 const TX_ID = /^[0-9a-f]{64}$/i
 const PRIVATE_KEY = /^(?:0x)?[0-9a-f]{64}$/i
+const ALLOWED_METHODS = [
+  'mint(address,uint256)', 'credit(address,uint256,bytes32)',
+  'batchCredit(address[],uint256[],bytes32[])', 'transfer(address,uint256)',
+  'setPaused(bool)', 'setMintingEnabled(bool)', 'transferOwnership(address)',
+]
 
 function fail(code) { throw Object.assign(new Error(code), { code }) }
 function sameAddress(a, b) { return typeof a === 'string' && typeof b === 'string' && a === b }
@@ -41,6 +46,8 @@ export function createOwnerManagedSigner({
   if (!tronWeb.isAddress(expectedContractAddress)) fail('OWNER_TRAX_CONTRACT_ADDRESS_INVALID')
   if (String(tronWeb.fullNode?.host || '').replace(/\/$/, '') !== MAINNET_HOST) fail('OWNER_SIGNER_MAINNET_NODE_MISMATCH')
 
+  const allowedSelectors = new Set(ALLOWED_METHODS.map(signature => String(tronWeb.sha3(signature)).replace(/^0x/i, '').slice(0, 8).toLowerCase()))
+
   async function signContractTransaction(unsigned) {
     const contracts = unsigned?.raw_data?.contract
     if (!Array.isArray(contracts) || contracts.length !== 1
@@ -59,9 +66,22 @@ export function createOwnerManagedSigner({
       || Number(value.call_value || 0) !== 0) {
       fail('OWNER_SIGNER_CALL_DATA_OR_VALUE_INVALID')
     }
-    if (Number(unsigned.raw_data?.fee_limit) <= 0 || !Number.isSafeInteger(Number(unsigned.raw_data?.fee_limit))) {
+    const feeLimit = Number(unsigned.raw_data?.fee_limit)
+    const maxFeeLimit = Number(env.OWNER_MAX_FEE_LIMIT_SUN || 150000000)
+    if (!Number.isSafeInteger(feeLimit) || feeLimit <= 0 || !Number.isSafeInteger(maxFeeLimit) || feeLimit > maxFeeLimit) {
       fail('OWNER_SIGNER_FEE_LIMIT_INVALID')
     }
+    const timestamp = Number(unsigned.raw_data?.timestamp)
+    const expiration = Number(unsigned.raw_data?.expiration)
+    const now = Date.now()
+    if (!Number.isSafeInteger(timestamp) || !Number.isSafeInteger(expiration)
+      || timestamp <= 0 || timestamp > now + 30_000 || expiration <= now + 5_000
+      || expiration <= timestamp || expiration > now + 10 * 60_000) {
+      fail('OWNER_SIGNER_TRANSACTION_EXPIRED_OR_INVALID')
+    }
+    if (Number(contracts[0]?.Permission_id ?? 0) !== 0) fail('OWNER_SIGNER_PERMISSION_ID_NOT_ALLOWED')
+    const selector = String(value.data || '').replace(/^0x/i, '').slice(0, 8).toLowerCase()
+    if (!allowedSelectors.has(selector)) fail('OWNER_SIGNER_METHOD_NOT_ALLOWLISTED')
     if (typeof tronWeb.utils?.transaction?.txCheck !== 'function'
       || tronWeb.utils.transaction.txCheck(unsigned) !== true) fail('OWNER_SIGNER_UNSIGNED_TRANSACTION_INVALID')
     const calculatedId = createHash('sha256').update(Buffer.from(unsigned.raw_data_hex, 'hex')).digest('hex')
