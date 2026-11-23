@@ -6,6 +6,9 @@ import MobileNavBar from './MobileNavBar.jsx'
 import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
 import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
+import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
+
+const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
 
 class SponsorWorkspaceErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, message: '' } }
@@ -50,6 +53,14 @@ export default function App() {
   const [walletNotice, setWalletNotice] = useState('')
   const [ownerAccessOpen, setOwnerAccessOpen] = useState(false)
 
+  useEffect(() => {
+    let active = true
+    ownerAuthClient.session().then(session => {
+      if (active && session.address) setWallet({ address: session.address, managedSession: true, signerType: 'backend-managed-owner', authClient: ownerAuthClient })
+    }).catch(() => {})
+    return () => { active = false }
+  }, [])
+
   // Keep each workspace/page addressable and make browser Back/Forward work.
   useEffect(() => {
     const syncFromLocation = () => setActivePage(pageFromLocation())
@@ -76,10 +87,11 @@ export default function App() {
     setWallet(ownerWallet)
     setOwnerAccessOpen(false)
     setWalletError('')
-    setWalletNotice('Owner Wallet unlocked. Transactions are signed locally by your encrypted Owner vault; each write still requires explicit application confirmation.')
+    setWalletNotice('Backend-managed Owner password session authenticated. TRӾ contract writes remain locked until the server-side operation and Mainnet preflight integration is enabled.')
   }
 
   function lockWallet() {
+    ownerAuthClient.logout().catch(() => {})
     setWallet(null)
     setOwnerAccessOpen(true)
     setActivePage('home')
@@ -92,6 +104,7 @@ export default function App() {
     let idleTimer
     let backgroundTimer
     const lock = () => {
+      ownerAuthClient.logout().catch(() => {})
       setWallet(null)
       setActivePage('home')
       setOwnerAccessOpen(true)
