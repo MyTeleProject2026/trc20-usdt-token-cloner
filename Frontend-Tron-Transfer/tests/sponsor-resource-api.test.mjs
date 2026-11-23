@@ -48,13 +48,14 @@ test('Resource API mounts Sponsor routes and allows authenticated browser prefli
   assert.match(api, /content-type, authorization/)
 })
 
-test('Sponsor server supports managed password sessions and legacy signed sessions with durable idempotency', () => {
+test('Sponsor API supports managed sessions, challenge signatures, durable intents and local transaction signing', () => {
   assert.match(service, /SPONSOR_SESSION_SECRET/)
   assert.match(service, /idempotency_key_hash/)
   assert.match(service, /intentMessage/)
   assert.match(service, /verifyMessage\(challenge\.message, body\.signature\)/)
-  assert.match(service, /if \(!managedSessionAuth\)/)
-  assert.match(service, /explicit-confirmation-and-authentication-required/)
+  assert.match(service, /authenticateManagedSession/)
+  assert.match(service, /CONFIRMATION/)
+  assert.doesNotMatch(service, /verifyMessage\(intent\.message, body\.signature\)/)
   assert.match(service, /durable-idempotency-storage-required/)
   assert.match(service, /localSponsorSigningImplemented/)
   assert.match(service, /legacy-sponsor-server-signer-route-disabled/)
