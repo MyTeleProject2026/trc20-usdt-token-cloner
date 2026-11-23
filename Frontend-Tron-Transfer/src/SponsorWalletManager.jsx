@@ -638,6 +638,16 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setOwnerAdminPassword('')
     setOwnerAdminReady(false)
     setAuthCsrfToken('')
+    setAuthPassword('')
+    setAuthRecoveryToken('')
+    setAuthRecoveryConfirmPassword('')
+    setCurrentSponsorPassword('')
+    setNewSponsorPassword('')
+    setConfirmSponsorPassword('')
+    setCredential('')
+    setKeystorePassword('')
+    setVaultPassword('')
+    setUnlockPassword('')
     setWallet(null)
     setManagedSponsorAddress('')
     setVaultSaved(hasSavedSponsorWallet())
@@ -661,7 +671,20 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [wallet?.address, recordSecurityEvent, notify, sponsorAuth])
 
   useEffect(() => {
-    if (!workspaceActive && wallet?.address) lockWallet('manual')
+    if (workspaceActive) return
+    if (wallet?.address) lockWallet('manual')
+    // Clear pending import/unlock credentials even when no vault has been unlocked yet.
+    setAuthPassword('')
+    setAuthRecoveryToken('')
+    setAuthRecoveryConfirmPassword('')
+    setCurrentSponsorPassword('')
+    setNewSponsorPassword('')
+    setConfirmSponsorPassword('')
+    setCredential('')
+    setKeystorePassword('')
+    setVaultPassword('')
+    setUnlockPassword('')
+    setOwnerAdminPassword('')
   }, [workspaceActive, wallet?.address, lockWallet])
 
   useEffect(() => {
