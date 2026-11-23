@@ -261,7 +261,7 @@ export function createTRAXDeploymentApi({
           fail('TRAX_DEPLOYMENT_SIGNED_TRANSACTION_MISMATCH', 409)
         }
         assertIntegrity(tronWeb, signed, 'Signed TRӾ CreateSmartContract transaction')
-        verifySigner(tronWeb, signed, session.address)
+        await verifySigner(tronWeb, signed, session.address)
         await verifyPermission(tronWeb, signed, session.address)
         const [freshEstimate, freshSnapshot] = await Promise.all([
           estimateEnergy(tronWeb, session.address, artifactNow),
