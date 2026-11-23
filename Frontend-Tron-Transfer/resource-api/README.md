@@ -47,6 +47,7 @@ Mainnet resource monitor and guarded Owner/Sponsor transaction service for the e
 ## Endpoints
 
 - `GET /health` — service health and upstream identity.
+- `POST /api/tron/mainnet/rpc/:walletMethod` — allowlisted, read-only TronWeb RPC proxy used by the existing Owner UI. Browser reads are routed through the Resource API; write/broadcast/deployment RPC methods are denied.
 - `GET /v1/resources/:base58Address` — account Energy, free and staked/delegated Bandwidth by source, the maximum Bandwidth available to cover one transaction, native TRX balance, current chain fee parameters, and network-wide resource limits/weights.
 - `GET /v1/transactions/:base58Address?limit=20` — up to 50 latest confirmed Mainnet native transactions and official USDT TRC-20 transfers for a Sponsor Wallet, retrieved from TronGrid with an optional server-side API key. This avoids TronWeb's deprecated related-transaction endpoints.
 - `POST /api/owner/operations/prepare`, `GET /api/owner/operations`, `GET /api/owner/operations/:operationId`, `POST /api/owner/operations/:operationId/confirm`, and `POST /api/owner/operations/:operationId/cancel` — session-bound Owner operation preparation, journal recovery, explicit confirmation and solidified receipt reconciliation. Every POST requires the Owner session CSRF token.
@@ -100,6 +101,12 @@ Do not set the database evidence flags or Mainnet execution gates until the migr
 - TRӾ contract deployment remains locked in the existing UI until a separate backend deployment route pins the exact creation bytecode/ABI artifact and performs its own deployment-specific preflight. The TriggerSmartContract Owner signer does not sign CreateSmartContract deployment transactions.
 - The current Owner signer cannot accept a two-step ownership transfer on behalf of a different pending-owner address. The new pending owner must authorize its own acceptance transaction; the existing Owner session does not impersonate it.
 - No Solidity contract rewrite, upgrade or Mainnet deployment is included in this change.
+
+## Browser Mainnet RPC proxy and network reliability
+
+The existing TRӾ Owner panel configures its read-only TronWeb client to use `VITE_RESOURCE_API_URL` (or the existing Resource API origin) at `/api/tron/mainnet/rpc`, rather than calling `api.trongrid.io` directly from the browser. The proxy exposes only an explicit read-method allowlist, keeps `TRONGRID_API_KEY` and `TATUM_API_KEY` on the server, coalesces identical in-flight reads, caches successful identical reads for 1.5 seconds, and serializes upstream RPC requests at no more than roughly two requests per second per Resource API process. A TronGrid `429` activates a minimum five-second provider cooldown. Transaction broadcast, deployment, signing, and arbitrary RPC methods are not exposed through this proxy. Owner signing and preflight still perform their own fresh backend reads and fail closed on provider, DNS, timeout, permission, or resource errors; the short UI cache is never used as signing evidence.
+
+`ERR_NAME_NOT_RESOLVED` is a DNS/resolver or upstream reachability failure, not a TronGrid quota response. The proxy can keep provider credentials private and use the configured Tatum-first/TronGrid-fallback path, but it cannot repair a Render DNS outage or a provider outage. When all configured providers are unreachable, the UI must display unavailable and leave writes blocked.
 
 ## RPC provider diagnostics
 
