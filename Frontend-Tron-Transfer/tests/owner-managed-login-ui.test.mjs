@@ -9,6 +9,9 @@ test('Owner access uses backend password sessions and never imports browser wall
   assert.ok(ui.includes("createManagedWalletAuthClient({ role: 'owner' })"))
   assert.ok(ui.includes('ownerAuth.login(password)'))
   assert.ok(ui.includes('ownerAuth.enroll(password, enrollmentToken.trim())'))
+  assert.ok(ui.includes("import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'"))
+  assert.ok(ui.includes('requestTronLinkConnection(provider, window)'))
+  assert.ok(ui.includes("signerType: 'tronlink-owner'"))
   // Security copy may mention secrets to prohibit pasting them. Assert the
   // absence of actual browser key-management APIs, not warning vocabulary.
   assert.doesNotMatch(ui, /deriveOwnerAccount|saveOwnerWalletVault|unlockOwnerWalletVault|createOwnerTronWeb|tronWeb\.trx\.sign|sendRawTransaction/i)
@@ -34,6 +37,9 @@ test('TRӾ panel uses the managed Owner session and guarded backend operation wo
   assert.ok(panel.includes("'/confirm'"))
   assert.ok(panel.includes('pendingOperation.executionEnabled'))
   assert.ok(panel.includes('solidified Mainnet block'))
+  assert.ok(panel.includes('requestTronLinkConnection(wallet.provider, window)'))
+  assert.ok(panel.includes('signer.trx.sign(pendingOperation.unsignedTransaction)'))
+  assert.ok(panel.includes('signer.trx.sign(deploymentOperation.unsignedTransaction)'))
   assert.doesNotMatch(panel, /sendAndVerifyContractCall|deployContractWithOwnerSigner|tronWeb\.trx\.sign|sendRawTransaction/)
 })
 
