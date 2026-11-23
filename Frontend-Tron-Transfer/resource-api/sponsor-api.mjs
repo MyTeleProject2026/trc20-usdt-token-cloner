@@ -89,14 +89,25 @@ export function sponsorDatabaseConnectionInfo(env = process.env) {
 
   const connectionString = env[sourceVariable].trim()
   let hostname = ''
+  let identityFingerprint = null
   try {
-    hostname = new URL(connectionString).hostname.toLowerCase()
+    const parsed = new URL(connectionString)
+    hostname = parsed.hostname.toLowerCase()
+    // A one-way fingerprint proves which database endpoint/name/role is selected
+    // without returning a hostname or credential in production diagnostics.
+    const identity = JSON.stringify({
+      hostname,
+      database: decodeURIComponent(parsed.pathname.replace(/^\\/+/, '')),
+      username: decodeURIComponent(parsed.username),
+    })
+    identityFingerprint = sha(identity)
   } catch {
     return {
       configured: true,
       sourceVariable,
       provider: 'unrecognized',
       connectionMode: sourceVariable.endsWith('_POOLED') ? 'pooled' : 'direct',
+      identityFingerprint: null,
     }
   }
 
@@ -110,6 +121,7 @@ export function sponsorDatabaseConnectionInfo(env = process.env) {
     sourceVariable,
     provider,
     connectionMode: sourceVariable.endsWith('_POOLED') ? 'pooled' : 'direct',
+    identityFingerprint,
   }
 }
 
@@ -321,6 +333,12 @@ export function createSponsorResourceApi({
         const readiness = engine.readiness()
         const databaseConnection = sponsorDatabaseConnectionInfo(env)
         const dbConfigured = databaseConnection.configured
+        const expectedDatabaseIdentity = typeof env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256 === 'string'
+          ? env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256.trim().toLowerCase()
+          : ''
+        const expectedDatabaseIdentityValid = /^[0-9a-f]{64}$/.test(expectedDatabaseIdentity)
+        const databaseIdentityMatches = expectedDatabaseIdentityValid
+          && databaseConnection.identityFingerprint === expectedDatabaseIdentity
         const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
         const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
         const adminRequired = true
@@ -363,6 +381,7 @@ export function createSponsorResourceApi({
           { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
           { id: 'sponsor-signer-address-match', state: readiness.signerConfigured === true && readiness.sponsorAddressValid === true && readiness.signerAddressMatches === true ? 'passed' : 'blocked' },
           { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
+          { id: 'database-target-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
           { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
           { id: 'writes-remain-paused-until-release', state: sponsorWritesPaused ? 'passed' : 'blocked' },
@@ -387,6 +406,8 @@ export function createSponsorResourceApi({
           sessionAuthenticationConfigured: Boolean(sessionSecret(env)),
           databaseConfigured: dbConfigured,
           databaseConnection,
+          databaseIdentityMatches,
+          expectedDatabaseIdentityConfigured: expectedDatabaseIdentityValid,
           databaseReady,
           databaseStatus,
           sponsorWritesPaused,
