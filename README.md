@@ -61,4 +61,4 @@ The repository retains a separate sponsor-direct USDT payout backend for existin
 
 The historical brief documents a $5,000–$10,000 equivalent target in sponsor-controlled official TRON Mainnet USDT capacity. That is not a current funding claim, platform deposit, owner-controlled treasury balance, or promise of payout liquidity. The current integrated Sponsor Wallet is for TRX/resource management and Sponsor-to-Owner resource top-ups as documented above.
 
-A separate legacy sponsor-direct payout backend remains distinct from the integrated Sponsor resource wallet. It is not exposed as a page in the Owner Admin navigation and is not used for Sponsor staking, delegation, or TRӾ deployment.
+A separate legacy sponsor-direct payout backend remains distinct from the integrated Sponsor resource wallet. Its pure USDT transaction encoding and signature-validation helpers now live in `server/owner-usdt-transfer.mjs`; the former unmounted Owner withdrawal router/UI is deleted. The legacy backend is not exposed as a page in the Owner Admin navigation and is not used for Sponsor staking, delegation, or TRӾ deployment.
