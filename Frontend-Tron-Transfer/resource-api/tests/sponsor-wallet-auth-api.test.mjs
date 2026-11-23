@@ -2,7 +2,7 @@ import test from 'node:test'
 import { createHash } from 'node:crypto'
 import assert from 'node:assert/strict'
 import { createSponsorWalletAuthApi } from '../sponsor-wallet-auth-api.mjs'
-import { hashWalletPassword } from '../managed-wallet-auth-crypto.mjs'
+import { hashWalletPassword, verifyWalletPassword } from '../managed-wallet-auth-crypto.mjs'
 
 const address = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
 const bootstrap = 'sponsor-enrollment-test-token-with-more-than-32-characters'
@@ -114,7 +114,7 @@ test('Sponsor password change rotates sessions and session listing is role-scope
  assert.equal(changed.status,200)
  assert.equal(db.state.sessions.filter(x=>!x.revoked_at).length,1)
  assert.equal(db.state.sessions.filter(x=>x.revoked_at).length,1)
- assert.equal(await (async()=>{const v=await hashWalletPassword('new sponsor password phrase 456');return v.passwordHash===db.state.account.password_hash})(),false)
+ assert.equal(await verifyWalletPassword('new sponsor password phrase 456',{passwordHash:db.state.account.password_hash,passwordSalt:db.state.account.password_salt,passwordAlgorithm:db.state.account.password_algorithm,passwordParams:db.state.account.password_params}),true)
  const newHeaders=authHeaders(changed)
  const newSession=response()
  await api.handle(request('GET',newHeaders),newSession,new URL('https://api.test/api/wallet-auth/sponsor/session'),'https://tron-transfer.onrender.com')
