@@ -118,11 +118,13 @@ test('client-local submit verifies Sponsor permission and persists the exact sig
   let broadcasts = 0
   const fakeTronWeb = {
     address: { fromHex: () => SPONSOR },
+    isAddress: value => value === SPONSOR,
+    utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => sponsorHex } },
     trx: {
       getBalance: async () => 10_000_000n,
       getAccountResources: async () => ({ freeNetLimit: 600, freeNetUsed: 0, NetLimit: 0, NetUsed: 0 }),
       getChainParameters: async () => [{ key: 'getTransactionFee', value: 1000 }],
-      getSignWeight: async () => ({ approved_list: [SPONSOR], permission: { threshold: 1 }, current_weight: 1, result: {} }),
+      getSignWeight: async () => ({ approved_list: [SPONSOR], permission: { id: 0, threshold: 1, keys: [{ address: SPONSOR, weight: 1 }] }, current_weight: 1, result: {} }),
       sendRawTransaction: async () => { assert.equal(persisted, true); broadcasts++; return { result: true } },
     },
   }
