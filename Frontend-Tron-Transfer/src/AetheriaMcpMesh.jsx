@@ -9,24 +9,24 @@ import './aetheria-mcp-mesh.css'
 const RESOURCE_API = (import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/$/, '')
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const POLL = Object.freeze({
-  health: 1_000,
-  runtime: 1_000,
-  resources: 15_000,
-  tenergy: 15_000,
-  transactions: 10_000,
-  renderEvents: 30_000,
-  uptime: 60_000,
-  renderMetrics: 60_000,
+  health: 30_000,
+  runtime: 5_000,
+  resources: 30_000,
+  tenergy: 60_000,
+  transactions: 60_000,
+  renderEvents: 60_000,
+  uptime: 300_000,
+  renderMetrics: 300_000,
 })
 const API_FLOWS = [
-  { id: 'health', hub: 'RESOURCE API', fn: 'platform.health.read', method: 'GET', path: '/health', interval: '1s' },
-  { id: 'runtime', hub: 'RUNTIME CORE', fn: 'runtime.snapshot.read', method: 'GET', path: '/api/observatory/snapshot', interval: '1s' },
-  { id: 'resources', hub: 'TRON MAINNET', fn: 'mainnet.resources.read', method: 'GET', path: '/v1/resources/{owner}', interval: '15s · cached' },
-  { id: 'tenergy', hub: 'TENERGY', fn: 'tenergy.promotion.status', method: 'GET', path: '/api/tron/tenergy/promo?address={owner}', interval: '15s' },
-  { id: 'transactions', hub: 'TRON MAINNET', fn: 'mainnet.confirmed.transactions', method: 'GET', path: '/api/observatory/transactions?address={owner}', interval: '10s' },
+  { id: 'health', hub: 'RESOURCE API', fn: 'platform.health.read', method: 'GET', path: '/health', interval: '5m' },
+  { id: 'runtime', hub: 'RUNTIME CORE', fn: 'runtime.snapshot.read', method: 'GET', path: '/api/observatory/snapshot', interval: '5s' },
+  { id: 'resources', hub: 'TRON MAINNET', fn: 'mainnet.resources.read', method: 'GET', path: '/v1/resources/{owner}', interval: '30s · cached' },
+  { id: 'tenergy', hub: 'TENERGY', fn: 'tenergy.promotion.status', method: 'GET', path: '/api/tron/tenergy/promo?address={owner}', interval: '60s' },
+  { id: 'transactions', hub: 'TRON MAINNET', fn: 'mainnet.confirmed.transactions', method: 'GET', path: '/api/observatory/transactions?address={owner}', interval: '60s' },
   { id: 'renderEvents', hub: 'RENDER CONTROL PLANE', fn: 'render.service.events.list', method: 'GET', path: '/api/observatory/render-events', interval: '30s' },
   { id: 'uptime', hub: 'GITHUB ARCHIVE', fn: 'uptime.history.read', method: 'GET', path: '/api/observatory/uptime-history', interval: '60s' },
-  { id: 'renderMetrics', hub: 'RENDER CONTROL PLANE', fn: 'render.metrics.read', method: 'GET', path: '/api/observatory/render-metrics', interval: '60s · API cache 5m' },
+  { id: 'renderMetrics', hub: 'RENDER CONTROL PLANE', fn: 'render.metrics.read', method: 'GET', path: '/api/observatory/render-metrics', interval: '5m · API cache 5m' },
 ]
 const INITIAL_CALLS = Object.fromEntries(API_FLOWS.map(flow => [flow.id, {
   state: 'checking', statusCode: null, latencyMs: null, requestedAt: null, returnedAt: null,
@@ -235,7 +235,7 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const requestMetrics = runtime?.requests
   const heartbeatAge = heartbeat?.lastAt ? Math.max(0, clockNow - Date.parse(heartbeat.lastAt)) : null
   const runtimeState = calls.runtime.state === 'offline' && !runtime ? 'offline'
-    : heartbeatAge != null && heartbeatAge <= 3500 && calls.runtime.state === 'online' ? 'online'
+    : heartbeatAge != null && heartbeatAge <= 8000 && calls.runtime.state === 'online' ? 'online'
       : runtime ? 'warning' : 'checking'
   const resourceState = calls.resources.state
   const promoState = calls.tenergy.state === 'online' && promo?.promo?.state === 'active' ? 'online' : calls.tenergy.state === 'online' ? 'warning' : calls.tenergy.state
