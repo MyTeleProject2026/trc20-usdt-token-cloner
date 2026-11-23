@@ -25,7 +25,7 @@ The report evaluates:
 10. Sponsor session authentication configuration.
 11. Mainnet deployment execution remains explicitly disabled during acceptance.
 12. Artifact-pinned TRӾ deployment source, creation bytecode, runtime bytecode and manifest fingerprints match the pinned Solidity build.
-13. Deployment signing verifies the recovered Owner signer and live TRON permission; signed transaction and broadcast intent persist before network broadcast.
+13. The connected Owner TronLink wallet signs the exact prepared transaction; the Resource API recovers and verifies the configured Owner address and live TRON permission, then durably persists the signed transaction and broadcast intent before broadcasting. The backend does not sign Owner transactions or require an Owner private-key environment variable.
 14. Pending-owner challenge/session is distinct from the configured Owner session and acceptance verifies the exact pending-owner signature, transaction and solidified owner state.
 15. Owner and Sponsor password changes, role-scoped one-time recovery, single-session revocation and revoke-other-sessions routes are available; recovery tokens and session tokens are hash-stored.
 
@@ -45,12 +45,13 @@ The command uses HTTPS only, refuses redirects, checks the health and acceptance
 
 Use the existing production frontend in a real desktop and mobile browser. Do not paste passwords, private keys, seed phrases, session cookies, or database credentials into browser developer tools.
 
-- Confirm the Owner workspace loads, navigation works, and the connected address is the configured Owner.
+- Confirm the Owner workspace loads and navigation works. Owner access requires both the independent managed Owner password session and a connected TronLink signer; the app session address, TronLink authorized account, TronWeb active address, configured Owner address and transaction owner must all match.
 - Confirm the Sponsor workspace loads independently and displays the Sponsor identity separately.
 - Confirm read-only Sponsor status is visible and blocked checks are clearly labelled.
 - Confirm browser storage, page source, network responses, and console output contain no Sponsor or Owner private key, static Sponsor Admin token, session secret, or database URL. Confirm Sponsor transaction requests include the independent Owner session cookie and Sponsor CSRF proof, without any private-key or static admin-token header.
 - Confirm navigation, reload, logout/session expiry, narrow mobile viewport, keyboard focus, and error/empty states.
 - Confirm no Owner or Sponsor page silently submits, signs, or broadcasts a transaction during page load or status refresh.
+- Confirm Owner deployment and contract-operation prompts appear only after explicit confirmation and fresh resource preflight. TronLink must sign the exact persisted unsigned transaction; the Resource API must reject missing, mismatched or invalid signatures and must persist the verified signature before broadcasting.
 - Keep all write controls disabled while acceptance is in progress.
 
 Browser acceptance must be recorded with browser/version, viewport, build commit, route, observed result, and timestamp. A screenshot alone does not prove signing custody or transaction safety.
@@ -59,6 +60,7 @@ Browser acceptance must be recorded with browser/version, viewport, build commit
 
 - A real Neon database snapshot/backup and restoration drill must be evidenced independently; environment flags are operator attestations, not proof.
 - Apply Owner Admin migrations only with the direct PostgreSQL endpoint after the backup/restore gate, then verify migration checksums and required tables.
+- Owner TronLink signing must be tested with broadcast disabled and the recovered signature verified against the configured Owner address and live permission.
 - Sponsor signing must be tested with broadcast disabled and the signature recovered/verified against the configured Sponsor address.
 - Owner and Sponsor recovery tokens must be generated for the intended role, consumed once, and verified not to cross-authenticate the other wallet role.
 - Process-restart recovery must be exercised against a non-production or safely isolated test ledger.
