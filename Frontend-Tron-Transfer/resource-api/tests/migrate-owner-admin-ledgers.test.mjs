@@ -31,3 +31,36 @@ test('Owner Admin migration runner rejects a changed checksum for an applied ver
  }}
  await assert.rejects(()=>applyOwnerAdminMigrations(client,[{version:'20261122_backend_wallet_auth.sql',sql:'CREATE TABLE altered(id int);'}]),/checksum changed/)
 })
+
+
+test('transaction-wrapped migration files cannot commit the orchestrator transaction early',async()=>{
+ const applied=new Map(),statements=[]
+ const client={async query(sql,params=[]){
+  const statement=String(sql).trim()
+  statements.push(statement)
+  if(statement==='BEGIN'||statement==='COMMIT'||statement==='ROLLBACK')return{rows:[]}
+  if(statement.includes('pg_advisory_xact_lock')||statement.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_owner_admin_schema_migrations'))return{rows:[]}
+  if(statement.startsWith('SELECT checksum'))return{rows:applied.has(params[0])?[{checksum:applied.get(params[0])}]:[]}
+  if(statement.startsWith('INSERT INTO public.tron_transfer_owner_admin_schema_migrations')){applied.set(params[0],params[1]);return{rows:[]}}
+  return{rows:[]}
+ }}
+ await applyOwnerAdminMigrations(client,[{version:'20261122_wrapped.sql',sql:'-- migration header\\nBEGIN;\\nCREATE TABLE wrapped_migration(id int);\\nCOMMIT;'}])
+ assert.equal(statements.filter(x=>x==='BEGIN').length,1)
+ assert.equal(statements.filter(x=>x==='COMMIT').length,1)
+ assert.ok(statements.includes('CREATE TABLE wrapped_migration(id int);'))
+})
+
+test('Owner Admin migration postflight executes before commit and failure rolls back',async()=>{
+ const statements=[]
+ const client={async query(sql,params=[]){
+  const statement=String(sql).trim();statements.push(statement)
+  if(statement==='BEGIN'||statement==='ROLLBACK')return{rows:[]}
+  if(statement.includes('pg_advisory_xact_lock')||statement.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_owner_admin_schema_migrations'))return{rows:[]}
+  if(statement.startsWith('SELECT checksum'))return{rows:[]}
+  if(statement.startsWith('INSERT INTO public.tron_transfer_owner_admin_schema_migrations'))return{rows:[]}
+  return{rows:[]}
+ }}
+ await assert.rejects(()=>applyOwnerAdminMigrations(client,[{version:'20261122_test.sql',sql:'CREATE TABLE test_table(id int);'}],async()=>{statements.push('POSTFLIGHT');throw new Error('postflight failed')}),/postflight failed/)
+ assert.ok(statements.indexOf('POSTFLIGHT')<statements.indexOf('ROLLBACK'))
+ assert.ok(!statements.includes('COMMIT'))
+})
