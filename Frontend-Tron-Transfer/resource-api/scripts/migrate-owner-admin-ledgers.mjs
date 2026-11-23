@@ -20,16 +20,18 @@ export function stripOuterTransactionEnvelope(sql) {
   return source.trim()
 }
 
+// Both known ledgers have been independently observed on Neon. Reconciliation
+// is permitted only when the live schema fingerprint below matches exactly.
 export const LEGACY_MIGRATION_CHECKSUMS = Object.freeze({
-  '20261122_backend_wallet_auth.sql': '13d46d37a8d9104c504697f3fa9538c0295b5dcdd2e3bd89357823facee5fcc8',
-  '20261123_owner_operation_ledger.sql': '5f056a1ed512b1e464192188a672bad592d48c25f11155603fd3cf2aeda721db',
-  '20261123_trax_deployment_ledger.sql': 'f062f3b7657b871a0d267c14c3eecc2b7e32e144cf83368f3db5b07868496649',
-  '20261124_owner_recovery_tokens.sql': 'fad19fb2964ad12144e3578e16a72a37281788d41fc7a58c110e6464f73ad85f',
-  '20261125_pending_owner_acceptance.sql': 'c7c0457e4d60568f69623e1bcc30e3eafb14951bb8a264a03c14f0ef04ecedd7',
-  '20261126_wallet_recovery_roles.sql': '28c197c62eaf7f7757dad409cbaa6df0b82380bab64840d97a9817085a8187fe',
+  '20261122_backend_wallet_auth.sql': ['13d46d37a8d9104c504697f3fa9538c0295b5dcdd2e3bd89357823facee5fcc8', '2c64cbb8f18ccbe46d57eff40142e7c1efaf8fa4c12f6021c00d22f0e970113e'],
+  '20261123_owner_operation_ledger.sql': ['5f056a1ed512b1e464192188a672bad592d48c25f11155603fd3cf2aeda721db', '5c48c0966058e44327f23d710d5ea52b86645785e251062e50be05742d591162'],
+  '20261123_trax_deployment_ledger.sql': ['f062f3b7657b871a0d267c14c3eecc2b7e32e144cf83368f3db5b07868496649', 'a1b1a68f35e94a1bd5aa3b94872d33f487a8e18ceda812a689b7f79bd4b3974b'],
+  '20261124_owner_recovery_tokens.sql': ['fad19fb2964ad12144e3578e16a72a37281788d41fc7a58c110e6464f73ad85f', '80585e097c725ad87fbc6bc25704783c6467f7f270e5a4acad234dbaf548641a'],
+  '20261125_pending_owner_acceptance.sql': ['c7c0457e4d60568f69623e1bcc30e3eafb14951bb8a264a03c14f0ef04ecedd7', '0ce8052ca264467b0bbc5f88ab56e262d35886f6e673e2224142166e05c9759d'],
+  '20261126_wallet_recovery_roles.sql': ['28c197c62eaf7f7757dad409cbaa6df0b82380bab64840d97a9817085a8187fe', '854d2cb8342c4289a85d88092626f8f31ce19bc027076eea8cab3f29977ed229'],
 })
 
-export const OWNER_ADMIN_SCHEMA_FINGERPRINT = '928d5dbfef69ff32cffe4513e267b60a9d84206ac727399cecbb206257903c8d'
+export const OWNER_ADMIN_SCHEMA_FINGERPRINT = '0eb0424ecbab1e18a0ab5db74ea2bfe0251956faba02b3cbcfc3e0146ce804df'
 
 const OWNER_ADMIN_SCHEMA_FINGERPRINT_SQL = `WITH target(table_name) AS (VALUES
  ('tron_transfer_wallet_accounts'),('tron_transfer_wallet_sessions'),('tron_transfer_wallet_auth_audit'),
@@ -89,7 +91,8 @@ export async function applyOwnerAdminMigrations(client, migrations, validate = n
         const priorChecksum = String(prior.rows[0].checksum || '').trim()
         if (priorChecksum !== checksum) {
           const knownLegacyChecksum = legacyChecksums[migration.version]
-          if (!knownLegacyChecksum || priorChecksum !== knownLegacyChecksum) {
+          const acceptedLegacyChecksums = Array.isArray(knownLegacyChecksum) ? knownLegacyChecksum : [knownLegacyChecksum]
+          if (!acceptedLegacyChecksums.some(value => typeof value === 'string' && priorChecksum === value)) {
             throw new Error('Applied migration checksum changed: ' + migration.version)
           }
           if (!legacySchemaVerified) {
@@ -101,7 +104,7 @@ export async function applyOwnerAdminMigrations(client, migrations, validate = n
           }
           await client.query(
             'UPDATE public.tron_transfer_owner_admin_schema_migrations SET checksum=$1 WHERE version=$2 AND checksum=$3',
-            [checksum, migration.version, knownLegacyChecksum],
+            [checksum, migration.version, priorChecksum],
           )
         }
         skipped.push(migration.version)
