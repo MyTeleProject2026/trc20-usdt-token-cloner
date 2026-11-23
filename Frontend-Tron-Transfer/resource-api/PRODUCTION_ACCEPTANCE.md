@@ -22,7 +22,11 @@ The report evaluates:
 7. Sponsor writes remain paused.
 8. Independent Owner Admin password-session integration and Sponsor-session separation.
 9. Sponsor session authentication configuration.
-10. Mainnet execution remains explicitly disabled during acceptance.
+10. Mainnet deployment execution remains explicitly disabled during acceptance.
+11. Artifact-pinned TRӾ deployment source, creation bytecode, runtime bytecode and manifest fingerprints match the pinned Solidity build.
+12. Deployment signing verifies the recovered Owner signer and live TRON permission; signed transaction and broadcast intent persist before network broadcast.
+13. Pending-owner challenge/session is distinct from the configured Owner session and acceptance verifies the exact pending-owner signature, transaction and solidified owner state.
+14. Owner password change/recovery, single-session revocation and revoke-other-sessions routes are available and session tokens are hash-stored.
 
 A passing report is labelled `ready-for-independent-review`, not production-approved. Operator evidence, independent review, and explicit release approval remain mandatory. The API always reports `executionEnabled: false` in this acceptance report.
 
@@ -52,8 +56,10 @@ Browser acceptance must be recorded with browser/version, viewport, build commit
 
 ## Release gates not automated by this layer
 
-- A real database backup and restoration drill must be evidenced independently; environment flags are operator attestations, not proof.
+- A real Neon database snapshot/backup and restoration drill must be evidenced independently; environment flags are operator attestations, not proof.
+- Apply Owner Admin migrations only with the direct PostgreSQL endpoint after the backup/restore gate, then verify migration checksums and required tables.
 - Sponsor signing must be tested with broadcast disabled and the signature recovered/verified against the configured Sponsor address.
 - Process-restart recovery must be exercised against a non-production or safely isolated test ledger.
+- Mainnet deployment and pending-owner acceptance remain disabled until artifact pins, live resource coverage, database durability, backup/restore evidence, independent security review and explicit approval are complete.
 - Mainnet stake/delegation and funding acceptance require separately approved operations and chain evidence.
 - Do not enable Mainnet execution merely because this diagnostic returns HTTP 200.

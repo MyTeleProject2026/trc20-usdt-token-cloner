@@ -30,7 +30,7 @@ When an adapter is injected, the engine does not read `SPONSOR_MAINNET_PRIVATE_K
 
 The existing Render server factory can receive an already-constructed Sponsor engine through its `sponsorEngine` dependency. This provides the integration seam for a separately hosted HSM/KMS signer without moving Owner keys or granting the signer control over transaction construction, fee policy, database authorization, or broadcasting.
 
-**Deployment status:** the adapter interface and tests are implemented, but the existing production server still uses its legacy environment-backed Sponsor signer unless an external engine is explicitly injected. No HSM/KMS vendor, endpoint, key handle, authentication method or network policy has been configured in this repository. Do not claim external custody is active until an approved signer service is provisioned, wired into `createServer({ sponsorEngine })`, and accepted with key-isolation and recovery tests. The existing encrypted browser Sponsor vault also remains a separate custody exposure for wallet challenge signing; this adapter alone does not remove that browser copy.
+**Deployment status:** the adapter interface and tests are implemented, but the existing production server still uses its legacy environment-backed Sponsor signer unless an external engine is explicitly injected. No HSM/KMS vendor, endpoint, key handle, authentication method or network policy has been configured in this repository. Do not claim external custody is active until an approved signer service is provisioned, wired into `createServer({ sponsorEngine })`, and accepted with key-isolation and recovery tests. The active Sponsor UI uses a read-only TronWeb client; browser private-key, mnemonic, keystore and local-vault import flows have been removed. The remote signer adapter remains optional and is not an active HSM/KMS custody claim.
 
 ## Sponsor transaction execution and recovery
 
@@ -137,6 +137,23 @@ The TRӾ deployment preflight uses the same one-source coverage rule and blocks 
 
 This service is designed for the existing Render Web Service with root directory `Frontend-Tron-Transfer/resource-api`, Node runtime, `npm test && npm run check` build command, and `npm start` start command. It binds to `0.0.0.0:$PORT`. Keep `TRON_OWNER_PRIVATE_KEY`, the independent Sponsor signing key, and RPC provider credentials only in Render server-side secrets; none may be included in frontend build variables. The Owner key is consumed only by the backend-managed Owner signer after the Owner session, exact-intent, runtime-bytecode, live permission, resource, fee and database-durability gates pass. Sponsor signing remains a separate identity and execution path. RPC API keys are infrastructure credentials only; they do not grant transaction-signing permission.
 
+
+### Artifact-pinned TRӾ deployment and pending-owner acceptance
+
+The Resource API builds the unchanged contracts/Restricted1TRAX.sol source with pinned Solidity 0.8.25, Paris EVM and optimizer-1 settings. The server artifact loader requires four operator pins: **TRAX_SOURCE_SHA256**, **TRAX_CREATION_BYTECODE_SHA256**, **TRAX_RUNTIME_BYTECODE_SHA256**, and **TRAX_DEPLOYMENT_ARTIFACT_SHA256**. The backend verifies source, creation bytecode, runtime bytecode and artifact manifest independently; frontend-supplied bytecode is never accepted.
+
+- GET /api/owner/deployment/readiness, POST /api/owner/deployment/prepare, POST /api/owner/deployment/confirm and GET /api/owner/deployment/:operationId provide Owner-session-bound readiness, unsigned preparation, backend confirmation and solidified recovery. Confirmation verifies the recovered Owner signature and live permission, persists the signed transaction and broadcast-unknown intent before broadcast, and never automatically re-signs or rebroadcasts an ambiguous result. Status responses never return stored signed or unsigned transaction payloads.
+- Deployment execution remains disabled unless TRAX_DEPLOYMENT_EXECUTION_ENABLED=true, TRAX_DEPLOYMENT_MAINNET_ACK=CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT and all three durability attestations below are present. Defaults remain disabled.
+- TRAX_DEPLOYMENT_LEDGER_DURABLE=true, TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED=true and TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED=true are operator attestations, not proof inferred from Neon availability.
+- TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN defaults to 150000000 SUN. TRAX_DEPLOYMENT_ORIGIN_ENERGY_LIMIT defaults to 10000000. Exact Energy and Bandwidth preflight must pass zero-TRX-burn protection before a signature.
+- The separate /api/pending-owner/* workflow authenticates the exact on-chain pendingOwner with a one-time TronLink message signature. It has its own short-lived HttpOnly session, CSRF proof, acceptance ledger and TronLink transaction signature. It never uses the current Owner private key or Owner password session.
+
+Apply Owner Admin schema migrations with a direct PostgreSQL URL only, after a verified Neon snapshot and restore drill:
+
+    OWNER_ADMIN_MIGRATIONS_ACK=APPLY_TRON_TRANSFER_OWNER_ADMIN_MIGRATIONS npm run migrate:owner-admin-ledgers
+
+The runner applies ordered SQL files transactionally, records immutable SHA-256 migration checksums, refuses changed applied migrations, and verifies all required Owner, deployment, recovery and pending-owner tables. Use OWNER_ADMIN_DATABASE_URL or the direct DATABASE_URL; transaction-pooler URLs are rejected. The runner does not print connection strings, hostnames, usernames, passwords, row data or keys.
+
 ## Important limits
 
 - TRON resource reads use Tatum Mainnet when configured, with TronGrid fallback. Both providers expose chain state; neither grants resources merely because an API key is configured.
@@ -154,7 +171,7 @@ The resource API owns Sponsor operations; the frontend must not fall back to the
 - `GET /api/sponsor/status` — reports non-secret Sponsor configuration and whether execution is available.
 - `POST /api/sponsor/session/challenge` and `POST /api/sponsor/session/verify` — authenticate the configured independent Sponsor wallet with a one-time signed message. The returned bearer session is short-lived and held by the client only.
 - `POST /api/sponsor/intent` — creates a five-minute exact-intent message bound to Mainnet, Sponsor, Owner recipient, operation, resource, amount and idempotency key. Supported operations are `stake`, `delegate`, `undelegate`, `unstake`, `withdraw`, and a bounded Sponsor-to-Owner native TRX `topup`.
-- `POST /api/sponsor/operations` — requires the Sponsor's signature over that exact intent and the explicit confirmation phrase before the server-side signer can act. Every Sponsor write request must also include `x-sponsor-admin-token`; the frontend accepts it in a memory-only password field and never stores it. Missing or invalid server configuration blocks execution.
+- `POST /api/sponsor/operations` — requires the Sponsor's signature over that exact intent and the explicit confirmation phrase before the server-side signer can act. Sponsor ledger bootstrap, exact-intent preparation and confirmation additionally require the configured Owner Admin password session and its CSRF proof. The production server does not accept a static browser Sponsor Admin token as a substitute. The Sponsor signing identity remains separate from the Owner identity.
 - `GET /api/sponsor/operations` and `GET /api/sponsor/operations/:idempotencyKey` — read the durable Sponsor operation ledger and reconcile ambiguous broadcasts. Reconciliation never automatically rebroadcasts a transaction.
 - `GET /api/tron/sponsorship/resource-delegations` and `POST /api/tron/sponsorship/resource-delegations/verify-wallet` — authenticated, ledger-backed delegation history and independent Mainnet verification.
 
