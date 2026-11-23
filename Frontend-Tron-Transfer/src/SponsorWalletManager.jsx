@@ -791,7 +791,8 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       if (!unsignedTransaction?.txID || !/^[0-9a-f]{64}$/i.test(unsignedTransaction.txID)
         || typeof unsignedTransaction.raw_data_hex !== 'string'
         || prepared.sponsorAddress !== wallet.address || prepared.ownerAddress !== OWNER_ADDRESS
-        || prepared.operation !== action || prepared.amountSun !== String(amountSun)
+        || prepared.operation !== action || prepared.resource !== (['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource)
+        || prepared.amountSun !== String(amountSun)
         || !Array.isArray(unsignedTransaction.raw_data?.contract) || unsignedTransaction.raw_data.contract.length !== 1) {
         throw new Error('Sponsor API returned an invalid or mismatched unsigned Mainnet transaction. No signature was requested.')
       }
