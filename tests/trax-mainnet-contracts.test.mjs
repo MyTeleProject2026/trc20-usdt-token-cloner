@@ -62,11 +62,14 @@ test('external credit emits standard mint Transfer and OwnerCredit audit event',
 })
 
 
-test('TRӾ Owner administration requires the configured backend Owner session and guarded operation API', async () => {
+test('TRӾ Owner administration requires the configured Owner session and matching TronLink signer', async () => {
   const panel = await fs.readFile(new URL('../Frontend-Tron-Transfer/src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
   const helper = await fs.readFile(new URL('../Frontend-Tron-Transfer/src/trax-mainnet.mjs', import.meta.url), 'utf8')
   assert.ok(panel.includes("const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
-  assert.ok(panel.includes('walletReady = Boolean(wallet?.managedSession && connectedAddress === EXPECTED_OWNER_ADDRESS)'))
+  assert.ok(panel.includes('walletReady = Boolean(wallet?.managedSession && wallet?.provider?.request'))
+  assert.ok(panel.includes("typeof wallet?.tronWeb?.trx?.sign === 'function'"))
+  assert.ok(panel.includes('requestTronLinkConnection(wallet.provider, window)'))
+  assert.ok(panel.includes('signer.trx.sign(pendingOperation.unsignedTransaction)'))
   assert.ok(panel.includes("'/api/owner/operations/prepare'"))
   assert.ok(panel.includes('confirmOwnerOperation'))
   assert.ok(helper.includes('if (expectedOwnerAddress && !addressesEqual'))
