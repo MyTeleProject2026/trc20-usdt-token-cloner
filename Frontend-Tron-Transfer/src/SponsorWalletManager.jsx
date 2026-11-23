@@ -673,7 +673,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
-      if (!window.confirm('Confirm this exact Sponsor operation?\n\n' + intent.message + '\n\nYour authenticated Sponsor password session, independent Owner Admin session and CSRF protection will be checked by the backend. The backend signs and submits only this exact intent.')) return
+      if (!window.confirm('Confirm this exact Sponsor operation?\n\n' + intent.message + '\n\nThe Sponsor local-wallet signing path is not yet accepted. The backend will reject this operation until the imported Sponsor vault signs the exact prepared transaction; no Sponsor transaction is submitted.')) return
       const result = await sponsorApiRequest('/api/sponsor/operations', {
         method: 'POST', csrfToken: authCsrfToken,
         body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
