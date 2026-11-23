@@ -65,6 +65,20 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverr
   }
 }
 
+test('legacy SPONSOR_MAINNET_PRIVATE_KEY environment values are ignored', async () => {
+  const engine = createSponsorTransactionEngine({
+    env: configuredEnv({ SPONSOR_MAINNET_PRIVATE_KEY: '1'.repeat(64) }),
+  })
+  const state = engine.readiness()
+  assert.equal(state.signerMode, 'client-local-required')
+  assert.equal(state.signerConfigured, false)
+  assert.equal(state.broadcastAvailable, false)
+  const result = await engine.execute({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
+  assert.equal(result.signed, false)
+  assert.equal(result.broadcast, false)
+  assert.equal(result.status, 'sponsor-engine-disabled-or-unconfigured')
+})
+
 test('engine requires an explicit signer adapter and never loads a server-side Sponsor private key', async () => {
   const engine = createSponsorTransactionEngine({ env: {} })
   const state = engine.readiness()
