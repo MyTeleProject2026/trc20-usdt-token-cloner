@@ -1015,3 +1015,74 @@ test('managed Sponsor session is rejected if its enrolled address no longer matc
   assert.equal(result.status, 403)
   assert.equal(result.payload.error, 'sponsor-session-address-mismatch')
 })
+
+test('Sponsor local-signing API commits the signed transaction before a single broadcast attempt', async () => {
+  const timeline = []
+  const operationReference = 'sponsor-two-phase-lifecycle-0123456789'
+  const transaction = {
+    txID: 'a'.repeat(64),
+    raw_data_hex: '01'.repeat(20),
+    raw_data: { expiration: Date.now() + 60_000, contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: '41' + '11'.repeat(20), resource: 1, frozen_balance: '1000000' } } }] },
+  }
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+      throw new Error('unexpected pool query: ' + sql)
+    },
+    async connect() {
+      let transactionState = 'initial'
+      return {
+        async query(sql, params = []) {
+          if (sql === 'BEGIN') { timeline.push('begin'); return { rowCount: 0, rows: [] } }
+          if (sql === 'COMMIT') { timeline.push(transactionState === 'signed' ? 'commit-signed' : 'commit-final'); return { rowCount: 0, rows: [] } }
+          if (sql === 'ROLLBACK') { timeline.push('rollback'); return { rowCount: 0, rows: [] } }
+          if (sql.includes('SELECT writes_paused') && sql.includes('FOR SHARE')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+          if (sql.includes('INSERT INTO public.tron_transfer_sponsor_operations')) return { rowCount: 1, rows: [{ id: 1 }] }
+          if (sql.includes('SET prepared_transaction=')) { transactionState = 'prepared'; timeline.push('persist-prepared'); return { rowCount: 1, rows: [{ id: 1 }] } }
+          if (sql.includes('SELECT operation,resource,amount_sun')) return { rowCount: 1, rows: [{
+            operation: 'stake', resource: 'ENERGY', amount_sun: '1000000', sponsor_address: SPONSOR,
+            owner_address: OWNER, status: 'reserved', prepared_transaction: transaction,
+          }] }
+          if (sql.includes('SET status=\'signed-not-broadcast\'')) { transactionState = 'signed'; timeline.push('persist-signed'); return { rowCount: 1, rows: [{ id: 1 }] } }
+          if (sql.includes('SELECT status,transaction_id')) return { rowCount: 1, rows: [{ status: 'signed-not-broadcast', transaction_id: transaction.txID }] }
+          if (sql.includes('SET status=$2,result_code=$3')) { timeline.push('persist-final'); return { rowCount: 1, rows: [{ id: 1 }] } }
+          throw new Error('unexpected client query: ' + sql)
+        },
+        release() { timeline.push('release') },
+      }
+    },
+  }
+  const engine = {
+    readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, clientSigningAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
+    prepare: async () => ({ success: true, transaction, feePolicy: { reserveSun: '2000000', maxBandwidthFeeSun: '0', requiredBandwidthFeeSun: '0' } }),
+    submitSigned: async ({ onSigned }) => {
+      await onSigned(transaction.txID)
+      assert.ok(timeline.indexOf('commit-signed') >= 0, 'signed payload must be committed before broadcast')
+      timeline.push('broadcast')
+      return { success: true, status: 'solidified-success', txid: transaction.txID, signed: true, broadcast: true, solidified: true, blockNumber: 456 }
+    },
+    execute: async () => assert.fail('legacy server signer must never run'),
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const token = await authenticated(api)
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: operationReference,
+  }, token)
+  assert.equal(intent.status, 201)
+  const prepared = await call(api, 'POST', '/api/sponsor/operations/prepare', {
+    intentId: intent.payload.intentId, confirmPhrase: intent.payload.confirmationPhrase,
+  }, token)
+  assert.equal(prepared.status, 201)
+  assert.equal(prepared.payload.unsignedTransaction.txID, transaction.txID)
+  const signedTransaction = { ...transaction, signature: ['b'.repeat(130)] }
+  const submitted = await call(api, 'POST', '/api/sponsor/operations/submit', {
+    operationReference, signedTransaction,
+  }, token)
+  assert.equal(submitted.status, 200)
+  assert.equal(submitted.payload.solidified, true)
+  assert.ok(timeline.indexOf('persist-signed') < timeline.indexOf('commit-signed'))
+  assert.ok(timeline.indexOf('commit-signed') < timeline.indexOf('broadcast'))
+  assert.ok(timeline.indexOf('broadcast') < timeline.indexOf('persist-final'))
+})
