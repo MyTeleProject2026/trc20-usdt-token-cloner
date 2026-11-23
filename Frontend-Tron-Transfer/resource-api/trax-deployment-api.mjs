@@ -139,7 +139,7 @@ export function createTRAXDeploymentApi({
       }, origin)
     }
     if (statusPath) {
-      if (!db) return send(res, 503, { error: 'TRAX_DEPLOYMENT_LEDGER_DATABASE_UNAVAILABLE' }, origin)
+      if (!db || !ledgerReady) return send(res, 503, { error: 'TRAX_DEPLOYMENT_LEDGER_DATABASE_UNAVAILABLE' }, origin)
       const rowResult = await db.query(
         'SELECT operation_id,owner_address,idempotency_key,intent,intent_sha256,artifact_sha256,transaction_id,unsigned_transaction,signed_transaction,preflight,receipt,contract_address,state,failure_code,created_at,updated_at,signed_at,broadcast_at,confirmed_at FROM public.tron_transfer_deployments WHERE operation_id=$1 AND owner_address=$2',
         [statusMatch[1], session.address],
