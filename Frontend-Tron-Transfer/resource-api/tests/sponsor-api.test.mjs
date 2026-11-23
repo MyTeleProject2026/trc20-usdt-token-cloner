@@ -619,7 +619,7 @@ test('legacy one-step Sponsor execution endpoint is disabled in favor of local p
     intentId: intent.payload.intentId, signature: SIGNATURE,
     confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
   }, token)
-  assert.equal(result.status, 423)
+  assert.equal(result.status, 410)
   assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
   assert.equal(executions, 0)
   assert.equal(queries.some(sql => sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')), false)
