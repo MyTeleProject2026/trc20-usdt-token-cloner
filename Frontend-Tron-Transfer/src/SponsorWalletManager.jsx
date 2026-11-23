@@ -258,6 +258,29 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     return true
   }
 
+  async function bootstrapSponsorLedger() {
+    if (busy || !wallet?.address) return
+    setBusy(true)
+    try {
+      await ensureOwnerAdmin()
+      const result = await ownerAuth.apiRequest('/api/sponsor/ledger/bootstrap', {
+        method: 'POST',
+        body: { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' },
+      })
+      const status = await sponsorApiRequest('/api/sponsor/status')
+      setSponsorApiStatus(status)
+      notify(
+        result.success ? 'success' : 'error',
+        result.success ? 'Paused Sponsor ledger schema initialized' : 'Sponsor ledger bootstrap blocked',
+        result.message || 'No historical data was migrated and Sponsor writes remain paused.',
+      )
+    } catch (error) {
+      notify('error', 'Sponsor ledger bootstrap failed', error instanceof Error ? error.message : 'The guarded Resource API request failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function loginSponsorWallet() {
     if (busy || authPassword.length < 12) return
     setBusy(true)
