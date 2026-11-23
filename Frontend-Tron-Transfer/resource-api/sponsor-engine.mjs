@@ -315,6 +315,8 @@ export function createSponsorTransactionEngine({
     const state = readiness()
     if (!state.clientSigningAvailable) return { success: false, status: 'client-local-signer-not-enabled', signed: false, broadcast: false }
     const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
+    let signed = false
+    let broadcastAttempted = false
     try {
       if (!signedTransaction || !preparedTransaction
         || signedTransaction.txID !== preparedTransaction.txID
@@ -353,7 +355,9 @@ export function createSponsorTransactionEngine({
         throw new Error('sponsor-signature-or-permission-invalid')
       }
       if (typeof onSigned !== 'function') throw new Error('durable-transaction-id-persistence-required')
+      signed = true
       await onSigned(preparedTransaction.txID)
+      broadcastAttempted = true
       const broadcast = await tronWeb.trx.sendRawTransaction(signedTransaction)
       if (broadcast?.result !== true) return { success: false, status: 'broadcast-rejected-or-unknown', txid: preparedTransaction.txID, signed: true, broadcast: true }
       const verification = await verifySolidified({ transactionId: preparedTransaction.txID, operation, resource, amountSun: String(amountSun), sponsorAddress, ownerAddress: recipient })
@@ -364,7 +368,7 @@ export function createSponsorTransactionEngine({
         solidified: verification.confirmed, checkedAt: new Date(now()).toISOString(),
       }
     } catch (error) {
-      return { success: false, status: safeCode(error), txid: preparedTransaction?.txID || null, signed: false, broadcast: false, solidified: false }
+      return { success: false, status: broadcastAttempted ? 'broadcast-outcome-unknown' : signed ? 'signed-not-broadcast' : safeCode(error), txid: preparedTransaction?.txID || null, signed, broadcast: broadcastAttempted, solidified: false }
     }
   }
 
