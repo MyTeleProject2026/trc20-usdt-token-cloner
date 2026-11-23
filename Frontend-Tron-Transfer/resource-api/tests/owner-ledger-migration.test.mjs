@@ -17,8 +17,9 @@ test('Owner operation ledger migration has complete bounded validation constrain
 
 test('Owner operation ledger migration remains transactionally wrapped', async () => {
   const sql = await readFile(migrationUrl, 'utf8')
-  assert.match(sql, /^BEGIN;/)
-  assert.match(sql.trimEnd(), /COMMIT;$/)
+  const executableSql = sql.replace(/^\s*(?:--[^\n]*\n\s*)*/, '')
+  assert.match(executableSql, /^BEGIN;/)
+  assert.match(executableSql.trimEnd(), /COMMIT;$/)
   assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.tron_transfer_owner_operations/)
 })
 
