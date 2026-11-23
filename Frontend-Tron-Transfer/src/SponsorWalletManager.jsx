@@ -792,7 +792,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
       if (!window.confirm('Confirm this exact Sponsor operation?\\n\\n' + intent.message + '\\n\\nThe Resource API will prepare and persist one unsigned transaction. The imported Sponsor Wallet will sign locally; the API will verify the signer and persist the transaction ID before broadcasting.')) return
       const prepared = await sponsorApiRequest('/api/sponsor/operations/prepare', {
-        method: 'POST', csrfToken: authCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken,
         body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
       })
       const unsignedTransaction = prepared?.unsignedTransaction
@@ -845,7 +845,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       } catch (error) {
         try {
           await sponsorApiRequest('/api/sponsor/operations/cancel', {
-            method: 'POST', csrfToken: authCsrfToken, body: { operationReference: idempotencyKey },
+            method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken, body: { operationReference: idempotencyKey },
           })
           recordActivity({ ...preparedActivity, status: 'cancelled-before-signing' })
           setLastOperationReference('')
@@ -855,7 +855,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         throw error
       }
       const result = await sponsorApiRequest('/api/sponsor/operations/submit', {
-        method: 'POST', csrfToken: authCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken,
         body: { operationReference: idempotencyKey, signedTransaction },
       })
       const transactionId = typeof result.transactionId === 'string' ? result.transactionId : ''
@@ -966,7 +966,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
     setBusy(true)
     try {
       await sponsorApiRequest('/api/sponsor/operations/cancel', {
-        method: 'POST', csrfToken: authCsrfToken, body: { operationReference: lastOperationReference },
+        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken, body: { operationReference: lastOperationReference },
       })
       recordActivity({ ...local, status: 'cancelled-before-signing' })
       setLastOperationReference('')
@@ -1028,7 +1028,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
     setBusy(true)
     try {
       const payload = await sponsorApiRequest('/api/tron/sponsorship/resource-delegations/verify-wallet', {
-        method: 'POST', csrfToken: authCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken,
         body: {
           network: 'mainnet', transactionId: lastDelegation.transactionId,
           sponsorAddress: lastDelegation.sponsorAddress, receiverAddress: lastDelegation.receiverAddress,
