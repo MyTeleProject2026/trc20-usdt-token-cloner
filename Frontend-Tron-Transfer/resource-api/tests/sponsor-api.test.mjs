@@ -100,6 +100,18 @@ test('Sponsor database status identifies the selected URL source and provider wi
   })
 })
 
+test('database identity fingerprint excludes passwords but changes with endpoint, database, or role', () => {
+  const first = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://app_user:first-secret@ep-a.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  const passwordRotation = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://app_user:second-secret@ep-a.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  const otherBranch = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://app_user:first-secret@ep-b.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  const otherDatabase = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://app_user:first-secret@ep-a.ap-southeast-1.aws.neon.tech/other-db?sslmode=require' })
+  const otherRole = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://other_user:first-secret@ep-a.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  assert.equal(first.identityFingerprint, passwordRotation.identityFingerprint)
+  assert.notEqual(first.identityFingerprint, otherBranch.identityFingerprint)
+  assert.notEqual(first.identityFingerprint, otherDatabase.identityFingerprint)
+  assert.notEqual(first.identityFingerprint, otherRole.identityFingerprint)
+})
+
 test('production acceptance requires an exact configured database identity fingerprint', async () => {
   const databaseUrl = 'postgres://neon_user:neon_secret@ep-production.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
   const expected = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
