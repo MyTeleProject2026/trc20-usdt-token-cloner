@@ -904,6 +904,23 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
         {lastTx && <p className="sponsor-tx-link">Last transaction: <a href={`https://tronscan.org/#/transaction/${lastTx}`} target="_blank" rel="noreferrer">{lastTx}</a></p>}
       </section>}
 
+      {activePage === "sponsor" && wallet && <section className="sponsor-card sponsor-account-security">
+        <details>
+          <summary><ShieldCheck size={17}/> Sponsor account security and active sessions</summary>
+          <form className="sponsor-security-password-form" onSubmit={changeSponsorPassword}>
+            <label className="sponsor-field">Current Sponsor password<input type="password" value={currentSponsorPassword} onChange={event=>setCurrentSponsorPassword(event.target.value)} autoComplete="current-password" required/></label>
+            <label className="sponsor-field">New Sponsor password<input type="password" value={newSponsorPassword} onChange={event=>setNewSponsorPassword(event.target.value)} autoComplete="new-password" minLength={12} required/></label>
+            <label className="sponsor-field">Confirm new password<input type="password" value={confirmSponsorPassword} onChange={event=>setConfirmSponsorPassword(event.target.value)} autoComplete="new-password" minLength={12} required/></label>
+            <button type="submit" className="sponsor-primary" disabled={busy||currentSponsorPassword.length===0||newSponsorPassword.length<12||confirmSponsorPassword!==newSponsorPassword}>Change Sponsor password</button>
+          </form>
+          <div className="sponsor-session-heading"><div><b>Active Sponsor sessions</b><p className="sponsor-muted">Session tokens are never displayed. Password changes revoke all previous sessions.</p></div><button type="button" className="sponsor-secondary" disabled={busy} onClick={()=>void refreshSponsorSessions()}>Refresh sessions</button></div>
+          <div className="sponsor-session-list">
+            {sponsorSessions.length===0 && <p className="sponsor-muted">No active Sponsor sessions were returned.</p>}
+            {sponsorSessions.map(session=><article key={session.session_id} className="sponsor-session-row"><div><b>{session.current?'This browser':'Other browser session'}</b><small>Session #{session.session_id} · Last active {session.last_seen_at?new Date(session.last_seen_at).toLocaleString():'Unknown'}</small></div>{!session.current&&<button type="button" className="sponsor-secondary" disabled={busy} onClick={()=>void revokeSponsorSession(session.session_id)}>Revoke</button>}</article>)}
+          </div>
+          <button type="button" className="sponsor-secondary" disabled={busy||sponsorSessions.filter(session=>!session.current).length===0} onClick={()=>void revokeOtherSponsorSessions()}>Revoke all other Sponsor sessions</button>
+        </details>
+      </section>}
       {wallet && <section className="sponsor-card sponsor-admin-authorization">
         <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Independent Owner Admin authorization</h3><p>{ownerAdminReady ? 'Owner account session verified.' : 'Authenticate the separate Owner account to authorize Sponsor administration.'}</p></div></div>
         {!ownerAdminReady && <label className="sponsor-field">Owner account password<input type="password" value={ownerAdminPassword} onChange={event => setOwnerAdminPassword(event.target.value)} autoComplete="current-password" minLength={12}/></label>}
