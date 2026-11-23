@@ -23,6 +23,10 @@ ALTER TABLE public.tron_transfer_owner_operations
     'signed', 'broadcast-unknown', 'broadcast', 'confirmed', 'failed', 'cancelled'
   ));
 
+CREATE INDEX IF NOT EXISTS tron_transfer_owner_operations_owner_journal
+  ON public.tron_transfer_owner_operations ((intent->>'ownerAddress'), created_at DESC)
+  WHERE wallet_role='owner';
+
 CREATE INDEX IF NOT EXISTS tron_transfer_owner_operations_recovery
   ON public.tron_transfer_owner_operations (state, updated_at)
   WHERE state IN ('confirming', 'signed', 'broadcast-unknown', 'broadcast');
