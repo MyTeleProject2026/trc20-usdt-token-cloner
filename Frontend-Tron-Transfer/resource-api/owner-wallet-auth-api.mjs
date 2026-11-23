@@ -82,7 +82,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
     const session = result.rows[0]
     if (!session) return null
     if (requireCsrf) {
-      const csrf = req.headers['x-csrf-token']
+      const csrf = req.headers['x-owner-csrf-token'] || req.headers['x-csrf-token']
       if (!safeEqual(digest(String(csrf || '')), session.csrf_hash)
         || !allowedOrigins.includes(String(req.headers.origin || ''))) return null
     }
