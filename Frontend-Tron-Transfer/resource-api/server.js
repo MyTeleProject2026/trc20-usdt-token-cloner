@@ -8,6 +8,7 @@ import { createRuntimeObservatory } from './runtime-observatory.mjs'
 import { createSponsorResourceApi } from './sponsor-api.mjs'
 import { createOwnerWalletAuthApi } from './owner-wallet-auth-api.mjs'
 import { createOwnerOperationApi } from './owner-operation-api.mjs'
+import { createTRAXDeploymentApi } from './trax-deployment-api.mjs'
 import { createSponsorWalletAuthApi } from './sponsor-wallet-auth-api.mjs'
 import { createRemoteSponsorSigner } from './remote-sponsor-signer.mjs'
 
@@ -330,6 +331,10 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     env, send, fetchImpl, database: sponsorDatabase || null,
     authenticateManagedSession: (req, options) => ownerWalletAuthApi.authenticateRequest(req, options),
   })
+  const traxDeploymentApi = createTRAXDeploymentApi({
+    env, send, database: sponsorDatabase || null,
+    authenticateManagedSession: (req, options) => ownerWalletAuthApi.authenticateRequest(req, options),
+  })
   const sponsorWalletAuthApi = createSponsorWalletAuthApi({ env, send })
   const sponsorApi = createSponsorResourceApi({
     env, allowedAddress, fetchImpl,
@@ -420,6 +425,7 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
     }
     if (await ownerWalletAuthApi.handle(req, res, url, origin)) return
     if (await ownerOperationApi.handle(req, res, url, origin)) return
+    if (await traxDeploymentApi.handle(req, res, url, origin)) return
     if (await sponsorWalletAuthApi.handle(req, res, url, origin)) return
     if (await sponsorApi.handle(req, res, url, origin)) return
     if (req.method === 'GET' && url.pathname === '/api/observatory/snapshot') {
