@@ -55,10 +55,14 @@ export default function App() {
 
   useEffect(() => {
     let active = true
-    ownerAuthClient.session().then(session => {
-      if (active && session.address) setWallet({ address: session.address, managedSession: true, signerType: 'backend-managed-owner', authClient: ownerAuthClient })
+    const restoreOwnerSession = () => ownerAuthClient.session().then(session => {
+      if (active && session.address === 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp') {
+        setWallet({ address: session.address, managedSession: true, signerType: 'backend-managed-owner', authClient: ownerAuthClient })
+      }
     }).catch(() => {})
-    return () => { active = false }
+    void restoreOwnerSession()
+    window.addEventListener('tron-transfer:owner-session-refreshed', restoreOwnerSession)
+    return () => { active = false; window.removeEventListener('tron-transfer:owner-session-refreshed', restoreOwnerSession) }
   }, [])
 
   // Keep each workspace/page addressable and make browser Back/Forward work.
