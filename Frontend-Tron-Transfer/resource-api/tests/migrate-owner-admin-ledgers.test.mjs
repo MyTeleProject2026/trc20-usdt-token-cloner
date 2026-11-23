@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope } from '../scripts/migrate-owner-admin-ledgers.mjs'
+import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope, LEGACY_MIGRATION_CHECKSUMS, OWNER_ADMIN_SCHEMA_FINGERPRINT } from '../scripts/migrate-owner-admin-ledgers.mjs'
 import { readFile } from 'node:fs/promises'
 
 test('Owner Admin migrations apply atomically and skip matching checksums',async()=>{
@@ -33,6 +33,46 @@ test('Owner Admin migration runner rejects a changed checksum for an applied ver
  await assert.rejects(()=>applyOwnerAdminMigrations(client,[{version:'20261122_backend_wallet_auth.sql',sql:'CREATE TABLE altered(id int);'}]),/checksum changed/)
 })
 
+
+test('known legacy migration checksums reconcile only after the complete Owner schema fingerprint matches',async()=>{
+ const version='20261122_backend_wallet_auth.sql'
+ const legacy=LEGACY_MIGRATION_CHECKSUMS[version]
+ const applied=new Map([[version,legacy]])
+ const updates=[]
+ const client={async query(sql,params=[]){
+  if(sql==='BEGIN'||sql==='COMMIT'||sql==='ROLLBACK')return{rows:[]}
+  if(sql.includes('pg_advisory_xact_lock')||sql.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_owner_admin_schema_migrations'))return{rows:[]}
+  if(sql.startsWith('SELECT checksum'))return{rows:[{checksum:applied.get(params[0])}]}
+  if(sql.startsWith('UPDATE public.tron_transfer_owner_admin_schema_migrations')){
+   updates.push({sql,params});applied.set(params[1],params[0]);return{rows:[]}
+  }
+  return{rows:[]}
+ }}
+ const result=await applyOwnerAdminMigrations(client,[{version,sql:'CREATE TABLE wallet_accounts(id int);'}],null,{
+  readSchemaFingerprint:async()=>OWNER_ADMIN_SCHEMA_FINGERPRINT,
+ })
+ assert.equal(result.applied.length,0)
+ assert.deepEqual(result.skipped,[version])
+ assert.equal(result.legacyChecksumsReconciled,true)
+ assert.equal(updates.length,1)
+ assert.equal(updates[0].params[2],legacy)
+ assert.equal(updates[0].params[0].length,64)
+})
+
+test('known legacy migration checksum is not rewritten when the live schema fingerprint differs',async()=>{
+ const version='20261122_backend_wallet_auth.sql'
+ const applied=new Map([[version,LEGACY_MIGRATION_CHECKSUMS[version]]])
+ const client={async query(sql,params=[]){
+  if(sql==='BEGIN'||sql==='ROLLBACK')return{rows:[]}
+  if(sql.includes('pg_advisory_xact_lock')||sql.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_owner_admin_schema_migrations'))return{rows:[]}
+  if(sql.startsWith('SELECT checksum'))return{rows:[{checksum:applied.get(params[0])}]}
+  if(sql.startsWith('UPDATE public.tron_transfer_owner_admin_schema_migrations'))throw new Error('checksum must not be updated')
+  return{rows:[]}
+ }}
+ await assert.rejects(()=>applyOwnerAdminMigrations(client,[{version,sql:'CREATE TABLE wallet_accounts(id int);'}],null,{
+  readSchemaFingerprint:async()=>'different-schema',
+ }),/schema fingerprint does not match/)
+})
 
 test('transaction-wrapped migration files cannot commit the orchestrator transaction early',async()=>{
  const applied=new Map(),statements=[]
