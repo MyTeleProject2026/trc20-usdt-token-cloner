@@ -225,7 +225,7 @@ test('Owner confirmation refuses to sign or broadcast without the locally signed
     contractAddress: contract,
   }), response(), new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/confirm'), 'https://tron-transfer.onrender.com')
   assert.equal(fixture.replies[0].status, 409)
-  assert.equal(fixture.replies[0].payload.error, 'OWNER_TRONLINK_SIGNED_TRANSACTION_MISMATCH')
+  assert.equal(fixture.replies[0].payload.error, 'OWNER_SIGNED_TRANSACTION_MISMATCH')
   assert.equal(fixture.counts.signatureCheck, 0)
   assert.equal(fixture.counts.broadcast, 0)
 })
@@ -306,6 +306,7 @@ test('Owner operation API rate-limits repeated prepared writes per authenticated
   const replies = []
   const api = createOwnerOperationApi({
     env: {
+      DATABASE_URL: testDatabaseUrl, OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: testDatabaseIdentity,
       TRON_OWNER_ADDRESS: owner, TRAX_CONTRACT_ADDRESS: contract,
       OWNER_OPERATION_LEDGER_DURABLE: 'true',
       OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true',
