@@ -289,6 +289,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
             await audit(client, 'password_changed', 'success', { source: 'one-time-recovery' })
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error } finally { client.release() }
+          clearSessionCookies(res)
           send(res, 200, { success: true, passwordRecovered: true, sessionsRevoked: true }, origin); return true
         }
         send(res, 405, { success: false, error: 'METHOD_NOT_ALLOWED' }, origin); return true
