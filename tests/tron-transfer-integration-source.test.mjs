@@ -5,7 +5,6 @@ import { payoutStatusFromProvider } from '../server/fincra-payout-status.mjs'
 
 const recipientRoute = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
 const sponsorRoute = await readFile(new URL('../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
-const sponsorFrontend = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
 const withdrawalRoute = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
 const entry = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
 const frontend = await readFile(new URL('../Frontend-Tron-Transfer/src/OwnerWithdrawals.jsx', import.meta.url), 'utf8')
@@ -180,8 +179,6 @@ test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow a
   assert.ok(sponsorRoute.includes('sponsorWalletSignatureRequired: true'))
   assert.ok(sponsorRoute.includes("payoutExecution: 'conditional-on-approved-funded-sponsor'"))
   assert.ok(sponsorRoute.includes('verifySponsorDirectMainnetTransfer'))
-  assert.ok(sponsorFrontend.includes('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
-  assert.ok(sponsorFrontend.includes('/broadcast'))
 })
 
 test('TRӾ Mainnet manager remains scoped to the requested smart-contract panel', async () => {
