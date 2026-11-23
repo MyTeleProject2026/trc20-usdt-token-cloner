@@ -23,7 +23,7 @@ test('Owner app restores and revokes the backend session', async () => {
   const app = await readFile(new URL('App.jsx', root), 'utf8')
   assert.ok(app.includes('ownerAuthClient.session()'))
   assert.ok(app.includes('ownerAuthClient.logout()'))
-  assert.ok(app.includes('backend-managed-owner'))
+  assert.ok(app.includes("signerType: 'session-only'"))
 })
 
 test('TRӾ panel uses the managed Owner session and guarded backend operation workflow', async () => {
