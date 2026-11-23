@@ -14,14 +14,17 @@ test('TRӾ workspace exposes dedicated owner-admin pages and one Mainnet deploym
   assert.ok(panel.includes("const DEFAULT_FEE_CAP = '150'"))
   assert.ok(panel.includes('const deployToken'))
   assert.ok(contract.includes('contract Restricted1TRAX'))
-  assert.ok(panel.includes('Preflight & deploy TRӾ'))
+  assert.ok(panel.includes('Prepare deployment'))
   assert.ok(panel.includes('Check deployment readiness'))
-  assert.ok(panel.includes('disabled={true} onClick={deployToken}'))
-  assert.ok(panel.includes('Artifact-pinned backend deployment is not yet implemented'))
+  assert.ok(panel.includes('disabled={!walletReady || busy || !deploymentReady} onClick={deployToken}'))
+  assert.ok(panel.includes("apiRequest('/api/owner/deployment/readiness')"))
+  assert.ok(panel.includes("'/api/owner/deployment/prepare'"))
+  assert.ok(panel.includes("'/api/owner/deployment/confirm'"))
+  assert.ok(panel.includes('No wallet signature is requested by this page.'))
   assert.doesNotMatch(panel, /deployContractWithOwnerSigner|sendAndVerifyContractCall|tronWeb\.trx\.sign|sendRawTransaction/)
   assert.ok(panel.includes('verifyTRAXTokenContract'))
   assert.ok(panel.includes("activePage = 'home'"))
-  for (const page of ['home','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
+  for (const page of ['home','deploy','issuance','credits','batch','pause','minting','transfers','ownership','accept-ownership','history','balance']) {
     assert.ok(app.includes("id: '" + page + "'"), 'missing navigation page: ' + page)
   }
   for (const action of ['issueOwnerSupply','issueCredit','batchCredit','pause','unpauseTransfers','enableMinting','disableMinting','transfer']) {
