@@ -662,8 +662,8 @@ export function createSponsorResourceApi({
           reservationTransactionOpen = false
           return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
         }
-        // The legacy engine signs with SPONSOR_MAINNET_PRIVATE_KEY. Do not invoke
-        // it: Sponsor execution stays blocked until a browser-imported Sponsor
+        // The legacy engine exposes server-side adapter signing. Do not invoke it:
+        // Sponsor execution stays blocked until the browser-imported Sponsor
         // vault signs the exact prepared transaction and the API verifies it.
         if (!localSponsorSigningImplemented()) {
           await reservationClient.query('ROLLBACK')
