@@ -321,7 +321,7 @@ function classifySponsorDatabaseError(error) {
   return 'query-failed'
 }
 
-function databaseTargetIdentityMatches(env = process.env) {
+export function databaseTargetIdentityMatches(env = process.env) {
   const expected = typeof env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256 === 'string'
     ? env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256.trim().toLowerCase()
     : ''
