@@ -292,8 +292,8 @@ export function createOwnerOperationApi({
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('Owner operation API dependencies are required')
   const pacedFetch = createPacedFetch(fetchImpl)
   let pool = database
-  function getDatabase() {
-    if (typeof pool === 'function') return pool()
+  async function getDatabase() {
+    if (typeof pool === 'function') return await pool()
     if (pool) return pool
     const connection = sponsorDatabaseConnectionString(env)
     if (!connection) return null
@@ -314,7 +314,7 @@ export function createOwnerOperationApi({
     if (!session || session.address !== env.TRON_OWNER_ADDRESS) {
       return reply(res, 401, { success: false, error: 'OWNER_SESSION_REQUIRED' }, origin)
     }
-    const db = getDatabase()
+    const db = await getDatabase()
     if (!db) return reply(res, 503, { success: false, error: 'OWNER_OPERATION_LEDGER_UNAVAILABLE' }, origin)
     if (env.OWNER_OPERATION_LEDGER_DURABLE !== 'true'
       || env.OWNER_OPERATION_LEDGER_BACKUP_VERIFIED !== 'true'
