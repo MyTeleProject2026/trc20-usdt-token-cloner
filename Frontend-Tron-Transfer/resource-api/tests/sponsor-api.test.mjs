@@ -1062,7 +1062,7 @@ test('Sponsor local-signing API commits the signed transaction before a single b
   const prepared = await call(api, 'POST', '/api/sponsor/operations/prepare', {
     intentId: intent.payload.intentId, confirmPhrase: intent.payload.confirmationPhrase,
   }, token)
-  assert.equal(prepared.status, 201, JSON.stringify(prepared.payload))
+  assert.equal(prepared.status, 201, JSON.stringify({ intent: intent.payload, prepared: prepared.payload }))
   assert.equal(prepared.payload.unsignedTransaction.txID, transaction.txID)
   const signedTransaction = { ...transaction, signature: ['b'.repeat(130)] }
   const submitted = await call(api, 'POST', '/api/sponsor/operations/submit', {
