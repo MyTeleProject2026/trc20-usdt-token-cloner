@@ -10,6 +10,8 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
   const [enrolled, setEnrolled] = useState(null)
   const [password, setPassword] = useState('')
   const [enrollmentToken, setEnrollmentToken] = useState('')
+  const [recoveryToken, setRecoveryToken] = useState('')
+  const [recoveryMode, setRecoveryMode] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('Checking backend Owner account…')
@@ -38,6 +40,12 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
     setBusy(true)
     setError('')
     try {
+      if (recoveryMode) {
+        await ownerAuth.recoverPassword(recoveryToken.trim(), password)
+        setPassword(''); setRecoveryToken(''); setRecoveryMode(false); setEnrolled(true)
+        setMessage('Password recovery completed. All previous Owner sessions were revoked. Sign in with the new password.')
+        return
+      }
       const result = enrolled
         ? await ownerAuth.login(password)
         : await ownerAuth.enroll(password, enrollmentToken.trim())
@@ -72,7 +80,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         <div className="owner-vault-actions"><button type="button" onClick={onClose}>Close</button></div>
       </form>
       {error && <p role="alert" className="owner-vault-error">{error}</p>}
-      <p className="owner-vault-footnote">Configured Owner: {EXPECTED_OWNER_ADDRESS}. The password authenticates a backend session; it is not a wallet key and cannot change the on-chain owner.</p>
+      <p className="owner-vault-footnote">Configured Owner: {EXPECTED_OWNER_ADDRESS}. The password authenticates a backend session; it is not a wallet key and cannot change the on-chain owner. Recovery requires an operator-generated one-time token from the Resource API; the token expires after 30 minutes and is single-use.</p>
     </section>
   </div>
 }
