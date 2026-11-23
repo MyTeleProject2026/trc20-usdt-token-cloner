@@ -13,6 +13,10 @@ test('Owner access uses backend password sessions and never imports browser wall
   // absence of actual browser key-management APIs, not warning vocabulary.
   assert.doesNotMatch(ui, /deriveOwnerAccount|saveOwnerWalletVault|unlockOwnerWalletVault|createOwnerTronWeb|tronWeb\.trx\.sign|sendRawTransaction/i)
   assert.ok(ui.includes('managedSession: true'))
+  assert.ok(ui.includes('ownerAuth.recoverPassword(recoveryToken.trim(), password)'))
+  assert.ok(ui.includes('One-time Owner recovery token'))
+  assert.ok(ui.includes('Confirm new Owner password'))
+  assert.ok(ui.includes('Recover Owner password'))
 })
 
 test('Owner app restores and revokes the backend session', async () => {
