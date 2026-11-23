@@ -117,7 +117,7 @@ test('client-local submit verifies Sponsor permission and persists the exact sig
   let persisted = false
   let broadcasts = 0
   const fakeTronWeb = {
-    address: { fromHex: () => SPONSOR },
+    address: { fromHex: () => SPONSOR, toHex: () => sponsorHex },
     isAddress: value => value === SPONSOR,
     utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => sponsorHex } },
     trx: {
@@ -543,7 +543,7 @@ test('backend accepts only an exact locally signed Sponsor transaction with matc
   const unsignedTransaction = { ...transaction, signature: [] }
   const signedTransaction = { ...transaction, signature: ['b'.repeat(130)] }
   const fakeTronWeb = {
-    address: { fromHex: value => value === sponsorHex ? SPONSOR : value === ownerHex ? OWNER : '', },
+    address: { fromHex: value => value === sponsorHex ? SPONSOR : value === ownerHex ? OWNER : '', toHex: value => value === SPONSOR ? sponsorHex : value === OWNER ? ownerHex : '' },
     isAddress: value => value === SPONSOR || value === OWNER,
     utils: {
       transaction: { txCheck: () => true },
@@ -1086,7 +1086,7 @@ test('backend rejects altered Sponsor transaction bodies and a signature from an
   }
   const unsignedTransaction = { ...transaction, signature: [] }
   const fakeTronWeb = {
-    address: { fromHex: value => value === sponsorHex ? SPONSOR : '', },
+    address: { fromHex: value => value === sponsorHex ? SPONSOR : '', toHex: value => value === SPONSOR ? sponsorHex : '' },
     isAddress: value => value === SPONSOR,
     utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => ownerHex } },
     trx: { getSignWeight: async () => ({ result: {}, current_weight: 1, permission: { id: 0, threshold: 1, keys: [{ address: SPONSOR, weight: 1 }] }, approved_list: [SPONSOR] }) },
