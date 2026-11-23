@@ -1,75 +1,78 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './owner-wallet-access.css'
-import { KeyRound, LockKeyhole, ShieldCheck, Upload, Wallet } from 'lucide-react'
-import {
-  createOwnerTronWeb, deriveOwnerAccount, getSavedOwnerWalletAddress, hasSavedOwnerWallet,
-  removeSavedOwnerWallet, saveOwnerWalletVault, unlockOwnerWalletVault,
-} from './owner-wallet-vault.mjs'
+import { LockKeyhole, ShieldCheck } from 'lucide-react'
+import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 
+const ownerAuth = createManagedWalletAuthClient({ role: 'owner' })
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const modes = [['private-key', 'Private key'], ['keystore', 'V3 Keystore JSON'], ['mnemonic', 'Mnemonic phrase']]
 
 export default function OwnerWalletAccess({ onUnlock, onClose }) {
-  const [mode, setMode] = useState('private-key')
-  const [credential, setCredential] = useState('')
-  const [keystorePassword, setKeystorePassword] = useState('')
-  const [vaultPassword, setVaultPassword] = useState('')
-  const [unlockPassword, setUnlockPassword] = useState('')
-  const [saved, setSaved] = useState(hasSavedOwnerWallet())
+  const [enrolled, setEnrolled] = useState(null)
+  const [password, setPassword] = useState('')
+  const [enrollmentToken, setEnrollmentToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [replace, setReplace] = useState(!hasSavedOwnerWallet())
+  const [message, setMessage] = useState('Checking backend Owner account…')
 
-  async function activate(account) {
-    const tronWeb = createOwnerTronWeb(account.privateKey)
-    const derived = tronWeb.address.fromPrivateKey(account.privateKey)
-    if (derived !== EXPECTED_OWNER_ADDRESS) throw new Error('Imported address does not match the configured TRON TRANSFER Owner Wallet. Expected ' + EXPECTED_OWNER_ADDRESS + '.')
-    if (new URL(String(tronWeb.fullNode?.host || '')).hostname !== 'api.trongrid.io') throw new Error('Owner signer is not connected to TRON Mainnet.')
-    onUnlock({ address: derived, tronWeb, provider: null, signerType: 'encrypted-local-owner-vault' })
-  }
-  async function importWallet(event) {
-    event.preventDefault(); setBusy(true); setError('')
+  useEffect(() => {
+    let active = true
+    ownerAuth.status()
+      .then(result => {
+        if (!active) return
+        setEnrolled(Boolean(result.enrolled))
+        setMessage(result.enrolled
+          ? 'Sign in to the existing backend-managed Owner account.'
+          : 'First-time enrollment is available only with the one-time token configured on the Resource API.')
+      })
+      .catch(cause => {
+        if (!active) return
+        setEnrolled(false)
+        setError(cause?.message || 'OWNER_AUTH_STATUS_UNAVAILABLE')
+        setMessage('The backend Owner account could not be reached.')
+      })
+    return () => { active = false }
+  }, [])
+
+  async function submit(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
     try {
-      const account = await deriveOwnerAccount({ mode, value: credential, secretPassword: keystorePassword })
-      if (account.address !== EXPECTED_OWNER_ADDRESS) throw new Error('Imported address does not match the configured Owner Wallet. Expected ' + EXPECTED_OWNER_ADDRESS + '.')
-      await saveOwnerWalletVault(account, vaultPassword)
-      setSaved(true); setCredential(''); setKeystorePassword(''); setVaultPassword('')
-      await activate(account)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Owner Wallet import failed.') }
-    finally { setBusy(false) }
-  }
-  async function unlockWallet(event) {
-    event.preventDefault(); setBusy(true); setError('')
-    try { await activate(await unlockOwnerWalletVault(unlockPassword)); setUnlockPassword('') }
-    catch (e) { setError(e instanceof Error ? e.message : 'Owner Wallet unlock failed.') }
-    finally { setBusy(false) }
-  }
-  function removeBackup() {
-    if (!window.confirm('Permanently remove the encrypted Owner Wallet backup from this browser? This does not change the on-chain wallet. Ensure you have your own offline recovery backup.')) return
-    try { removeSavedOwnerWallet(); setSaved(false); setReplace(true); setUnlockPassword('') }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not remove the local backup.') }
+      const result = enrolled
+        ? await ownerAuth.login(password)
+        : await ownerAuth.enroll(password, enrollmentToken.trim())
+      if (result.address !== EXPECTED_OWNER_ADDRESS) {
+        await ownerAuth.logout().catch(() => {})
+        throw new Error('The authenticated backend Owner address does not match the configured TRӾ owner.')
+      }
+      setPassword('')
+      setEnrollmentToken('')
+      onUnlock({
+        address: result.address,
+        managedSession: true,
+        signerType: 'backend-managed-owner',
+        authClient: ownerAuth,
+      })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Owner authentication failed.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return <div role="dialog" aria-modal="true" aria-labelledby="owner-wallet-title" className="owner-vault-backdrop">
     <section className="owner-vault-card">
-      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Independent Owner Wallet</h2><p>Local Mainnet signing · no TronLink connection required</p></div></div>
-      {saved && !replace ? <form onSubmit={unlockWallet}>
-        <p className="owner-vault-address">Saved Owner Wallet: <b>{getSavedOwnerWalletAddress()}</b></p>
-        <label>Owner vault password<input type="password" autoComplete="current-password" value={unlockPassword} onChange={e=>setUnlockPassword(e.target.value)} required/></label>
-        <button className="owner-vault-primary" disabled={busy || !unlockPassword}><LockKeyhole size={16}/>{busy ? 'Unlocking…' : 'Unlock Owner Wallet'}</button>
-        <div className="owner-vault-actions"><button type="button" onClick={()=>setReplace(true)}>Replace wallet</button><button type="button" onClick={removeBackup}>Remove encrypted backup</button><button type="button" onClick={onClose}>Close</button></div>
-      </form> : <form onSubmit={importWallet}>
-        <div className="owner-vault-warning">Import only your existing configured Owner Wallet. The key is encrypted in this browser and is never sent to the Resource API. Browser-local custody is not a hardware wallet or audited HSM.</div>
-        <label>Import format<select value={mode} onChange={e=>setMode(e.target.value)}>{modes.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
-        <label>{mode === 'private-key' ? 'Owner private key' : mode === 'mnemonic' ? 'Owner recovery phrase' : 'V3 Keystore JSON'}{mode === 'keystore' ? <textarea rows="4" value={credential} onChange={e=>setCredential(e.target.value)} required/> : <textarea rows={mode === 'mnemonic' ? 3 : 2} value={credential} onChange={e=>setCredential(e.target.value)} required autoComplete="off" spellCheck="false"/>}</label>
-        {mode === 'keystore' && <label>Select V3 Keystore JSON file<input type="file" accept=".json,application/json" onChange={async e=>{const file=e.target.files?.[0];if(file){try{setCredential(await file.text())}catch{setError('Could not read the selected keystore file.')}}}}/></label>}
-        {mode === 'keystore' && <label>Keystore password<input type="password" value={keystorePassword} onChange={e=>setKeystorePassword(e.target.value)}/></label>}
-        <label>New local vault password (minimum 12 characters)<input type="password" minLength={12} value={vaultPassword} onChange={e=>setVaultPassword(e.target.value)} required autoComplete="new-password"/></label>
-        <button className="owner-vault-primary" disabled={busy || !credential || vaultPassword.length < 12}><Upload size={16}/>{busy ? 'Encrypting and verifying…' : 'Import and unlock Owner Wallet'}</button>
-        {saved && <button type="button" className="owner-vault-secondary" onClick={()=>{setReplace(false);setCredential('');setVaultPassword('')}}>Cancel replacement</button>}
-      </form>}
+      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Backend-managed Owner</h2><p>Password session · TRON Mainnet · no browser private key</p></div></div>
+      <div className="owner-vault-warning">The Owner private key remains in the Resource API environment. Never paste a private key, recovery phrase or keystore into this page. Contract signing remains disabled until the authenticated backend operation and Mainnet preflight path is enabled.</div>
+      <p className="owner-vault-address">{message}</p>
+      <form onSubmit={submit}>
+        {!enrolled && <label>One-time Owner enrollment token<input type="password" autoComplete="off" value={enrollmentToken} onChange={event => setEnrollmentToken(event.target.value)} required/></label>}
+        <label>Owner account password<input type="password" autoComplete={enrolled ? 'current-password' : 'new-password'} minLength={12} value={password} onChange={event => setPassword(event.target.value)} required/></label>
+        <button className="owner-vault-primary" disabled={busy || password.length < 12 || enrolled === null || (!enrolled && enrollmentToken.length < 32)}><LockKeyhole size={16}/>{busy ? 'Authenticating…' : enrolled ? 'Sign in to Owner workspace' : 'Enroll Owner password'}</button>
+        <div className="owner-vault-actions"><button type="button" onClick={onClose}>Close</button></div>
+      </form>
       {error && <p role="alert" className="owner-vault-error">{error}</p>}
-      <p className="owner-vault-footnote"><KeyRound size={14}/> Expected owner address: {EXPECTED_OWNER_ADDRESS}. Every Mainnet transaction must still pass owner permission, resource, zero-TRX-burn and solidified-receipt checks.</p>
+      <p className="owner-vault-footnote">Configured Owner: {EXPECTED_OWNER_ADDRESS}. The password authenticates a backend session; it is not a wallet key and cannot change the on-chain owner.</p>
     </section>
   </div>
 }
