@@ -22,8 +22,12 @@ test('Owner app restores and revokes the backend session', async () => {
   assert.ok(app.includes('backend-managed-owner'))
 })
 
-test('TRӾ panel fails closed while server-side operation signing is not enabled', async () => {
+test('TRӾ panel uses the managed Owner session and guarded backend operation workflow', async () => {
   const panel = await readFile(new URL('TRXMainnetPanel.jsx', root), 'utf8')
-  assert.ok(panel.includes('Backend-managed TRӾ signing and Mainnet operation preflight are not yet enabled'))
-  assert.ok(panel.includes('wallet?.tronWeb'))
+  assert.ok(panel.includes('wallet?.managedSession && connectedAddress === EXPECTED_OWNER_ADDRESS'))
+  assert.ok(panel.includes("apiRequest('/api/owner/operations/prepare'"))
+  assert.ok(panel.includes("'/confirm'"))
+  assert.ok(panel.includes('pendingOperation.executionEnabled'))
+  assert.ok(panel.includes('solidified Mainnet block'))
+  assert.doesNotMatch(panel, /sendAndVerifyContractCall|deployContractWithOwnerSigner|tronWeb\.trx\.sign|sendRawTransaction/)
 })
