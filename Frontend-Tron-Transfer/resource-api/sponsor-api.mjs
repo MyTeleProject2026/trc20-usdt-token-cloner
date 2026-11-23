@@ -651,6 +651,7 @@ export function createSponsorResourceApi({
 
     if (req.method === 'POST' && path === '/api/sponsor/operations/prepare') {
       if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!localSponsorSigningImplemented() || typeof engine.prepare !== 'function') return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented' }, origin)
       if (engine.readiness().clientSigningAvailable !== true) return reply(res, 423, { success: false, error: 'sponsor-mainnet-execution-gates-disabled' }, origin)
@@ -719,6 +720,7 @@ export function createSponsorResourceApi({
 
     if (req.method === 'POST' && path === '/api/sponsor/operations/cancel') {
       if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!rateLimit(req, 'cancel', 10)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
@@ -745,6 +747,7 @@ export function createSponsorResourceApi({
 
     if (req.method === 'POST' && path === '/api/sponsor/operations/submit') {
       if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!localSponsorSigningImplemented() || typeof engine.submitSigned !== 'function') return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented' }, origin)
       if (engine.readiness().clientSigningAvailable !== true) return reply(res, 423, { success: false, error: 'sponsor-mainnet-execution-gates-disabled' }, origin)
