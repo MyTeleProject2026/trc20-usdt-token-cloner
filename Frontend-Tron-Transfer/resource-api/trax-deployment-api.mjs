@@ -298,6 +298,16 @@ export function createTRAXDeploymentApi({
     if (!/^[1-9][0-9]{0,11}$/.test(feeLimitSun)) return send(res, 400, { error: 'TRAX_DEPLOYMENT_FEE_LIMIT_INVALID' }, origin)
     const maxFeeLimitSun = BigInt(env.TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN || '150000000')
     if (BigInt(feeLimitSun) > maxFeeLimitSun) return send(res, 400, { error: 'TRAX_DEPLOYMENT_FEE_LIMIT_ABOVE_POLICY' }, origin)
+    const prior = await database.query(
+      'SELECT operation_id,state,transaction_id,intent,intent_sha256 FROM public.tron_transfer_deployments WHERE owner_address=$1 AND idempotency_key=$2',
+      [session.address, idempotencyKey],
+    )
+    if (prior.rows?.[0]) {
+      const row = prior.rows[0]
+      if (row.intent?.artifactSha256 !== artifact.artifactSha256 || row.intent?.feeLimitSun !== feeLimitSun
+        || row.intent?.ownerAddress !== session.address) fail('TRAX_DEPLOYMENT_IDEMPOTENCY_CONFLICT', 409)
+      return send(res, 200, { success: true, replay: true, deployment: row }, origin)
+    }
     try {
       const artifactNow = await artifactLoader({ env })
       const tronWeb = tronWebFactory({ fullHost: mainnetHost(env) })
@@ -366,7 +376,7 @@ export function createTRAXDeploymentApi({
           [session.address, idempotencyKey],
         )
         const row = existing.rows?.[0]
-        if (!row || row.intent_sha256 !== intentSha256) fail('TRAX_DEPLOYMENT_IDEMPOTENCY_CONFLICT', 409)
+        if (!row || row.intent?.artifactSha256 !== artifactNow.artifactSha256 || row.intent?.feeLimitSun !== feeLimitSun || row.intent?.ownerAddress !== session.address) fail('TRAX_DEPLOYMENT_IDEMPOTENCY_CONFLICT', 409)
         return send(res, 200, { success: true, replay: true, deployment: row }, origin)
       }
       return send(res, 201, {
