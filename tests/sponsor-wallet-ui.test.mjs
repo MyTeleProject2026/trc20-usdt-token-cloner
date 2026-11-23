@@ -20,6 +20,7 @@ test('Sponsor Wallet uses separate password authentication and an encrypted impo
   assert.ok(component.includes('function removeVault()'))
   assert.ok(component.includes('account.address !== managedSponsorAddress'))
   assert.ok(component.includes('wallet?.privateKey ? createSponsorTronWeb(wallet.privateKey) : null'))
+  assert.ok(component.includes('signSponsorTransaction(wallet, unsignedTransaction)'))
   assert.equal(component.includes('privateKey: wallet.privateKey'), false)
   assert.equal(component.includes('privateKey: wallet?.privateKey'), false)
   assert.equal(component.includes('signMessageV2'), false)
