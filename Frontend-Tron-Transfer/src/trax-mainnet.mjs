@@ -1,6 +1,7 @@
 import artifacts from './generated/trax-contract-artifacts.js'
 import { TronWeb } from 'tronweb'
 import {
+  decodeNodeErrorText,
   normalizeMainnetAccountResources,
   normalizeMainnetPermissionSnapshot,
   normalizeDeploymentEnergyEstimate,
