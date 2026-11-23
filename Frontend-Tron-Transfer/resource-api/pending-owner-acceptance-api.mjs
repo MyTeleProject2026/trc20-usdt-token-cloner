@@ -153,7 +153,7 @@ export function createPendingOwnerAcceptanceApi({
         if(input.confirmationPhrase!==PREPARE||!/^[A-Za-z0-9._:-]{16,160}$/.test(key)||!/^[1-9][0-9]{0,11}$/.test(fee))return send(res,400,{error:'PENDING_OWNER_PREPARATION_INPUT_INVALID'},origin)
         if(BigInt(fee)>BigInt(env.TRAX_ACCEPT_OWNERSHIP_MAX_FEE_LIMIT_SUN||'150000000'))return send(res,400,{error:'PENDING_OWNER_FEE_LIMIT_ABOVE_POLICY'},origin)
         const prior=await databaseApi.query('SELECT operation_id,state,transaction_id,intent,intent_sha256 FROM public.tron_transfer_pending_owner_acceptances WHERE pending_owner_address=$1 AND idempotency_key=$2',[s.address,key])
-        if(prior.rows?.[0])return send(res,200,{success:true,replay:true,operation:prior.rows[0]},origin)
+        if(prior.rows?.[0]){const old=prior.rows[0];if(old.intent?.feeLimitSun!==fee||old.intent?.pendingOwner!==s.address||old.intent?.contractAddress!==s.contractAddress)return send(res,409,{error:'PENDING_OWNER_IDEMPOTENCY_CONFLICT'},origin);return send(res,200,{success:true,replay:true,operation:old},origin)}
         const t=tron(),chainNow=await chain(t)
         if(!sameAddress(t,chainNow.pendingOwner,s.address)||chainNow.contractAddress!==s.contractAddress)return send(res,409,{error:'PENDING_OWNER_PROPOSAL_CHANGED'},origin)
         const selector=String(t.sha3('acceptOwnership()')).replace(/^0x/i,'').slice(0,8).toLowerCase()
@@ -182,6 +182,8 @@ export function createPendingOwnerAcceptanceApi({
         checkIntegrity(t,signed,'Signed pending-owner transaction')
         if(String(signed?.txID||'').toLowerCase()!==row.transaction_id.toLowerCase()||String(signed?.raw_data_hex||'').toLowerCase()!==String(row.unsigned_transaction.raw_data_hex).toLowerCase())fail('PENDING_OWNER_SIGNED_TRANSACTION_MISMATCH',409)
         await checkSigner(t,signed,s.address);await checkPermission(t,signed,s.address)
+        const timestamp=Number(signed.raw_data?.timestamp),expiration=Number(signed.raw_data?.expiration),now=Date.now()
+        if(!Number.isSafeInteger(timestamp)||!Number.isSafeInteger(expiration)||timestamp<=0||timestamp>now+30000||expiration<=now+5000||expiration<=timestamp||expiration>now+10*60_000||Number(signed.raw_data?.fee_limit)!==Number(row.intent.feeLimitSun))fail('PENDING_OWNER_SIGNED_TRANSACTION_TIME_OR_FEE_INVALID',409)
         const method=String(t.sha3('acceptOwnership()')).replace(/^0x/i,'').slice(0,8).toLowerCase()
         const v=signed.raw_data.contract?.[0]?.parameter?.value||{}
         if(signed.raw_data.contract?.length!==1||signed.raw_data.contract[0]?.type!=='TriggerSmartContract'||!sameAddress(t,t.address.fromHex(v.owner_address),s.address)||!sameAddress(t,t.address.fromHex(v.contract_address),s.contractAddress)||!String(v.data||'').toLowerCase().startsWith(method)||Number(v.call_value||0)!==0)fail('PENDING_OWNER_SIGNED_METHOD_MISMATCH',409)
@@ -192,6 +194,7 @@ export function createPendingOwnerAcceptanceApi({
         if(!unknown.rows?.[0])fail('PENDING_OWNER_BROADCAST_INTENT_NOT_PERSISTED',503)
         let broadcast
         try{broadcast=await t.trx.sendRawTransaction(signed)}catch(e){await databaseApi.query("UPDATE public.tron_transfer_pending_owner_acceptances SET failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",[id,String(e?.code||'BROADCAST_RESPONSE_UNKNOWN').slice(0,120)]).catch(()=>{});return send(res,202,{success:true,operation:{operationId:id,state:'broadcast-unknown',transactionId:row.transaction_id},recovery:{automaticRebroadcast:false}},origin)}
+        if(broadcast?.txid&&String(broadcast.txid).toLowerCase()!==String(row.transaction_id).toLowerCase()){await databaseApi.query("UPDATE public.tron_transfer_pending_owner_acceptances SET failure_code='BROADCAST_TXID_MISMATCH',updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",[id]).catch(()=>{});return send(res,202,{success:true,operation:{operationId:id,state:'broadcast-unknown',transactionId:row.transaction_id},recovery:{automaticRebroadcast:false}},origin)}
         if(broadcast?.result!==true){await databaseApi.query("UPDATE public.tron_transfer_pending_owner_acceptances SET failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",[id,String(broadcast?.code||broadcast?.message||'NODE_REJECTED_BROADCAST').slice(0,120)]).catch(()=>{});return send(res,202,{success:true,operation:{operationId:id,state:'broadcast-unknown',transactionId:row.transaction_id},recovery:{automaticRebroadcast:false}},origin)}
         await databaseApi.query("UPDATE public.tron_transfer_pending_owner_acceptances SET state='broadcast',broadcast_at=now(),updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",[id])
         return send(res,202,{success:true,operation:{operationId:id,state:'broadcast',transactionId:row.transaction_id},recovery:{automaticRebroadcast:false}},origin)
@@ -209,7 +212,8 @@ export function createPendingOwnerAcceptanceApi({
             const c=tx.raw_data.contract?.[0],v=c?.parameter?.value||{},selector=String(t.sha3('acceptOwnership()')).replace(/^0x/i,'').slice(0,8).toLowerCase()
             if(tx.raw_data.contract.length!==1||c.type!=='TriggerSmartContract'||!sameAddress(t,t.address.fromHex(v.owner_address),s.address)||!sameAddress(t,t.address.fromHex(v.contract_address),s.contractAddress)||!String(v.data||'').toLowerCase().startsWith(selector)||Number(v.call_value||0)!==0||receipt?.id?.toLowerCase()!==row.transaction_id.toLowerCase()||receipt?.receipt?.result!=='SUCCESS')fail('PENDING_OWNER_SOLIDIFIED_RECEIPT_INVALID',409)
             const chainNow=await chain(t)
-            if(!sameAddress(t,chainNow.owner,s.address)||sameAddress(t,chainNow.pendingOwner,s.address))return send(res,202,{success:true,operation:safe,recovery:{available:true,solidified:false,automaticRebroadcast:false}},origin)
+            const zero='T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb'
+            if(!sameAddress(t,chainNow.owner,s.address)||!sameAddress(t,chainNow.pendingOwner,zero))return send(res,202,{success:true,operation:safe,recovery:{available:true,solidified:false,automaticRebroadcast:false}},origin)
             const confirmed=await databaseApi.query("UPDATE public.tron_transfer_pending_owner_acceptances SET state='confirmed',receipt=$2::jsonb,confirmed_at=now(),updated_at=now(),failure_code=NULL WHERE operation_id=$1 AND state IN ('signed','broadcast-unknown','broadcast') RETURNING operation_id,state,transaction_id,confirmed_at",[row.operation_id,JSON.stringify({receipt,transaction:tx,owner:chainNow.owner,pendingOwner:chainNow.pendingOwner,verifiedAt:new Date().toISOString()})])
             if(!confirmed.rows?.[0])fail('PENDING_OWNER_CONFIRMATION_NOT_DURABLY_PERSISTED',503)
             return send(res,200,{success:true,operation:{...safe,...confirmed.rows[0]},recovery:{available:false,solidified:true,ownerVerified:true,pendingOwnerCleared:true,automaticRebroadcast:false}},origin)
