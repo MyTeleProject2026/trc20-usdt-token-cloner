@@ -566,3 +566,15 @@ test('backend accepts only an exact locally signed Sponsor transaction with matc
   })
   assert.deepEqual(result, { verified: true, sponsorAddress: SPONSOR, ownerAddress: OWNER, transactionId })
 })
+
+test('Sponsor engine never broadcasts when durable signed-transaction persistence fails', async () => {
+  const f = fixture()
+  const result = await f.engine.execute({
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
+    onSigned: async () => { throw new Error('durable-signed-payload-write-failed') },
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.broadcast, false)
+  assert.equal(f.counts().signedCount, 1, 'local signing may occur before the persistence attempt')
+  assert.equal(f.counts().broadcastCount, 0, 'broadcast must never happen when persistence fails')
+})
