@@ -278,6 +278,7 @@ export function createSponsorResourceApi({
   engine = createSponsorTransactionEngine({ env, fetchImpl, ...(signerAdapter ? { signerAdapter } : {}) }),
   getDatabase = () => getPool(env),
   authenticateManagedSession = null,
+  authenticateOwnerAdminSession = null,
   verifyMessage = async (message, signature) => {
     const verifier = new TronWeb({ fullHost: 'https://api.trongrid.io' })
     return verifier.trx.verifyMessageV2(message, signature)
@@ -287,6 +288,14 @@ export function createSponsorResourceApi({
 } = {}) {
   if (typeof send !== 'function') throw new TypeError('send response helper is required')
   const ownerAddress = allowedAddress
+  const ownerAdminAuthConfigured = typeof authenticateOwnerAdminSession === 'function'
+  async function verifyAdminAuthorization(req) {
+    if (ownerAdminAuthConfigured) {
+      const session = await authenticateOwnerAdminSession(req, { requireCsrf: false })
+      return Boolean(session && session.address === ownerAddress)
+    }
+    return verifyAdminToken(req, env)
+  }
   const rateCounts = new Map()
   function rateLimit(req, key, max = 12) {
     const ip = String(sponsorClientIp(req)).slice(0, 80)
@@ -314,8 +323,8 @@ export function createSponsorResourceApi({
         const dbConfigured = databaseConnection.configured
         const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
         const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
-        const adminRequired = adminTokenRequired(env)
-        const adminConfigured = typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32
+        const adminRequired = true
+        const adminConfigured = ownerAdminAuthConfigured || (typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32)
         const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
         let databaseReady = false
         let databaseStatus = dbConfigured ? 'unchecked' : 'not-configured'
@@ -357,7 +366,7 @@ export function createSponsorResourceApi({
           { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
           { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
           { id: 'writes-remain-paused-until-release', state: sponsorWritesPaused ? 'passed' : 'blocked' },
-          { id: 'admin-second-factor-configured', state: adminConfigured ? 'passed' : 'blocked' },
+          { id: 'owner-admin-second-factor-configured', state: adminConfigured ? 'passed' : 'blocked' },
           { id: 'session-authentication-configured', state: sessionSecret(env) ? 'passed' : 'blocked' },
           { id: 'mainnet-execution-explicitly-disabled', state: readiness.enabled !== true ? 'passed' : 'review-required' },
         ]
@@ -436,7 +445,7 @@ export function createSponsorResourceApi({
     }
 
     if (req.method === 'POST' && path === '/api/sponsor/ledger/bootstrap') {
-      if (!verifyAdminToken(req, env)) return reply(res, 401, { success: false, error: 'admin-authorization-required' }, origin)
+      if (!(await verifyAdminAuthorization(req))) return reply(res, 401, { success: false, error: 'admin-authorization-required' }, origin)
       if (!sponsorDatabaseConnectionInfo(env).configured) {
         return reply(res, 503, { success: false, error: 'sponsor-ledger-database-not-configured' }, origin)
       }
