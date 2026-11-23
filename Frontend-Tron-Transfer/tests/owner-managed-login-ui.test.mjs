@@ -13,7 +13,7 @@ test('Owner access separates managed password authentication from encrypted loca
   assert.ok(ui.includes('saveOwnerWalletVault(account, vaultPassword)'))
   assert.ok(ui.includes('unlockOwnerWalletVault(unlockPassword)'))
   assert.ok(ui.includes("signerType: 'encrypted-local-owner-vault'"))
-  assert.ok(ui.includes('Local Mainnet signing · no TronLink connection required'))
+  assert.ok(ui.includes('Encrypted local Mainnet signing · no TronLink connection required'))
   assert.ok(ui.includes('tronWeb.trx.sign'))
   assert.ok(ui.includes('The private key is never sent to the Resource API.'))
   assert.doesNotMatch(ui, /tronlink-provider|tron_requestAccounts|windowObject\?\.tron/i)
