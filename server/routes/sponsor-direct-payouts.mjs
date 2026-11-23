@@ -14,7 +14,7 @@ import {
   buildOwnerUsdtTransferParameter,
   parseOwnerUsdtAmount,
   validateOwnerSignedTransaction,
-} from './tron-owner-withdrawals.mjs'
+} from '../owner-usdt-transfer.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
 
 const { Pool } = pg
