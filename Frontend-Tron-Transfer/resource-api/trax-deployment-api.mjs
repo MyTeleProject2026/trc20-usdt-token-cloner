@@ -147,6 +147,7 @@ export function createTRAXDeploymentApi({
     if (readinessPath) {
       return send(res, 200, {
         success: true, network: 'TRON Mainnet', ownerAddress: session.address,
+        signerCustody: 'connected-tronlink', walletSignatureRequired: true,
         artifact: artifact ? {
           contractName: artifact.contractName, compiler: artifact.compiler,
           sourceSha256: artifact.sourceSha256, creationBytecodeSha256: artifact.creationBytecodeSha256,
@@ -162,7 +163,7 @@ export function createTRAXDeploymentApi({
         blocker: artifactError || (!ledgerReady ? 'TRAX_DEPLOYMENT_LEDGER_NOT_INSTALLED' : !databaseIdentityMatches ? 'TRAX_DEPLOYMENT_DATABASE_TARGET_IDENTITY_NOT_VERIFIED' : !durabilityReady(env) ? 'TRAX_DEPLOYMENT_LEDGER_DURABILITY_NOT_VERIFIED' : !pinsConfigured ? 'TRAX_DEPLOYMENT_ARTIFACT_PINS_NOT_CONFIGURED' : null),
         readyForPreparation: ready,
         executionEnabled: mainnetEnabled(),
-        note: 'Readiness checks never sign or broadcast a Mainnet transaction.',
+        note: 'Readiness checks never sign or broadcast. Owner transactions require the connected TronLink signer; the Resource API never signs with an Owner private key.',
       }, origin)
     }
     if (statusPath) {
@@ -173,8 +174,8 @@ export function createTRAXDeploymentApi({
       )
       const row = rowResult.rows?.[0]
       if (!row) return send(res, 404, { error: 'TRAX_DEPLOYMENT_NOT_FOUND' }, origin)
-      // Keep signed/raw transaction payloads server-side; the browser only needs
-      // the transaction ID, predicted address, state and verified receipt.
+      // Keep signed transaction payloads server-side. Only a still-prepared
+      // unsigned transaction is returned so the authenticated Owner can approve it in TronLink.
       const { unsigned_transaction: _unsignedTransaction, signed_transaction: _signedTransaction, ...publicRow } = row
       if (['signed','broadcast-unknown','broadcast'].includes(row.state)) {
         try {
@@ -454,7 +455,7 @@ export function createTRAXDeploymentApi({
       }
       return send(res, 201, {
         success: true, replay: false, deployment: inserted.rows[0],
-        intent, intentSha256, unsignedTransaction: unsigned,
+        intent, intentSha256, unsignedTransaction: unsigned, walletSignatureRequired: true,
         preflight: { estimate, resources: resource, ownerBalanceSun: balanceSun, budget },
         confirmationPhrase: 'CONFIRM TRӾ MAINNET DEPLOYMENT',
         operationId: inserted.rows[0].operation_id,
