@@ -4,12 +4,16 @@ import { createHash } from 'node:crypto'
 import { createTRAXDeploymentApi } from '../trax-deployment-api.mjs'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const testDatabaseUrl = 'postgres://ep-test.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
+const testDatabaseIdentity = createHash('sha256').update(JSON.stringify({
+ hostname: 'ep-test.ap-southeast-1.aws.neon.tech', port: '5432', database: 'tron-transfer', username: '',
+})).digest('hex')
 function req(method='GET', body={}) { return { method, headers: {}, async *[Symbol.asyncIterator]() { if (method==='POST') yield Buffer.from(JSON.stringify(body)) } } }
 function res() { return { writeHead() {}, end() {} } }
 function make(overrides={}) {
   const replies=[]
   const api=createTRAXDeploymentApi({
-    env:{ TRON_OWNER_ADDRESS:owner, ...overrides.env },
+    env:{ TRON_OWNER_ADDRESS:owner, DATABASE_URL:testDatabaseUrl, OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256:testDatabaseIdentity, ...overrides.env },
     database:overrides.database || { async query(sql) { if (sql.includes('to_regclass')) return {rows:[{deployments_table:'tron_transfer_deployments'}]}; return {rows:[]} } },
     send:(_res,status,payload)=>replies.push({status,payload}),
     authenticateManagedSession:async()=>overrides.session || {address:owner,sessionId:1},
