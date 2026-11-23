@@ -97,7 +97,7 @@ export function sponsorDatabaseConnectionInfo(env = process.env) {
     // without returning a hostname or credential in production diagnostics.
     const identity = JSON.stringify({
       hostname,
-      database: decodeURIComponent(parsed.pathname.replace(/^\\/+/, '')),
+      database: decodeURIComponent(parsed.pathname.slice(1)),
       username: decodeURIComponent(parsed.username),
     })
     identityFingerprint = sha(identity)
