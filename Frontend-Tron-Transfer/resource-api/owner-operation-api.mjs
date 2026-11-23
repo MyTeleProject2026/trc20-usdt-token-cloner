@@ -8,6 +8,7 @@ const { Pool } = pg
 const MAINNET = 'https://api.trongrid.io'
 const CONFIRMATION_PHRASE = 'CONFIRM TRON MAINNET OWNER OPERATION'
 const TXID = /^[0-9a-f]{64}$/i
+const OPERATION_ID = /^[0-9a-f-]{36}$/i
 const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const UINT = /^(?:0|[1-9][0-9]{0,77})$/
 const BYTES32 = /^(?:0x)?[0-9a-f]{64}$/i
@@ -229,7 +230,8 @@ export function createOwnerOperationApi({
   const reply = (res, status, payload, origin) => { send(res, status, payload, origin); return true }
   async function handle(req, res, url, origin) {
     const path = url.pathname
-    if (path !== '/api/owner/operations/prepare' && !/^\\/api\\/owner\\/operations\\/[0-9a-f-]{36}$/i.test(path)) return false
+    const operationIdFromPath = path.startsWith('/api/owner/operations/') ? path.slice('/api/owner/operations/'.length) : ''
+    if (path !== '/api/owner/operations/prepare' && !OPERATION_ID.test(operationIdFromPath)) return false
     const session = await authenticateManagedSession(req, { requireCsrf: req.method !== 'GET' })
     if (!session || session.address !== env.TRON_OWNER_ADDRESS) return reply(res, 401, { success: false, error: 'OWNER_SESSION_REQUIRED' }, origin)
     const db = getDatabase()
@@ -286,9 +288,8 @@ export function createOwnerOperationApi({
           note: 'This endpoint prepares and durably records the exact operation only. Signing and broadcasting are intentionally disabled in this release.',
         }, origin)
       }
-      const match = path.match(/^\\/api\\/owner\\/operations\\/([0-9a-f-]{36})$/i)
-      if (req.method === 'GET' && match) {
-        const operation = await ledger.get(match[1], session.sessionId)
+      if (req.method === 'GET' && OPERATION_ID.test(operationIdFromPath)) {
+        const operation = await ledger.get(operationIdFromPath, session.sessionId)
         if (!operation) return reply(res, 404, { success: false, error: 'OWNER_OPERATION_NOT_FOUND' }, origin)
         return reply(res, 200, {
           success: true, operation: {
