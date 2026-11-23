@@ -510,7 +510,7 @@ export function createOwnerOperationApi({
             || !/^[1-9][0-9]{0,11}$/.test(normalized.feeLimitSun)) fail('OWNER_OPERATION_STORED_INTENT_INVALID', 409)
           const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
           if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
-          const tronWeb = tronWebFactory({ fullHost: MAINNET, headers: rpcHeaders(env) })
+          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
           const unsigned = await prepareTransaction(tronWeb, claimed.contract_address, ownerAddress, normalized)
           const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env })
@@ -592,7 +592,7 @@ export function createOwnerOperationApi({
           await ledger.transition({ operationId, ownerAddress: String(env.TRON_OWNER_ADDRESS || ''), nextState: 'failed', failureCode: 'OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE' })
         }
         if (operation.transaction_id && ['signed', 'broadcast-unknown', 'broadcast'].includes(operation.state)) {
-          const tronWeb = tronWebFactory({ fullHost: MAINNET, headers: rpcHeaders(env) })
+          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           try {
             reconciliation = await reconcileTransaction(operation.transaction_id, String(env.TRON_OWNER_ADDRESS || ''), operation.contract_address, { fetchImpl: pacedFetch, env, tronWeb })
             if (reconciliation?.solidified) {
