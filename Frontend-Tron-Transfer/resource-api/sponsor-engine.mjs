@@ -370,6 +370,44 @@ export function createSponsorTransactionEngine({
       if (bandwidthFeeSun > maxFee) throw new Error('bandwidth-shortfall-exceeds-authorized-fee-cap')
       const principal = ['stake', 'topup'].includes(operation) ? BigInt(String(amountSun)) : 0n
       if (balance < principal + reserve + bandwidthFeeSun) throw new Error('insufficient-balance-for-authorized-fee-cap')
+      if (operation === 'stake') {
+        const cap = decimalTrxToSun(String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
+        if (env.SPONSOR_STAKING_ENABLED !== 'true' || cap === null || cap <= 0n || BigInt(amountSun) > cap) throw new Error('staking-disabled-or-amount-exceeds-configured-cap')
+      }
+      if (operation === 'topup') {
+        const cap = decimalTrxToSun(String(env.SPONSOR_MAX_OWNER_TOPUP_TRX || env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
+        if (cap === null || cap <= 0n || BigInt(amountSun) > cap) throw new Error('owner-topup-disabled-or-amount-exceeds-configured-cap')
+      }
+      const reader = tronWeb.trx.raw || tronWeb.trx
+      if (operation === 'delegate') {
+        const maximumResult = await tronWeb.trx.getCanDelegatedMaxSize(sponsorAddress, resource, { confirmed: true })
+        if (BigInt(String(maximumResult?.max_size ?? maximumResult ?? '0')) < BigInt(amountSun)) throw new Error('insufficient-frozen-resource-capacity')
+      }
+      if (operation === 'undelegate') {
+        const delegated = await reader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true })
+        const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
+        const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
+        if (rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n) < BigInt(amountSun)) throw new Error('undelegation-exceeds-current-owner-delegation')
+      }
+      if (operation === 'unstake') {
+        const [account, delegated, slots] = await Promise.all([
+          reader.getAccount(sponsorAddress, { confirmed: true }),
+          reader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true }),
+          reader.getAvailableUnfreezeCount(sponsorAddress, { confirmed: true }),
+        ])
+        const type = resource === 'ENERGY' ? 'ENERGY' : 'BANDWIDTH'
+        const selfStaked = (Array.isArray(account?.frozenV2) ? account.frozenV2 : [])
+          .filter(row => (row.type || 'BANDWIDTH') === type)
+          .reduce((sum, row) => sum + BigInt(String(row.amount || '0')), 0n)
+        const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
+        const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
+        const delegatedAmount = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
+        if (Number(slots?.count ?? 0) <= 0 || (selfStaked > delegatedAmount ? selfStaked - delegatedAmount : 0n) < BigInt(amountSun)) throw new Error('unstake-exceeds-unlocked-self-stake-or-no-slots')
+      }
+      if (operation === 'withdraw') {
+        const withdrawable = await reader.getCanWithdrawUnfreezeAmount(sponsorAddress, now(), { confirmed: true })
+        if (BigInt(String(withdrawable?.amount ?? withdrawable ?? '0')) !== BigInt(amountSun)) throw new Error('withdraw-amount-changed-refresh-and-retry')
+      }
       if (typeof onSigned !== 'function') throw new Error('durable-transaction-id-persistence-required')
       // "signed" means the exact signed payload and transaction ID are durable,
       // not merely that a signature was received in memory.
