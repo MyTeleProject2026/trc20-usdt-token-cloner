@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowDownUp, CheckCircle2, CircleAlert, FileKey2, LockKeyhole, LogOut, RefreshCw, ShieldCheck, UnlockKeyhole, Wallet } from 'lucide-react'
 import {
   createSponsorTronWeb, deriveSponsorAccount, getSavedSponsorWalletAddress, hasSavedSponsorWallet,
-  removeSavedSponsorWallet, saveSponsorWalletVault, unlockSponsorWalletVault,
+  removeSavedSponsorWallet, saveSponsorWalletVault, unlockSponsorWalletVault, signSponsorTransaction,
 } from './sponsor-wallet-vault.mjs'
 import { planSponsorResourceProvisioning } from './sponsor-resource-planner.mjs'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
@@ -790,7 +790,9 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       const unsignedTransaction = prepared?.unsignedTransaction
       if (!unsignedTransaction?.txID || !/^[0-9a-f]{64}$/i.test(unsignedTransaction.txID)
         || typeof unsignedTransaction.raw_data_hex !== 'string'
-        || prepared.sponsorAddress !== wallet.address) {
+        || prepared.sponsorAddress !== wallet.address || prepared.ownerAddress !== OWNER_ADDRESS
+        || prepared.operation !== action || prepared.amountSun !== String(amountSun)
+        || !Array.isArray(unsignedTransaction.raw_data?.contract) || unsignedTransaction.raw_data.contract.length !== 1) {
         throw new Error('Sponsor API returned an invalid or mismatched unsigned Mainnet transaction. No signature was requested.')
       }
       const expiration = Number(unsignedTransaction.raw_data?.expiration || 0)
@@ -803,7 +805,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         + '\\n\\nOnly the imported local Sponsor Wallet signs this transaction. The Resource API will verify the signature and recheck balance and Bandwidth before broadcast.')) {
         throw new Error('Sponsor signing cancelled. No signature or broadcast was attempted.')
       }
-      const signedTransaction = await tronWeb.trx.sign(unsignedTransaction)
+      const signedTransaction = await signSponsorTransaction(wallet, unsignedTransaction)
       if (!signedTransaction || signedTransaction.txID !== unsignedTransaction.txID
         || signedTransaction.raw_data_hex !== unsignedTransaction.raw_data_hex
         || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(unsignedTransaction.raw_data)
