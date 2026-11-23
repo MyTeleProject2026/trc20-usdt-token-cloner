@@ -166,8 +166,8 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
         if (url.pathname === '/api/wallet-auth/sponsor/session' && req.method === 'GET') {
           const session = await authenticate(req, db)
           if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
-          // Rotate the readable CSRF proof on session refresh. The token is returned
-          // only to the authenticated same-origin client and is never stored in localStorage.
+          // Reuse the current readable CSRF proof when it still matches the session;
+          // issue a new proof only when the browser cookie is missing or stale.
           const existingCsrf = cookieValue(req, CSRF_COOKIE)
           const csrfMatches = existingCsrf && safeEqual(digest(existingCsrf), session.csrfHash)
           const csrfToken = csrfMatches ? existingCsrf : randomBytes(32).toString('base64url')
