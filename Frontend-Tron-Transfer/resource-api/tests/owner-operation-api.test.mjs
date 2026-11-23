@@ -323,7 +323,7 @@ test('Owner operation API rate-limits repeated prepared writes per authenticated
       feeLimitSun: '1000000',
     }), response(), new URL('https://api.test/api/owner/operations/prepare'), null)
   }
-  assert.equal(replies.slice(0, 6).every(reply => reply.status === 400), true)
+  assert.equal(replies.slice(0, 6).every(reply => reply.status === 400), true, JSON.stringify(replies.map(reply => ({ status: reply.status, error: reply.payload?.error }))))
   assert.equal(replies[6].status, 429)
   assert.equal(replies[6].payload.error, 'OWNER_OPERATION_RATE_LIMITED')
 })
