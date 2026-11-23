@@ -796,6 +796,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         || !Array.isArray(unsignedTransaction.raw_data?.contract) || unsignedTransaction.raw_data.contract.length !== 1) {
         throw new Error('Sponsor API returned an invalid or mismatched unsigned Mainnet transaction. No signature was requested.')
       }
+      setLastOperationReference(idempotencyKey)
       const expiration = Number(unsignedTransaction.raw_data?.expiration || 0)
       if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
         throw new Error('Prepared Sponsor transaction is too close to expiration. Refresh resources and prepare a new operation.')
@@ -804,9 +805,22 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         + '\\nSponsor: ' + wallet.address + '\\nOwner: ' + OWNER_ADDRESS + '\\nTransaction ID: ' + unsignedTransaction.txID
         + '\\nExpires: ' + new Date(expiration).toLocaleString()
         + '\\n\\nOnly the imported local Sponsor Wallet signs this transaction. The Resource API will verify the signature and recheck balance and Bandwidth before broadcast.')) {
-        throw new Error('Sponsor signing cancelled. No signature or broadcast was attempted.')
+        await sponsorApiRequest('/api/sponsor/operations/cancel', {
+          method: 'POST', csrfToken: authCsrfToken, body: { operationReference: idempotencyKey },
+        }).catch(() => {})
+        setLastOperationReference('')
+        throw new Error('Sponsor signing cancelled. The unsigned reservation was cancelled where the API was reachable; no signature or broadcast was attempted.')
       }
-      const signedTransaction = await signSponsorTransaction(wallet, unsignedTransaction)
+      let signedTransaction
+      try {
+        signedTransaction = await signSponsorTransaction(wallet, unsignedTransaction)
+      } catch (error) {
+        await sponsorApiRequest('/api/sponsor/operations/cancel', {
+          method: 'POST', csrfToken: authCsrfToken, body: { operationReference: idempotencyKey },
+        }).catch(() => {})
+        setLastOperationReference('')
+        throw error
+      }
       if (!signedTransaction || signedTransaction.txID !== unsignedTransaction.txID
         || signedTransaction.raw_data_hex !== unsignedTransaction.raw_data_hex
         || JSON.stringify(signedTransaction.raw_data) !== JSON.stringify(unsignedTransaction.raw_data)
