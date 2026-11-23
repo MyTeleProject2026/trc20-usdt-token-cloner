@@ -11,7 +11,6 @@ import { createOwnerOperationApi } from './owner-operation-api.mjs'
 import { createTRAXDeploymentApi } from './trax-deployment-api.mjs'
 import { createPendingOwnerAcceptanceApi } from './pending-owner-acceptance-api.mjs'
 import { createSponsorWalletAuthApi } from './sponsor-wallet-auth-api.mjs'
-import { createRemoteSponsorSigner } from './remote-sponsor-signer.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
@@ -320,13 +319,9 @@ function send(res, status, payload, origin) {
   res.end(JSON.stringify(payload))
 }
 
-export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorSignerAdapter, sponsorDatabase } = {}) {
+export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorDatabase } = {}) {
   const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
-  const configuredRemoteSigner = !sponsorSignerAdapter && env.SPONSOR_SIGNER_URL
-    ? createRemoteSponsorSigner({ env, fetchImpl })
-    : null
-  const activeSponsorSigner = sponsorSignerAdapter || configuredRemoteSigner
   const ownerWalletAuthApi = createOwnerWalletAuthApi({ env, send })
   const ownerOperationApi = createOwnerOperationApi({
     env, send, fetchImpl, database: sponsorDatabase || null,
@@ -341,7 +336,6 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
   const sponsorApi = createSponsorResourceApi({
     env, allowedAddress, fetchImpl,
     ...(sponsorEngine ? { engine: sponsorEngine } : {}),
-    ...(activeSponsorSigner ? { signerAdapter: activeSponsorSigner } : {}),
     ...(sponsorDatabase ? { getDatabase: sponsorDatabase } : {}),
     authenticateManagedSession: (req, options) => sponsorWalletAuthApi.authenticateRequest(req, options),
     authenticateOwnerAdminSession: (req, options) => ownerWalletAuthApi.authenticateRequest(req, options),
