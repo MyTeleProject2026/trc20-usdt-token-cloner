@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { createSponsorTransactionEngine } from '../sponsor-engine.mjs'
+import { createSponsorTransactionEngine, verifySponsorSignedTransaction } from '../sponsor-engine.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -469,4 +469,66 @@ test('external Sponsor signer cannot mutate transaction bytes or intent before b
   assert.equal(result.broadcast, false)
   assert.equal(persistenceCalls, 0)
   assert.equal(broadcastCalls, 0)
+})
+
+test('backend accepts only an exact locally signed Sponsor transaction with matching TRON permission', async () => {
+  const transaction = {
+    txID: TXID,
+    raw_data_hex: '01'.repeat(20),
+    raw_data: {
+      expiration: Date.now() + 60_000,
+      contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: sponsorHex, resource: 1, frozen_balance: '1000000' } } }],
+    },
+  }
+  const unsignedTransaction = { ...transaction, signature: [] }
+  const signedTransaction = { ...transaction, signature: ['b'.repeat(130)] }
+  const fakeTronWeb = {
+    address: { fromHex: value => value === sponsorHex ? SPONSOR : value === ownerHex ? OWNER : '', },
+    isAddress: value => value === SPONSOR || value === OWNER,
+    utils: {
+      transaction: { txCheck: () => true },
+      crypto: { ecRecover: () => sponsorHex },
+    },
+    trx: {
+      getSignWeight: async () => ({
+        result: {}, current_weight: 1,
+        permission: { id: 0, threshold: 1, keys: [{ address: SPONSOR, weight: 1 }] },
+        approved_list: [SPONSOR],
+      }),
+    },
+  }
+  const result = await verifySponsorSignedTransaction({
+    tronWeb: fakeTronWeb, unsignedTransaction, signedTransaction,
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000',
+    sponsorAddress: SPONSOR, ownerAddress: OWNER,
+  })
+  assert.deepEqual(result, { verified: true, sponsorAddress: SPONSOR, ownerAddress: OWNER, transactionId: TXID })
+})
+
+test('backend rejects altered Sponsor transaction bodies and a signature from another address', async () => {
+  const transaction = {
+    txID: TXID,
+    raw_data_hex: '01'.repeat(20),
+    raw_data: {
+      expiration: Date.now() + 60_000,
+      contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: sponsorHex, resource: 1, frozen_balance: '1000000' } } }],
+    },
+  }
+  const unsignedTransaction = { ...transaction, signature: [] }
+  const fakeTronWeb = {
+    address: { fromHex: value => value === sponsorHex ? SPONSOR : '', },
+    isAddress: value => value === SPONSOR,
+    utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => ownerHex } },
+    trx: { getSignWeight: async () => ({ result: {}, current_weight: 1, permission: { id: 0, threshold: 1, keys: [{ address: SPONSOR, weight: 1 }] }, approved_list: [SPONSOR] }) },
+  }
+  await assert.rejects(verifySponsorSignedTransaction({
+    tronWeb: fakeTronWeb, unsignedTransaction,
+    signedTransaction: { ...transaction, raw_data_hex: '02'.repeat(20), signature: ['b'.repeat(130)] },
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', sponsorAddress: SPONSOR, ownerAddress: OWNER,
+  }), /integrity|protobuf/)
+  await assert.rejects(verifySponsorSignedTransaction({
+    tronWeb: fakeTronWeb, unsignedTransaction,
+    signedTransaction: { ...transaction, signature: ['b'.repeat(130)] },
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', sponsorAddress: SPONSOR, ownerAddress: OWNER,
+  }), /signer/)
 })
