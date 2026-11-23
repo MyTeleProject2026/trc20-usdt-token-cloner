@@ -265,6 +265,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       await ensureOwnerAdmin()
       const result = await ownerAuth.apiRequest('/api/sponsor/ledger/bootstrap', {
         method: 'POST',
+        csrf: true,
         body: { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' },
       })
       const status = await sponsorApiRequest('/api/sponsor/status')
