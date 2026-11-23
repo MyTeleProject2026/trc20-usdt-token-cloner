@@ -32,7 +32,7 @@ function canonicalAddress(value, tronWeb) {
 
 export function parseOwnerUsdtAmount(value) {
   const raw = typeof value === 'string' ? value.trim() : ''
-  if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(raw)) {
+  if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(raw)) {
     throw new Error('Enter a positive USDT amount with no more than six decimal places.')
   }
   const [whole, fraction = ''] = raw.split('.')
