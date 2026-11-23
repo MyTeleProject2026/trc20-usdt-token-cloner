@@ -19,5 +19,6 @@ try {
   process.stderr.write('Could not create Owner recovery token: ' + String(error?.code || 'DATABASE_ERROR') + '\\n')
   process.exitCode = 1
 } finally {
+  client.release()
   await pool.end()
 }

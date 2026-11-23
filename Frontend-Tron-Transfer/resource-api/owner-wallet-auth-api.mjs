@@ -268,13 +268,15 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
               send(res, 401, { success: false, error: 'RECOVERY_TOKEN_INVALID_OR_EXPIRED' }, origin); return true
             }
             await client.query('UPDATE public.tron_transfer_wallet_recovery_tokens SET consumed_at=now() WHERE recovery_token_id=$1', [tokenResult.rows[0].recovery_token_id])
-            await client.query(`
+            const accountUpdate = await client.query(`
               UPDATE public.tron_transfer_wallet_accounts
               SET password_hash=$1,password_salt=$2,password_algorithm='scrypt',
                   password_params=$3::jsonb,password_changed_at=now(),
                   failed_attempts=0,locked_until=NULL,updated_at=now()
               WHERE wallet_role='owner' AND enabled=true
+              RETURNING wallet_address
             `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
+            if (!accountUpdate.rowCount) throw Object.assign(new Error('OWNER_ACCOUNT_NOT_AVAILABLE'), { status: 503 })
             await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='owner' AND revoked_at IS NULL")
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
