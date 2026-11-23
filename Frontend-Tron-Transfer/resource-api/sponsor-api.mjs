@@ -701,6 +701,33 @@ export function createSponsorResourceApi({
       } finally { if (client && client !== db) client.release() }
     }
 
+
+    if (req.method === 'POST' && path === '/api/sponsor/operations/cancel') {
+      if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
+      if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
+      if (!rateLimit(req, 'cancel', 10)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
+      let body
+      try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
+      if (!IDEMPOTENCY.test(String(body.operationReference || ''))) return reply(res, 400, { success: false, error: 'invalid-operation-reference' }, origin)
+      const db = getDatabase()
+      if (!db) return reply(res, 503, { success: false, error: 'durable-idempotency-storage-required' }, origin)
+      try {
+        await assertSchema(db)
+        const keyHash = sha(body.operationReference)
+        const cancelled = await db.query(
+          "UPDATE public.tron_transfer_sponsor_operations SET status='failed',result_code='cancelled-before-signing',updated_at=now() WHERE idempotency_key_hash=$1 AND sponsor_address=$2 AND status='reserved' AND transaction_id IS NULL AND signed_transaction IS NULL RETURNING id",
+          [keyHash, session.address],
+        )
+        if (cancelled.rowCount) return reply(res, 200, { success: true, operationReference: body.operationReference, operationStatus: 'failed', resultCode: 'cancelled-before-signing', retryAllowed: false }, origin)
+        const prior = await db.query(
+          'SELECT status,transaction_id FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2',
+          [keyHash, session.address],
+        )
+        if (!prior.rows?.length) return reply(res, 404, { success: false, error: 'sponsor-operation-not-found' }, origin)
+        return reply(res, 409, { success: false, error: 'operation-is-already-signed-or-not-cancellable', operationStatus: prior.rows[0].status, transactionId: prior.rows[0].transaction_id, retryAllowed: false }, origin)
+      } catch { return reply(res, 503, { success: false, error: 'sponsor-operation-cancellation-unavailable' }, origin) }
+    }
+
     if (req.method === 'POST' && path === '/api/sponsor/operations/submit') {
       if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
