@@ -90,11 +90,17 @@ async function main() {
       WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations'
     `)
     const sourceColumnNames = new Set((sourceColumnRows.rows || []).map(row => row.column_name))
-    if (!columns.every(column => sourceColumnNames.has(column))) {
-      throw new Error('Source Sponsor ledger schema is incomplete; transaction payload columns must be present before migration.')
+    const payloadColumns = new Set(['prepared_transaction', 'signed_transaction'])
+    const missingSourceColumns = columns.filter(column => !sourceColumnNames.has(column))
+    if (missingSourceColumns.some(column => !payloadColumns.has(column))) {
+      throw new Error('Source Sponsor ledger schema is incomplete; required identity and operation columns are missing.')
     }
-
-    const rows = await sourceClient.query(`SELECT ${columns.join(', ')} FROM ${table} ORDER BY id ASC`)
+    const sourceCountCheck = await sourceClient.query(`SELECT count(*)::bigint AS count FROM ${table}`)
+    if (missingSourceColumns.length && BigInt(sourceCountCheck.rows?.[0]?.count ?? '-1') !== 0n) {
+      throw new Error('Legacy Sponsor ledger is missing transaction payload columns and contains rows; refusing lossy migration.')
+    }
+    const sourceSelect = columns.map(column => sourceColumnNames.has(column) ? column : `NULL::jsonb AS ${column}`)
+    const rows = await sourceClient.query(`SELECT ${sourceSelect.join(', ')} FROM ${table} ORDER BY id ASC`)
     const sourceCount = rows.rowCount
     const inFlight = await sourceClient.query(
       `SELECT count(*)::bigint AS count FROM ${table} WHERE status IN ('reserved','signed-not-broadcast','broadcast-unknown')`
@@ -125,6 +131,9 @@ async function main() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      ALTER TABLE ${table}
+        ADD COLUMN IF NOT EXISTS prepared_transaction JSONB,
+        ADD COLUMN IF NOT EXISTS signed_transaction JSONB;
       CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_operations_sponsor_created
         ON ${table} (sponsor_address, created_at DESC);
       CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_control (
