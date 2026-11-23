@@ -56,17 +56,18 @@ test('legacy signed USDT helper accepts only the exact prepared Mainnet transfer
   const signed = { ...unsigned, signature: ['a'.repeat(130)] }
   const intent = { ownerAddress, recipientAddress, amountBaseUnits: '1000000', tronWeb }
   assert.deepEqual(validateOwnerSignedTransaction(signed, unsigned, intent), { ok: true })
-  const tampered = {
-    ...signed,
+  const tamperedUnsigned = {
+    ...unsigned,
     raw_data: {
-      ...signed.raw_data,
+      ...unsigned.raw_data,
       contract: [{
-        ...signed.raw_data.contract[0],
-        parameter: { value: { ...signed.raw_data.contract[0].parameter.value, data: 'a9059cbb' + '0'.repeat(128) } },
+        ...unsigned.raw_data.contract[0],
+        parameter: { value: { ...unsigned.raw_data.contract[0].parameter.value, data: 'a9059cbb' + '0'.repeat(128) } },
       }],
     },
   }
-  assert.deepEqual(validateOwnerSignedTransaction(tampered, unsigned, intent), {
+  const tamperedSigned = { ...tamperedUnsigned, signature: ['a'.repeat(130)] }
+  assert.deepEqual(validateOwnerSignedTransaction(tamperedSigned, tamperedUnsigned, intent), {
     ok: false, reason: 'signed-transaction-intent-mismatch',
   })
 })
