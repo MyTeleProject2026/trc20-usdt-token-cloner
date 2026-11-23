@@ -390,7 +390,7 @@ export function createOwnerOperationApi({
         if (signer.address !== ownerAddress || signer.network !== 'TRON Mainnet') fail('OWNER_MANAGED_SIGNER_IDENTITY_MISMATCH', 403)
         const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
         if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
-        const intent = { ownerAddress, method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun }
+        const intent = { ownerAddress, contractAddress, method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun }
         const record = await ledger.prepare({
           sessionId: session.sessionId, ownerAddress, idempotencyKey: normalized.idempotencyKey,
           operationType: normalized.operationType, contractAddress, intent,
@@ -458,6 +458,7 @@ export function createOwnerOperationApi({
           return reply(res, 400, { success: false, error: 'OWNER_OPERATION_EXPLICIT_CONFIRMATION_MISMATCH', retryAllowed: false }, origin)
         }
         if (operation.intent?.ownerAddress !== String(env.TRON_OWNER_ADDRESS || '')
+          || operation.intent?.contractAddress !== operation.contract_address
           || operationIntentHash(operation.operation_type, operation.intent) !== intentHash) {
           return reply(res, 409, { success: false, error: 'OWNER_OPERATION_LEDGER_INTENT_INTEGRITY_FAILED', retryAllowed: false }, origin)
         }
@@ -497,7 +498,7 @@ export function createOwnerOperationApi({
             feeLimitSun: String(claimed.intent?.feeLimitSun || ''),
           }
           const definition = Object.hasOwn(METHODS, normalized.operationType) ? METHODS[normalized.operationType] : null
-          if (!definition || definition.method !== normalized.method || !Array.isArray(normalized.args)
+          if (!definition || definition.method !== normalized.method || claimed.intent?.contractAddress !== claimed.contract_address || !Array.isArray(normalized.args)
             || !/^[1-9][0-9]{0,11}$/.test(normalized.feeLimitSun)) fail('OWNER_OPERATION_STORED_INTENT_INVALID', 409)
           const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
           if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
