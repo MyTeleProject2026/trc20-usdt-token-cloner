@@ -403,7 +403,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   const recordActivity = useCallback((entry) => {
     setActivity((previous) => {
-      const next = [entry, ...previous.filter((item) => item.transactionId !== entry.transactionId)].slice(0, 50)
+      const next = [entry, ...previous.filter((item) => entry.operationReference ? item.operationReference !== entry.operationReference : item.transactionId !== entry.transactionId)].slice(0, 50)
       try { localStorage.setItem(ACTIVITY_KEY + ':' + entry.sponsorAddress, JSON.stringify(next)) } catch { /* local history is best-effort */ }
       return next
     })
@@ -798,7 +798,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       }
       setLastOperationReference(idempotencyKey)
       const preparedActivity = {
-        transactionId: unsignedTransaction.txID, operationReference: idempotencyKey,
+        transactionId: '', preparedTransactionId: unsignedTransaction.txID, operationReference: idempotencyKey,
         sponsorAddress: wallet.address, receiverAddress: target, action,
         resourceType: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource,
         stakeEquivalentSun: String(amountSun), status: 'prepared-awaiting-local-signature',
