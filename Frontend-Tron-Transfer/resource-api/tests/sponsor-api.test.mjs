@@ -589,6 +589,29 @@ test('Sponsor local transaction preparation refuses to run while the durable Mai
   assert.equal(queries.some(sql => sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')), false)
 })
 
+
+test('Sponsor cancellation can only close an unsigned reserved operation', async () => {
+  const queries = []
+  const database = {
+    async query(sql) {
+      queries.push(sql)
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      if (sql.startsWith("UPDATE public.tron_transfer_sponsor_operations SET status='failed'")) return { rowCount: 1, rows: [{ id: 1 }] }
+      throw new Error('unexpected database query: ' + sql)
+    },
+  }
+  const { api } = setup({ database })
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/operations/cancel', {
+    operationReference: 'sponsor-cancel-reservation-0123456789',
+  }, token)
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.operationStatus, 'failed')
+  assert.equal(result.payload.resultCode, 'cancelled-before-signing')
+  assert.ok(queries.some(sql => sql.includes("signed_transaction IS NULL")))
+})
+
 test('legacy one-step Sponsor execution endpoint is disabled in favor of local prepare and submit', async () => {
   const queries = []
   const database = {
