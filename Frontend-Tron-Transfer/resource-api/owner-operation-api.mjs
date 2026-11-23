@@ -30,7 +30,7 @@ const ABI = [
 ]
 
 const METHODS = Object.freeze({
-  'owner-issue': { method: 'mint', args: input => [input.ownerAddress, uint(input.amount)] },
+  'owner-issue': { method: 'credit', args: input => [input.ownerAddress, uint(input.amount), bytes32(input.referenceId)] },
   credit: { method: 'credit', args: input => [address(input.recipient), uint(input.amount), bytes32(input.referenceId)] },
   'batch-credit': { method: 'batchCredit', args: input => {
     if (!Array.isArray(input.rows) || input.rows.length < 1 || input.rows.length > 50) fail('OWNER_BATCH_SIZE_INVALID')
@@ -62,6 +62,21 @@ function bytes32(value) {
   const text = String(value ?? '').replace(/^0x/i, '')
   if (!BYTES32.test(String(value ?? ''))) fail('OWNER_OPERATION_REFERENCE_INVALID')
   return '0x' + text.toLowerCase()
+}
+function canonical(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
+  if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
+  return JSON.stringify(value)
+}
+function operationIntentHash(operationType, intent) {
+  return createHash('sha256').update(operationType + ':' + canonical(intent)).digest('hex')
+}
+function executionGateEnabled(env) {
+  return env.OWNER_OPERATION_EXECUTION_ENABLED === 'true'
+    && env.OWNER_OPERATION_MAINNET_ACK === 'CONFIRM_GUARDED_OWNER_EXECUTION'
+    && env.OWNER_OPERATION_LEDGER_DURABLE === 'true'
+    && env.OWNER_OPERATION_LEDGER_BACKUP_VERIFIED === 'true'
+    && env.OWNER_OPERATION_LEDGER_RESTORE_TESTED === 'true'
 }
 function safeJson(value) {
   return JSON.parse(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item))
@@ -235,7 +250,30 @@ export function createOwnerOperationApi({
   env = process.env, send, authenticateManagedSession, database = null,
   fetchImpl = fetch, tronWebFactory = options => new TronWeb(options),
   prepareTransaction = buildUnsigned, preflightTransaction = preflight,
+  verifyContractState = verifyContract,
   signerFactory = options => createOwnerManagedSigner(options),
+  broadcastTransaction = (tronWeb, signed) => tronWeb.trx.sendRawTransaction(signed),
+  reconcileTransaction = async (txId, ownerAddress, contractAddress, { fetchImpl: requestFetch, env: requestEnv, tronWeb }) => {
+    const [info, transaction] = await Promise.all([
+      rpcPost('/walletsolidity/gettransactioninfobyid', { value: txId }, { fetchImpl: requestFetch, env: requestEnv }),
+      rpcPost('/walletsolidity/gettransactionbyid', { value: txId }, { fetchImpl: requestFetch, env: requestEnv }),
+    ])
+    const confirmedId = String(info?.id || info?.txID || transaction?.txID || '').toLowerCase()
+    if (confirmedId && confirmedId !== txId.toLowerCase()) fail('OWNER_SOLIDIFIED_RECEIPT_TXID_MISMATCH', 409)
+    const blockNumber = Number(info?.blockNumber)
+    const contracts = transaction?.raw_data?.contract
+    if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== 'TriggerSmartContract') {
+      return { solidified: false, status: 'transaction-not-found-or-invalid' }
+    }
+    const value = contracts[0]?.parameter?.value || {}
+    if (asAddress(tronWeb, value.owner_address) !== ownerAddress) fail('OWNER_SOLIDIFIED_RECEIPT_OWNER_MISMATCH', 409)
+    if (asAddress(tronWeb, value.contract_address) !== contractAddress) fail('OWNER_SOLIDIFIED_RECEIPT_CONTRACT_MISMATCH', 409)
+    if (!Number.isSafeInteger(blockNumber) || blockNumber <= 0) return { solidified: false, status: 'not-solidified' }
+    const result = String(info?.receipt?.result || info?.result || '').toUpperCase()
+    if (!result) return { solidified: false, status: 'solidified-receipt-result-unavailable', blockNumber }
+    return { solidified: true, success: result === 'SUCCESS', status: result, blockNumber }
+  },
+  ledgerFactory = options => createOwnerOperationLedger(options),
 } = {}) {
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('Owner operation API dependencies are required')
   let pool = database
@@ -245,16 +283,21 @@ export function createOwnerOperationApi({
     const connection = sponsorDatabaseConnectionString(env)
     if (!connection) return null
     pool = new Pool({ connectionString: normalizePostgresTlsMode(connection), connectionTimeoutMillis: 5000, idleTimeoutMillis: 30_000, max: 3 })
-    pool.on('error', error => process.stderr.write('Owner operation ledger database error: ' + String(error?.code || 'unknown') + '\\n'))
+    pool.on('error', error => process.stderr.write('Owner operation ledger database error: ' + String(error?.code || 'unknown') + '\n'))
     return pool
   }
   const reply = (res, status, payload, origin) => { send(res, status, payload, origin); return true }
+
   async function handle(req, res, url, origin) {
     const path = url.pathname
-    const operationIdFromPath = path.startsWith('/api/owner/operations/') ? path.slice('/api/owner/operations/'.length) : ''
-    if (path !== '/api/owner/operations/prepare' && !OPERATION_ID.test(operationIdFromPath)) return false
+    const route = path.match(/^\/api\/owner\/operations\/([0-9a-f-]{36})(?:\/(confirm|cancel))?$/i)
+    const operationId = route?.[1] || ''
+    const action = route?.[2] || ''
+    if (path !== '/api/owner/operations/prepare' && !route) return false
     const session = await authenticateManagedSession(req, { requireCsrf: req.method !== 'GET' })
-    if (!session || session.address !== env.TRON_OWNER_ADDRESS) return reply(res, 401, { success: false, error: 'OWNER_SESSION_REQUIRED' }, origin)
+    if (!session || session.address !== env.TRON_OWNER_ADDRESS) {
+      return reply(res, 401, { success: false, error: 'OWNER_SESSION_REQUIRED' }, origin)
+    }
     const db = getDatabase()
     if (!db) return reply(res, 503, { success: false, error: 'OWNER_OPERATION_LEDGER_UNAVAILABLE' }, origin)
     if (env.OWNER_OPERATION_LEDGER_DURABLE !== 'true'
@@ -262,35 +305,46 @@ export function createOwnerOperationApi({
       || env.OWNER_OPERATION_LEDGER_RESTORE_TESTED !== 'true') {
       return reply(res, 503, { success: false, error: 'OWNER_OPERATION_LEDGER_DURABILITY_NOT_VERIFIED' }, origin)
     }
+
     try {
       const schema = await db.query("SELECT to_regclass('public.tron_transfer_owner_operations') AS operations_table")
-      if (!schema.rows?.[0]?.operations_table) return reply(res, 503, { success: false, error: 'OWNER_OPERATION_LEDGER_SCHEMA_NOT_INITIALIZED' }, origin)
-      const ledger = createOwnerOperationLedger({ database: db })
+      if (!schema.rows?.[0]?.operations_table) {
+        return reply(res, 503, { success: false, error: 'OWNER_OPERATION_LEDGER_SCHEMA_NOT_INITIALIZED' }, origin)
+      }
+      const ledger = ledgerFactory({ database: db })
+
       if (req.method === 'POST' && path === '/api/owner/operations/prepare') {
         const input = await readBody(req)
         const ownerAddress = String(env.TRON_OWNER_ADDRESS || '')
         const contractAddress = String(env.TRAX_CONTRACT_ADDRESS || '')
-        if (!ADDRESS.test(ownerAddress) || !ADDRESS.test(contractAddress)) return reply(res, 503, { success: false, error: 'OWNER_MAINNET_IDENTITY_OR_TRAX_CONTRACT_NOT_CONFIGURED' }, origin)
+        if (!ADDRESS.test(ownerAddress) || !ADDRESS.test(contractAddress)) {
+          return reply(res, 503, { success: false, error: 'OWNER_MAINNET_IDENTITY_OR_TRAX_CONTRACT_NOT_CONFIGURED' }, origin)
+        }
+        if (String(input.contractAddress || '') !== contractAddress) fail('OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', 409)
         const normalized = normalizeIntent(input, ownerAddress)
         const signer = signerFactory({ env })
         if (signer.address !== ownerAddress || signer.network !== 'TRON Mainnet') fail('OWNER_MANAGED_SIGNER_IDENTITY_MISMATCH', 403)
         const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
         if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
+        const intent = { method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun }
         const record = await ledger.prepare({
           sessionId: session.sessionId, idempotencyKey: normalized.idempotencyKey,
-          operationType: normalized.operationType, contractAddress,
-          intent: { method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun },
+          operationType: normalized.operationType, contractAddress, intent,
         })
-        if (record.replay) return reply(res, 200, {
-          success: true, replay: true, operationId: record.operation_id, state: record.state,
-          transactionId: record.transaction_id || null, retryAllowed: false,
-          note: 'This idempotency key already identifies the same durable Owner intent. It was not rebuilt or resubmitted.',
-        }, origin)
+        if (record.replay) {
+          return reply(res, 200, {
+            success: true, replay: true, operationId: record.operation_id, state: record.state,
+            intentSha256: String(record.intent_sha256 || '').trim(),
+            transactionId: record.transaction_id || null, retryAllowed: false,
+            executionEnabled: executionGateEnabled(env),
+            note: 'This idempotency key already identifies the same durable Owner intent. It was not rebuilt or resubmitted.',
+          }, origin)
+        }
         let transaction
         let result
         try {
           const tronWeb = tronWebFactory({ fullHost: MAINNET })
-          await verifyContract(tronWeb, contractAddress, ownerAddress, { fetchImpl, env })
+          await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
           result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env })
         } catch (error) {
@@ -300,29 +354,196 @@ export function createOwnerOperationApi({
           }).catch(() => {})
           throw error
         }
-        await ledger.transition({ operationId: record.operation_id, sessionId: session.sessionId, nextState: 'preflight-passed', receipt: { unsignedTransaction: transaction, preflight: result } })
+        await ledger.transition({
+          operationId: record.operation_id, sessionId: session.sessionId,
+          nextState: 'preflight-passed', receipt: { unsignedTransaction: transaction, preflight: result },
+        })
         await ledger.transition({ operationId: record.operation_id, sessionId: session.sessionId, nextState: 'awaiting-confirmation' })
         return reply(res, 201, {
           success: true, replay: false, operationId: record.operation_id, state: 'awaiting-confirmation',
           operationType: normalized.operationType, method: normalized.method, args: normalized.args,
           ownerAddress, contractAddress, preflight: result, confirmationPhrase: CONFIRMATION_PHRASE,
+          intentSha256: String(record.intent_sha256 || '').trim(),
           transactionExpiresAt: transaction.raw_data?.expiration || null,
-          signerConfigured: true, executionEnabled: false,
-          note: 'This endpoint prepares and durably records the exact operation only. Signing and broadcasting are intentionally disabled in this release.',
+          signerConfigured: true, executionEnabled: executionGateEnabled(env),
+          note: executionGateEnabled(env)
+            ? 'Review the exact intent and submit a separate confirmation to sign and broadcast.'
+            : 'Prepared for review only. Signing and broadcasting remain disabled until the execution and verified-ledger gates are enabled.',
         }, origin)
       }
-      if (req.method === 'GET' && OPERATION_ID.test(operationIdFromPath)) {
-        const operation = await ledger.get(operationIdFromPath, session.sessionId)
+
+      if (req.method === 'POST' && route && action === 'cancel') {
+        const operation = await ledger.get(operationId, session.sessionId)
         if (!operation) return reply(res, 404, { success: false, error: 'OWNER_OPERATION_NOT_FOUND' }, origin)
+        const cancelled = await ledger.transition({ operationId, sessionId: session.sessionId, nextState: 'cancelled' })
+        return reply(res, 200, { success: true, operationId, state: cancelled.state, retryAllowed: false }, origin)
+      }
+
+      if (req.method === 'POST' && route && action === 'confirm') {
+        if (!executionGateEnabled(env)) {
+          return reply(res, 423, { success: false, error: 'OWNER_OPERATION_EXECUTION_GATES_DISABLED', executionEnabled: false, retryAllowed: false }, origin)
+        }
+        const input = await readBody(req)
+        const operation = await ledger.get(operationId, session.sessionId)
+        if (!operation) return reply(res, 404, { success: false, error: 'OWNER_OPERATION_NOT_FOUND' }, origin)
+        if (operation.state !== 'awaiting-confirmation') {
+          return reply(res, 409, { success: false, error: 'OWNER_OPERATION_NOT_AWAITING_CONFIRMATION', state: operation.state, retryAllowed: false }, origin)
+        }
+        const intentHash = String(operation.intent_sha256 || '').trim().toLowerCase()
+        if (input.confirmationPhrase !== CONFIRMATION_PHRASE || String(input.intentSha256 || '').toLowerCase() !== intentHash) {
+          return reply(res, 400, { success: false, error: 'OWNER_OPERATION_EXPLICIT_CONFIRMATION_MISMATCH', retryAllowed: false }, origin)
+        }
+        if (operationIntentHash(operation.operation_type, operation.intent) !== intentHash) {
+          return reply(res, 409, { success: false, error: 'OWNER_OPERATION_LEDGER_INTENT_INTEGRITY_FAILED', retryAllowed: false }, origin)
+        }
+        if (operation.contract_address !== env.TRAX_CONTRACT_ADDRESS
+          || operation.contract_address !== String(input.contractAddress || '')) {
+          return reply(res, 409, { success: false, error: 'OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', retryAllowed: false }, origin)
+        }
+        let claimed
+        try { claimed = await ledger.claimConfirmation(operationId, session.sessionId) }
+        catch {
+          return reply(res, 409, { success: false, error: 'OWNER_OPERATION_CONFIRMATION_ALREADY_CLAIMED', retryAllowed: false }, origin)
+        }
+        let state = 'confirming'
+        let transactionId = null
+        const transition = async (nextState, details = {}) => {
+          const saved = await ledger.transition({
+            operationId, sessionId: session.sessionId, nextState,
+            transactionId: details.transactionId || null,
+            blockNumber: details.blockNumber || null,
+            failureCode: details.failureCode || null,
+            receipt: details.receipt || null,
+          })
+          state = saved.state
+          return saved
+        }
+        try {
+          const ownerAddress = String(env.TRON_OWNER_ADDRESS || '')
+          const signer = signerFactory({ env })
+          if (signer.address !== ownerAddress || signer.network !== 'TRON Mainnet') fail('OWNER_MANAGED_SIGNER_IDENTITY_MISMATCH', 403)
+          const normalized = {
+            operationType: claimed.operation_type,
+            method: String(claimed.intent?.method || ''),
+            args: claimed.intent?.args,
+            feeLimitSun: String(claimed.intent?.feeLimitSun || ''),
+          }
+          const definition = Object.hasOwn(METHODS, normalized.operationType) ? METHODS[normalized.operationType] : null
+          if (!definition || definition.method !== normalized.method || !Array.isArray(normalized.args)
+            || !/^[1-9][0-9]{0,11}$/.test(normalized.feeLimitSun)) fail('OWNER_OPERATION_STORED_INTENT_INVALID', 409)
+          const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
+          if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
+          const tronWeb = tronWebFactory({ fullHost: MAINNET })
+          await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl, env })
+          const unsigned = await prepareTransaction(tronWeb, claimed.contract_address, ownerAddress, normalized)
+          const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl, env })
+          const expiration = Number(unsigned?.raw_data?.expiration)
+          if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
+            fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
+          }
+          const signed = await signer.signContractTransaction(unsigned)
+          transactionId = String(signed?.txID || '').toLowerCase()
+          if (!TXID.test(transactionId) || transactionId !== String(unsigned.txID).toLowerCase()) {
+            fail('OWNER_SIGNED_TRANSACTION_ID_MISMATCH', 409)
+          }
+          await transition('signed', {
+            transactionId,
+            receipt: { unsignedTransaction: unsigned, signedTransaction: signed, preflight: freshPreflight, intentSha256: intentHash },
+          })
+          await transition('broadcast-unknown')
+          let broadcast
+          try { broadcast = await broadcastTransaction(tronWeb, signed) } catch { broadcast = null }
+          if (broadcast?.result === true) {
+            const responseTxId = String(broadcast.txid || broadcast.txID || transactionId).toLowerCase()
+            if (responseTxId !== transactionId) fail('OWNER_BROADCAST_TRANSACTION_ID_MISMATCH', 409)
+            await transition('broadcast')
+          }
+          let reconciliation
+          try { reconciliation = await reconcileTransaction(transactionId, ownerAddress, claimed.contract_address, { fetchImpl, env, tronWeb }) }
+          catch { reconciliation = { solidified: false, status: 'receipt-check-unavailable' } }
+          if (reconciliation?.solidified && reconciliation.success === true) {
+            await transition('confirmed', {
+              blockNumber: reconciliation.blockNumber,
+              receipt: { signedTransaction: signed, preflight: freshPreflight, reconciliation },
+            })
+            return reply(res, 200, {
+              success: true, operationId, state, transactionId,
+              blockNumber: reconciliation.blockNumber, result: reconciliation.status,
+              solidified: true, retryAllowed: false,
+            }, origin)
+          }
+          if (reconciliation?.solidified && reconciliation.success === false) {
+            await transition('failed', {
+              failureCode: String(reconciliation.status || 'SOLIDIFIED_EXECUTION_FAILED').slice(0, 100),
+              blockNumber: reconciliation.blockNumber,
+              receipt: { signedTransaction: signed, preflight: freshPreflight, reconciliation },
+            })
+            return reply(res, 422, {
+              success: false, operationId, state, transactionId,
+              blockNumber: reconciliation.blockNumber, result: reconciliation.status,
+              solidified: true, retryAllowed: false,
+            }, origin)
+          }
+          return reply(res, 202, {
+            success: false, operationId, state, transactionId,
+            solidified: false, reconciliation: reconciliation?.status || 'pending-or-unknown',
+            note: 'The signed transaction is durably recorded. Do not retry or create a replacement operation. Refresh this operation to reconcile its Mainnet receipt.',
+            retryAllowed: false,
+          }, origin)
+        } catch (error) {
+          if (state === 'confirming') {
+            await transition('failed', {
+              failureCode: String(error?.code || error?.message || 'OWNER_OPERATION_CONFIRMATION_FAILED').slice(0, 100),
+            }).catch(() => {})
+          }
+          return reply(res, Number.isInteger(error?.status) ? error.status : 503, {
+            success: false, operationId, state, transactionId,
+            error: String(error?.code || error?.message || 'OWNER_OPERATION_CONFIRMATION_FAILED').slice(0, 100),
+            retryAllowed: false,
+          }, origin)
+        }
+      }
+
+      if (req.method === 'GET' && route && !action) {
+        const operation = await ledger.get(operationId, session.sessionId)
+        if (!operation) return reply(res, 404, { success: false, error: 'OWNER_OPERATION_NOT_FOUND' }, origin)
+        let reconciliation = null
+        if (operation.transaction_id && ['signed', 'broadcast-unknown', 'broadcast'].includes(operation.state)) {
+          const tronWeb = tronWebFactory({ fullHost: MAINNET })
+          try {
+            reconciliation = await reconcileTransaction(operation.transaction_id, String(env.TRON_OWNER_ADDRESS || ''), operation.contract_address, { fetchImpl, env, tronWeb })
+            if (reconciliation?.solidified) {
+              if (operation.state === 'signed') {
+                await ledger.transition({ operationId, sessionId: session.sessionId, nextState: 'broadcast-unknown' })
+              }
+              await ledger.transition({
+                operationId, sessionId: session.sessionId,
+                nextState: reconciliation.success ? 'confirmed' : 'failed',
+                blockNumber: reconciliation.blockNumber,
+                failureCode: reconciliation.success ? null : String(reconciliation.status || 'SOLIDIFIED_EXECUTION_FAILED').slice(0, 100),
+                receipt: { reconciliation },
+              })
+            }
+          } catch { reconciliation = { solidified: false, status: 'receipt-check-unavailable' } }
+        }
+        const current = await ledger.get(operationId, session.sessionId)
         return reply(res, 200, {
-          success: true, operation: {
-            operationId: operation.operation_id, operationType: operation.operation_type,
-            contractAddress: operation.contract_address, state: operation.state,
-            transactionId: operation.transaction_id || null, failureCode: operation.failure_code || null,
-            createdAt: operation.created_at, updatedAt: operation.updated_at,
-          }, executionEnabled: false,
+          success: true,
+          operation: {
+            operationId: current.operation_id, operationType: current.operation_type,
+            contractAddress: current.contract_address, state: current.state,
+            intentSha256: String(current.intent_sha256 || '').trim(),
+            transactionId: current.transaction_id || null, blockNumber: current.block_number || null,
+            failureCode: current.failure_code || null, preflight: current.receipt?.preflight || null,
+            createdAt: current.created_at, updatedAt: current.updated_at,
+          },
+          reconciliation: reconciliation
+            ? { solidified: reconciliation.solidified === true, status: reconciliation.status || 'unknown', blockNumber: reconciliation.blockNumber || null }
+            : { attempted: false },
+          executionEnabled: executionGateEnabled(env),
         }, origin)
       }
+
       return reply(res, 405, { success: false, error: 'METHOD_NOT_ALLOWED' }, origin)
     } catch (error) {
       return reply(res, Number.isInteger(error?.status) ? error.status : 503, {
