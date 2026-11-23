@@ -11,6 +11,22 @@ const REQUIRED_COLUMNS = [
   'prepared_transaction', 'signed_transaction', 'result_code', 'confirmation_block', 'created_at', 'updated_at',
 ]
 
+const PAYLOAD_COLUMNS = new Set(['prepared_transaction', 'signed_transaction'])
+const CORE_REQUIRED_COLUMNS = REQUIRED_COLUMNS.filter(column => !PAYLOAD_COLUMNS.has(column))
+
+export function assessSponsorLedgerSchema(foundColumns, { role, rowCount }) {
+  const found = foundColumns instanceof Set ? foundColumns : new Set(foundColumns || [])
+  const coreComplete = CORE_REQUIRED_COLUMNS.every(column => found.has(column))
+  const payloadComplete = [...PAYLOAD_COLUMNS].every(column => found.has(column))
+  const legacyEmptySource = role === 'source' && String(rowCount) === '0'
+  return {
+    compatible: coreComplete && (payloadComplete || legacyEmptySource),
+    coreComplete,
+    payloadComplete,
+    legacyEmptySource,
+  }
+}
+
 export function assessMigrationPreflight(snapshot) {
   const blockers = []
   if (snapshot.operatorConfirmed !== true) blockers.push('operator-pause-confirmation-required')
@@ -55,16 +71,12 @@ async function readDatabase(pool, role) {
         WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations'
       `)
       const found = new Set((columns.rows || []).map(row => row.column_name))
-      const payloadColumns = new Set(['prepared_transaction', 'signed_transaction'])
-      const requiredCoreColumns = REQUIRED_COLUMNS.filter(column => !payloadColumns.has(column))
-      const coreColumnsComplete = requiredCoreColumns.every(column => found.has(column))
-      const payloadColumnsComplete = [...payloadColumns].every(column => found.has(column))
       const count = await client.query(`SELECT count(*)::text AS count FROM ${TABLE}`)
       rowCount = String(count.rows?.[0]?.count ?? '-1')
       // Older restored snapshots may predate the payload columns. They are
       // safe as a source only when empty; non-empty legacy ledgers are blocked
       // rather than silently dropping signed transaction history.
-      columnsComplete = coreColumnsComplete && (payloadColumnsComplete || (role === 'source' && rowCount === '0'))
+      columnsComplete = assessSponsorLedgerSchema(found, { role, rowCount }).compatible
       if (role === 'source') {
         const inFlight = await client.query(
           `SELECT count(*)::text AS count FROM ${TABLE} WHERE status IN ('reserved','signed-not-broadcast','broadcast-unknown')`
