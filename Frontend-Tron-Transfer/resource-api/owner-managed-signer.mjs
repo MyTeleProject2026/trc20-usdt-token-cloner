@@ -79,7 +79,7 @@ export function createOwnerManagedSigner({
       || expiration <= timestamp || expiration > now + 10 * 60_000) {
       fail('OWNER_SIGNER_TRANSACTION_EXPIRED_OR_INVALID')
     }
-    if (Number(contracts[0]?.Permission_id ?? 0) !== 0) fail('OWNER_SIGNER_PERMISSION_ID_NOT_ALLOWED')
+    if (Number(contracts[0]?.Permission_id ?? contracts[0]?.permission_id ?? 0) !== 0) fail('OWNER_SIGNER_PERMISSION_ID_NOT_ALLOWED')
     const selector = String(value.data || '').replace(/^0x/i, '').slice(0, 8).toLowerCase()
     if (!allowedSelectors.has(selector)) fail('OWNER_SIGNER_METHOD_NOT_ALLOWLISTED')
     if (typeof tronWeb.utils?.transaction?.txCheck !== 'function'
