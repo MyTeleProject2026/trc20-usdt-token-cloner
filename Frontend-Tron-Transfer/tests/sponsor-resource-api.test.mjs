@@ -36,8 +36,8 @@ test('Sponsor sessions remain separate and local vault signing is gated by Mainn
   assert.doesNotMatch(ui, /signMessageV2/)
   assert.ok(ui.includes('signSponsorTransaction(wallet, unsignedTransaction)'))
   assert.ok(ui.includes("'/api/sponsor/operations/prepare'"))
-  assert.ok(ui.includes("'/api/sponsor/operations/submit'
-  assert.ok(component.includes('/api/sponsor/operations/cancel'))"))
+  assert.ok(ui.includes("'/api/sponsor/operations/submit'"))
+  assert.ok(ui.includes("'/api/sponsor/operations/cancel'"))
   assert.doesNotMatch(ui, /trx\.sendRawTransaction/)
   assert.doesNotMatch(ui, /trx\.sign\(unsigned/)
 })
