@@ -1,3 +1,5 @@
+<!-- Legacy architecture note: this document describes the separate sponsor-direct USDT payout service. Its former TronLink UI is not part of the integrated Owner Admin application. The active Sponsor Wallet is the independent local-import resource workspace documented in INTEGRATED_SPONSOR_WALLET.md. The backend route remains separate for existing treasury/settlement compatibility. -->
+
 # Individual sponsors and funding-provider integration
 
 ## Scope
