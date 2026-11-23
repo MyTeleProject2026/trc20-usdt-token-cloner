@@ -25,6 +25,10 @@ test('Owner access uses backend password sessions and never imports browser wall
 test('Owner app restores and revokes the backend session', async () => {
   const app = await readFile(new URL('App.jsx', root), 'utf8')
   assert.ok(app.includes('ownerAuthClient.session()'))
+  assert.ok(app.includes("import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'"))
+  assert.ok(app.includes('const session = await ownerAuthClient.session()'))
+  assert.ok(app.includes('connection.address !== session.address'))
+  assert.ok(app.includes("signerType: 'tronlink-owner'"))
   assert.ok(app.includes('ownerAuthClient.logout()'))
   assert.ok(app.includes("signerType: 'session-only'"))
 })
@@ -38,6 +42,7 @@ test('TRӾ panel uses the managed Owner session and guarded backend operation wo
   assert.ok(panel.includes('pendingOperation.executionEnabled'))
   assert.ok(panel.includes('solidified Mainnet block'))
   assert.ok(panel.includes('requestTronLinkConnection(wallet.provider, window)'))
+  assert.ok(panel.includes("wallet?.managedSession ? 'Connect TronLink' : 'Unlock Owner Wallet'"))
   assert.ok(panel.includes('signer.trx.sign(pendingOperation.unsignedTransaction)'))
   assert.ok(panel.includes('signer.trx.sign(deploymentOperation.unsignedTransaction)'))
   assert.doesNotMatch(panel, /sendAndVerifyContractCall|deployContractWithOwnerSigner|tronWeb\.trx\.sign|sendRawTransaction/)
