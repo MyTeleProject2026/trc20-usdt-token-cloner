@@ -95,7 +95,7 @@ export default function App() {
     setWallet(null)
     setOwnerAccessOpen(true)
     setActivePage('home')
-    setWalletNotice('Owner Wallet locked. Its encrypted local backup remains available for unlock or logout.')
+    setWalletNotice('Owner password session signed out. The backend session has been revoked.')
   }
 
 
@@ -108,7 +108,7 @@ export default function App() {
       setWallet(null)
       setActivePage('home')
       setOwnerAccessOpen(true)
-      setWalletNotice('Owner Wallet automatically locked. Unlock it with your local vault password to continue.')
+      setWalletNotice('Owner password session automatically signed out. Sign in again to continue.')
     }
     const resetIdle = () => {
       window.clearTimeout(idleTimer)
