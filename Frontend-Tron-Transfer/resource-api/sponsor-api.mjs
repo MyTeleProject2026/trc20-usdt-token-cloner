@@ -478,6 +478,8 @@ export function createSponsorResourceApi({
       || path === '/api/sponsor/session/verify'
       || path === '/api/sponsor/intent'
       || path === '/api/sponsor/operations'
+      || path === '/api/sponsor/operations/prepare'
+      || path === '/api/sponsor/operations/submit'
       || /^\/api\/sponsor\/operations\/[A-Za-z0-9._:-]+$/.test(path)
       || path === '/api/tron/sponsorship/resource-delegations'
       || path === '/api/tron/sponsorship/resource-delegations/verify-wallet'
