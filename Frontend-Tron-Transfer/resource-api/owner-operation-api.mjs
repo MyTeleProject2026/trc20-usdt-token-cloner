@@ -489,7 +489,7 @@ export function createOwnerOperationApi({
           || !/^[0-9a-f]{130}$/i.test(String(signedCandidate.signature[0] || ''))
           || String(signedCandidate.txID || '').toLowerCase() !== String(preparedUnsigned.txID || '').toLowerCase()
           || String(signedCandidate.raw_data_hex || '').toLowerCase() !== String(preparedUnsigned.raw_data_hex || '').toLowerCase()) {
-          return reply(res, 409, { success: false, error: 'OWNER_TRONLINK_SIGNED_TRANSACTION_MISMATCH', retryAllowed: true }, origin)
+          return reply(res, 409, { success: false, error: 'OWNER_SIGNED_TRANSACTION_MISMATCH', retryAllowed: true }, origin)
         }
         let claimed
         try { claimed = await ledger.claimConfirmation(operationId, String(env.TRON_OWNER_ADDRESS || '')) }
