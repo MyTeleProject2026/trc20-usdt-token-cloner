@@ -1,6 +1,16 @@
 import artifacts from './generated/trax-contract-artifacts.js'
 import { TronWeb } from 'tronweb'
 import {
+  assertTransactionIntegrity,
+  verifyTransactionSigner,
+  assertTransactionPermission,
+} from './tron-mainnet-preflight.mjs'
+export {
+  assertTransactionIntegrity,
+  verifyTransactionSigner,
+  assertTransactionPermission,
+} from './tron-mainnet-preflight.mjs'
+import {
   decodeNodeErrorText,
   normalizeMainnetAccountResources,
   normalizeMainnetPermissionSnapshot,
@@ -930,145 +940,6 @@ export function toWalletSignableTransaction(transaction) {
   // field representations before the wallet validates the payload.
   return transaction
 
-}
-
-export function assertTransactionIntegrity(tronWeb, transaction, stage = 'TRON transaction') {
-  const check = tronWeb?.utils?.transaction?.txCheck
-  if (typeof check !== 'function') {
-    throw new Error('TronWeb transaction integrity checker is unavailable; refusing to sign or broadcast.')
-  }
-  let valid = false
-  try { valid = check(transaction) === true } catch {}
-  if (!valid) {
-    throw new Error(stage + ' failed TronWeb protobuf integrity validation: raw_data, raw_data_hex and txID do not describe the same transaction. Nothing was signed or broadcast.')
-  }
-  return true
-}
-
-export function verifyTransactionSigner(tronWeb, transaction, expectedAddress) {
-  const contract = transaction?.raw_data?.contract?.[0]
-  const ownerHex = contract?.parameter?.value?.owner_address
-  const signatures = transaction?.signature
-  if (typeof ownerHex !== 'string' || !/^(?:41)?[0-9a-f]{40,42}$/i.test(ownerHex)) {
-    throw new Error('Deployment transaction is missing a valid owner_address; refusing broadcast.')
-  }
-  if (!Array.isArray(signatures) || signatures.length !== 1
-    || typeof signatures[0] !== 'string' || !/^[0-9a-f]{130}$/i.test(signatures[0])) {
-    throw new Error('Deployment requires exactly one valid 65-byte Owner Wallet signature; refusing broadcast.')
-  }
-  const crypto = tronWeb?.utils?.crypto
-  if (typeof crypto?.ecRecover !== 'function') {
-    throw new Error('This TronWeb client cannot independently recover TRON transaction signers; refusing broadcast.')
-  }
-  let transactionOwner
-  let recoveredSigner
-  try {
-    transactionOwner = ownerHex.length === 42 ? tronWeb.address.fromHex(ownerHex) : tronWeb.address.fromHex('41' + ownerHex)
-    const recovered = crypto.ecRecover(transaction.txID, signatures[0])
-    // TronWeb's ecRecover returns the 21-byte TRON address in 41-prefixed hex,
-    // not Base58Check. Normalize it before comparing with the wallet account.
-    recoveredSigner = typeof recovered === 'string' && /^41[0-9a-f]{40}$/i.test(recovered)
-      ? tronWeb.address.fromHex(recovered)
-      : recovered
-  } catch {
-    throw new Error('Unable to recover the signer from the TRON transaction signature; refusing broadcast.')
-  }
-  if (!tronWeb.isAddress(transactionOwner) || !tronWeb.isAddress(recoveredSigner)
-    || !addressesEqual(tronWeb, transactionOwner, expectedAddress)
-    || !addressesEqual(tronWeb, recoveredSigner, transactionOwner)) {
-    throw new Error('TRON signature signer does not match both the deployment owner_address and connected wallet. Nothing was broadcast.')
-  }
-  return { ownerAddress: transactionOwner, recoveredAddress: recoveredSigner }
-}
-
-export async function assertTransactionPermission(tronWeb, signedTransaction, expectedSigner) {
-  if (typeof tronWeb?.trx?.getSignWeight !== 'function') {
-    throw new Error('TRON permission preflight is unavailable; refusing to broadcast.')
-  }
-  if (!expectedSigner || !tronWeb?.isAddress?.(expectedSigner)) {
-    throw new Error('Expected connected TRON signer is missing or invalid; refusing to broadcast.')
-  }
-  let result
-  try {
-    result = await tronWeb.trx.getSignWeight(signedTransaction)
-  } catch (error) {
-    throw new Error('TRON permission preflight failed; refusing to broadcast. ' + (error?.message || String(error)))
-  }
-
-  const contract = signedTransaction?.raw_data?.contract?.[0]
-  const requestedPermissionId = Number(contract?.Permission_id ?? contract?.permission_id ?? 0)
-  const permission = result?.permission
-  const permissionId = permission?.id ?? (String(permission?.permission_name || '').toLowerCase() === 'owner' ? 0 : undefined)
-  const weight = result?.current_weight
-  const threshold = permission?.threshold
-  const approved = Array.isArray(result?.approved_list) ? result.approved_list : []
-  const keys = Array.isArray(permission?.keys) ? permission.keys : []
-
-  const signerApproved = approved.some(address => addressesEqual(tronWeb, address, expectedSigner))
-  const signerKey = keys.find(key => addressesEqual(tronWeb, key?.address, expectedSigner))
-  const keyWeight = Number(signerKey?.weight)
-  const hasCompleteWeightEvidence = Number.isSafeInteger(Number(weight))
-    && Number(weight) >= 0
-    && Number.isSafeInteger(Number(threshold))
-    && Number(threshold) > 0
-    && signerApproved
-    && signerKey
-    && Number.isSafeInteger(keyWeight)
-    && keyWeight > 0
-    && (permissionId === undefined || permissionId === requestedPermissionId)
-
-  const rawCode = result?.result?.code
-  const numericWeightMeetsThreshold = Number.isSafeInteger(Number(weight))
-    && Number(weight) >= 0
-    && Number.isSafeInteger(Number(threshold))
-    && Number(threshold) > 0
-    && Number(weight) >= Number(threshold)
-  if (rawCode == null && numericWeightMeetsThreshold && !signerApproved) {
-    throw new Error('TRON node reported enough signing weight but its approved_list does not include the connected wallet signer. Nothing was broadcast.')
-  }
-  if (rawCode == null && numericWeightMeetsThreshold && !signerKey) {
-    throw new Error('TRON node reported enough signing weight but the connected wallet is not a key in the selected permission. Nothing was broadcast.')
-  }
-  // java-tron defines ENOUGH_PERMISSION as enum value 0. Proto3 omits
-  // default-valued enum fields from JSON, so a successful response commonly
-  // arrives as result: {} rather than result: { code: "ENOUGH_PERMISSION" }.
-  const normalizedCode = rawCode === 0 || rawCode === '0'
-    ? 'ENOUGH_PERMISSION'
-    : rawCode === 1 || rawCode === '1'
-      ? 'NOT_ENOUGH_PERMISSION'
-      : rawCode
-  const successFromCode = normalizedCode === 'ENOUGH_PERMISSION'
-  const successFromWeight = rawCode == null
-    && hasCompleteWeightEvidence
-    && Number(weight) >= Number(threshold)
-
-  if (normalizedCode === 'ENOUGH_PERMISSION' || successFromWeight) {
-    if (!signerApproved || !signerKey || !Number.isSafeInteger(keyWeight) || keyWeight <= 0) {
-      throw new Error('TRON permission preflight did not confirm that the connected signer is an approved key in the selected permission. Nothing was broadcast.')
-    }
-    if (permissionId !== undefined && permissionId !== requestedPermissionId) {
-      throw new Error('TRON permission preflight selected permission ID ' + permissionId + ' but the transaction requests permission ID ' + requestedPermissionId + '. Nothing was broadcast.')
-    }
-    if (!Number.isSafeInteger(Number(weight)) || !Number.isSafeInteger(Number(threshold))
-      || Number(weight) < Number(threshold)) {
-      throw new Error('TRON permission result claimed success but its reported signing weight does not satisfy the permission threshold. Nothing was broadcast.')
-    }
-    return result
-  }
-
-  let message = result?.result?.message || normalizedCode || 'missing permission result'
-  try { if (typeof message === 'string' && /^(?:[0-9a-f]{2})+$/i.test(message)) message = tronWeb.toUtf8(message) } catch {}
-  const details = [
-    Number.isFinite(Number(weight)) ? 'collected weight ' + weight : '',
-    Number.isFinite(Number(threshold)) ? 'required threshold ' + threshold : '',
-    permissionId !== undefined ? 'permission ID ' + permissionId : '',
-    approved.length ? 'approved signers ' + approved.join(', ') : '',
-    signerKey ? 'connected key weight ' + keyWeight : 'connected signer absent from permission keys',
-  ].filter(Boolean).join('; ')
-  const nextStep = normalizedCode === 'NOT_ENOUGH_PERMISSION'
-    ? ' The connected wallet signature does not meet the selected account permission threshold. Check the transaction Permission_id and account keys.'
-    : ''
-  throw new Error('TRON signer does not satisfy the account permission threshold (' + (normalizedCode || 'unknown') + '). Nothing was broadcast. ' + message + (details ? ' Permission diagnostics: ' + details + '.' : '') + nextStep)
 }
 
 export const MAINNET_DEPLOYMENT_SIGNING_ENABLED = true
