@@ -107,7 +107,7 @@ function makeHarness({ snapshots = [resourceSnapshot(), resourceSnapshot()], est
 
 const args = ['TOwner', '1000000', '0x' + '11'.repeat(32)]
 
-test('every contract write preflights exact Energy and Bandwidth before TronLink signature', async () => {
+test('every contract write preflights exact Energy and Bandwidth before local Owner vault signature', async () => {
   const h = makeHarness()
   const result = await sendAndVerifyContractCall(h.tronWeb, h.tokenContract, 'credit', args, 150000000, 'TOwner', h.dependencies)
   assert.equal(result.txID, TX_ID)
@@ -116,7 +116,7 @@ test('every contract write preflights exact Energy and Bandwidth before TronLink
   assert.deepEqual(h.counts(), { resourceReads: 2, signCalls: 1, broadcastCalls: 1, estimateCalls: 1, buildCalls: 1 })
 })
 
-test('Energy shortfall blocks before asking TronLink to sign', async () => {
+test('Energy shortfall blocks before asking the local Owner vault to sign', async () => {
   const h = makeHarness({ snapshots: [resourceSnapshot({ energy: '0' })] })
   await assert.rejects(
     sendAndVerifyContractCall(h.tronWeb, h.tokenContract, 'credit', args, 150000000, 'TOwner', h.dependencies),
@@ -136,7 +136,7 @@ test('Bandwidth shortfall blocks even when Energy is sufficient', async () => {
   assert.equal(h.counts().broadcastCalls, 0)
 })
 
-test('resource loss while TronLink is open discards the signed transaction before broadcast', async () => {
+test('resource loss during local signing discards the signed transaction before broadcast', async () => {
   const h = makeHarness({
     snapshots: [
       resourceSnapshot(),
