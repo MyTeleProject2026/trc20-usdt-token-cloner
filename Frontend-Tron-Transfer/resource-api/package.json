@@ -18,7 +18,8 @@
     "sponsor-ledger:migrate": "node scripts/run-sponsor-ledger-migration.mjs migrate",
     "smoke:production-acceptance": "node scripts/production-acceptance-smoke.mjs",
     "build:trax-artifact": "node scripts/build-trax-deployment-artifact.mjs",
-    "prestart": "npm run build:trax-artifact"
+    "prestart": "npm run build:trax-artifact",
+    "owner:recovery-token": "node scripts/create-owner-recovery-token.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",
