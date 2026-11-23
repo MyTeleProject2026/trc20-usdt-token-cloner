@@ -1,6 +1,7 @@
 import { TronWeb } from 'tronweb'
 
 const PRIVATE_KEY = /^(?:0x)?[0-9a-fA-F]{64}$/
+const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
 function readPrivateKey(env, name) {
   const value = typeof env[name] === 'string' ? env[name].trim() : ''
@@ -22,14 +23,9 @@ function configuredAddress(env, names) {
 }
 
 /**
- * Derive backend-managed wallet identities from Render-only private keys.
- *
- * This module deliberately returns public addresses and readiness metadata only.
- * Private keys remain closed over inside this function and are never returned,
- * serialized, logged, or made available to browser-facing API responses.
- *
- * Signing migration is a separate integration step: callers must not treat
- * identity validation as permission to enable transaction execution.
+ * Validate the public Owner address and the independently managed Sponsor
+ * signer. Owner transaction custody is TronLink; the Resource API never reads
+ * or derives an Owner private key. Sponsor signing remains server-side.
  */
 export function createManagedWalletIdentityReport({
   env = process.env,
@@ -37,31 +33,31 @@ export function createManagedWalletIdentityReport({
 } = {}) {
   const ownerAddress = configuredAddress(env, ['TRON_OWNER_ADDRESS', 'TRON_OWNER_WALLET_ADDRESS'])
   const sponsorAddress = configuredAddress(env, ['SPONSOR_MAINNET_ADDRESS'])
-  const ownerKey = readPrivateKey(env, 'TRON_OWNER_PRIVATE_KEY')
+  const ownerAddressValid = Boolean(ownerAddress && TRON_ADDRESS.test(ownerAddress))
   const sponsorKey = readPrivateKey(env, 'SPONSOR_MAINNET_PRIVATE_KEY')
 
-  let derivedOwnerAddress = null
   let derivedSponsorAddress = null
-  try { if (ownerKey.key) derivedOwnerAddress = deriveAddress(ownerKey.key) || null } catch {}
   try { if (sponsorKey.key) derivedSponsorAddress = deriveAddress(sponsorKey.key) || null } catch {}
 
-  const ownerMatches = Boolean(ownerAddress && derivedOwnerAddress && ownerAddress === derivedOwnerAddress)
-  const sponsorMatches = Boolean(sponsorAddress && derivedSponsorAddress && sponsorAddress === derivedSponsorAddress)
+  const sponsorMatches = Boolean(
+    sponsorAddress && TRON_ADDRESS.test(sponsorAddress)
+    && derivedSponsorAddress && sponsorAddress === derivedSponsorAddress,
+  )
   const identitiesDistinct = Boolean(
-    ownerAddress && sponsorAddress && ownerAddress !== sponsorAddress
-    && derivedOwnerAddress && derivedSponsorAddress && derivedOwnerAddress !== derivedSponsorAddress,
+    ownerAddressValid && sponsorMatches
+    && ownerAddress !== sponsorAddress
+    && ownerAddress !== derivedSponsorAddress,
   )
 
   return Object.freeze({
     network: 'TRON Mainnet',
     owner: Object.freeze({
-      configured: ownerKey.configured,
-      keyFormatValid: ownerKey.validFormat,
+      configured: Boolean(ownerAddress),
       addressConfigured: Boolean(ownerAddress),
       address: ownerAddress,
-      derivedAddress: derivedOwnerAddress,
-      addressMatches: ownerMatches,
-      ready: ownerMatches,
+      addressValid: ownerAddressValid,
+      signerCustody: 'tronlink',
+      ready: ownerAddressValid,
     }),
     sponsor: Object.freeze({
       configured: sponsorKey.configured,
@@ -70,10 +66,11 @@ export function createManagedWalletIdentityReport({
       address: sponsorAddress,
       derivedAddress: derivedSponsorAddress,
       addressMatches: sponsorMatches,
+      signerCustody: 'resource-api',
       ready: sponsorMatches,
     }),
     identitiesDistinct,
-    ready: ownerMatches && sponsorMatches && identitiesDistinct,
+    ready: ownerAddressValid && sponsorMatches && identitiesDistinct,
     executionEnabled: false,
   })
 }
