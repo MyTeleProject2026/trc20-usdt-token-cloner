@@ -159,7 +159,7 @@ export function createTRAXDeploymentApi({
           }, {
             waitForReceipt: (client, txID) => waitForSolidifiedReceipt(client, txID, { timeoutMs: 25000, intervalMs: 2500 }),
           })
-          const saved = await database.query(`
+          const saved = await db.query(`
             UPDATE public.tron_transfer_deployments
             SET state='confirmed',contract_address=$2,receipt=$3::jsonb,
                 confirmed_at=now(),updated_at=now(),failure_code=NULL
@@ -193,7 +193,7 @@ export function createTRAXDeploymentApi({
       if (!mainnetEnabled()) return send(res, 423, { error: 'TRAX_DEPLOYMENT_EXECUTION_GATES_LOCKED', message: 'Execution requires explicit Mainnet enablement plus verified ledger backup and restore gates.' }, origin)
       let claimed
       try {
-        const claim = await database.query(`
+        const claim = await db.query(`
           UPDATE public.tron_transfer_deployments
           SET state='confirming',updated_at=now()
           WHERE operation_id=$1 AND owner_address=$2 AND intent_sha256=$3 AND state='prepared'
@@ -201,7 +201,7 @@ export function createTRAXDeploymentApi({
         `, [operationId, session.address, intentSha256])
         claimed = claim.rows?.[0]
         if (!claimed) {
-          const existing = await database.query(
+          const existing = await db.query(
             'SELECT operation_id,state,transaction_id,contract_address,receipt,failure_code FROM public.tron_transfer_deployments WHERE operation_id=$1 AND owner_address=$2',
             [operationId, session.address],
           )
@@ -258,14 +258,14 @@ export function createTRAXDeploymentApi({
           transactionLabel: 'TRӾ deployment final signed pre-broadcast check',
         })
         assertBudget(freshBudget)
-        const persisted = await database.query(`
+        const persisted = await db.query(`
           UPDATE public.tron_transfer_deployments
           SET signed_transaction=$2::jsonb,state='signed',signed_at=now(),updated_at=now()
           WHERE operation_id=$1 AND owner_address=$3 AND state='confirming'
           RETURNING operation_id,state,transaction_id
         `, [operationId, JSON.stringify(signed), session.address])
         if (!persisted.rows?.[0]) fail('TRAX_DEPLOYMENT_SIGNED_TRANSACTION_NOT_PERSISTED', 503)
-        const beforeBroadcast = await database.query(`
+        const beforeBroadcast = await db.query(`
           UPDATE public.tron_transfer_deployments
           SET state='broadcast-unknown',contract_address=$2,updated_at=now()
           WHERE operation_id=$1 AND owner_address=$3 AND state='signed'
@@ -277,7 +277,7 @@ export function createTRAXDeploymentApi({
         // it never creates a replacement transaction or automatically rebroadcasts.
         let broadcast
         try { broadcast = await broadcastDeployment(tronWeb, signed) } catch (error) {
-          await database.query(
+          await db.query(
             "UPDATE public.tron_transfer_deployments SET failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",
             [operationId, String(error?.code || 'BROADCAST_RESPONSE_UNKNOWN').slice(0,120)],
           ).catch(() => {})
@@ -285,19 +285,19 @@ export function createTRAXDeploymentApi({
         }
         if (broadcast?.result !== true) {
           const message = String(broadcast?.message || broadcast?.code || 'NODE_REJECTED_BROADCAST').slice(0,180)
-          await database.query(
+          await db.query(
             "UPDATE public.tron_transfer_deployments SET failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",
             [operationId, message],
           ).catch(() => {})
           return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast-unknown', transactionId: unsigned.txID, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'Node response did not confirm acceptance. Preserve the transaction ID and reconcile against solidified Mainnet before any further action.' }, origin)
         }
-        await database.query(
+        await db.query(
           "UPDATE public.tron_transfer_deployments SET state='broadcast',broadcast_at=now(),failure_code=NULL,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",
           [operationId],
         )
         return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast', transactionId: unsigned.txID, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'Mainnet accepted the original transaction. Solidified receipt and runtime verification are still pending.' }, origin)
       } catch (error) {
-        await database.query(
+        await db.query(
           "UPDATE public.tron_transfer_deployments SET state='failed',failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='confirming'",
           [operationId, String(error?.code || 'TRAX_DEPLOYMENT_CONFIRMATION_FAILED').slice(0,120)],
         ).catch(() => {})
@@ -314,7 +314,7 @@ export function createTRAXDeploymentApi({
     if (!/^[1-9][0-9]{0,11}$/.test(feeLimitSun)) return send(res, 400, { error: 'TRAX_DEPLOYMENT_FEE_LIMIT_INVALID' }, origin)
     const maxFeeLimitSun = BigInt(env.TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN || '150000000')
     if (BigInt(feeLimitSun) > maxFeeLimitSun) return send(res, 400, { error: 'TRAX_DEPLOYMENT_FEE_LIMIT_ABOVE_POLICY' }, origin)
-    const prior = await database.query(
+    const prior = await db.query(
       'SELECT operation_id,state,transaction_id,intent,intent_sha256 FROM public.tron_transfer_deployments WHERE owner_address=$1 AND idempotency_key=$2',
       [session.address, idempotencyKey],
     )
@@ -371,7 +371,7 @@ export function createTRAXDeploymentApi({
       }
       const intentSha256 = sha256(JSON.stringify(intent))
       const operationId = randomUUID()
-      const inserted = await database.query(`
+      const inserted = await db.query(`
         INSERT INTO public.tron_transfer_deployments
           (operation_id,owner_address,idempotency_key,intent,intent_sha256,artifact_sha256,
            creation_bytecode_sha256,runtime_bytecode_sha256,transaction_id,unsigned_transaction,
@@ -387,7 +387,7 @@ export function createTRAXDeploymentApi({
         }),
       ])
       if (!inserted.rows?.[0]) {
-        const existing = await database.query(
+        const existing = await db.query(
           'SELECT operation_id,state,transaction_id,intent_sha256 FROM public.tron_transfer_deployments WHERE owner_address=$1 AND idempotency_key=$2',
           [session.address, idempotencyKey],
         )
