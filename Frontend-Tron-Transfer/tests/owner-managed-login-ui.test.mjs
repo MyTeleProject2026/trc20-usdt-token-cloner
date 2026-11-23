@@ -4,11 +4,11 @@ import { readFile } from 'node:fs/promises'
 
 const root = new URL('../src/', import.meta.url)
 
-test('Owner access uses backend password sessions and never imports browser wallet secrets', async () => {
+test('Owner access separates managed password authentication from encrypted local wallet signing', async () => {
   const ui = await readFile(new URL('OwnerWalletAccess.jsx', root), 'utf8')
   assert.ok(ui.includes("createManagedWalletAuthClient({ role: 'owner' })"))
   assert.ok(ui.includes('ownerAuth.login(authPassword)'))
-  assert.ok(ui.includes('ownerAuth.enroll(password, enrollmentToken.trim())'))
+  assert.ok(ui.includes('ownerAuth.enroll(authPassword, enrollmentToken.trim())'))
   assert.ok(ui.includes("import { createOwnerTronWeb, deriveOwnerAccount"))
   assert.ok(ui.includes('saveOwnerWalletVault(account, vaultPassword)'))
   assert.ok(ui.includes('unlockOwnerWalletVault(unlockPassword)'))
