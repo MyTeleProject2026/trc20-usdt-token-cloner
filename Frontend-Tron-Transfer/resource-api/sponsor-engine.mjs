@@ -75,9 +75,8 @@ export function createSponsorTransactionEngine({
   now = () => Date.now(),
 } = {}) {
   const ownerAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || OWNER_FALLBACK
-  // A production HSM/KMS adapter implements { address, signTransaction(tx) }.
-  // The adapter receives only the exact, prevalidated transaction; it never
-  // receives Owner credentials or controls transaction construction/broadcast.
+  // An explicit signer adapter may be used by isolated tests or a separately reviewed custody service.
+  // The production Sponsor API route remains blocked until the imported browser vault signs locally.
   const signerMode = signerAdapter ? 'external-adapter' : 'client-local-required'
   const signerAddress = signerAdapter ? signerAdapter.address : null
   const signerAdapterValid = !signerAdapter || (
