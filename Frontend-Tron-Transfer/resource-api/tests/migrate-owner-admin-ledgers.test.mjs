@@ -1,7 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope, LEGACY_MIGRATION_CHECKSUMS, OWNER_ADMIN_SCHEMA_FINGERPRINT } from '../scripts/migrate-owner-admin-ledgers.mjs'
+import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope, LEGACY_MIGRATION_CHECKSUMS, OWNER_ADMIN_SCHEMA_FINGERPRINT, getOwnerAdminSchemaFingerprint } from '../scripts/migrate-owner-admin-ledgers.mjs'
 import { readFile } from 'node:fs/promises'
+
+test('Owner Admin schema fingerprint reads the stable catalog manifest',async()=>{
+ let statement=''
+ const fingerprint=await getOwnerAdminSchemaFingerprint({async query(sql){statement=sql;return{rows:[{fingerprint:OWNER_ADMIN_SCHEMA_FINGERPRINT}]}}})
+ assert.equal(fingerprint,OWNER_ADMIN_SCHEMA_FINGERPRINT)
+ assert.ok(statement.includes('tron_transfer_wallet_accounts'))
+ assert.ok(statement.includes('pg_get_constraintdef'))
+ assert.ok(statement.includes('pg_get_indexdef') || statement.includes('pg_indexes'))
+ assert.ok(!statement.includes('tron_transfer_sponsor_operations'))
+})
 
 test('Owner Admin migrations apply atomically and skip matching checksums',async()=>{
  const applied=new Map(),calls=[]
