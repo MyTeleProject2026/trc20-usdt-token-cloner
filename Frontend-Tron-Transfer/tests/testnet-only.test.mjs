@@ -24,9 +24,13 @@ test('TRӾ workspace exposes dedicated owner-admin pages and one Mainnet deploym
   assert.doesNotMatch(panel, /deployContractWithOwnerSigner|sendAndVerifyContractCall|tronWeb\.trx\.sign|sendRawTransaction/)
   assert.ok(panel.includes('verifyTRAXTokenContract'))
   assert.ok(panel.includes("activePage = 'home'"))
-  for (const page of ['home','deploy','issuance','credits','batch','pause','minting','transfers','ownership','accept-ownership','history','balance']) {
+  for (const page of ['home','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
     assert.ok(app.includes("id: '" + page + "'"), 'missing navigation page: ' + page)
   }
+  assert.ok(!app.includes("id: 'accept-ownership'"), 'pending-owner acceptance must not add a navigation page')
+  assert.ok(!app.includes("id: 'account-security'"), 'account security must not add a navigation page')
+  const ownershipControls = await read('../src/TRAXOwnershipControls.jsx')
+  assert.ok(ownershipControls.includes('<PendingOwnerAcceptance/>'), 'pending-owner acceptance must live inside existing Ownership transfer controls')
   for (const action of ['issueOwnerSupply','issueCredit','batchCredit','pause','unpauseTransfers','enableMinting','disableMinting','transfer']) {
     assert.ok(panel.includes('const ' + action + ' ='), 'missing contract action: ' + action)
   }
