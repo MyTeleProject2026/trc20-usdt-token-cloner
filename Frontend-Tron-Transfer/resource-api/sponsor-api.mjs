@@ -184,12 +184,14 @@ async function ensureSchema(db) {
         status TEXT NOT NULL CHECK (status IN ('reserved','signed-not-broadcast','broadcast-unknown','confirmed','failed')),
         transaction_id CHAR(64),
         prepared_transaction JSONB,
+        signed_transaction JSONB,
         result_code TEXT,
         confirmation_block BIGINT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
       ALTER TABLE public.tron_transfer_sponsor_operations ADD COLUMN IF NOT EXISTS prepared_transaction JSONB;
+      ALTER TABLE public.tron_transfer_sponsor_operations ADD COLUMN IF NOT EXISTS signed_transaction JSONB;
       ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_operation_check;
       ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_operation_check CHECK (operation IN ('stake','delegate','undelegate','unstake','withdraw','topup'));
       ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_resource_check;
@@ -218,9 +220,11 @@ async function assertSchema(db) {
     SELECT
       to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
       to_regclass('public.tron_transfer_sponsor_control') AS control_table,
-      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column,
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column
   `)
-  if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table || !schema.rows?.[0]?.prepared_transaction_column) {
+  if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
+    || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true) {
     throw new Error('sponsor-ledger-schema-not-initialized')
   }
   const control = await db.query(
@@ -402,9 +406,11 @@ export function createSponsorResourceApi({
                 SELECT
                   to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
                   to_regclass('public.tron_transfer_sponsor_control') AS control_table,
-                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column
+                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column,
+                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column
               `)
-              if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table || !schema.rows?.[0]?.prepared_transaction_column) {
+              if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
+                || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true) {
                 databaseStatus = 'schema-missing'
               } else {
                 const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
