@@ -52,7 +52,7 @@ The existing `contracts/Restricted1TRAX.sol` source is preserved byte-for-byte. 
 
 ## Separate legacy sponsor-direct payout service
 
-The repository retains a separate sponsor-direct USDT payout backend for existing treasury/settlement integrations. It is **not** the integrated Sponsor resource wallet, and its former standalone TronLink UI has been removed from the Owner Admin application. The historical [individual sponsor brief](docs/SPONSOR_BRIEF.md) (status date 12 November 2026) describes that separate workflow and should not be used as instructions for the active local Sponsor vault.
+The repository retains a separate sponsor-direct USDT payout backend for existing treasury/settlement integrations. It is **not** the integrated Sponsor resource wallet, and its former standalone TronLink UI has been removed from the Owner Admin application. The historical individual sponsor brief ([read it here](docs/SPONSOR_BRIEF.md)) (status date 12 November 2026) describes that separate workflow and should not be used as instructions for the active local Sponsor vault.
 
 - [Read the individual sponsor brief](docs/SPONSOR_BRIEF.md).
 - Open a [public, non-sensitive individual sponsor inquiry](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/issues/new?template=individual-sponsor-inquiry.yml). Do not post wallet addresses, personal documents, private keys or seed phrases.
