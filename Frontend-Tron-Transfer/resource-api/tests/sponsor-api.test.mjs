@@ -52,7 +52,7 @@ function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, 
     send: (res, status, payload) => { res.status = status; res.payload = payload },
     now: () => clock,
   })
-  return { api, calls, env, advanceClock: milliseconds => { clock += milliseconds }
+  return { api, calls, env, advanceClock: milliseconds => { clock += milliseconds } }
 }
 async function call(api, method, path, body, token, adminToken = TEST_ADMIN_TOKEN, client = {}) {
   const res = response()
