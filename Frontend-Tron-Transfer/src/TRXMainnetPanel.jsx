@@ -188,7 +188,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       if (!result.success || !result.operationId) throw new Error(result.error || 'OWNER_OPERATION_PREPARATION_FAILED')
       if (result.replay) {
         const recovered = await wallet.authClient.apiRequest('/api/owner/operations/' + result.operationId)
-        setPendingOperation({ ...recovered.operation, ...result, ...recovered.operation, summary, executionEnabled: recovered.executionEnabled })
+        setPendingOperation({ ...recovered.operation, ...result, ...recovered.operation, ownerAddress: connectedAddress, summary, executionEnabled: recovered.executionEnabled })
         setNotice('An existing operation with this exact idempotency key was recovered. Review its stored intent and state; no new transaction was created.')
         return recovered
       }
@@ -222,6 +222,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       setPendingOperation(null)
       setConfirmationPhrase('')
       setSnapshot(null)
+      const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
+      if (journal?.success) setRecentOperations(journal.operations || [])
       return result
     }
     if (result.transactionId) {
@@ -237,6 +239,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setPendingOperation(null)
     setConfirmationPhrase('')
     setNotice('The prepared Owner operation was cancelled. No transaction was signed or broadcast.')
+    const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
+    if (journal?.success) setRecentOperations(journal.operations || [])
   })
 
   const refreshPendingOperation = () => run('Reconciling Owner transaction against solidified TRON Mainnet', async () => {
@@ -250,6 +254,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     } : current)
     if (operation.state === 'confirmed' && operation.transactionId) {
       setLastTx(operation.transactionId)
+      const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
+      if (journal?.success) setRecentOperations(journal.operations || [])
       setPendingOperation(null)
       setSnapshot(null)
       setNotice('The transaction is confirmed in a solidified Mainnet block.')
@@ -282,7 +288,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       setNotice('Recovered the exact pending Owner intent from the durable ledger. Review all ABI arguments before confirming.')
     } else if (operation.transactionId) {
       setNotice('Recovered transaction ' + operation.transactionId + ' · ' + operation.state + '. No automatic retry was attempted.')
-      if (operation.state === 'confirmed') setLastTx(operation.transactionId)
+      if (operation.state === 'confirmed') { setLastTx(operation.transactionId); setPendingOperation(null) }
     } else {
       setNotice('Recovered Owner operation state: ' + operation.state + (operation.failureCode ? ' · ' + operation.failureCode : ''))
     }
@@ -423,7 +429,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
     {show('credits') && <div className="trax-actions">
       <h3>External wallet credit</h3>
-      <p className="fine-print">Mint new TRӾ directly to a valid TRON Mainnet address. Recipient ownership signatures are not needed to receive tokens, but your owner wallet must approve and broadcast the mint transaction.</p>
+      <p className="fine-print">Mint new TRӾ directly to a valid TRON Mainnet address. Recipient ownership signatures are not needed to receive tokens; the configured Owner session reviews and confirms the issuance operation.</p>
       <label>Recipient TRON Mainnet address<input value={recipient} onChange={e => setRecipient(e.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
       <label>Amount to issue (TRӾ)<input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" placeholder="100"/></label>
       <div className="trax-balance-note">Raw token units (6 decimals): {(() => { try { return parseTokenUnits(amount) } catch { return '—' } })()}</div>
