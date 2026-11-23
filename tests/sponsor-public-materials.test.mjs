@@ -2,20 +2,19 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const portal = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorPortal.jsx', import.meta.url), 'utf8')
+const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
+const sponsorWorkspace = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorWalletManager.jsx', import.meta.url), 'utf8')
 const brief = await readFile(new URL('../docs/SPONSOR_BRIEF.md', import.meta.url), 'utf8')
 const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
 const issueForm = await readFile(new URL('../.github/ISSUE_TEMPLATE/individual-sponsor-inquiry.yml', import.meta.url), 'utf8')
 
-test('legacy sponsor portal routes into the existing internal Sponsor workspace without external wallet access', () => {
-  assert.match(portal, /TRON TRANSFER Sponsor workspace/)
-  assert.match(portal, /Open Sponsor workspace/)
-  assert.ok(portal.includes('href="/#/sponsor"'))
-  assert.match(portal, /backend-managed Sponsor password session/)
-  assert.match(portal, /does not import a private key into the browser or require TronLink/i)
-  assert.match(portal, /No individual Sponsor is claimed approved or funded/i)
-  assert.doesNotMatch(portal, /discoverTronLinkProvider|requestTronLinkConnection|window\.tronLink/)
-  assert.doesNotMatch(portal, /<input|<textarea|type="password"|name="(?:privateKey|seedPhrase|password|walletAddress)"/i)
+test('Sponsor workspace is integrated into the existing Owner Admin application', () => {
+  assert.ok(app.includes("import SponsorWalletManager from './SponsorWalletManager.jsx'"))
+  assert.ok(app.includes("id: 'sponsor'"))
+  assert.ok(app.includes('<SponsorWalletManager'))
+  assert.doesNotMatch(app, /tronlink-provider|requestTronLinkConnection/)
+  assert.ok(sponsorWorkspace.includes("createManagedWalletAuthClient({ role: 'sponsor'"))
+  assert.ok(sponsorWorkspace.includes('Sponsor Workspace Login'))
 })
 
 test('sponsor brief distinguishes development support from payout capacity and never promises returns', () => {
@@ -43,5 +42,5 @@ test('public sponsor inquiry materials remain separate from the internal wallet 
   assert.match(issueForm, /no funds should be sent to the project operator/i)
   assert.match(issueForm, /not a sponsor acceptance, funding commitment, payout authorization/i)
   assert.doesNotMatch(issueForm, /^\\s+id: (?:wallet_address|email|phone|legal_name|seed_phrase|private_key)$/m)
-  assert.doesNotMatch(portal, /public sponsor inquiry form/i)
+  assert.doesNotMatch(sponsorWorkspace, /public sponsor inquiry form/i)
 })
