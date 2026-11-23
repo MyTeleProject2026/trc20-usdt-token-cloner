@@ -90,6 +90,21 @@ export function createOwnerOperationLedger({ database }) {
     return result.rows[0]
   }
 
+  async function list(sessionId, limit = 20) {
+    if (!Number.isSafeInteger(Number(sessionId)) || Number(sessionId) <= 0) fail('OWNER_LEDGER_SESSION_REQUIRED')
+    const safeLimit = Math.min(50, Math.max(1, Number(limit) || 20))
+    const result = await database.query(`
+      SELECT operation_id,session_id,idempotency_key,operation_type,contract_address,
+        intent,intent_sha256,state,transaction_id,block_number,
+        receipt->'preflight' AS preflight,failure_code,created_at,updated_at,
+        signed_at,broadcast_at,confirmed_at
+      FROM public.tron_transfer_owner_operations
+      WHERE session_id=$1 AND wallet_role='owner'
+      ORDER BY created_at DESC LIMIT $2
+    `, [Number(sessionId), safeLimit])
+    return result.rows || []
+  }
+
   async function get(operationId, sessionId) {
     const result = await database.query(`
       SELECT operation_id,session_id,idempotency_key,operation_type,contract_address,
@@ -100,5 +115,5 @@ export function createOwnerOperationLedger({ database }) {
     `, [operationId, Number(sessionId)])
     return result.rows?.[0] || null
   }
-  return Object.freeze({ prepare, transition, claimConfirmation, get })
+  return Object.freeze({ prepare, transition, claimConfirmation, get, list })
 }
