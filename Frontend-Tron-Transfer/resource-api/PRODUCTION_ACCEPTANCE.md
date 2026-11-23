@@ -8,7 +8,7 @@ This release adds a read-only acceptance endpoint and a production smoke command
 - `GET /api/acceptance/production`: returns the Sponsor/Owner acceptance checklist, database connectivity/schema state, and explicit execution-gate state.
 - `GET /api/sponsor/status`: existing detailed Sponsor readiness response.
 
-The acceptance endpoint is diagnostic only. It does not create schema, migrate data, sign transactions, or broadcast transactions. It returns check IDs and states, not private keys, API tokens, database URLs, or session secrets.
+The acceptance endpoint is diagnostic only. It does not create schema, migrate data, sign transactions, or broadcast transactions. It returns check IDs and states, not private keys, API tokens, database URLs, or session secrets. The database-target check requires the Resource API environment variable `OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256` to match the fingerprint computed from its selected database URL. The fingerprint includes endpoint hostname, database name and role, but excludes the password; it is safe for diagnostics and cannot be used to connect to the database.
 
 ## Acceptance checks
 
@@ -17,16 +17,17 @@ The report evaluates:
 2. Sponsor address format and separation from Owner.
 3. Sponsor signer configuration and derived/declared address match.
 4. Sponsor ledger database configuration.
-5. Existing ledger schema and control-row availability.
-6. Operator-attested durable backup and restore-test flags.
-7. Sponsor writes remain paused.
-8. Independent Owner Admin password-session integration and Sponsor-session separation.
-9. Sponsor session authentication configuration.
-10. Mainnet deployment execution remains explicitly disabled during acceptance.
-11. Artifact-pinned TRӾ deployment source, creation bytecode, runtime bytecode and manifest fingerprints match the pinned Solidity build.
-12. Deployment signing verifies the recovered Owner signer and live TRON permission; signed transaction and broadcast intent persist before network broadcast.
-13. Pending-owner challenge/session is distinct from the configured Owner session and acceptance verifies the exact pending-owner signature, transaction and solidified owner state.
-14. Owner and Sponsor password changes, role-scoped one-time recovery, single-session revocation and revoke-other-sessions routes are available; recovery tokens and session tokens are hash-stored.
+5. Exact database target identity matches the operator-approved Neon endpoint, database name and role; only a one-way fingerprint is returned.
+6. Existing ledger schema and control-row availability.
+7. Operator-attested durable backup and restore-test flags.
+8. Sponsor writes remain paused.
+9. Independent Owner Admin password-session integration and Sponsor-session separation.
+10. Sponsor session authentication configuration.
+11. Mainnet deployment execution remains explicitly disabled during acceptance.
+12. Artifact-pinned TRӾ deployment source, creation bytecode, runtime bytecode and manifest fingerprints match the pinned Solidity build.
+13. Deployment signing verifies the recovered Owner signer and live TRON permission; signed transaction and broadcast intent persist before network broadcast.
+14. Pending-owner challenge/session is distinct from the configured Owner session and acceptance verifies the exact pending-owner signature, transaction and solidified owner state.
+15. Owner and Sponsor password changes, role-scoped one-time recovery, single-session revocation and revoke-other-sessions routes are available; recovery tokens and session tokens are hash-stored.
 
 A passing report is labelled `ready-for-independent-review`, not production-approved. Operator evidence, independent review, and explicit release approval remain mandatory. The API always reports `executionEnabled: false` in this acceptance report.
 
