@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, normalizeDeploymentEnergyEstimate, isMainnetEnergyEstimateUnavailable } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, parseBatchCreditRows, callMainnetView, calculateDeploymentResourceBudget, normalizeDeploymentEnergyEstimate, isMainnetEnergyEstimateUnavailable, getMainnetNativeBalance } from '../src/trax-mainnet.mjs'
 
 test('Owner Mainnet authorization accepts only the encrypted local Owner signer', () => {
   const tronWeb = new TronWeb({
@@ -253,4 +253,25 @@ test('deployment budget applies a 25 percent Energy margin and keeps Bandwidth s
   assert.equal(budget.availableBandwidth, '2000')
   assert.equal(budget.bandwidthShortfall, '0')
   assert.equal(budget.requiredTrxSun, '0')
+})
+
+test('Owner Mainnet balance helper uses the configured Resource API RPC proxy host', async () => {
+  const originalFetch = globalThis.fetch
+  let requestedUrl = ''
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url)
+    return new Response(JSON.stringify({ balance: '35501899' }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })
+  }
+  try {
+    const tronWeb = {
+      isAddress: value => value === 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+      fullNode: { host: 'https://resource-api.example/api/tron/mainnet/rpc' },
+    }
+    assert.equal(await getMainnetNativeBalance(tronWeb, 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'), '35501899')
+    assert.equal(requestedUrl, 'https://resource-api.example/api/tron/mainnet/rpc/wallet/getaccount')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
