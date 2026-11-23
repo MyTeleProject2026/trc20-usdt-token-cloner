@@ -52,6 +52,18 @@ test('Sponsor wallet auth ignores paths outside its exact route namespace', asyn
   assert.equal(await api.handle(request('GET'), response(), new URL('https://api.test/api/wallet-auth/sponsorish/status'), null), false)
 })
 
+test('Sponsor session verifier rejects the other workspace cookie and enforces its own database role', async () => {
+  const queries=[]
+  const database={async query(sql){queries.push(sql);return {rows:[]}}}
+  const api=createSponsorWalletAuthApi({env:{},database,send(){}})
+  const otherCookie=await api.authenticateRequest({headers:{cookie:'tron_sponsor_session=foreign-session-token; tron_owner_session=foreign-session-token'}})
+  assert.equal(otherCookie,null)
+  const ownCookie=await api.authenticateRequest({headers:{cookie:'tron_sponsor_session=foreign-session-token'}})
+  assert.equal(ownCookie,null)
+  assert.equal(queries.length,1)
+  assert.match(queries[0],/wallet_role='sponsor'/)
+})
+
 test('Sponsor enrollment requires backend bootstrap token and only succeeds once', async () => {
   const db = fakeDatabase()
   const api = createSponsorWalletAuthApi({ env: { TRON_SPONSOR_ENROLLMENT_TOKEN: bootstrap }, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) }, identityReport })
