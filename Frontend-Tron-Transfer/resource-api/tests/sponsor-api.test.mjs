@@ -666,7 +666,7 @@ test('configured Sponsor Admin token is required as a second factor for write in
 test('Sponsor transaction preparation fails closed until ledger durability, backup and restore are verified', async () => {
   const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
   const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
-  const { api, env } = setup({ databaseUrl, expectedDatabaseIdentitySha256 })
+  const { api, env, advanceClock } = setup({ databaseUrl, expectedDatabaseIdentitySha256 })
   const token = await authenticated(api)
   const status = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(status.payload.ledgerDurabilityVerified, true)
