@@ -295,7 +295,8 @@ export function createOwnerOperationApi({
     const route = path.match(/^\/api\/owner\/operations\/([0-9a-f-]{36})(?:\/(confirm|cancel))?$/i)
     const operationId = route?.[1] || ''
     const action = route?.[2] || ''
-    if (path !== '/api/owner/operations/prepare' && !route) return false
+    const listRoute = path === '/api/owner/operations'
+    if (path !== '/api/owner/operations/prepare' && !route && !listRoute) return false
     const session = await authenticateManagedSession(req, { requireCsrf: req.method !== 'GET' })
     if (!session || session.address !== env.TRON_OWNER_ADDRESS) {
       return reply(res, 401, { success: false, error: 'OWNER_SESSION_REQUIRED' }, origin)
@@ -314,6 +315,24 @@ export function createOwnerOperationApi({
         return reply(res, 503, { success: false, error: 'OWNER_OPERATION_LEDGER_SCHEMA_NOT_INITIALIZED' }, origin)
       }
       const ledger = ledgerFactory({ database: db })
+
+      if (req.method === 'GET' && listRoute) {
+        const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || 20)))
+        const rows = await ledger.list(session.sessionId, limit)
+        return reply(res, 200, {
+          success: true, network: 'TRON Mainnet', executionEnabled: executionGateEnabled(env),
+          operations: rows.map(row => ({
+            operationId: row.operation_id, operationType: row.operation_type,
+            contractAddress: row.contract_address, state: row.state,
+            intentSha256: String(row.intent_sha256 || '').trim(),
+            method: row.intent?.method || null, args: row.intent?.args || null,
+            feeLimitSun: row.intent?.feeLimitSun || null,
+            transactionId: row.transaction_id || null, blockNumber: row.block_number || null,
+            failureCode: row.failure_code || null, preflight: row.preflight || null,
+            createdAt: row.created_at, updatedAt: row.updated_at,
+          })),
+        }, origin)
+      }
 
       if (req.method === 'POST' && path === '/api/owner/operations/prepare') {
         const input = await readBody(req)
@@ -537,6 +556,9 @@ export function createOwnerOperationApi({
             intentSha256: String(current.intent_sha256 || '').trim(),
             transactionId: current.transaction_id || null, blockNumber: current.block_number || null,
             failureCode: current.failure_code || null, preflight: current.receipt?.preflight || null,
+            method: current.intent?.method || null, args: current.intent?.args || null,
+            feeLimitSun: current.intent?.feeLimitSun || null,
+            confirmationPhrase: current.state === 'awaiting-confirmation' ? CONFIRMATION_PHRASE : null,
             createdAt: current.created_at, updatedAt: current.updated_at,
           },
           reconciliation: reconciliation
