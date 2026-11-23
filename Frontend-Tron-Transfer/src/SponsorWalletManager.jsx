@@ -625,10 +625,10 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }
 
   const lockWallet = useCallback((reason = 'manual') => {
-    if (!wallet?.address) return
+    const address = wallet?.address || managedSponsorAddress || getSavedSponsorWalletAddress()
     const automatic = reason === 'inactivity' || reason === 'background'
-    recordSecurityEvent(
-      wallet.address,
+    if (address) recordSecurityEvent(
+      address,
       automatic ? 'Sponsor Wallet automatically locked' : 'Sponsor Wallet locked',
       automatic
         ? (reason === 'background' ? 'Session locked after the page remained hidden for 60 seconds.' : 'Session locked after 5 minutes without user activity.')
@@ -668,11 +668,12 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
         ? 'The Sponsor signer was cleared and the session revoked. Sign in and unlock the encrypted local vault again.'
         : 'The local Sponsor signer was cleared and the managed session revoked; the encrypted backup remains.',
     )
-  }, [wallet?.address, recordSecurityEvent, notify, sponsorAuth])
+  }, [wallet?.address, recordSecurityEvent, notify, sponsorAuth, managedSponsorAddress])
 
   useEffect(() => {
     if (workspaceActive) return
     if (wallet?.address) lockWallet('manual')
+    if (!wallet?.address && managedSponsorAddress) lockWallet('manual')
     // Clear pending import/unlock credentials even when no vault has been unlocked yet.
     setAuthPassword('')
     setAuthRecoveryToken('')
@@ -685,7 +686,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setVaultPassword('')
     setUnlockPassword('')
     setOwnerAdminPassword('')
-  }, [workspaceActive, wallet?.address, lockWallet])
+  }, [workspaceActive, wallet?.address, managedSponsorAddress, lockWallet])
 
   useEffect(() => {
     if (!wallet?.address || !workspaceActive) return undefined
