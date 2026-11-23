@@ -93,7 +93,7 @@ test('Owner session verifier rejects the other workspace cookie and enforces its
   const database={async query(sql){queries.push(sql);return {rows:[]}}}
   const api=createOwnerWalletAuthApi({env:{},database,send(){}})
   const foreignToken='a'.repeat(64)
-  const otherCookie=await api.authenticateRequest({headers:{cookie:'tron_owner_session='+foreignToken+'; tron_sponsor_session='+foreignToken}})
+  const otherCookie=await api.authenticateRequest({headers:{cookie:'tron_sponsor_session='+foreignToken}})
   assert.equal(otherCookie,null)
   const ownCookie=await api.authenticateRequest({headers:{cookie:'tron_owner_session='+foreignToken}})
   assert.equal(ownCookie,null)
