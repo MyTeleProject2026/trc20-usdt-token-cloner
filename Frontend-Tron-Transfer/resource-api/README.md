@@ -42,13 +42,64 @@ The transaction ID is persisted before attempting broadcast. If the process or p
 
 # TRON Transfer resource API
 
-Mainnet resource monitor and guarded Sponsor transaction service for the TRON Transfer frontend. Public chain/resource endpoints remain read-only; Sponsor write operations require a signed wallet session, a separate exact-intent signature, durable PostgreSQL idempotency, and explicit server-side execution flags.
+Mainnet resource monitor and guarded Owner/Sponsor transaction service for the existing TRON Transfer frontend. Public chain/resource endpoints remain read-only; Owner and Sponsor writes use independent backend-managed identities, role-bound sessions, exact-intent authorization, durable PostgreSQL idempotency and explicit server-side execution gates.
 
 ## Endpoints
 
 - `GET /health` — service health and upstream identity.
 - `GET /v1/resources/:base58Address` — account Energy, free and staked/delegated Bandwidth by source, the maximum Bandwidth available to cover one transaction, native TRX balance, current chain fee parameters, and network-wide resource limits/weights.
 - `GET /v1/transactions/:base58Address?limit=20` — up to 50 latest confirmed Mainnet native transactions and official USDT TRC-20 transfers for a Sponsor Wallet, retrieved from TronGrid with an optional server-side API key. This avoids TronWeb's deprecated related-transaction endpoints.
+- `POST /api/owner/operations/prepare`, `GET /api/owner/operations`, `GET /api/owner/operations/:operationId`, `POST /api/owner/operations/:operationId/confirm`, and `POST /api/owner/operations/:operationId/cancel` — session-bound Owner operation preparation, journal recovery, explicit confirmation and solidified receipt reconciliation. Every POST requires the Owner session CSRF token.
+
+
+## Existing TRON Transfer Owner Admin operations
+
+Owner administration uses the existing Owner Admin UI and existing TRӾ pages. It does not create a replacement dashboard or a second application.
+
+- Owner authentication is a backend password session with one-time first enrollment. The browser never receives, imports, stores or signs with the Owner private key.
+- The Resource API reads `TRON_OWNER_PRIVATE_KEY` only from its server-side secret environment and verifies the derived address against `TRON_OWNER_ADDRESS`. The independent Sponsor signer and Sponsor address remain separate.
+- The allowlisted existing-contract operations are Owner issuance/credit, external credit, batch credit (maximum 50 recipients), TRӾ transfer, pause/unpause, minting enable/disable and the first step of two-step ownership transfer. The Owner issuance path preserves the contract's auditable `credit(address,uint256,bytes32)` reference semantics.
+- The browser submits typed intent fields only. The backend binds the intent to the configured `TRAX_CONTRACT_ADDRESS`, builds the canonical TRON Mainnet TriggerSmartContract transaction, and records the intent hash and preflight evidence in `tron_transfer_owner_operations`.
+- Preflight reuses the shared TRON Mainnet resource-budget, permission, Energy simulation, Bandwidth single-transaction coverage, fee-cap and zero-TRX-burn helpers. The backend also checks the deployed runtime bytecode SHA-256 in `TRAX_RUNTIME_BYTECODE_SHA256`, TRӾ metadata, current on-chain Owner and Owner permission ID 0.
+- Confirmation requires the exact phrase `CONFIRM TRON MAINNET OWNER OPERATION` and the stored intent hash. Immediately before signing, the backend rebuilds the same intent, repeats the Mainnet preflight, validates the transaction integrity, signs with the Owner-only server key, recovers the signer, and checks live TRON permission weight.
+- The signed transaction and transaction ID are durably recorded before broadcast. Broadcast ambiguity is retained as `broadcast-unknown`; later authenticated reads query TRON's solidified-node transaction and receipt. A confirmed receipt must match the stored transaction ID, Owner, contract and signer. The system never automatically re-signs or rebroadcasts an ambiguous transaction.
+- The existing History page includes the session-scoped Owner operation journal so prepared intents and transaction receipts can be recovered after a page reload. Raw signed transaction payloads and private keys are not returned by the journal endpoint.
+- Rate limits apply to preparation, confirmation and journal reads. The Owner and Sponsor ledgers remain isolated by wallet role.
+
+### Owner ledger migration and execution gates
+
+Apply the existing wallet-auth/Owner-ledger migration first, then the additive lifecycle migration:
+
+1. `migrations/20261122_backend_wallet_auth.sql`
+2. `migrations/20261123_owner_operation_ledger.sql`
+
+Do not apply either migration until the Neon database backup and restore procedure has been verified. The second migration adds the atomic `confirming` lifecycle state to the existing Owner operation table.
+
+The following server-side variables are required before any Owner operation can be prepared:
+
+- `TRON_OWNER_ADDRESS` and `TRON_OWNER_PRIVATE_KEY` — the configured Owner Mainnet identity and server-only private key.
+- `TRAX_CONTRACT_ADDRESS` — the exact existing TRӾ Mainnet contract address.
+- `TRAX_RUNTIME_BYTECODE_SHA256` — lowercase SHA-256 of the exact deployed runtime bytecode verified against the approved TRӾ artifact.
+- `OWNER_MAX_FEE_LIMIT_SUN` — server-side fee ceiling (the current default is 150,000,000 SUN).
+
+Preparation is intentionally fail-closed unless these three database evidence flags are true:
+
+- `OWNER_OPERATION_LEDGER_DURABLE=true`
+- `OWNER_OPERATION_LEDGER_BACKUP_VERIFIED=true`
+- `OWNER_OPERATION_LEDGER_RESTORE_TESTED=true`
+
+Signing and broadcast require both additional gates:
+
+- `OWNER_OPERATION_EXECUTION_ENABLED=true`
+- `OWNER_OPERATION_MAINNET_ACK=CONFIRM_GUARDED_OWNER_EXECUTION`
+
+Do not set the database evidence flags or Mainnet execution gates until the migration has been applied, backup/restore has been demonstrated, the exact deployed TRӾ bytecode and Owner identity have been independently verified, and the full Owner/Sponsor regression suite has passed. These values are not enabled by this code change. No Mainnet transaction is sent by migration or deployment.
+
+### Deliberately separate operations
+
+- TRӾ contract deployment remains locked in the existing UI until a separate backend deployment route pins the exact creation bytecode/ABI artifact and performs its own deployment-specific preflight. The TriggerSmartContract Owner signer does not sign CreateSmartContract deployment transactions.
+- The current Owner signer cannot accept a two-step ownership transfer on behalf of a different pending-owner address. The new pending owner must authorize its own acceptance transaction; the existing Owner session does not impersonate it.
+- No Solidity contract rewrite, upgrade or Mainnet deployment is included in this change.
 
 ## RPC provider diagnostics
 
@@ -77,7 +128,7 @@ The TRӾ deployment preflight uses the same one-source coverage rule and blocks 
 
 ## Deployment
 
-This service is designed for the existing Render Web Service with root directory `Frontend-Tron-Transfer/resource-api`, Node runtime, `npm test && npm run check` build command, and `npm start` start command. It binds to `0.0.0.0:$PORT`. When Sponsor writes are enabled, only the independent Sponsor private key is read by the backend as a Render secret. The Owner private key is never configured on this service. Owner-originated TRӾ deployment and contract administration use the existing encrypted local Owner Wallet signer in the frontend; the backend does not sign Owner transactions. RPC API keys are infrastructure credentials only; they do not grant transaction-signing permission.
+This service is designed for the existing Render Web Service with root directory `Frontend-Tron-Transfer/resource-api`, Node runtime, `npm test && npm run check` build command, and `npm start` start command. It binds to `0.0.0.0:$PORT`. Keep `TRON_OWNER_PRIVATE_KEY`, the independent Sponsor signing key, and RPC provider credentials only in Render server-side secrets; none may be included in frontend build variables. The Owner key is consumed only by the backend-managed Owner signer after the Owner session, exact-intent, runtime-bytecode, live permission, resource, fee and database-durability gates pass. Sponsor signing remains a separate identity and execution path. RPC API keys are infrastructure credentials only; they do not grant transaction-signing permission.
 
 ## Important limits
 
