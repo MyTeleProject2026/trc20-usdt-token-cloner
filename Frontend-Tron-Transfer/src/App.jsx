@@ -6,6 +6,7 @@ import MobileNavBar from './MobileNavBar.jsx'
 import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
 import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
+import OwnerAccountSecurity from './OwnerAccountSecurity.jsx'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 
 const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
   { id: 'ownership', label: 'Ownership transfer', description: 'Two-step owner handoff', icon: Wallet },
   { id: 'history', label: 'Credit history', description: 'Confirmed on-chain OwnerCredit events', icon: History },
   { id: 'balance', label: 'External balance lookup', description: 'Read any address token balance', icon: Blocks },
+  { id: 'account-security', label: 'Owner account security', description: 'Change password and manage active Owner sessions', icon: ShieldCheck },
 ]
 
 
@@ -161,7 +163,7 @@ export default function App() {
           <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace}/></SponsorWorkspaceErrorBoundary>
         </div>
         <div hidden={sponsorWorkspace} aria-hidden={sponsorWorkspace}>
-          {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+          {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : activePage === 'account-security' ? <OwnerAccountSecurity wallet={wallet} onConnect={connectWallet}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
         </div>
       </main>
       {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
