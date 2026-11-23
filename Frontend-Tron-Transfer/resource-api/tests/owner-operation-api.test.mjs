@@ -160,6 +160,7 @@ function makeExecutionFixture(overrides = {}) {
   }
   const api = createOwnerOperationApi({
     env: {
+      DATABASE_URL: testDatabaseUrl, OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: testDatabaseIdentity,
       TRON_OWNER_ADDRESS: owner, TRAX_CONTRACT_ADDRESS: contract,
       OWNER_OPERATION_LEDGER_DURABLE: 'true',
       OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true',
@@ -275,6 +276,7 @@ test('Owner journal endpoint returns only Owner-identity-scoped intent and prefl
   const replies = []
   const api = createOwnerOperationApi({
     env: {
+      DATABASE_URL: testDatabaseUrl, OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: testDatabaseIdentity,
       TRON_OWNER_ADDRESS: owner,
       OWNER_OPERATION_LEDGER_DURABLE: 'true',
       OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true',
