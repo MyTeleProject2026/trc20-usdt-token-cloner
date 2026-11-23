@@ -221,6 +221,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     if (!wallet || !workspaceActive) {
       setOwnerAdminPassword('')
       setOwnerAdminReady(false)
+      setOwnerAdminCsrfToken('')
     }
   }, [wallet, workspaceActive])
 
@@ -645,6 +646,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     void sponsorAuth.logout().catch(() => {})
     setOwnerAdminPassword('')
     setOwnerAdminReady(false)
+    setOwnerAdminCsrfToken('')
     setAuthCsrfToken('')
     setAuthPassword('')
     setAuthRecoveryToken('')
