@@ -25,7 +25,7 @@ test('Sponsor sessions remain separate and transaction execution is blocked unti
   assert.match(ui, /Reconcile last Sponsor operation/)
   assert.match(ui, /transactionExecutionAvailable !== true/)
   assert.match(ui, /confirmPhrase: intent\.confirmationPhrase/)
-  assert.match(ui, /createSponsorTronWeb\\(wallet\\.privateKey\\)/)
+  assert.match(ui, /createSponsorTronWeb\\(wallet\\?\\.privateKey\\)/)
   assert.match(ui, /deriveSponsorAccount\\(/)
   assert.match(ui, /saveSponsorWalletVault\\(account, vaultPassword\\)/)
   assert.match(ui, /unlockSponsorWalletVault\\(unlockPassword\\)/)
