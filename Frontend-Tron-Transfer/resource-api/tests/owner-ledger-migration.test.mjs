@@ -32,5 +32,6 @@ test('Owner operation lifecycle migration adds atomic confirmation and session-i
   assert.match(sql, /ADD CONSTRAINT tron_transfer_owner_operations_state_check CHECK/)
   assert.match(sql, /'awaiting-confirmation', 'confirming',/)
   assert.match(sql, /WHERE state IN \('confirming', 'signed', 'broadcast-unknown', 'broadcast'\)/)
+  assert.match(sql, /intent->>'ownerAddress'/)
   assert.doesNotMatch(sql, /OWNER_OPERATION_EXECUTION_ENABLED|sendRawTransaction|TRON_OWNER_PRIVATE_KEY/)
 })
