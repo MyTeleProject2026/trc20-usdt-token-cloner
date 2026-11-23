@@ -1,4 +1,4 @@
-<!-- Historical archive notice: this document describes the former private Owner-withdrawal route and TronLink UI. Those unmounted implementation files have been deleted from the active branch. This is not an active product capability or release instruction. The integrated Owner Wallet uses the encrypted local vault described in the current Owner Admin implementation. -->
+<!-- Historical archive notice: this document describes the former private Owner-withdrawal route and TronLink UI. The unmounted TronLink page and HTTP router have been deleted from the active branch; only reusable pure USDT transfer validation helpers remain in server/owner-usdt-transfer.mjs for the separate legacy sponsor-direct backend. This is not an active product capability or release instruction. The integrated Owner Wallet uses the encrypted local vault described in the current Owner Admin implementation. -->
 
 # Private owner-only sponsored Mainnet withdrawals
 
