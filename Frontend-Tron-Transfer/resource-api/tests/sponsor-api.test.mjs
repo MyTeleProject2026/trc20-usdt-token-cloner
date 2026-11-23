@@ -310,7 +310,7 @@ test('Sponsor operation history reads never bootstrap or mutate the ledger schem
     async query(sql) {
       queries.push(sql)
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.includes('SELECT operation,resource,amount_sun')) return { rowCount: 0, rows: [] }
@@ -329,7 +329,7 @@ test('Sponsor status fails closed when the ledger control row is missing', async
   const database = {
     async query(sql) {
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 0, rows: [] }
       throw new Error('status endpoint must remain read-only')
@@ -369,7 +369,7 @@ test('Sponsor status classifies database connection failures without exposing er
 test('invalid configured Sponsor Admin token keeps write execution unavailable', async () => {
   const database = {
     async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       throw new Error('status endpoint must not mutate the Sponsor ledger schema')
     },
@@ -509,7 +509,7 @@ test('valid signed intent still fails closed when durable idempotency storage is
 test('durable Sponsor maintenance pause blocks a valid signed operation before reservation or signing', async () => {
   const database = {
     async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX') || sql === 'BEGIN' || sql === 'ROLLBACK' || sql === 'COMMIT' || sql === 'SELECT 1') return { rowCount: 0, rows: [] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       throw new Error('unexpected fake database query: ' + sql)
@@ -555,7 +555,7 @@ test('legacy one-step Sponsor execution endpoint is disabled in favor of local p
   const database = {
     async query(sql) {
       queries.push(sql)
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       if (sql === 'ROLLBACK' || sql === 'BEGIN') return { rowCount: 0, rows: [] }
       throw new Error('unexpected database query: ' + sql)
@@ -741,7 +741,7 @@ test('signed-not-broadcast operation is reconciled against solidified Mainnet st
   const updates = []
   const database = {
     async query(sql, params = []) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.includes('SELECT idempotency_key_hash,operation,resource,amount_sun::text')) return { rowCount: 1, rows: [row] }
       if (sql.includes('SET status=$2,result_code=$3,confirmation_block=$4')) {
@@ -785,7 +785,7 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
   const updates = []
   const database = {
     async query(sql, params = []) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.includes('SELECT idempotency_key_hash,operation,resource,amount_sun::text')) return { rowCount: 1, rows: [row] }
       if (sql.includes('SET result_code=$2,updated_at=now()')) {
@@ -814,11 +814,11 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
 })
 
 
-test('Sponsor maintenance pause lock is released without invoking the legacy server signer', async () => {
+test('legacy Sponsor server-signed execution endpoint is permanently disabled', async () => {
   const timeline = []
   const database = {
     async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       throw new Error('unexpected database query: ' + sql)
     },
@@ -851,11 +851,10 @@ test('Sponsor maintenance pause lock is released without invoking the legacy ser
     intentId: intent.payload.intentId, signature: SIGNATURE,
     confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
   }, token)
-  assert.equal(result.status, 423)
-  assert.equal(result.payload.error, 'sponsor-local-signer-not-implemented')
+  assert.equal(result.status, 410)
+  assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
   assert.equal(executions, 0)
-  assert.equal(timeline.includes('release'), true)
-  assert.equal(timeline.some(value => String(value).startsWith('INSERT INTO')), false)
+  assert.equal(timeline.length, 0)
 })
 
 
@@ -881,7 +880,7 @@ test('Sponsor readiness coalesces simultaneous status refreshes into one databas
       queryCount += 1
       await new Promise(resolve => setTimeout(resolve, 20))
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       throw new Error('unexpected Sponsor status query')
@@ -929,13 +928,13 @@ test('database target identity uses the direct Owner Admin URL while Sponsor run
   assert.notEqual(runtime.identityFingerprint, target.identityFingerprint)
 })
 
-test('managed Sponsor session cannot invoke the legacy server signer while local signing is unimplemented', async () => {
+test('managed Sponsor session cannot invoke the legacy server signer endpoint', async () => {
   let engineCalls = 0
   let rollbackCalls = 0
   const database = {
     async query(sql) {
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       if (sql === 'BEGIN') return { rowCount: 0, rows: [] }
@@ -960,10 +959,10 @@ test('managed Sponsor session cannot invoke the legacy server signer while local
     intentId: intent.payload.intentId,
     confirmPhrase: intent.payload.confirmationPhrase,
   }, token)
-  assert.equal(result.status, 423)
-  assert.equal(result.payload.error, 'sponsor-local-signer-not-implemented')
+  assert.equal(result.status, 410)
+  assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
   assert.equal(engineCalls, 0, 'the legacy server-side signer must never be invoked')
-  assert.equal(rollbackCalls, 1, 'the database reservation transaction must be rolled back')
+  assert.equal(rollbackCalls, 0, 'the disabled route must not open a database transaction')
 })
 
 test('managed Sponsor session is rejected if its enrolled address no longer matches the configured Mainnet Sponsor', async () => {
