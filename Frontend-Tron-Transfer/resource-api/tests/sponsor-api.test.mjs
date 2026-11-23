@@ -80,6 +80,7 @@ test('Sponsor database status identifies the selected URL source and provider wi
     sourceVariable: 'SPONSOR_DATABASE_URL_POOLED',
     provider: 'neon',
     connectionMode: 'pooled',
+    identityFingerprint: sponsorDatabaseConnectionInfo({ SPONSOR_DATABASE_URL_POOLED: env.SPONSOR_DATABASE_URL_POOLED }).identityFingerprint,
   })
   assert.equal(sponsorDatabaseConnectionString(env), env.SPONSOR_DATABASE_URL_POOLED)
 
@@ -89,6 +90,7 @@ test('Sponsor database status identifies the selected URL source and provider wi
     sourceVariable: 'DATABASE_URL',
     provider: 'render-postgres',
     connectionMode: 'direct',
+    identityFingerprint: sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://user:password@db.render.com/sponsor' }).identityFingerprint,
   })
   assert.deepEqual(sponsorDatabaseConnectionInfo({}), {
     configured: false,
