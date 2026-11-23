@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TronWeb } from 'tronweb'
 import { AlertTriangle, ArrowUpRight, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import {
-  TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, deployContractWithOwnerSigner, preflightContractDeployments,
-  callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts, parseBatchCreditRows, parseTokenUnits, saveContractAddresses,
-  sendAndVerifyContractCall, verifyTRAXTokenContract, getMainnetUSDTBalance, claimTenergyPromoForDeployment,
+  addressesEqual, callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts,
+  parseBatchCreditRows, parseTokenUnits, saveContractAddresses, verifyTRAXTokenContract, getMainnetUSDTBalance,
 } from './trax-mainnet.mjs'
 import { calculatePortfolioValue, fetchTRXReferencePrice } from './trax-pricing.mjs'
 import TRAXOwnershipControls from './TRAXOwnershipControls.jsx'
@@ -110,17 +109,13 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   }, [])
 
   const getToken = useCallback(async () => {
-    const tronWeb = assertMainnetWallet(panelWallet)
+    if (!walletReady) throw new Error('Authenticate the configured backend Owner session first.')
+    const tronWeb = readOnlyTronWeb
+    if (!tronWeb.isAddress(connectedAddress)) throw new Error('The authenticated Owner address is not a valid TRON Mainnet address.')
     if (!tronWeb.isAddress(tokenAddress)) throw new Error('Enter a valid deployed TRON Mainnet TRӾ contract address.')
     const token = await verifyTRAXTokenContract(tronWeb, tokenAddress)
     return { tronWeb, token }
-  }, [panelWallet, tokenAddress])
-
-  const assertOwner = useCallback(async (token, tronWeb) => {
-    const owner = await callMainnetView(token.owner())
-    if (!addressesEqual(tronWeb, owner, connectedAddress)) throw new Error('Connected Owner Wallet is not the on-chain TRӾ owner.')
-    return owner
-  }, [connectedAddress])
+  }, [walletReady, readOnlyTronWeb, connectedAddress, tokenAddress])
 
   const refresh = () => run('Reading TRON Mainnet token state', async () => {
     const { tronWeb, token } = await getToken()
@@ -146,32 +141,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return next
   })
 
-  const checkDeploymentReadiness = () => run('Checking live TRON Mainnet deployment readiness · read-only', async () => {
-    setDeploymentReadiness(null)
-    if (!walletReady) throw new Error('Unlock the configured Owner Wallet first.')
-    if (!feeCapSun) throw new Error('Enter a valid deployment fee cap between 0.000001 and 500 TRX.')
-    if (tokenAddress) throw new Error('A token contract address is already saved. Clear it only if you intend to deploy a new token.')
-    if (!TRAX_TOKEN_ARTIFACT?.bytecode || !TRAX_TOKEN_ARTIFACT?.deployedBytecode) throw new Error('The compiled TRӾ deployment artifact is incomplete.')
-    const result = await preflightContractDeployments(panelWallet, [{
-      artifact: TRAX_TOKEN_ARTIFACT,
-      contractName: 'Restricted1TRAX',
-      feeLimitSun: feeCapSun,
-    }])
-    const deployment = result.deployments?.[0]
-    saveSponsorResourceTargets(deployment)
-    if (!result.conservative || !deployment?.energyEstimateAvailable || result.requiredTrxSun !== '0') {
-      throw new Error('Deployment readiness is not established. Energy estimation, complete resource coverage, or zero-TRX fallback could not be verified. No wallet prompt, signature, or broadcast was attempted.')
-    }
-    setDeploymentReadiness({
-      owner: connectedAddress,
-      feeCapSun,
-      tokenAddress,
-      expiresAt: Date.now() + 60000,
-      energyRequired: deployment.energyRequired,
-      energyWithSafetyMargin: deployment.energyWithSafetyMargin,
-      bandwidthBytes: deployment.estimatedBandwidthBytes,
-    })
-    setNotice('Read-only Mainnet preflight passed. Energy, Bandwidth, owner permission and zero-TRX fallback were checked. Click Deploy automatically repeats these checks. No provider grant is assumed; the deployment proceeds only when existing resources cover the complete transaction with zero TRX fallback.')
+  const checkDeploymentReadiness = () => run('Backend TRӾ deployment route is not yet available', async () => {
+    throw new Error('Artifact-pinned backend deployment is not yet implemented. Deployment remains locked; no local wallet signing fallback is available.')
   })
 
   const claimTenergyPromo = () => run('Checking TEnergy owner eligibility', async () => {
@@ -350,7 +321,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. Deployment remains locked until the backend deployment route pins and verifies the exact compiled artifact. No browser signing fallback is available.</span><span>4. Wait for a solidified receipt and verify bytecode, owner and metadata.</span></div>
         {promoClaimStatus && <div className="trax-state-banner"><b>Free Energy promotion: {promoClaimStatus.status}</b><span>{promoClaimStatus.energyVerified ? "Provider delegation was independently observed; fresh deployment preflight will verify exact required coverage." : (promoClaimStatus.message || "No grant has been verified. Deployment remains subject to live Mainnet resource checks.")}</span></div>}
         {deploymentReady && <div className="trax-state-banner success"><b>Readiness passed · expires in 60 seconds</b><span>Energy required with safety margin: {deploymentReadiness.energyWithSafetyMargin} · estimated transaction Bandwidth: {deploymentReadiness.bandwidthBytes} bytes · estimated TRX fallback: 0.</span></div>}
-        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={claimTenergyPromo}><ShieldCheck size={15}/> Check &amp; claim TEnergy Energy</button><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={true} onClick={deployToken}><Rocket size={15}/> Preflight & deploy TRӾ</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={claimTenergyPromo}><ShieldCheck size={15}/> Check &amp; claim TEnergy Energy</button><button type="button" className="secondary-button" disabled={true} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={true} onClick={deployToken}><Rocket size={15}/> Preflight & deploy TRӾ</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
       </div>}
       {show('portfolio') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
       {!show('portfolio', 'deploy') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
@@ -429,7 +400,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !feeCapSun} onClick={transfer}><ArrowUpRight size={15}/> Review &amp; transfer existing balance</button>
     </div>}
 
-    {show('ownership') && <TRAXOwnershipControls wallet={panelWallet} connectedAddress={connectedAddress} tokenAddress={tokenAddress} feeCapSun={feeCapSun} busy={busy} getToken={getToken} assertOwner={assertOwner} run={run} refresh={refresh} setLastTx={setLastTx} setNotice={setNotice} onPrepareOperation={prepareOwnerOperation}/>}
+    {show('ownership') && <TRAXOwnershipControls wallet={panelWallet} tokenAddress={tokenAddress} feeCapSun={feeCapSun} busy={busy} getToken={getToken} run={run} onPrepareOperation={prepareOwnerOperation}/>}
 
     {show('history') && <TRAXCreditHistory wallet={panelWallet} tokenAddress={tokenAddress} run={run} busy={busy}/>}
 
