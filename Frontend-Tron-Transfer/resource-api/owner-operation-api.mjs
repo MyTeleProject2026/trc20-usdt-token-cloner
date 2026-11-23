@@ -229,7 +229,7 @@ async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { 
     })
   } catch (error) {
     const message = String(error?.message || '')
-    if (/Zero-TRX .* preflight blocked/i.test(message)) fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423)
+    if (/ZERO-TRX-BURN PROTECTION BLOCKED/i.test(message)) fail('OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED', 423)
     if (/fee cap|fee_limit|fee limit/i.test(message)) fail('OWNER_OPERATION_FEE_LIMIT_UNSAFE', 422)
     throw error
   }
