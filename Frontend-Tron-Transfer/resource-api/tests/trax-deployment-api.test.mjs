@@ -65,6 +65,19 @@ test('deployment confirmation is locked even when readiness checks pass', async(
 })
 
 
+test('deployment confirmation accepts full-size TronLink transaction payloads before applying execution gates', async()=>{
+ const {api,replies}=make()
+ await api.handle(req('POST',{
+  operationId:'123e4567-e89b-42d3-a456-426614174000',
+  intentSha256:'d'.repeat(64),
+  confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT',
+  signedTransaction:{signature:['a'.repeat(130)]},
+  padding:'x'.repeat(9000),
+ }),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
+ assert.equal(replies[0].status,423)
+ assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_EXECUTION_GATES_LOCKED')
+})
+
 test('deployment confirmation refuses to claim an operation without a TronLink signature', async()=>{
  const {api,replies}=make({env:{
   TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',
