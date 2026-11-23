@@ -28,7 +28,8 @@ test('Owner app restores and revokes the backend session', async () => {
 
 test('TRӾ panel uses the managed Owner session and guarded backend operation workflow', async () => {
   const panel = await readFile(new URL('TRXMainnetPanel.jsx', root), 'utf8')
-  assert.ok(panel.includes('wallet?.managedSession && connectedAddress === EXPECTED_OWNER_ADDRESS'))
+  assert.ok(panel.includes('wallet?.provider?.request'))
+  assert.ok(panel.includes("typeof wallet?.tronWeb?.trx?.sign === 'function'"))
   assert.ok(panel.includes("apiRequest('/api/owner/operations/prepare'"))
   assert.ok(panel.includes("'/confirm'"))
   assert.ok(panel.includes('pendingOperation.executionEnabled'))
