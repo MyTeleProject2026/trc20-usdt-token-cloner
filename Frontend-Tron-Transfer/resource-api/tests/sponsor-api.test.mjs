@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
-import { createSponsorResourceApi, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString } from '../sponsor-api.mjs'
+import { createSponsorResourceApi, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString, sponsorDatabaseTargetIdentityInfo } from '../sponsor-api.mjs'
 import { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
@@ -920,4 +920,16 @@ test('production Owner Admin session supersedes static Sponsor Admin token for S
   const ownerAuthorized = await call(api, 'POST', '/api/sponsor/intent', intent, token, '', { headers: { cookie: 'tron_owner_session=owner-admin-session' } })
   assert.equal(ownerAuthorized.status, 201)
   assert.equal(ownerAuthorized.payload.success, true)
+})
+
+test('database target identity uses the direct Owner Admin URL while Sponsor runtime may use the pooler', () => {
+  const direct = 'postgres://app_role@ep-main.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
+  const pooled = 'postgres://app_role@ep-main-pooler.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
+  const runtime = sponsorDatabaseConnectionInfo({ DATABASE_URL_POOLED: pooled, OWNER_ADMIN_DATABASE_URL: direct })
+  const target = sponsorDatabaseTargetIdentityInfo({ DATABASE_URL_POOLED: pooled, OWNER_ADMIN_DATABASE_URL: direct })
+  const directOnly = sponsorDatabaseTargetIdentityInfo({ DATABASE_URL: direct })
+  assert.equal(runtime.sourceVariable, 'DATABASE_URL_POOLED')
+  assert.equal(target.sourceVariable, 'OWNER_ADMIN_DATABASE_URL')
+  assert.equal(target.identityFingerprint, directOnly.identityFingerprint)
+  assert.notEqual(runtime.identityFingerprint, target.identityFingerprint)
 })
