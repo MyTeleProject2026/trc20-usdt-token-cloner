@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { createTRAXDeploymentApi } from '../trax-deployment-api.mjs'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -42,7 +43,8 @@ test('deployment confirmation persists signed payload and broadcast-unknown stat
  const state={value:'prepared'}
  const events=[]
  const artifact={contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}
- const unsigned={txID:'a'.repeat(64),raw_data_hex:'bb'.repeat(32),raw_data:{expiration:Date.now()+120000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
+ const rawDataHex='bb'.repeat(32), txID=createHash('sha256').update(Buffer.from(rawDataHex,'hex')).digest('hex')
+ const unsigned={txID,raw_data_hex:rawDataHex,raw_data:{expiration:Date.now()+120000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
  const signed={...unsigned,signature:['c'.repeat(130)]}
  const db={async query(sql,params=[]){
   if(sql.includes('to_regclass')) return {rows:[{deployments_table:'tron_transfer_deployments'}]}
@@ -52,7 +54,7 @@ test('deployment confirmation persists signed payload and broadcast-unknown stat
   if(sql.includes("SET state='broadcast'")) { state.value='broadcast'; return {rows:[]} }
   return {rows:[]}
  }}
- const fakeTron={fullNode:{headers:{}},address:{fromPrivateKey:()=>owner},trx:{sign:async()=>signed,sendRawTransaction:async()=>{events.push('broadcast');assert.equal(state.value,'broadcast-unknown');return {result:true}}}}
+ const fakeTron={fullNode:{headers:{}},address:{fromPrivateKey:()=>owner,toHex:()=> '41'+'11'.repeat(20)},trx:{sign:async()=>signed,sendRawTransaction:async()=>{events.push('broadcast');assert.equal(state.value,'broadcast-unknown');return {result:true}}}}
  const {api,replies}=make({
   env:{TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',TRAX_DEPLOYMENT_MAINNET_ACK:'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT',TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',TRON_OWNER_PRIVATE_KEY:'1'.repeat(64)},
   database:db,artifactLoader:async()=>artifact,tronWebFactory:()=>fakeTron,

@@ -214,6 +214,10 @@ export function createTRAXDeploymentApi({
         if (contract?.type !== 'CreateSmartContract'
           || String(value.owner_address || '').toLowerCase() !== ownerHex
           || String(newContract.bytecode || '').replace(/^0x/i, '').toLowerCase() !== artifactNow.bytecode.toLowerCase()
+          || JSON.stringify(newContract.abi?.entrys || []) !== JSON.stringify(artifactNow.abi)
+          || Number(value.call_value || 0) !== 0
+          || Number(unsigned.raw_data?.fee_limit || 0) !== Number(claimed.intent.feeLimitSun)
+          || Number(unsigned.raw_data?.timestamp || 0) > Date.now() + 30000
           || String(unsigned.txID || '').toLowerCase() !== calculatedTxId
           || Number(unsigned.raw_data?.expiration || 0) <= Date.now() + 5000
           || Number(unsigned.raw_data?.expiration || 0) > Date.now() + 10 * 60_000) fail('TRAX_DEPLOYMENT_PERSISTED_TRANSACTION_INVALID', 409)
