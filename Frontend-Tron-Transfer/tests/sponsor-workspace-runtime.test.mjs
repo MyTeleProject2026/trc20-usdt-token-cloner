@@ -66,7 +66,7 @@ test('Sponsor password recovery and account session controls stay inside the exi
 })
 
 test('Sponsor local signer is locked immediately when leaving the Sponsor workspace', () => {
-  const lockOnExit = source.indexOf("if (!workspaceActive && wallet?.address) lockWallet('manual')")
+  const lockOnExit = source.indexOf("if (workspaceActive) return\n    if (wallet?.address) lockWallet('manual')")
   const idleEffect = source.indexOf("if (!wallet?.address || !workspaceActive) return undefined")
   const lockCallback = source.indexOf("setWallet(null)")
   assert.notEqual(lockOnExit, -1, 'switching to Owner workspace must revoke Sponsor access')
