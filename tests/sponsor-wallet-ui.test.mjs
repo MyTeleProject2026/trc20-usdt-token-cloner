@@ -52,7 +52,8 @@ test('Sponsor Wallet operation requests remain gated until local signing is inte
   assert.equal(component.slice(operationStart, operationEnd).includes('privateKey'), false)
   assert.ok(component.includes('Local Sponsor-vault signing is implemented.'))
   assert.ok(component.includes('/api/sponsor/operations/prepare'))
-  assert.ok(component.includes('/api/sponsor/operations/submit'))
+  assert.ok(component.includes('/api/sponsor/operations/submit'
+  assert.ok(component.includes('/api/sponsor/operations/cancel'))))
   assert.ok(component.includes('tronWeb.trx.sign(unsignedTransaction)'))
   assert.ok(component.includes('confirmPhrase: intent.confirmationPhrase'))
   assert.ok(component.includes('operationReference'))
