@@ -3,7 +3,7 @@ import { TronWeb } from 'tronweb'
 import pg from 'pg'
 import { createOwnerOperationLedger } from './owner-operation-ledger.mjs'
 import { createOwnerManagedSigner } from './owner-managed-signer.mjs'
-import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget } from '../src/tron-mainnet-preflight.mjs'
+import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget, assertTransactionIntegrity, verifyTransactionSigner, assertTransactionPermission } from '../src/tron-mainnet-preflight.mjs'
 import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 
@@ -254,6 +254,11 @@ export function createOwnerOperationApi({
   prepareTransaction = buildUnsigned, preflightTransaction = preflight,
   verifyContractState = verifyContract,
   signerFactory = options => createOwnerManagedSigner(options),
+  verifySignedTransaction = async (tronWeb, signed, ownerAddress) => {
+    assertTransactionIntegrity(tronWeb, signed, 'Signed TRӾ Owner operation')
+    verifyTransactionSigner(tronWeb, signed, ownerAddress)
+    await assertTransactionPermission(tronWeb, signed, ownerAddress)
+  },
   broadcastTransaction = (tronWeb, signed) => tronWeb.trx.sendRawTransaction(signed),
   reconcileTransaction = async (txId, ownerAddress, contractAddress, { fetchImpl: requestFetch, env: requestEnv, tronWeb }) => {
     const [info, transaction] = await Promise.all([
@@ -270,6 +275,7 @@ export function createOwnerOperationApi({
     const value = contracts[0]?.parameter?.value || {}
     if (asAddress(tronWeb, value.owner_address) !== ownerAddress) fail('OWNER_SOLIDIFIED_RECEIPT_OWNER_MISMATCH', 409)
     if (asAddress(tronWeb, value.contract_address) !== contractAddress) fail('OWNER_SOLIDIFIED_RECEIPT_CONTRACT_MISMATCH', 409)
+    verifyTransactionSigner(tronWeb, transaction, ownerAddress)
     if (!Number.isSafeInteger(blockNumber) || blockNumber <= 0) return { solidified: false, status: 'not-solidified' }
     const result = String(info?.receipt?.result || info?.result || '').toUpperCase()
     if (!result) return { solidified: false, status: 'solidified-receipt-result-unavailable', blockNumber }
@@ -462,7 +468,9 @@ export function createOwnerOperationApi({
           if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
           }
+          assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ Owner operation')
           const signed = await signer.signContractTransaction(unsigned)
+          await verifySignedTransaction(tronWeb, signed, ownerAddress)
           transactionId = String(signed?.txID || '').toLowerCase()
           if (!TXID.test(transactionId) || transactionId !== String(unsigned.txID).toLowerCase()) {
             fail('OWNER_SIGNED_TRANSACTION_ID_MISMATCH', 409)
