@@ -348,6 +348,50 @@ export function createSponsorTransactionEngine({
         tronWeb, unsignedTransaction: preparedTransaction, signedTransaction,
         operation, resource, amountSun, sponsorAddress, ownerAddress: recipient,
       })
+      const amount = positiveSun(String(amountSun))
+      if (!amount) throw new Error('invalid-amount-sun')
+      if (operation === 'stake') {
+        const cap = decimalTrxToSun(String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
+        if (env.SPONSOR_STAKING_ENABLED !== 'true' || cap === null || cap <= 0n || amount > cap) throw new Error('staking-disabled-or-amount-exceeds-configured-cap')
+      }
+      if (operation === 'topup') {
+        const cap = decimalTrxToSun(String(env.SPONSOR_MAX_OWNER_TOPUP_TRX || env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
+        if (cap === null || cap <= 0n || amount > cap) throw new Error('owner-topup-disabled-or-amount-exceeds-configured-cap')
+      }
+      if (operation === 'delegate') {
+        const maximumResult = await tronWeb.trx.getCanDelegatedMaxSize(sponsorAddress, resource, { confirmed: true })
+        const maximum = BigInt(String(maximumResult?.max_size ?? maximumResult ?? '0'))
+        if (maximum < amount) throw new Error('insufficient-frozen-resource-capacity')
+      }
+      if (operation === 'undelegate') {
+        const reader = tronWeb.trx.raw || tronWeb.trx
+        const delegated = await reader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true })
+        const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
+        const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
+        const current = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
+        if (current < amount) throw new Error('undelegation-exceeds-current-owner-delegation')
+      }
+      if (operation === 'unstake') {
+        const reader = tronWeb.trx.raw || tronWeb.trx
+        const [account, delegated, slots] = await Promise.all([
+          reader.getAccount(sponsorAddress, { confirmed: true }),
+          reader.getDelegatedResourceV2(sponsorAddress, recipient, { confirmed: true }),
+          reader.getAvailableUnfreezeCount(sponsorAddress, { confirmed: true }),
+        ])
+        const type = resource === 'ENERGY' ? 'ENERGY' : 'BANDWIDTH'
+        const frozen = Array.isArray(account?.frozenV2) ? account.frozenV2 : []
+        const selfStaked = frozen.filter(row => (row.type || 'BANDWIDTH') === type).reduce((sum, row) => sum + BigInt(String(row.amount || '0')), 0n)
+        const rows = Array.isArray(delegated) ? delegated : (Array.isArray(delegated?.delegatedResource) ? delegated.delegatedResource : [])
+        const field = resource === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
+        const delegatedAmount = rows.reduce((sum, row) => sum + BigInt(String(row?.[field] || '0')), 0n)
+        if (Number(slots?.count ?? 0) <= 0 || (selfStaked > delegatedAmount ? selfStaked - delegatedAmount : 0n) < amount) throw new Error('unstake-exceeds-unlocked-self-stake-or-no-slots')
+      }
+      if (operation === 'withdraw') {
+        const reader = tronWeb.trx.raw || tronWeb.trx
+        const withdrawable = await reader.getCanWithdrawUnfreezeAmount(sponsorAddress, now(), { confirmed: true })
+        const actual = BigInt(String(withdrawable?.amount ?? withdrawable ?? '0'))
+        if (actual <= 0n || actual !== amount) throw new Error('withdraw-amount-changed-refresh-and-retry')
+      }
       const balance = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
       const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
       const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
