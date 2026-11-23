@@ -1,4 +1,4 @@
-<!-- Legacy architecture note: this document describes the separate sponsor-direct USDT withdrawal backend, not the integrated Owner/Sponsor resource-wallet workflow. The former TronLink UI is no longer shipped in the Owner Admin app. See INTEGRATED_SPONSOR_WALLET.md for the active local Sponsor vault architecture. -->
+<!-- Historical archive notice: this document describes the former private Owner-withdrawal route and TronLink UI. Those unmounted implementation files have been deleted from the active branch. This is not an active product capability or release instruction. The integrated Owner Wallet uses the encrypted local vault described in the current Owner Admin implementation. -->
 
 # Private owner-only sponsored Mainnet withdrawals
 
