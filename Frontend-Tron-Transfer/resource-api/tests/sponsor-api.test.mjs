@@ -965,3 +965,16 @@ test('managed Sponsor session cannot invoke the legacy server signer while local
   assert.equal(engineCalls, 0, 'the legacy server-side signer must never be invoked')
   assert.equal(rollbackCalls, 1, 'the database reservation transaction must be rolled back')
 })
+
+test('managed Sponsor session is rejected if its enrolled address no longer matches the configured Mainnet Sponsor', async () => {
+  const { api, env } = setup({
+    authenticateManagedSession: async () => ({ address: SPONSOR, sessionId: 'managed-sponsor-session' }),
+  })
+  env.SPONSOR_MAINNET_ADDRESS = 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb'
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-session-address-rotation-0001',
+  }, 'managed-sponsor-session-token')
+  assert.equal(result.status, 403)
+  assert.equal(result.payload.error, 'sponsor-session-address-mismatch')
+})
