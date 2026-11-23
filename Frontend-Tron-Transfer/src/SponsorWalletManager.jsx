@@ -661,7 +661,11 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [wallet?.address, recordSecurityEvent, notify, sponsorAuth])
 
   useEffect(() => {
-    if (!wallet?.address) return undefined
+    if (!workspaceActive && wallet?.address) lockWallet('manual')
+  }, [workspaceActive, wallet?.address, lockWallet])
+
+  useEffect(() => {
+    if (!wallet?.address || !workspaceActive) return undefined
     let idleTimer
     let hiddenTimer
     let locked = false
@@ -705,7 +709,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       }
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [wallet?.address, lockWallet])
+  }, [wallet?.address, lockWallet, workspaceActive])
 
   function logoutWallet() { lockWallet('manual') }
 
