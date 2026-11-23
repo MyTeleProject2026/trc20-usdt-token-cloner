@@ -14,9 +14,9 @@ test('Owner access separates managed password authentication from encrypted loca
   assert.ok(ui.includes('unlockOwnerWalletVault(unlockPassword)'))
   assert.ok(ui.includes("signerType: 'encrypted-local-owner-vault'"))
   assert.ok(ui.includes('Local Mainnet signing · no TronLink connection required'))
-  // Security copy may mention secrets to prohibit pasting them. Assert the
-  // absence of actual browser key-management APIs, not warning vocabulary.
-  assert.doesNotMatch(ui, /deriveOwnerAccount|saveOwnerWalletVault|unlockOwnerWalletVault|createOwnerTronWeb|tronWeb\.trx\.sign|sendRawTransaction/i)
+  assert.ok(ui.includes('tronWeb.trx.sign'))
+  assert.ok(ui.includes('The private key is never sent to the Resource API.'))
+  assert.doesNotMatch(ui, /tronlink-provider|tron_requestAccounts|windowObject\?\.tron/i)
   assert.ok(ui.includes('managedSession: true'))
   assert.ok(ui.includes('ownerAuth.recoverPassword(recoveryToken.trim(), authPassword)'))
   assert.ok(ui.includes('One-time Owner recovery token'))
@@ -24,7 +24,7 @@ test('Owner access separates managed password authentication from encrypted loca
   assert.ok(ui.includes('Recover Owner password'))
 })
 
-test('Owner app restores and revokes the backend session', async () => {
+test('Owner app restores and revokes the backend session while keeping local signing separate', async () => {
   const app = await readFile(new URL('App.jsx', root), 'utf8')
   assert.ok(app.includes('ownerAuthClient.session()'))
   assert.ok(!app.includes('tronlink-provider.mjs'))
