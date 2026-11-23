@@ -233,7 +233,9 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
       return { rowCount: 1, rows: [{ operations_table: null, control_table: null }] }
     },
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
   assert.equal(result.payload.databaseConfigured, true)
@@ -288,9 +290,12 @@ test('managed Owner Admin authorization for Sponsor bootstrap requires the CSRF-
       throw new Error('unexpected bootstrap query')
     },
   }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
   const { api } = setup({
     database,
-    databaseUrl: 'postgres://configured',
+    databaseUrl,
+    expectedDatabaseIdentitySha256,
     adminToken: '',
     authenticateOwnerAdminSession: async (req, options) => {
       assert.equal(options.requireCsrf, true)
