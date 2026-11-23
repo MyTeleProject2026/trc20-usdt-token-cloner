@@ -13,7 +13,7 @@ import './trax-mainnet.css'
 const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const DEFAULT_RECIPIENT = ''
 const DEFAULT_FEE_CAP = '150'
-const RESOURCE_API_BASE = String(import.meta.env?.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\\/+$/, '')
+const RESOURCE_API_BASE = String(import.meta.env?.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 
 const SPONSOR_TARGETS_KEY = 'tron-transfer.sponsor-resource-targets.v1'
 
