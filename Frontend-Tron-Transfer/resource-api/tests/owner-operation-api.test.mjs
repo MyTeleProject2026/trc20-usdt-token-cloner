@@ -116,7 +116,7 @@ function canonical(value) {
   return JSON.stringify(value)
 }
 function makeExecutionFixture(overrides = {}) {
-  const intent = { method: 'setPaused', args: [true], feeLimitSun: '1000000' }
+  const intent = { ownerAddress: owner, method: 'setPaused', args: [true], feeLimitSun: '1000000' }
   const intentSha256 = createHash('sha256').update('pause:' + canonical(intent)).digest('hex')
   const operation = {
     operation_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
