@@ -9,6 +9,12 @@ import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-iden
 
 const { Pool } = pg
 const MAINNET = 'https://api.trongrid.io'
+const TATUM_MAINNET = 'https://tron-mainnet.gateway.tatum.io'
+function mainnetHost(env) {
+  return typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim()
+    && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet'
+    ? TATUM_MAINNET : MAINNET
+}
 const CONFIRMATION_PHRASE = 'CONFIRM TRON MAINNET OWNER OPERATION'
 const TXID = /^[0-9a-f]{64}$/i
 const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -130,12 +136,14 @@ function createPacedFetch(fetchImpl, intervalMs = 550) {
 }
 
 function rpcHeaders(env) {
+  const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
+  if (mainnetHost(env) === TATUM_MAINNET && tatumKey) return { accept: 'application/json', 'content-type': 'application/json', 'x-api-key': tatumKey }
   return { accept: 'application/json', 'content-type': 'application/json',
     ...(typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim()
       ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY.trim() } : {}) }
 }
 async function rpcPost(path, payload, { fetchImpl, env }) {
-  const response = await fetchImpl(MAINNET + path, {
+  const response = await fetchImpl(mainnetHost(env) + path, {
     method: 'POST', headers: rpcHeaders(env), body: JSON.stringify(payload),
     redirect: 'error', signal: AbortSignal.timeout(8_000),
   })
@@ -407,7 +415,7 @@ export function createOwnerOperationApi({
         let transaction
         let result
         try {
-          const tronWeb = tronWebFactory({ fullHost: MAINNET, headers: rpcHeaders(env) })
+          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
           result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env })
