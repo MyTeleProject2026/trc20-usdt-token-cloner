@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowDownUp, CheckCircle2, CircleAlert, FileKey2, LockKeyhole, LogOut, RefreshCw, ShieldCheck, UnlockKeyhole, Wallet } from 'lucide-react'
-import { createSponsorTronWeb } from './sponsor-wallet-vault.mjs'
+import {
+  createSponsorTronWeb, deriveSponsorAccount, getSavedSponsorWalletAddress, hasSavedSponsorWallet,
+  removeSavedSponsorWallet, saveSponsorWalletVault, unlockSponsorWalletVault,
+} from './sponsor-wallet-vault.mjs'
 import { planSponsorResourceProvisioning } from './sponsor-resource-planner.mjs'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 import './sponsor-wallet.css'
@@ -156,6 +159,14 @@ function CenterToast({ toast, onClose }) {
 
 export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {}, workspaceActive = true }) {
   const [wallet, setWallet] = useState(null)
+  const [managedSponsorAddress, setManagedSponsorAddress] = useState('')
+  const [vaultSaved, setVaultSaved] = useState(() => hasSavedSponsorWallet())
+  const [replacing, setReplacing] = useState(false)
+  const [mode, setMode] = useState('private-key')
+  const [credential, setCredential] = useState('')
+  const [keystorePassword, setKeystorePassword] = useState('')
+  const [vaultPassword, setVaultPassword] = useState('')
+  const [unlockPassword, setUnlockPassword] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [authRecoveryMode, setAuthRecoveryMode] = useState(false)
   const [authRecoveryToken, setAuthRecoveryToken] = useState('')
@@ -193,7 +204,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const toastTimer = useRef(null)
   const resourceAlertState = useRef('unknown')
 
-  const tronWeb = useMemo(() => wallet ? createSponsorTronWeb() : null, [wallet])
+  const tronWeb = useMemo(() => wallet?.privateKey ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
   const notify = useCallback((kind, title, message) => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current)
@@ -221,9 +232,11 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       if (active && session?.address === OWNER_ADDRESS) setOwnerAdminReady(true)
     }).catch(() => { if (active) setOwnerAdminReady(false) })
     void sponsorAuth.session().then(session => {
-      if (active && session?.address) {
-        setWallet({ address: session.address })
+      if (active && session?.address && session.address !== OWNER_ADDRESS) {
+        setManagedSponsorAddress(session.address)
+        setVaultSaved(hasSavedSponsorWallet())
         setAuthCsrfToken(session.csrfToken || '')
+        setWallet(null)
         setSnapshot(null)
       }
     }).catch(() => {})
@@ -290,7 +303,10 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       const session = await sponsorAuth.session()
       if (!session?.address) throw new Error('Sponsor password session did not return the enrolled Mainnet address.')
       if (session.address === OWNER_ADDRESS) throw new Error('Owner and Sponsor wallet identities must remain separate.')
-      setWallet({ address: session.address })
+      setManagedSponsorAddress(session.address)
+      setVaultSaved(hasSavedSponsorWallet())
+      setReplacing(false)
+      setWallet(null)
       setAuthCsrfToken(session.csrfToken || '')
       setAuthPassword('')
       setSnapshot(null)
@@ -546,6 +562,68 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     return () => window.clearInterval(timer)
   }, [wallet, workspaceActive, refresh])
 
+  async function importWallet() {
+    if (!managedSponsorAddress || busy) return
+    setBusy(true)
+    try {
+      const account = await deriveSponsorAccount({ mode, value: credential, secretPassword: keystorePassword })
+      if (account.address === OWNER_ADDRESS || account.address !== managedSponsorAddress) {
+        throw new Error('Imported Sponsor Wallet must match the authenticated independent Sponsor Mainnet account.')
+      }
+      await saveSponsorWalletVault(account, vaultPassword)
+      setWallet(account)
+      setVaultSaved(true)
+      setReplacing(false)
+      setCredential(''); setKeystorePassword(''); setVaultPassword('')
+      recordSecurityEvent(account.address, 'Sponsor Wallet imported', 'Existing Sponsor credentials encrypted in this browser; the Resource API received no private key.')
+      notify('success', 'Sponsor Wallet imported', 'Independent Mainnet address verified: ' + account.address)
+    } catch (error) {
+      notify('error', 'Sponsor Wallet import failed', error instanceof Error ? error.message : 'Unable to import the Sponsor Wallet.')
+    } finally { setBusy(false) }
+  }
+
+  async function unlockWallet() {
+    if (!managedSponsorAddress || busy) return
+    setBusy(true)
+    try {
+      const account = await unlockSponsorWalletVault(unlockPassword)
+      if (account.address === OWNER_ADDRESS || account.address !== managedSponsorAddress) {
+        throw new Error('Saved Sponsor Wallet does not match the authenticated independent Sponsor account.')
+      }
+      setWallet(account)
+      setUnlockPassword('')
+      setSnapshot(null)
+      setWalletTransactions([])
+      setWalletTransactionsAvailable(false)
+      setWalletTokenTransfers([])
+      setWalletTokenTransfersAvailable(false)
+      recordSecurityEvent(account.address, 'Sponsor Wallet unlocked', 'Encrypted local vault unlocked after separate Sponsor session authentication.')
+      notify('success', 'Sponsor Wallet unlocked', account.address)
+    } catch (error) {
+      notify('error', 'Sponsor Wallet unlock failed', error instanceof Error ? error.message : 'Unable to unlock the Sponsor Wallet.')
+    } finally { setBusy(false) }
+  }
+
+  function beginReplace() {
+    if (!managedSponsorAddress) return
+    recordSecurityEvent(wallet?.address || managedSponsorAddress, 'Sponsor Wallet replacement started', 'Existing encrypted vault retained until replacement import succeeds.')
+    setWallet(null)
+    setSnapshot(null)
+    setReplacing(true)
+    setMode('private-key')
+    setCredential(''); setKeystorePassword(''); setVaultPassword(''); setUnlockPassword('')
+  }
+
+  function removeVault() {
+    if (!window.confirm('Remove the encrypted Sponsor Wallet backup from this browser? This does not affect the on-chain wallet. Keep your own recovery backup.')) return
+    try { removeSavedSponsorWallet() }
+    catch (error) { notify('error', 'Could not remove local backup', error instanceof Error ? error.message : 'Browser storage is unavailable.'); return }
+    recordSecurityEvent(managedSponsorAddress || getSavedSponsorWalletAddress(), 'Sponsor Wallet backup removed', 'Encrypted local vault removed; on-chain funds were not changed.')
+    setVaultSaved(false); setReplacing(true); setWallet(null)
+    setUnlockPassword(''); setCredential(''); setKeystorePassword(''); setVaultPassword('')
+    notify('success', 'Local Sponsor backup removed', 'No on-chain account or funds were changed.')
+  }
+
   const lockWallet = useCallback((reason = 'manual') => {
     if (!wallet?.address) return
     const automatic = reason === 'inactivity' || reason === 'background'
@@ -554,13 +632,16 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       automatic ? 'Sponsor Wallet automatically locked' : 'Sponsor Wallet locked',
       automatic
         ? (reason === 'background' ? 'Session locked after the page remained hidden for 60 seconds.' : 'Session locked after 5 minutes without user activity.')
-        : 'Backend-managed Sponsor session revoked; no private key is held in this browser.',
+        : 'Local Sponsor signer cleared from memory and managed session revoked; encrypted backup retained.',
     )
     void sponsorAuth.logout().catch(() => {})
     setOwnerAdminPassword('')
     setOwnerAdminReady(false)
     setAuthCsrfToken('')
     setWallet(null)
+    setManagedSponsorAddress('')
+    setVaultSaved(hasSavedSponsorWallet())
+    setReplacing(false)
     setSaved(true)
     setSnapshot(null)
     setWalletTransactions([])
@@ -574,8 +655,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       automatic ? 'info' : 'success',
       automatic ? 'Sponsor Wallet session auto-locked' : 'Sponsor Wallet locked',
       automatic
-        ? 'The authenticated Sponsor session was revoked. Sign in again to continue.'
-        : 'The backend-managed Sponsor session has been revoked.',
+        ? 'The Sponsor signer was cleared and the session revoked. Sign in and unlock the encrypted local vault again.'
+        : 'The local Sponsor signer was cleared and the managed session revoked; the encrypted backup remains.',
     )
   }, [wallet?.address, recordSecurityEvent, notify, sponsorAuth])
 
@@ -874,31 +955,50 @@ This request is sent to the authenticated TRON Transfer Resource API. The backen
     </nav>
 
     {wallet && activePage === 'sponsor' && <section className="sponsor-card">
-      <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Server-side signing, exact-intent authorization and durable operation ledger.</p></div></div>
-      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Server signer: {sponsorApiStatus?.engineConfigured ? 'address verified' : 'not verified'} · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Owner Admin second factor: {sponsorApiStatus?.ownerAdminSessionRequired ? 'required · backend session' : 'not configured'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
-      {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Server-side Sponsor execution is unavailable. Stake and delegation actions will fail closed; no browser-side transaction fallback is used.'}</p>}
-      {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> Sponsor password session, independent Owner Admin session, explicit intent confirmation, protected reserve and configured Bandwidth fee cap are required for each operation.</p>}
+      <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Independent local vault, exact-intent verification and durable operation ledger.</p></div></div>
+      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Local signer acceptance: {sponsorApiStatus?.localSignerReady ? 'verified' : 'blocked'} · Legacy server signer: disabled · Broadcast gate: {sponsorApiStatus?.engineEnabled ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.stakingPolicy.maxStakeTrx + ' TRX' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · max ' + sponsorApiStatus.ownerTopupPolicy.maxTopupTrx + ' TRX' : 'disabled'} · Owner Admin second factor: {sponsorApiStatus?.ownerAdminSessionRequired ? 'required · backend session' : 'not configured'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
+      {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Sponsor local signing is not yet accepted. Stake and delegation actions remain blocked; no server-side private-key signer fallback is permitted.'}</p>}
+      {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> The imported Sponsor vault signs the exact prepared transaction; the Resource API verifies, persists and reconciles it.</p>}
       {wallet && ['schema-missing', 'control-row-missing'].includes(sponsorApiStatus?.databaseStatus) && <div className="sponsor-ledger-bootstrap">
         <button type="button" className="sponsor-secondary" disabled={busy || !ownerAdminReady} onClick={() => void bootstrapSponsorLedger()}>{busy ? 'Checking database…' : 'Initialize paused Sponsor ledger schema'}</button>
         <p className="sponsor-warning">This creates the missing ledger tables only. It does not migrate historical records, enable writes, sign transactions or broadcast to Mainnet.</p>
       </div>}
     </section>}
 
-    {activePage === 'sponsor' && !wallet && <section className="sponsor-card sponsor-unlock-card">
-      <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Workspace Login</h3><p>Sign in to the existing backend-managed Sponsor Mainnet account. The private key remains on the Resource API and is never entered in this page.</p></div></div>
+    {activePage === 'sponsor' && !wallet && !managedSponsorAddress && <section className="sponsor-card sponsor-unlock-card">
+      <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Workspace Login</h3><p>Authenticate the independent Sponsor account first. Then unlock or import its separate encrypted local wallet vault.</p></div></div>
       {authRecoveryMode && <label className="sponsor-field">One-time Sponsor recovery token<input type="password" value={authRecoveryToken} onChange={event => setAuthRecoveryToken(event.target.value)} autoComplete="off"/></label>}
-      <label className="sponsor-field">{authRecoveryMode ? 'New Sponsor password' : 'Sponsor account password'}<input type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} autoComplete={authRecoveryMode ? 'new-password' : 'current-password'} minLength={12}/><small>{authRecoveryMode ? 'Use the new password you want to set. Recovery tokens are single-use and expire after 30 minutes.' : 'Use the password enrolled for the Sponsor wallet. Passwords are verified by the backend; failed attempts are rate-limited and may temporarily lock the account.'}</small></label>
+      <label className="sponsor-field">{authRecoveryMode ? 'New Sponsor password' : 'Sponsor account password'}<input type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} autoComplete={authRecoveryMode ? 'new-password' : 'current-password'} minLength={12}/><small>{authRecoveryMode ? 'Use the new password you want to set. Recovery tokens are single-use and expire after 30 minutes.' : 'The managed password authenticates the Sponsor workspace only; it does not replace the independent local wallet key.'}</small></label>
       {authRecoveryMode && <label className="sponsor-field">Confirm new Sponsor password<input type="password" value={authRecoveryConfirmPassword} onChange={event => setAuthRecoveryConfirmPassword(event.target.value)} autoComplete="new-password" minLength={12}/></label>}
       <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || authPassword.length < 12 || (authRecoveryMode && (authRecoveryToken.length < 32 || authRecoveryConfirmPassword !== authPassword))} onClick={() => void (authRecoveryMode ? recoverSponsorPassword() : loginSponsorWallet())}>{busy ? 'Working…' : authRecoveryMode ? 'Recover Sponsor password' : 'Login to Sponsor Workspace'}</button>{saved === true && <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => {setAuthRecoveryMode(value => !value);setAuthPassword('');setAuthRecoveryToken('');setAuthRecoveryConfirmPassword('')}}>{authRecoveryMode ? 'Back to Sponsor login' : 'Recover password'}</button>}</div>
-      {saved === false && <p className="sponsor-warning">No Sponsor password account is enrolled yet. Complete the one-time backend enrollment before logging in; do not enter a private key here.</p>}
-      <p className="sponsor-security-note"><ShieldCheck/> Session cookie is HttpOnly, Secure and role-specific. Lock or logout revokes the backend session. No browser private-key import is used by this login.</p>
+      {saved === false && <p className="sponsor-warning">No Sponsor password account is enrolled yet. Complete the guarded Sponsor enrollment process before login.</p>}
+      <p className="sponsor-security-note"><ShieldCheck/> Sponsor and Owner passwords are separate. The local wallet key is imported only after Sponsor session authentication and is never sent to the Resource API.</p>
+    </section>}
+
+    {activePage === 'sponsor' && managedSponsorAddress && !wallet && (!vaultSaved || replacing) && <section className="sponsor-card">
+      <div className="sponsor-card-heading"><Wallet/><div><h3>Import existing Sponsor Wallet</h3><p>Import only the existing Sponsor account that matches the authenticated Sponsor address. No Create Wallet flow.</p></div></div>
+      <p className="sponsor-muted">Authenticated Sponsor address: <b>{managedSponsorAddress}</b></p>
+      <div className="sponsor-import-tabs">{[['private-key','Private key'],['keystore','V3 Keystore JSON'],['mnemonic','Mnemonic phrase']].map(([id,label]) => <button key={id} type="button" className={mode === id ? 'active' : ''} onClick={() => {setMode(id);setCredential('')}}>{label}</button>)}</div>
+      {mode === 'keystore' ? <label className="sponsor-field">Keystore JSON<input type="file" accept=".json,application/json" onChange={async event => {const file=event.target.files?.[0];if(file){try{setCredential(await file.text())}catch{notify('error','Keystore read failed','Could not read the selected file.')}}}}/><small>Standard V3-compatible keystore JSON.</small></label> : <label className="sponsor-field">{mode === 'private-key' ? 'Sponsor private key' : 'Sponsor recovery mnemonic'}<textarea value={credential} onChange={event => setCredential(event.target.value)} rows={mode === 'mnemonic' ? 3 : 2} autoComplete="off" spellCheck="false"/></label>}
+      {mode === 'keystore' && <label className="sponsor-field">Keystore password<input type="password" value={keystorePassword} onChange={event => setKeystorePassword(event.target.value)} autoComplete="off"/></label>}
+      <label className="sponsor-field">New local vault password<input type="password" value={vaultPassword} onChange={event => setVaultPassword(event.target.value)} minLength={12} autoComplete="new-password"/><small>Minimum 12 characters. AES-256-GCM with PBKDF2-SHA256; key material stays in this browser.</small></label>
+      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || !credential.trim() || vaultPassword.length < 12} onClick={() => void importWallet()}>{busy ? 'Encrypting…' : 'Import & encrypt Sponsor Wallet'}</button>{replacing && <button type="button" className="sponsor-secondary" onClick={() => {setReplacing(false);setVaultSaved(hasSavedSponsorWallet());setCredential('');setVaultPassword('')}}>Cancel replacement</button>}</div>
+      <p className="sponsor-security-note"><ShieldCheck/> Never paste credentials into chat. The private key is not sent to the Resource API. Sponsor transaction writes remain disabled until local signing and backend verification are accepted.</p>
+    </section>}
+
+    {activePage === 'sponsor' && managedSponsorAddress && !wallet && vaultSaved && !replacing && <section className="sponsor-card sponsor-unlock-card">
+      <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Encrypted Sponsor Wallet saved</h3><p>Unlock the separate local vault for the authenticated Sponsor account.</p></div></div>
+      <p className="sponsor-muted">Authenticated Sponsor address: <b>{managedSponsorAddress}</b> · Saved vault: <b>{getSavedSponsorWalletAddress()}</b></p>
+      <label className="sponsor-field">Local vault password<input type="password" value={unlockPassword} onChange={event => setUnlockPassword(event.target.value)} autoComplete="current-password"/></label>
+      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || !unlockPassword} onClick={() => void unlockWallet()}><UnlockKeyhole size={16}/>{busy ? 'Unlocking…' : 'Unlock Sponsor Wallet'}</button><button type="button" className="sponsor-secondary" onClick={beginReplace}>Replace / import another</button></div>
+      <button type="button" className="sponsor-danger-link" onClick={removeVault}>Remove encrypted local backup</button>
     </section>}
 
     {!wallet && activePage !== 'sponsor' && <section className="sponsor-card sponsor-page-locked"><div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Wallet is locked</h3><p>Unlock the Sponsor Wallet from Overview to access its live data and existing operations.</p></div></div><button type="button" className="sponsor-primary" onClick={() => onNavigate('sponsor')}>Open Sponsor Overview</button></section>}
     {wallet && <div className="sponsor-dashboard">
       {activePage === "sponsor" && <section id="sponsor-overview" className="sponsor-card sponsor-wallet-summary">
         <div className="sponsor-card-heading"><Wallet/><div><h3>Sponsor Wallet Overview</h3><p>{wallet.address}</p></div></div>
-        <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Password authenticated · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={() => lockWallet()}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button></div>
+        <div className="sponsor-wallet-actions"><span className="sponsor-status"><i/> Imported local vault · Unlocked</span><button onClick={() => void refresh()} disabled={busy}><RefreshCw size={15}/> Refresh</button><button onClick={() => lockWallet()}><LockKeyhole size={15}/> Lock</button><button onClick={logoutWallet}><LogOut size={15}/> Logout</button><button onClick={beginReplace}>Replace</button></div>
         <div className="sponsor-metric-grid">
           <article><small>TRX BALANCE</small><strong>{snapshot ? formatAmount(snapshot.trxSun) : '—'}</strong></article>
           <article><small>OFFICIAL USDT</small><strong>{snapshot ? (Number(snapshot.usdt) / 1e6).toLocaleString(undefined,{maximumFractionDigits:6}) : '—'}</strong></article>
