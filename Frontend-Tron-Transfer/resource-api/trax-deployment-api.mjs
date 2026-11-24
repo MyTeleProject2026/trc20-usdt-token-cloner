@@ -24,7 +24,6 @@ const OWNER = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID = /^[0-9a-f]{64}$/i
 const PHRASE = 'PREPARE TRӾ MAINNET DEPLOYMENT'
 const MAINNET = 'https://api.trongrid.io'
-const TATUM = 'https://tron-mainnet.gateway.tatum.io'
 const sha256 = value => createHash('sha256').update(value).digest('hex')
 function deploymentDatabaseConnectionString(env) {
   const ownerAdmin = typeof env.OWNER_ADMIN_DATABASE_URL === 'string' ? env.OWNER_ADMIN_DATABASE_URL.trim() : ''
@@ -49,8 +48,10 @@ function deploymentDatabaseIdentityMatches(env) {
   } catch { return false }
 }
 function fail(code, status = 400) { throw Object.assign(new Error(code), { code, status }) }
-function mainnetHost(env) {
-  return env.TATUM_API_KEY && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet' ? TATUM : MAINNET
+function mainnetHost() { return MAINNET }
+function rpcHeaders(env) {
+  const key = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
+  return key ? { 'TRON-PRO-API-KEY': key } : {}
 }
 function durabilityReady(env) {
   return env.TRAX_DEPLOYMENT_LEDGER_DURABLE === 'true'
@@ -182,10 +183,7 @@ export function createTRAXDeploymentApi({
         try {
           const artifactNow = await artifactLoader({ env })
           if (artifactNow.artifactSha256 !== row.artifact_sha256) fail('TRAX_DEPLOYMENT_ARTIFACT_CHANGED', 409)
-          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env) })
-          tronWeb.fullNode.headers = env.TATUM_API_KEY && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet'
-            ? { 'x-api-key': String(env.TATUM_API_KEY).trim() }
-            : (env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': String(env.TRONGRID_API_KEY).trim() } : {})
+          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           const recovered = await recoverDeployment(tronWeb, {
             txID: row.transaction_id, ownerAddress: session.address, artifact: artifactNow,
           }, {
@@ -263,10 +261,7 @@ export function createTRAXDeploymentApi({
         if (artifactNow.artifactSha256 !== claimed.artifact_sha256
           || artifactNow.creationBytecodeSha256 !== claimed.creation_bytecode_sha256
           || artifactNow.runtimeBytecodeSha256 !== claimed.runtime_bytecode_sha256) fail('TRAX_DEPLOYMENT_ARTIFACT_CHANGED', 409)
-        const tronWeb = tronWebFactory({ fullHost: mainnetHost(env) })
-        tronWeb.fullNode.headers = env.TATUM_API_KEY && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet'
-          ? { 'x-api-key': String(env.TATUM_API_KEY).trim() }
-          : (env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': String(env.TRONGRID_API_KEY).trim() } : {})
+        const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
         if (session.address !== env.TRON_OWNER_ADDRESS) fail('TRAX_DEPLOYMENT_OWNER_SESSION_MISMATCH', 403)
         const unsigned = claimed.unsigned_transaction
         assertIntegrity(tronWeb, unsigned, 'Persisted TRӾ deployment transaction')
@@ -382,10 +377,7 @@ export function createTRAXDeploymentApi({
     }
     try {
       const artifactNow = await artifactLoader({ env })
-      const tronWeb = tronWebFactory({ fullHost: mainnetHost(env) })
-      tronWeb.fullNode.headers = env.TATUM_API_KEY && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet'
-        ? { 'x-api-key': String(env.TATUM_API_KEY).trim() }
-        : (env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': String(env.TRONGRID_API_KEY).trim() } : {})
+      const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
       const unsigned = await buildTransaction(tronWeb, {
         abi: artifactNow.abi, bytecode: artifactNow.bytecode, feeLimit: Number(feeLimitSun),
         originEnergyLimit: Number(env.TRAX_DEPLOYMENT_ORIGIN_ENERGY_LIMIT || 10000000),
