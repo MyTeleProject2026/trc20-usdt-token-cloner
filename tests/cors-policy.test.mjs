@@ -93,7 +93,6 @@ test('server entrypoint uses the fail-closed CORS policy and reports valid confi
   assert.match(entrypoint, /process\.env\.PACKAGED_APP_ORIGINS/)
   assert.match(entrypoint, /process\.env\.TRON_TRANSFER_UI_ORIGIN/)
   assert.doesNotMatch(entrypoint, /OKX_UI_ORIGIN/)
-  assert.match(entrypoint, /process\.env\.TRON_TRANSFER_UI_ORIGIN/)
   assert.match(entrypoint, /createCorsPolicy\(configuredOrigins\)/)
   assert.match(entrypoint, /app\.use\(corsPolicy\)/)
   assert.match(entrypoint, /frontendOriginConfigured: allowedOrigins\.size > 0/)
@@ -110,12 +109,12 @@ test('TRON Transfer frontend origin can be added without replacing the existing 
   const configured = [
     'https://existing-studio.example',
     'tronstudio://app',
-    'https://trc20-usdt-token-cloner.onrender.com',
+    'https://tron-transfer.onrender.com',
   ].join(',')
   const { allowedOrigins } = createCorsPolicy(configured)
   assert.ok(allowedOrigins.has('https://existing-studio.example'))
   assert.ok(allowedOrigins.has('tronstudio://app'))
-  assert.ok(allowedOrigins.has('https://trc20-usdt-token-cloner.onrender.com'))
+  assert.ok(allowedOrigins.has('https://tron-transfer.onrender.com'))
 })
 
 test('plain HTTP is accepted only for local development origins', () => {
