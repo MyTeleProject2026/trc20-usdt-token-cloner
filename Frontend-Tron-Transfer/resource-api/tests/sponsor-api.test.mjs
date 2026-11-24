@@ -152,6 +152,18 @@ test('production acceptance requires an exact configured database identity finge
   assert.equal(serialized.includes('neon_secret'), false)
 })
 
+test('production acceptance blocks when the Sponsor runtime URL differs from the approved direct Neon endpoint', async () => {
+  const direct = 'postgresql://app_user:secret@ep-approved.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  const wrongRuntime = 'postgresql://app_user:secret@ep-unapproved.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  const expected = sponsorDatabaseConnectionInfo({ DATABASE_URL: direct }).identityFingerprint
+  const fixture = setup({ databaseUrl: wrongRuntime, expectedDatabaseIdentitySha256: expected })
+  fixture.env.OWNER_ADMIN_DATABASE_URL = direct
+
+  const result = await call(fixture.api, 'GET', '/api/acceptance/production')
+  assert.equal(result.payload.databaseIdentityMatches, false)
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'database-target-identity').state, 'blocked')
+})
+
 test('Sponsor transaction preparation is blocked when the configured database identity does not match the approved target', async () => {
   const databaseUrl = 'postgres://neon_user:secret@ep-production.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
   const { api } = setup({ databaseUrl, expectedDatabaseIdentitySha256: 'f'.repeat(64) })
