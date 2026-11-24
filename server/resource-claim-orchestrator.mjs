@@ -1,5 +1,6 @@
 const RESOURCE_TYPES = Object.freeze(['ENERGY', 'BANDWIDTH'])
 const UINT = /^(0|[1-9][0-9]{0,77})$/
+const TXID = /^[0-9a-f]{64}$/i
 const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 import { createTronMainnetDelegationVerifier } from './providers/tron-mainnet-delegation-verifier.mjs'
 
@@ -73,53 +74,122 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
   async function requestGrant({ ownerAddress, requestId, required }) {
     if (typeof ownerAddress !== 'string' || !ADDRESS.test(ownerAddress)
       || typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{8,96}$/.test(requestId)
-      || !required || RESOURCE_TYPES.some((type) => typeof required[type] !== 'string' || !UINT.test(required[type]) || required[type] === '0')) {
+      || !required || RESOURCE_TYPES.some((type) => typeof required[type] !== 'string'
+        || !UINT.test(required[type]) || required[type] === '0')) {
       return { success: false, network, status: 'invalid-grant-request' }
     }
+
     for (const adapter of providers) {
       if (!adapterReady(adapter)) continue
+
+      // Health and eligibility happen before submission. These checks are safe
+      // to retry against another trusted adapter because no grant was sent.
+      let eligible = false
       try {
         const health = await adapter.health()
         if (health?.reachable !== true) continue
         const eligibility = await adapter.checkEligibility({ ownerAddress, required, network })
-        if (eligibility?.eligible !== true || eligibility?.network !== 'mainnet'
-          || eligibility?.userCostSun !== '0') continue
-        const grant = await adapter.requestGrant({ ownerAddress, requestId, required, network })
-        // Re-check the provider's final grant response, not just its earlier
-        // eligibility quote. A zero-cost quote must never silently become a
-        // paid delegation when the provider actually submits the request.
-        if (grant?.accepted !== true || grant?.userCostSun !== '0'
-          || typeof grant.transactionId !== 'string'
-          || !/^[0-9a-f]{64}$/i.test(grant.transactionId)) continue
-        // Always verify through this application's TRON SolidityNode reader,
-        // never through a provider's self-reported "verified" flag.
-        const verification = await delegationVerifier.verifyDelegation({
-          ownerAddress, transactionId: grant.transactionId, required, network,
-        })
-        if (verification?.verified !== true || verification.solidified !== true
-          || verification.network !== 'mainnet'
-          || verification.ownerAddress !== ownerAddress
-          || verification.transactionId !== grant.transactionId
-          || RESOURCE_TYPES.some((type) => typeof verification[type] !== 'string'
-            || !UINT.test(verification[type]) || BigInt(verification[type]) < BigInt(required[type]))) {
-          return {
-            success: false, network, provider: adapter.id,
-            status: 'grant-not-independently-verified',
-            transactionId: grant.transactionId,
-          }
-        }
-        return {
-          success: true, network, provider: adapter.id,
-          status: 'mainnet-resource-grant-verified',
-          ownerAddress, transactionId: grant.transactionId,
-          verifiedResources: { ENERGY: verification.ENERGY, BANDWIDTH: verification.BANDWIDTH },
-          userCostSun: '0',
-          verifiedAt: new Date().toISOString(),
-        }
+        eligible = eligibility?.eligible === true
+          && eligibility?.network === 'mainnet'
+          && eligibility?.userCostSun === '0'
       } catch {
-        // Provider errors are intentionally not exposed; try the next trusted adapter.
+        continue
+      }
+      if (!eligible) continue
+
+      // A timeout can occur after a provider has broadcast. Never try a second
+      // provider or resubmit until this provider's original request is reconciled.
+      let grant
+      try {
+        grant = await adapter.requestGrant({ ownerAddress, requestId, required, network })
+      } catch {
+        return {
+          success: false, network, provider: adapter.id,
+          status: 'grant-submission-outcome-unknown',
+          retrySafe: false,
+          blockers: ['provider-request-may-have-been-submitted', 'reconcile-provider-request-before-retrying'],
+        }
+      }
+
+      // An explicit refusal is safe to move past; an accepted response is not.
+      if (grant?.accepted !== true) continue
+
+      const transactionIds = grant?.transactionIds && typeof grant.transactionIds === 'object'
+        && !Array.isArray(grant.transactionIds)
+        ? grant.transactionIds
+        : { ENERGY: grant?.transactionId, BANDWIDTH: grant?.transactionId }
+      if (grant.userCostSun !== '0' || RESOURCE_TYPES.some((type) =>
+        typeof transactionIds[type] !== 'string' || !TXID.test(transactionIds[type]))) {
+        return {
+          success: false, network, provider: adapter.id,
+          status: 'grant-accepted-response-incomplete-or-not-zero-cost',
+          retrySafe: false,
+          transactionIds,
+        }
+      }
+
+      // Providers may delegate the two resources in separate Stake 2.0
+      // transactions. Verify each exact transaction independently. Delegation
+      // contract balances are stake SUN; requested values are resource units.
+      let verifications
+      try {
+        verifications = await Promise.all(RESOURCE_TYPES.map((type) =>
+          delegationVerifier.verifyDelegation({
+            ownerAddress,
+            transactionId: transactionIds[type],
+            required: {
+              ENERGY: type === 'ENERGY' ? required.ENERGY : '0',
+              BANDWIDTH: type === 'BANDWIDTH' ? required.BANDWIDTH : '0',
+            },
+            network,
+          })))
+      } catch {
+        return {
+          success: false, network, provider: adapter.id,
+          status: 'grant-submitted-verification-unavailable',
+          retrySafe: false,
+          transactionIds,
+        }
+      }
+
+      const valid = verifications.every((verification, index) => {
+        const type = RESOURCE_TYPES[index]
+        return verification?.verified === true
+          && verification.solidified === true
+          && verification.network === 'mainnet'
+          && verification.ownerAddress === ownerAddress
+          && verification.transactionId === transactionIds[type]
+          && typeof verification[type] === 'string'
+          && UINT.test(verification[type])
+          && BigInt(verification[type]) >= BigInt(required[type])
+      })
+      if (!valid) {
+        return {
+          success: false, network, provider: adapter.id,
+          status: 'grant-not-independently-verified',
+          retrySafe: false,
+          transactionIds,
+        }
+      }
+
+      return {
+        success: true,
+        network,
+        provider: adapter.id,
+        status: 'mainnet-resource-grant-verified',
+        ownerAddress,
+        transactionId: transactionIds.ENERGY === transactionIds.BANDWIDTH
+          ? transactionIds.ENERGY : null,
+        transactionIds,
+        verifiedResources: {
+          ENERGY: verifications[0].ENERGY,
+          BANDWIDTH: verifications[1].BANDWIDTH,
+        },
+        userCostSun: '0',
+        verifiedAt: new Date().toISOString(),
       }
     }
+
     return {
       success: false, network, status: 'no-eligible-zero-cost-provider-grant',
       blockers: ['provider-unavailable-or-ineligible', 'provider-side-authorization-missing-or-rejected'],
@@ -130,14 +200,16 @@ export function createResourceClaimOrchestrator({ adapters = [], network = 'main
 }
 
 /**
- * Fail-closed deployment gate. Bandwidth must be fully covered; partial coverage
- * is not treated as zero-cost. Values are decimal base-unit strings.
+ * Fail-closed deployment gate. Both requested resource budgets must be positive
+ * and fully covered. Bandwidth must fit entirely within one available pool;
+ * partial or combined-pool coverage is not treated as zero-cost.
  */
 export function evaluateZeroBurnDeploymentGate({
   energyRequired, energyAvailable, bandwidthRequired, bandwidthAvailable, trxBurnFallbackSun,
 } = {}) {
   const values = [energyRequired, energyAvailable, bandwidthRequired, bandwidthAvailable, trxBurnFallbackSun]
-  if (values.some((value) => typeof value !== 'string' || !UINT.test(value))) {
+  if (values.some((value) => typeof value !== 'string' || !UINT.test(value))
+    || energyRequired === '0' || bandwidthRequired === '0') {
     return { ready: false, status: 'invalid-resource-preflight' }
   }
   const energyCovered = BigInt(energyAvailable) >= BigInt(energyRequired)
