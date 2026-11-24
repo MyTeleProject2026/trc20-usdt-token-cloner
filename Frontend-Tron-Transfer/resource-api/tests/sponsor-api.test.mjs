@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
-import { createSponsorResourceApi, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString, sponsorDatabaseTargetIdentityInfo } from '../sponsor-api.mjs'
+import { createSponsorResourceApi, databaseTargetIdentityMatches, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString, sponsorDatabaseTargetIdentityInfo } from '../sponsor-api.mjs'
 import { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
@@ -111,6 +111,26 @@ test('database identity fingerprint excludes passwords but changes with endpoint
   assert.notEqual(first.identityFingerprint, otherBranch.identityFingerprint)
   assert.notEqual(first.identityFingerprint, otherDatabase.identityFingerprint)
   assert.notEqual(first.identityFingerprint, otherRole.identityFingerprint)
+})
+
+test('approved direct Neon target must match the actual Sponsor runtime connection, including pooled host normalization', () => {
+  const direct = 'postgresql://app_user:secret@ep-production.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  const pooled = 'postgresql://app_user:secret@ep-production-pooler.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  const expected = sponsorDatabaseConnectionInfo({ DATABASE_URL: direct }).identityFingerprint
+
+  assert.equal(sponsorDatabaseConnectionInfo({ DATABASE_URL: pooled }).identityFingerprint, expected)
+  assert.equal(databaseTargetIdentityMatches({
+    DATABASE_URL: pooled,
+    OWNER_ADMIN_DATABASE_URL: direct,
+    OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: expected,
+  }), true)
+
+  const wrongRuntime = 'postgresql://app_user:secret@ep-other-pooler.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  assert.equal(databaseTargetIdentityMatches({
+    DATABASE_URL: wrongRuntime,
+    OWNER_ADMIN_DATABASE_URL: direct,
+    OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: expected,
+  }), false, 'an approved direct URL must not mask a different Sponsor runtime database')
 })
 
 test('production acceptance requires an exact configured database identity fingerprint', async () => {
