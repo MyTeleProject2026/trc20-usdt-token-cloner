@@ -35,7 +35,7 @@ async function signAndSubmitLocally(engine, localWallet, input) {
   })
 }
 
-function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverrides = {} } = {}) {
+function fixture({ bandwidth = 600, stakedBandwidth = 0, balance = 10_000_000n, onBroadcast, envOverrides = {} } = {}) {
   let signedCount = 0
   let broadcastCount = 0
   let durableTxId = false
@@ -58,7 +58,7 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverr
     transactionBuilder: { freezeBalanceV2: async () => transaction },
     trx: {
       getBalance: async () => balance,
-      getAccountResources: async () => ({ freeNetLimit: bandwidth, freeNetUsed: 0, NetLimit: 0, NetUsed: 0 }),
+      getAccountResources: async () => ({ freeNetLimit: bandwidth, freeNetUsed: 0, NetLimit: stakedBandwidth, NetUsed: 0 }),
       getChainParameters: async () => [{ key: 'getTransactionFee', value: 1000 }],
       sign: async tx => { signedCount += 1; return { ...tx, signature: ['b'.repeat(130)] } },
       getSignWeight: async () => ({ result: {}, current_weight: 1, permission: { id: 0, threshold: 1, keys: [{ address: SPONSOR, weight: 1 }] }, approved_list: [SPONSOR] }),
@@ -188,6 +188,19 @@ test('zero-fee policy blocks transactions whose own Bandwidth pool cannot cover 
   assert.equal(result.status, 'bandwidth-shortfall-exceeds-authorized-fee-cap')
   assert.equal(f.counts().signedCount, 0)
   assert.equal(f.counts().broadcastCount, 0)
+})
+
+test('preflight does not pool free and staked Bandwidth quotas for one transaction', async () => {
+  // The 110-byte transaction cannot fit in either 60-byte or 50-byte quota.
+  // It must not be treated as fitting by adding the two independent quotas.
+  const f = fixture({ bandwidth: 60, stakedBandwidth: 50 })
+  const result = await f.engine.execute({
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
+    onSigned: async () => assert.fail('single-quota Bandwidth shortfall must block signing'),
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'bandwidth-shortfall-exceeds-authorized-fee-cap')
+  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
 })
 
 test('Stake 2.0 checks the protected liquid reserve before signing', async () => {
