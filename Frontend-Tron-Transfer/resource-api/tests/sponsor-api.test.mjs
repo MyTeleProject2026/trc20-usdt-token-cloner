@@ -748,7 +748,7 @@ test('Sponsor Resource API prefers the Neon pooled URL and retains direct URL as
 })
 
 
-test('signed-not-broadcast operation is reconciled against solidified Mainnet state without replay', async () => {
+test('signed-not-broadcast operation recovers after API restart against solidified Mainnet state without replay', async () => {
   const key = 'sponsor-signed-recovery-0123456789'
   const keyHash = (await import('node:crypto')).createHash('sha256').update(key).digest('hex')
   const row = {
@@ -783,9 +783,13 @@ test('signed-not-broadcast operation is reconciled against solidified Mainnet st
   }
   const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
   const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
-  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
-  const token = await authenticated(api)
-  const result = await call(api, 'GET', '/api/sponsor/operations/' + key, undefined, token)
+  const firstProcess = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
+  const token = await authenticated(firstProcess.api)
+  // Simulate a Render process restart: create a fresh API instance with empty
+  // in-memory challenge/intent maps while retaining only the durable DB row
+  // and the same session-signing secret.
+  const restartedProcess = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
+  const result = await call(restartedProcess.api, 'GET', '/api/sponsor/operations/' + key, undefined, token)
   assert.equal(result.status, 200)
   assert.equal(result.payload.success, true)
   assert.equal(result.payload.operation.status, 'confirmed')
