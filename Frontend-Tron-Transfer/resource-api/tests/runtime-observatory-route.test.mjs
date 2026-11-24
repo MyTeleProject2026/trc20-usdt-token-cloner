@@ -22,7 +22,7 @@ test('confirmed Mainnet transaction feed is owner restricted and requests confir
   let requestBody
   const tx = { txID: 'a'.repeat(64), blockNumber: 12345, ret: [{ contractRet: 'SUCCESS' }] }
   const server = createServer({
-    env: {},
+    env: { TRON_OWNER_ADDRESS: owner },
     fetchImpl: async (url, options = {}) => {
       assert.match(url, /^https:\/\/api\.trongrid\.io\/v1\/accounts\/TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp\/transactions\?/)
       assert.equal(options.method, 'GET')
