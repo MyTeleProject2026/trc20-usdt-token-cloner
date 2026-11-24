@@ -395,7 +395,7 @@ export function createSponsorResourceApi({
           && databaseTargetIdentityMatches(env)
         const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
         const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
-        const adminRequired = ownerAdminSessionRequired()
+        const adminRequired = false // Sponsor transactions require only the independently authenticated Sponsor session.
         const adminConfigured = ownerAdminAuthConfigured
         const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
         let databaseReady = false
@@ -442,7 +442,7 @@ export function createSponsorResourceApi({
           { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
           { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
           { id: 'writes-remain-paused-until-release', state: sponsorWritesPaused ? 'passed' : 'blocked' },
-          { id: 'owner-admin-second-factor-configured', state: adminConfigured ? 'passed' : 'blocked' },
+          { id: 'owner-session-for-ledger-bootstrap', state: adminConfigured ? 'passed' : 'blocked' },
           { id: 'session-authentication-configured', state: sessionSecret(env) ? 'passed' : 'blocked' },
           { id: 'sponsor-local-transaction-signer', state: localSignerReady ? 'passed' : 'blocked' },
           { id: 'mainnet-execution-explicitly-disabled', state: readiness.enabled !== true ? 'passed' : 'review-required' },
@@ -475,11 +475,12 @@ export function createSponsorResourceApi({
           engineConfigured: readiness.configured === true,
           engineEnabled: readiness.enabled === true,
           localSignerReady,
-          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && adminConfigured && ledgerDurabilityVerified,
+          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && ledgerDurabilityVerified,
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
           ownerAdminSessionRequired: adminRequired,
+          ownerAdminSessionRequiredForLedgerBootstrap: ownerAdminAuthConfigured,
           ownerAdminSessionConfigured: adminConfigured,
           checkedAt: new Date(now()).toISOString(),
         }
@@ -630,7 +631,6 @@ export function createSponsorResourceApi({
     }
 
     if (req.method === 'POST' && path === '/api/sponsor/intent') {
-      if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!rateLimit(req, 'intent', 10)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
       let body
@@ -651,7 +651,6 @@ export function createSponsorResourceApi({
 
 
     if (req.method === 'POST' && path === '/api/sponsor/operations/prepare') {
-      if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!localSponsorSigningImplemented() || typeof engine.prepare !== 'function') return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented' }, origin)
@@ -720,7 +719,6 @@ export function createSponsorResourceApi({
 
 
     if (req.method === 'POST' && path === '/api/sponsor/operations/cancel') {
-      if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!rateLimit(req, 'cancel', 10)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
@@ -747,7 +745,6 @@ export function createSponsorResourceApi({
     }
 
     if (req.method === 'POST' && path === '/api/sponsor/operations/submit') {
-      if (!(await verifyAdminAuthorization(req))) return reply(res, 403, { success: false, error: 'sponsor-admin-authorization-required' }, origin)
       if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
       if (!sponsorLedgerDurabilityVerified(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-durability-not-verified' }, origin)
       if (!localSponsorSigningImplemented() || typeof engine.submitSigned !== 'function') return reply(res, 423, { success: false, error: 'sponsor-local-signer-not-implemented' }, origin)
