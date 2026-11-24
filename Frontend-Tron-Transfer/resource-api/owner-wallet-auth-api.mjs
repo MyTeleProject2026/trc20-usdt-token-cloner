@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual, randomBytes } from 'node:crypto'
+import { isIP } from 'node:net'
 import pg from 'pg'
 import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
@@ -50,6 +51,28 @@ function clearSessionCookies(res) {
   ])
 }
 
+function createLoginRateLimiter({ limit = 10, windowMs = 15 * 60_000, maxBuckets = 5000 } = {}) {
+  const buckets = new Map()
+  return req => {
+    const forwarded = typeof req.headers?.['cf-connecting-ip'] === 'string' ? req.headers['cf-connecting-ip'].trim() : ''
+    const remote = typeof req.socket?.remoteAddress === 'string' ? req.socket.remoteAddress : ''
+    const ip = isIP(forwarded) ? forwarded : (isIP(remote) ? remote : 'unknown')
+    const now = Date.now()
+    let bucket = buckets.get(ip)
+    if (!bucket || now - bucket.startedAt >= windowMs) {
+      if (buckets.size >= maxBuckets) {
+        for (const [key, value] of buckets) if (now - value.startedAt >= windowMs) buckets.delete(key)
+        if (buckets.size >= maxBuckets && !buckets.has(ip)) return false
+      }
+      bucket = { startedAt: now, count: 0 }
+      buckets.set(ip, bucket)
+    }
+    if (bucket.count >= limit) return false
+    bucket.count += 1
+    return true
+  }
+}
+
 export function createOwnerWalletAuthApi({ env = process.env, database, send, allowedOrigins = ['https://tron-transfer.onrender.com', 'http://localhost:5173', 'http://127.0.0.1:5173'], identityReport }) {
   let pool = database || null
   function getPool() {
@@ -61,6 +84,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
     return pool
   }
   const identity = () => identityReport || createManagedWalletIdentityReport({ env })
+  const allowLoginAttempt = createLoginRateLimiter()
   async function audit(db, type, outcome, metadata = {}) {
     await db.query('INSERT INTO public.tron_transfer_wallet_auth_audit (wallet_role,event_type,outcome,metadata) VALUES ($1,$2,$3,$4::jsonb)', ['owner', type, outcome, JSON.stringify(metadata)])
   }
@@ -148,6 +172,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           send(res, 201, { success: true, enrolled: true, role: 'owner', address: report.owner.address, session }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/owner/login' && req.method === 'POST') {
+          if (!allowLoginAttempt(req)) { send(res, 429, { success: false, error: 'LOGIN_RATE_LIMITED', retryAfterSeconds: 900 }, origin); return true }
           const input = await body(req)
           const result = await db.query("SELECT * FROM public.tron_transfer_wallet_accounts WHERE wallet_role='owner' AND enabled=true")
           const account = result.rows[0]
