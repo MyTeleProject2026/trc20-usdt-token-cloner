@@ -16,6 +16,7 @@ export default function PendingOwnerAcceptance() {
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
   const [notice,setNotice]=useState('')
+  const [signerUnlocked,setSignerUnlocked]=useState(false)
   const pendingKeyInput=useRef(null)
   const pendingSigner=useRef(null)
   async function refreshState(){const result=await client.state();setChain(result);return result}
@@ -34,9 +35,23 @@ export default function PendingOwnerAcceptance() {
       const authenticated=await client.session()
       pendingSigner.current=signer
       setSession(authenticated)
+      setSignerUnlocked(true)
       setNotice('Pending-owner wallet verified locally. The private key remains in browser memory only and is never sent to the Resource API.')
       if(pendingKeyInput.current)pendingKeyInput.current.value=''
     }catch(e){pendingSigner.current=null;setError(String(e.message||e))}finally{setBusy(false)}
+  }
+  async function unlockPendingOwnerSigner(){
+    setBusy(true);setError('');setNotice('')
+    try{
+      if(!session?.address)throw new Error('Verify the pending-owner session before unlocking its local signer.')
+      const current=await refreshState()
+      const account=await deriveOwnerAccount({mode:'private-key',value:pendingKeyInput.current?.value||''})
+      if(account.address!==session.address||account.address!==current.pendingOwner)throw new Error('The imported wallet does not match both the authenticated session and current on-chain Pending Owner.')
+      pendingSigner.current=createOwnerTronWeb(account.privateKey)
+      setSignerUnlocked(true)
+      if(pendingKeyInput.current)pendingKeyInput.current.value=''
+      setNotice('The pending-owner local signer is unlocked in browser memory only.')
+    }catch(e){pendingSigner.current=null;setSignerUnlocked(false);setError(String(e.message||e))}finally{setBusy(false)}
   }
   async function acceptOwnership(){
     setBusy(true);setError('');setNotice('')
@@ -60,7 +75,7 @@ export default function PendingOwnerAcceptance() {
     setBusy(true);setError('')
     try{const result=await client.status(operation.operation_id||operation.operationId);setOperation(result.operation);setNotice(result.recovery?.solidified?'Ownership acceptance is solidified and the on-chain Owner now matches this wallet.':result.message||'The original transaction is still being reconciled.')}catch(e){setError(String(e.message||e))}finally{setBusy(false)}
   }
-  async function logout(){setBusy(true);try{await client.logout()}catch{}finally{pendingSigner.current=null;if(pendingKeyInput.current)pendingKeyInput.current.value='';setSession(null);setOperation(null);setBusy(false)}}
+  async function logout(){setBusy(true);try{await client.logout()}catch{}finally{pendingSigner.current=null;setSignerUnlocked(false);if(pendingKeyInput.current)pendingKeyInput.current.value='';setSession(null);setOperation(null);setBusy(false)}}
   const pending=Boolean(chain?.pendingOwnerAvailable)
   return <section className="pending-owner-page">
     <header><span className="pending-owner-kicker">TRON MAINNET · TWO-STEP OWNERSHIP</span><h2>Accept TRӾ ownership</h2><p>This is a separate pending-owner workflow. It never uses the current Owner password session or Owner private key.</p></header>
@@ -73,7 +88,7 @@ export default function PendingOwnerAcceptance() {
     </article>
     <article className="pending-owner-card">
       <div className="pending-owner-card-title"><Wallet/><div><h3>Verify the proposed wallet</h3><p>Import only the existing wallet whose address is shown as Pending Owner above.</p></div></div>
-      {session?<><p className="pending-owner-success"><CheckCircle2 size={16}/> Authenticated: {session.address}</p><p className="pending-owner-muted">Session expires automatically and can only authorize this exact contract's acceptance. The local signer is held in memory only.</p><button type="button" className="pending-owner-secondary" onClick={logout} disabled={busy}>End pending-owner session and clear signer</button></>:<><label>Proposed Pending Owner private key<input ref={pendingKeyInput} type="password" autoComplete="off" spellCheck="false" placeholder="Enter the existing wallet private key" /></label><button type="button" className="pending-owner-primary" onClick={connectPendingOwner} disabled={busy||!pending}><KeyRound size={16}/> Import locally and verify wallet</button><p className="pending-owner-muted">The key is used only in this browser session to sign the verification message and acceptance transaction. It is not uploaded, saved to local storage, or sent to an external wallet provider.</p></>}
+      {session&&<><p className="pending-owner-success"><CheckCircle2 size={16}/> Authenticated: {session.address}</p><p className="pending-owner-muted">Session expires automatically and can only authorize this exact contract's acceptance.</p></>}{!signerUnlocked&&<><label>Proposed Pending Owner private key<input ref={pendingKeyInput} type="password" autoComplete="off" spellCheck="false" placeholder="Enter the existing wallet private key" /></label><button type="button" className="pending-owner-primary" onClick={session?unlockPendingOwnerSigner:connectPendingOwner} disabled={busy||!pending}><KeyRound size={16}/> {session?'Unlock local signer':'Import locally and verify wallet'}</button><p className="pending-owner-muted">The key is used only in this browser session to sign the verification message and acceptance transaction. It is not uploaded, saved to local storage, or sent to an external wallet provider.</p></>}{session&&signerUnlocked&&<><p className="pending-owner-success"><CheckCircle2 size={16}/> Local signer unlocked in memory.</p><button type="button" className="pending-owner-secondary" onClick={logout} disabled={busy}>End pending-owner session and clear signer</button></>}
     </article>
     {session&&<article className="pending-owner-card">
       <div className="pending-owner-card-title"><CheckCircle2/><div><h3>Accept ownership</h3><p>Review the exact action, then sign locally with the verified pending-owner wallet.</p></div></div>
