@@ -272,7 +272,7 @@ function send(res, status, payload, origin) {
   res.end(JSON.stringify(payload))
 }
 
-export function createServer({ allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorDatabase } = {}) {
+export function createServer({ env = process.env, allowedAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || '', fetchImpl = fetch, sponsorEngine, sponsorDatabase } = {}) {
   const runtimeObservatory = createRuntimeObservatory()
   const ownerWalletAuthApi = createOwnerWalletAuthApi({ env, send })
   const ownerOperationApi = createOwnerOperationApi({
@@ -383,8 +383,8 @@ export function createServer({ allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GR
       return send(res, 200, runtimeObservatory.snapshot(), origin)
     }
     if (req.method === 'GET' && url.pathname === '/api/observatory/transactions') {
-      const address = url.searchParams.get('address') || 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-      if (address !== 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp' || !isMainnetAddress(address)) {
+      const address = url.searchParams.get('address') || allowedAddress
+      if (!allowedAddress || address !== allowedAddress || !isMainnetAddress(address)) {
         return send(res, 403, { success: false, error: 'wallet-not-allowed' }, origin)
       }
       const ip = observatoryRateLimitIp(req)

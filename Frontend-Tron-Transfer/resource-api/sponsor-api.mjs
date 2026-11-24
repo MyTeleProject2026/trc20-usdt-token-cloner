@@ -331,7 +331,7 @@ export function databaseTargetIdentityMatches(env = process.env) {
 
 export function createSponsorResourceApi({
   env = process.env,
-  allowedAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+  allowedAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || '',
   fetchImpl = globalThis.fetch,
   engine = createSponsorTransactionEngine({ env, fetchImpl }),
   getDatabase = () => getPool(env),
