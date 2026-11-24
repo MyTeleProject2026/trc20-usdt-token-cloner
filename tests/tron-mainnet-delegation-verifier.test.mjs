@@ -161,7 +161,13 @@ test('rejects malformed transaction IDs without making Mainnet requests', async 
 })
 
 test('rejects a delegation transaction that omits a requested resource type', async () => {
-  const { fetchImpl } = createFetch({ resource: 'ENERGY' })
+  const { fetchImpl } = createFetch({ contracts: [{
+    type: 'DelegateResourceContract',
+    parameter: { value: {
+      owner_address: addressHex(delegator), receiver_address: addressHex(owner),
+      resource: 'ENERGY', balance: '50000000',
+    } },
+  }] })
   const verifier = createTronMainnetDelegationVerifier({ fetchImpl })
   const result = await verifier.verifyDelegation({
     ownerAddress: owner, transactionId: txid,
