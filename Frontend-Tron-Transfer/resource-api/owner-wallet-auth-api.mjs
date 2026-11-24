@@ -106,7 +106,16 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
       try {
         if (url.pathname === '/api/wallet-auth/owner/status' && req.method === 'GET') {
           const result = await db.query("SELECT wallet_address FROM public.tron_transfer_wallet_accounts WHERE wallet_role='owner' AND enabled=true")
-          send(res, 200, { success: true, enrolled: Boolean(result.rows[0]), network: 'TRON Mainnet' }, origin); return true
+          const enrolledAddress = String(result.rows[0]?.wallet_address || '')
+          const configuredOwnerAddress = String(identity()?.owner?.address || env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || '')
+          const identityMatches = Boolean(configuredOwnerAddress && (!enrolledAddress || enrolledAddress === configuredOwnerAddress))
+          send(res, 200, {
+            success: true,
+            enrolled: Boolean(enrolledAddress),
+            ownerAddress: configuredOwnerAddress || null,
+            identityMatches,
+            network: 'TRON Mainnet',
+          }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/owner/enroll' && req.method === 'POST') {
           const bootstrap = String(env.TRON_OWNER_ENROLLMENT_TOKEN || '')

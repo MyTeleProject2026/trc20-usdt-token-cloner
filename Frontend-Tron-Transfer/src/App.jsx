@@ -58,7 +58,7 @@ export default function App() {
   useEffect(() => {
     let active = true
     const restoreOwnerSession = () => ownerAuthClient.session().then(session => {
-      if (active && session.address === 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp') {
+      if (active && session?.success && session.role === 'owner' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(String(session.address || ''))) {
         setOwnerAccessOpen(true)
       }
     }).catch(() => {})

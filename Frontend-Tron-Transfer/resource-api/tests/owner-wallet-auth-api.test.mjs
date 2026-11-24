@@ -43,6 +43,36 @@ function response() {
 }
 const identityReport = { owner: { ready: true, address }, sponsor: { ready: true, address: 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR' }, identitiesDistinct: true }
 
+test('Owner status returns the configured public Mainnet address before wallet enrollment', async () => {
+  const database = fakeDatabase()
+  const replies = []
+  const api = createOwnerWalletAuthApi({
+    env: { TRON_OWNER_ADDRESS: address },
+    database,
+    send: (_res, status, payload) => replies.push({ status, payload }),
+  })
+  await api.handle(request('GET'), response(), new URL('https://api.test/api/wallet-auth/owner/status'), null)
+  assert.equal(replies[0].status, 200)
+  assert.equal(replies[0].payload.ownerAddress, address)
+  assert.equal(replies[0].payload.enrolled, false)
+  assert.equal(replies[0].payload.identityMatches, true)
+})
+
+test('Owner status fails closed when the enrolled wallet differs from the configured Owner address', async () => {
+  const database = fakeDatabase()
+  database.state.account = { wallet_address: 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR' }
+  const replies = []
+  const api = createOwnerWalletAuthApi({
+    env: { TRON_OWNER_ADDRESS: address },
+    database,
+    send: (_res, status, payload) => replies.push({ status, payload }),
+  })
+  await api.handle(request('GET'), response(), new URL('https://api.test/api/wallet-auth/owner/status'), null)
+  assert.equal(replies[0].payload.enrolled, true)
+  assert.equal(replies[0].payload.ownerAddress, address)
+  assert.equal(replies[0].payload.identityMatches, false)
+})
+
 test('Owner auth exposes an internal cookie-session verifier for future contract routes', async () => {
   const api = createOwnerWalletAuthApi({ env: {}, database: fakeDatabase(), send() {} })
   assert.equal(typeof api.authenticateRequest, 'function')

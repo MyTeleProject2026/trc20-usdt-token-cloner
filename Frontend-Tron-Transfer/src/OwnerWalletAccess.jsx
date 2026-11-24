@@ -7,12 +7,12 @@ import {
 } from './owner-wallet-vault.mjs'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 
-const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const modes = [['private-key', 'Private key'], ['keystore', 'V3 Keystore JSON'], ['mnemonic', 'Mnemonic phrase']]
 const ownerAuth = createManagedWalletAuthClient({ role: 'owner' })
 
 export default function OwnerWalletAccess({ onUnlock, onClose }) {
   const [enrolled, setEnrolled] = useState(null)
+  const [expectedOwnerAddress, setExpectedOwnerAddress] = useState('')
   const [authenticated, setAuthenticated] = useState(false)
   const [authPassword, setAuthPassword] = useState('')
   const [enrollmentToken, setEnrollmentToken] = useState('')
@@ -34,18 +34,29 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
     let active = true
     Promise.all([ownerAuth.status(), ownerAuth.session().catch(() => null)]).then(([status, session]) => {
       if (!active) return
+      const configuredOwnerAddress = String(status.ownerAddress || '')
+      if (!/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(configuredOwnerAddress) || status.identityMatches === false) {
+        setExpectedOwnerAddress(configuredOwnerAddress)
+        setEnrolled(null)
+        setError(status.identityMatches === false
+          ? 'OWNER_ENROLLED_ADDRESS_MISMATCH'
+          : 'OWNER_MAINNET_ADDRESS_NOT_CONFIGURED')
+        setMessage('The Resource API has not verified a configured Owner Mainnet address. Owner authentication and signing are disabled.')
+        return
+      }
+      setExpectedOwnerAddress(configuredOwnerAddress)
       setEnrolled(Boolean(status.enrolled))
-      if (session?.success && session.address === EXPECTED_OWNER_ADDRESS) {
+      if (session?.success && session.role === 'owner' && session.address === configuredOwnerAddress) {
         setAuthenticated(true)
         setMessage('Owner application session is active. Unlock the encrypted local Owner Wallet to enable local signing.')
       } else {
         setMessage(status.enrolled
-          ? 'Sign in to the Owner application account, then unlock the independent local Owner Wallet.'
-          : 'First-time setup requires the one-time Owner enrollment token, then import the existing Owner Wallet.')
+          ? 'Sign in to the configured Owner application account, then unlock the independent local Owner Wallet.'
+          : 'First-time setup requires the one-time Owner enrollment token, then import the configured Owner Wallet.')
       }
     }).catch(cause => {
       if (!active) return
-      setEnrolled(false)
+      setEnrolled(null)
       setError(cause?.message || 'OWNER_AUTH_STATUS_UNAVAILABLE')
       setMessage('The Resource API Owner account could not be reached.')
     })
@@ -67,7 +78,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         setAuthPassword('')
         return
       }
-      if (result.address !== EXPECTED_OWNER_ADDRESS) {
+      if (!expectedOwnerAddress || result.address !== expectedOwnerAddress) {
         await ownerAuth.logout().catch(() => {})
         throw new Error('The authenticated Owner account does not match the configured TRON Mainnet Owner address.')
       }
@@ -83,8 +94,8 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
   async function activate(account) {
     const tronWeb = createOwnerTronWeb(account.privateKey)
     const derived = tronWeb.address.fromPrivateKey(account.privateKey)
-    if (derived !== EXPECTED_OWNER_ADDRESS || account.address !== EXPECTED_OWNER_ADDRESS) {
-      throw new Error('Imported address does not match the configured TRON TRANSFER Owner Wallet. Expected ' + EXPECTED_OWNER_ADDRESS + '.')
+    if (!expectedOwnerAddress || derived !== expectedOwnerAddress || account.address !== expectedOwnerAddress) {
+      throw new Error('Imported address does not match the configured TRON TRANSFER Owner Wallet. Expected ' + (expectedOwnerAddress || 'an unconfigured address') + '.')
     }
     if (new URL(String(tronWeb.fullNode?.host || '')).hostname !== 'api.trongrid.io') {
       throw new Error('Owner signer is not connected to TRON Mainnet.')
@@ -100,7 +111,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
     event.preventDefault(); setBusy(true); setError('')
     try {
       const account = await deriveOwnerAccount({ mode, value: credential, secretPassword: keystorePassword })
-      if (account.address !== EXPECTED_OWNER_ADDRESS) throw new Error('Imported address does not match the configured Owner Wallet. Expected ' + EXPECTED_OWNER_ADDRESS + '.')
+      if (!expectedOwnerAddress || account.address !== expectedOwnerAddress) throw new Error('Imported address does not match the configured Owner Wallet. Expected ' + (expectedOwnerAddress || 'an unconfigured address') + '.')
       await saveOwnerWalletVault(account, vaultPassword)
       setSaved(true); setCredential(''); setKeystorePassword(''); setVaultPassword('')
       await activate(account)
@@ -151,7 +162,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         {saved && <button type="button" className="owner-vault-secondary" onClick={()=>{setReplace(false);setCredential('');setVaultPassword('')}}>Cancel replacement</button>}
       </form>}
       {error && <p role="alert" className="owner-vault-error">{error}</p>}
-      <p className="owner-vault-footnote"><KeyRound size={14}/> Expected Owner: {EXPECTED_OWNER_ADDRESS}. Local signing is followed by backend signature/permission verification, durable persistence and Mainnet receipt reconciliation. Every write remains subject to the configured execution gates.</p>
+      <p className="owner-vault-footnote"><KeyRound size={14}/> Configured Owner: {expectedOwnerAddress || 'not configured'}. Local signing is followed by backend signature/permission verification, durable persistence and Mainnet receipt reconciliation. Every write remains subject to the configured execution gates.</p>
     </section>
   </div>
 }
