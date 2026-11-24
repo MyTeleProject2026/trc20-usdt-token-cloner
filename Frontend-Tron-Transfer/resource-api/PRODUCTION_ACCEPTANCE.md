@@ -100,3 +100,24 @@ The restore drill contains the expected Owner Admin tables, indexes and Sponsor 
 A Neon manual snapshot could not be created because the project had reached its snapshot quota. No existing snapshot or branch was deleted to make room. The fresh protected-by-branch-lineage clone remains available as the pre-bootstrap recovery point; Neon protection could not be enabled because the plan's protected-branch quota is full.
 
 No production table was altered, no migration was applied, and no Sponsor write gate was changed during this drill.
+
+## First Owner and Sponsor enrollment — one-time bootstrap secrets
+
+The managed wallet-auth routes use two independent, one-time enrollment secrets. Configure both on the **existing Render Resource API Web Service only**; never add them to frontend build variables, source files, GitHub Actions output, or browser storage.
+
+- `TRON_OWNER_ENROLLMENT_TOKEN` authorizes the first Owner enrollment at `POST /api/wallet-auth/owner/enroll`, sent in the `x-owner-enrollment-token` request header.
+- `TRON_SPONSOR_ENROLLMENT_TOKEN` authorizes the first Sponsor enrollment at `POST /api/wallet-auth/sponsor/enroll`, sent in the `x-sponsor-enrollment-token` request header.
+
+Each value must be an independently generated random secret of at least 32 bytes. Generate each separately on a trusted local machine (do not reuse one value for both roles):
+
+```sh
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
+```
+
+The command emits a 43-character base64url token. Run it twice, once for each variable. Paste each generated value directly into the matching Render environment variable field and save/redeploy the existing Resource API. Do not paste either value into ChatGPT, GitHub, frontend configuration, or logs. If a token is exposed, replace it before enrollment.
+
+Before enrollment, verify that the existing Resource API has the intended Mainnet Owner and Sponsor addresses configured and that they are valid and distinct. The Owner enrollment route refuses enrollment unless both identities are ready and distinct. The enrollment request also requires a new application password meeting the current minimum 12-character policy. This password is separate from the local wallet-vault unlock password; never send either password to ChatGPT.
+
+Check `GET /api/wallet-auth/owner/status` and `GET /api/wallet-auth/sponsor/status` before enrolling. Each role can be enrolled only once; a repeat returns HTTP 409. After a successful first enrollment, remove the corresponding enrollment token from the Render environment and redeploy the Resource API. Keep recovery procedures available before removing access to the only bootstrap mechanism.
+
+The Sponsor ledger bootstrap is a separate operation from Sponsor account enrollment. It requires an authenticated Owner Admin session, Owner CSRF proof, the explicit confirmation string `INITIALIZE_SPONSOR_LEDGER_SCHEMA`, and a matching approved database identity. It creates the Sponsor operations schema but leaves Sponsor writes paused. Do not enable transaction execution as part of enrollment or schema bootstrap.
