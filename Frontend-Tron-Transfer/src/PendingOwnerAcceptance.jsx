@@ -38,7 +38,7 @@ export default function PendingOwnerAcceptance() {
       setSignerUnlocked(true)
       setNotice('Pending-owner wallet verified locally. The private key remains in browser memory only and is never sent to the Resource API.')
       if(pendingKeyInput.current)pendingKeyInput.current.value=''
-    }catch(e){pendingSigner.current=null;setError(String(e.message||e))}finally{setBusy(false)}
+    }catch(e){pendingSigner.current=null;setSignerUnlocked(false);setError(String(e.message||e))}finally{if(pendingKeyInput.current)pendingKeyInput.current.value='';setBusy(false)}
   }
   async function unlockPendingOwnerSigner(){
     setBusy(true);setError('');setNotice('')
@@ -51,7 +51,7 @@ export default function PendingOwnerAcceptance() {
       setSignerUnlocked(true)
       if(pendingKeyInput.current)pendingKeyInput.current.value=''
       setNotice('The pending-owner local signer is unlocked in browser memory only.')
-    }catch(e){pendingSigner.current=null;setSignerUnlocked(false);setError(String(e.message||e))}finally{setBusy(false)}
+    }catch(e){pendingSigner.current=null;setSignerUnlocked(false);setError(String(e.message||e))}finally{if(pendingKeyInput.current)pendingKeyInput.current.value='';setBusy(false)}
   }
   async function acceptOwnership(){
     setBusy(true);setError('');setNotice('')
