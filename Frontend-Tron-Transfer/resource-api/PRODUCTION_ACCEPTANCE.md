@@ -77,3 +77,26 @@ The isolated restore rehearsal was performed from the existing Neon snapshot on 
 Production's six migration-ledger checksum values are legacy values from the earlier migration source. They do not equal the current file hashes, even though the catalog fingerprint matches. The migration runner now recognizes only those six exact legacy values and updates them to the current file hashes only after the complete schema fingerprint matches. An unknown checksum or schema drift aborts and rolls back. The restored branch ledger was updated to the current file hashes for this rehearsal; production's ledger was not directly modified.
 
 The Sponsor operations table is intentionally excluded from this Owner Admin fingerprint because it is a separate guarded Sponsor bootstrap. It exists on the restored snapshot branch but remains absent on live production until the authenticated bootstrap endpoint is run after deployment and Owner enrollment.
+
+## 2026-11-24 production backup and restore drill
+
+A fresh Neon branch clone was created from the live production branch immediately before the pending Sponsor-ledger bootstrap:
+
+- Production source: `br-proud-mud-bexgns9g` (`production`)
+- Pre-bootstrap backup clone: `br-damp-glade-bed0ds7s` (`owner-admin-pre-sponsor-bootstrap-backup-2026-11-24`)
+- Restore drill clone: `br-floral-truth-beqdyv9s` (`owner-admin-restore-drill-2026-11-24`), created from the backup clone.
+- All three branches reached Neon state `ready`.
+
+The migration runner's exact `OWNER_ADMIN_SCHEMA_FINGERPRINT_SQL` was executed unchanged against all three branches. All three returned:
+
+`0eb0424ecbab1e18a0ab5db74ea2bfe0251956faba02b3cbcfc3e0146ce804df`
+
+The six-row Owner Admin migration ledger was also compared across production, backup and restore drill. All six version/checksum pairs match exactly across the three branches. The production legacy checksums are intentionally retained until the guarded migration runner performs its in-transaction reconciliation after validating the expected schema fingerprint.
+
+The restore drill contains the expected Owner Admin tables, indexes and Sponsor control row. Owner accounts, sessions, Owner operations, deployments and pending-owner acceptances are all zero on the production, backup and restore branches; Sponsor writes remain paused.
+
+**Remaining production database blocker:** `public.tron_transfer_sponsor_operations` is still absent on production, the backup clone and the restore drill. It exists on the older 2026-11-23 restore rehearsal branch only. The fresh backup/restore exercise proves the current production schema and migration ledger can be cloned and restored; it does not bootstrap Sponsor operations or authorize writes.
+
+A Neon manual snapshot could not be created because the project had reached its snapshot quota. No existing snapshot or branch was deleted to make room. The fresh protected-by-branch-lineage clone remains available as the pre-bootstrap recovery point; Neon protection could not be enabled because the plan's protected-branch quota is full.
+
+No production table was altered, no migration was applied, and no Sponsor write gate was changed during this drill.
