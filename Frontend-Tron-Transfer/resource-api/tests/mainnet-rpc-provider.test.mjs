@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createMainnetRpcProvider, createMainnetTronWeb, postMainnetRead } from '../mainnet-rpc-provider.mjs'
 import { providers } from 'tronweb'
+import { readFile } from 'node:fs/promises'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const env = {
@@ -107,4 +108,23 @@ test('standalone solidified reads use the same Tatum-first fallback policy', asy
   })
   assert.equal(result.blockNumber, 1)
   assert.equal(calls[0], 'https://tron-mainnet.gateway.tatum.io/walletsolidity/gettransactioninfobyid')
+})
+
+
+test('Owner, TRӾ deployment and Sponsor engines share the Tatum-first read provider and TronGrid-only broadcast adapter', async () => {
+  const [owner, deployment, sponsor] = await Promise.all([
+    readFile(new URL('../owner-operation-api.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../trax-deployment-api.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../sponsor-engine.mjs', import.meta.url), 'utf8'),
+  ])
+  for (const source of [owner, deployment, sponsor]) {
+    assert.match(source, /createMainnetTronWeb/)
+    assert.match(source, /sendRawTransaction/)
+  }
+  assert.match(owner, /createMainnetTronWeb\(\{ env, fetchImpl: pacedFetch \}\)/)
+  assert.match(deployment, /createMainnetTronWeb\(\{ env, fetchImpl \}\)/)
+  assert.match(sponsor, /createMainnetTronWeb\(\{ env, fetchImpl \}\)/)
+  assert.match(owner, /broadcastTransaction = \(tronWeb, signed\) => tronWeb\.trx\.sendRawTransaction\(signed\)/)
+  assert.match(deployment, /broadcastDeployment = \(client, signed\) => client\.trx\.sendRawTransaction\(signed\)/)
+  assert.match(sponsor, /tronWeb\.trx\.sendRawTransaction\(signedTransaction\)/)
 })
