@@ -272,7 +272,7 @@ function send(res, status, payload, origin) {
   res.end(JSON.stringify(payload))
 }
 
-export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorDatabase } = {}) {
+export function createServer({ allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorDatabase } = {}) {
   const runtimeObservatory = createRuntimeObservatory()
   const ownerWalletAuthApi = createOwnerWalletAuthApi({ env, send })
   const ownerOperationApi = createOwnerOperationApi({
