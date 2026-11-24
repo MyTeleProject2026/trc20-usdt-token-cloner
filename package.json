@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node server/index.mjs",
     "build": "node scripts/compile-contract.mjs && vite build",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test tests/base-units.test.mjs tests/chain-token-inspection.test.mjs tests/cors-policy.test.mjs tests/github-actions-policy.test.mjs tests/protobuf-runtime-security.test.mjs tests/security-headers.test.mjs tests/token-authenticity.test.mjs tests/trax-mainnet-contracts.test.mjs tests/tron-address.test.mjs tests/tron-transfer-integration-source.test.mjs tests/wallet-vault-crypto.test.mjs",
     "start": "node server/index.mjs",
     "worker:receiver-history": "node server/receiver-history-worker.mjs"
   },

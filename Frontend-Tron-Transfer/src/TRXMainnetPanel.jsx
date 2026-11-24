@@ -10,7 +10,6 @@ import TRAXOwnershipControls from './TRAXOwnershipControls.jsx'
 import TRAXCreditHistory from './TRAXCreditHistory.jsx'
 import './trax-mainnet.css'
 
-const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const DEFAULT_RECIPIENT = ''
 const DEFAULT_FEE_CAP = '150'
 const RESOURCE_API_BASE = String(import.meta.env?.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
@@ -84,9 +83,10 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const panelWallet = useMemo(() => wallet?.managedSession ? { ...wallet, readOnlyTronWeb } : wallet, [wallet, readOnlyTronWeb])
   const walletReady = Boolean(wallet?.managedSession
     && wallet?.signerType === 'encrypted-local-owner-vault'
+    && connectedAddress
+    && wallet?.tronWeb?.isAddress?.(connectedAddress)
     && typeof wallet?.tronWeb?.trx?.sign === 'function'
-    && wallet?.tronWeb?.defaultAddress?.base58 === EXPECTED_OWNER_ADDRESS
-    && connectedAddress === EXPECTED_OWNER_ADDRESS)
+    && addressesEqual(wallet.tronWeb, wallet.tronWeb.defaultAddress?.base58, connectedAddress))
   useEffect(() => {
     if (walletReady) return
     setPendingOperation(null)
@@ -99,8 +99,9 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   }, [walletReady])
   const getOwnerSigner = async () => {
     const signer = wallet?.tronWeb
-    if (!signer || signer.defaultAddress?.base58 !== EXPECTED_OWNER_ADDRESS
-      || connectedAddress !== EXPECTED_OWNER_ADDRESS || typeof signer.trx?.sign !== 'function') {
+    if (!signer || !connectedAddress || !signer.isAddress?.(connectedAddress)
+      || !addressesEqual(signer, signer.defaultAddress?.base58, connectedAddress)
+      || typeof signer.trx?.sign !== 'function') {
       throw new Error('Unlock the configured encrypted local Owner Wallet before signing.')
     }
     return signer
@@ -472,7 +473,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
     <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>
 
-    {!walletReady ? <div className="trax-connect"><p>{wallet?.managedSession && connectedAddress === EXPECTED_OWNER_ADDRESS ? 'Owner password session restored. Connect the matching local Owner vault wallet to review and approve Mainnet transactions.' : connectedAddress ? 'Connected account does not match the configured contract owner (' + EXPECTED_OWNER_ADDRESS + '). Sign in to the configured backend Owner account.' : 'Sign in to the configured backend Owner account to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> {wallet?.managedSession ? 'Connect local Owner vault' : 'Unlock Owner Wallet'}</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
+    {!walletReady ? <div className="trax-connect"><p>{wallet?.managedSession && connectedAddress ? 'Owner password session restored. Unlock the local Owner vault matching the authenticated Owner account (' + shorten(connectedAddress) + ') to review and approve Mainnet transactions.' : connectedAddress ? 'The local Owner vault must match the authenticated Owner session before Mainnet actions are enabled.' : 'Sign in to the configured backend Owner account to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> {wallet?.managedSession ? 'Unlock matching local Owner vault' : 'Unlock Owner Wallet'}</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
 
     {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/><div>{error}{typeof onNavigate === 'function' && /resource|energy|bandwidth|zero.TRX|deployment readiness/i.test(error) && <p><button type="button" className="outline-button" onClick={() => onNavigate('sponsor-automation')}>Open Sponsor resource provisioning</button></p>}</div></div>}
     {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
