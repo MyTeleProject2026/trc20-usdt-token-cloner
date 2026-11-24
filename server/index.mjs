@@ -20,13 +20,13 @@ const app = express()
 app.disable('x-powered-by')
 app.use(securityHeaders)
 app.use(express.json({ limit: '32kb' }))
-const configuredOrigins = [process.env.FRONTEND_ORIGIN, process.env.PACKAGED_APP_ORIGINS, process.env.OKX_UI_ORIGIN, process.env.TRON_TRANSFER_UI_ORIGIN]
+const configuredOrigins = [process.env.FRONTEND_ORIGIN, process.env.PACKAGED_APP_ORIGINS, process.env.TRON_TRANSFER_UI_ORIGIN]
   .filter((value) => typeof value === 'string' && value.trim()).join(',')
 const { allowedOrigins, middleware: corsPolicy } = createCorsPolicy(configuredOrigins)
 app.use(corsPolicy)
 app.use(credentialGuard)
-app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'tron-token-studio-api' }))
-app.get('/', (_req, res) => res.json({ service: 'TRON Token Studio API', health: '/health' }))
+app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'legacy-local-api-not-production' }))
+app.get('/', (_req, res) => res.json({ service: 'Legacy local API (not the deployed Tron Transfer Resource API)', health: '/health' }))
 app.get('/api/storage/status', async (_req, res) => {
   const database = await getDatabaseStatus()
   res.status(database.configured && !database.ready ? 503 : 200).json({ success: true, storage: database })
@@ -36,9 +36,9 @@ app.get('/api/readiness', async (_req, res) => {
   const checks = { database: database.ready === true, frontendOriginConfigured: allowedOrigins.size > 0 }
   const ready = checks.database && checks.frontendOriginConfigured
   return res.status(ready ? 200 : 503).json({
-    success: ready, status: ready ? 'read-only-dependencies-healthy' : 'dependency-check-failed',
-    database, checks, rpc: 'TronGrid Mainnet only; no alternate RPC provider or fee sponsor',
-    limitations: ['This checks configuration and database connectivity; it does not prove a successful on-chain transaction.', 'Owner and Sponsor transactions require their respective wallet authorization and sufficient resources.'],
+    success: ready, status: ready ? 'legacy-local-dependencies-healthy' : 'dependency-check-failed',
+    database, checks, rpc: 'not the production Resource API; production Mainnet reads use Tatum-first/TronGrid-fallback and signed broadcasts use TronGrid',
+    limitations: ['This legacy local API is not deployed by the existing Render Owner Admin services.', 'Production Owner and Sponsor operations run through Frontend-Tron-Transfer/resource-api and require their respective local wallet authorization.'],
   })
 })
 app.use('/api/tron', trc20VerificationRoutes)

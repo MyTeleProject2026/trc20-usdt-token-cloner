@@ -30,6 +30,7 @@ test('root runtime uses no retired provider or payout package dependency', () =>
 test('retired OKX and Sponsor Direct Payout routes are not mounted by the legacy root server', () => {
   assert.doesNotMatch(entry, /okxDepositStatusRoutes|sponsor-direct-payout|fincra|fireblocks|gasfree/i)
   assert.doesNotMatch(entry, /TATUM_API_KEY|FIREBLOCKS_API_KEY|GASFREE_MAINNET_API_KEY|FINCRA_SECRET_KEY/)
+  assert.match(entry, /not the production Resource API/)
 })
 
 test('Owner identity is session-derived and resource acquisition is Sponsor-wallet-only', () => {

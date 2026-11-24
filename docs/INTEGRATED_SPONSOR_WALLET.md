@@ -37,7 +37,7 @@ The integrated Sponsor workspace uses the following Resource API lifecycle:
 
 The former one-step server-signer route is disabled. A legacy remote-signer adapter module was removed because no HSM/KMS service or signer key handle was provisioned. The active workflow is local Sponsor vault signing followed by backend signature verification and controlled broadcast.
 
-## Sponsor session lock policy
+## Mainnet provider routing
 
 The Resource API uses Tatum as the preferred read-only TRON Mainnet RPC provider and TronGrid as the read fallback. Signed transaction broadcasts remain on TronGrid. Neither provider signs transactions, receives private keys, supplies Energy/Bandwidth or pays transaction fees.
 
