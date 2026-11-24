@@ -7,6 +7,7 @@ import {
 import { planSponsorResourceProvisioning } from './sponsor-resource-planner.mjs'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 import './sponsor-wallet.css'
+import WalletDepositPanel from './WalletDepositPanel.jsx'
 
 const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const SUN = 1_000_000
@@ -1145,6 +1146,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
           <article><small>ENERGY AVAILABLE</small><strong>{snapshot ? energyAvailable.toLocaleString() : '—'}</strong><small>{snapshot ? `${snapshot.energyUsed.toLocaleString()} used / ${snapshot.energyLimit.toLocaleString()} limit` : 'Refresh to read'}</small></article>
           <article><small>BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.maxSingleTransactionBandwidth || Math.max(bandwidthAvailable, freeBandwidthAvailable)).toLocaleString() : '—'}</strong><small>{snapshot ? `${bandwidthAvailable.toLocaleString()} staked + ${freeBandwidthAvailable.toLocaleString()} free` : 'Refresh to read'}</small></article>
         </div>
+        <WalletDepositPanel role="Sponsor" address={wallet.address} addressHex={tronWeb.address.toHex(wallet.address)} transactions={walletTransactions} tokenTransfers={walletTokenTransfers} transactionsAvailable={walletTransactionsAvailable} tokenTransfersAvailable={walletTokenTransfersAvailable} onRefresh={() => void refresh({ quiet: true })} refreshing={busy}/>
         <p className="sponsor-muted">Owner recipient: <code>{ownerAddress}</code></p>
         <p className="sponsor-muted">Session protection: automatically revokes the backend password session after 5 minutes without activity or 60 seconds with this page in the background.</p>
         {snapshot?.resourceReadSource && <p className="sponsor-muted">Resource data source: {snapshot.resourceReadSource === 'resource-api' ? 'TRON Transfer Resource API' : 'Direct TronWeb fallback'}{snapshot.resourceRpcProviders ? ' · ' + Object.values(snapshot.resourceRpcProviders).join(' / ') : ''}</p>}

@@ -26,3 +26,19 @@ test('official USDT deposit history includes only incoming positive token transf
   assert.deepEqual(rows, [{ txid, value: '2500000', timestamp: 100 }])
   assert.equal(formatDepositAmount(rows[0].value), '2.5')
 })
+
+
+test('Owner and Sponsor deposit views expose only their own wallet address and confirmed incoming history', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const panel = await readFile(new URL('../src/WalletDepositPanel.jsx', import.meta.url), 'utf8')
+  const owner = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  const sponsor = await readFile(new URL('../src/SponsorWalletManager.jsx', import.meta.url), 'utf8')
+  assert.match(panel, /getIncomingNativeTrxTransfers/)
+  assert.match(panel, /getIncomingUsdtTransfers/)
+  assert.match(panel, /only the latest indexed records|Latest indexed records/)
+  assert.match(panel, /TRON Mainnet/)
+  assert.match(owner, /WalletDepositPanel role="Owner"/)
+  assert.match(owner, /\/v1\/transactions\//)
+  assert.match(sponsor, /WalletDepositPanel role="Sponsor"/)
+  assert.match(sponsor, /addressHex={tronWeb\.address\.toHex\(wallet\.address\)}/)
+})

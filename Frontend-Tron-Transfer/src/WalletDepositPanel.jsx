@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ArrowDownLeft, Check, Copy, ExternalLink, RefreshCw } from 'lucide-react'
 import { getIncomingNativeTrxTransfers, getIncomingUsdtTransfers, formatDepositAmount } from './wallet-deposits.mjs'
+import './wallet-deposit.css'
 
 export default function WalletDepositPanel({
   role, address, addressHex, transactions = [], tokenTransfers = [],

@@ -8,6 +8,7 @@ import {
 import { calculatePortfolioValue, fetchTRXReferencePrice } from './trax-pricing.mjs'
 import TRAXOwnershipControls from './TRAXOwnershipControls.jsx'
 import TRAXCreditHistory from './TRAXCreditHistory.jsx'
+import WalletDepositPanel from './WalletDepositPanel.jsx'
 import './trax-mainnet.css'
 
 const DEFAULT_RECIPIENT = ''
@@ -71,6 +72,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [deploymentConfirmationPhrase, setDeploymentConfirmationPhrase] = useState('')
   const [deploymentExecutionEnabled, setDeploymentExecutionEnabled] = useState(false)
   const [recentOperations, setRecentOperations] = useState([])
+  const [ownerDepositHistory, setOwnerDepositHistory] = useState({ transactions: [], tokenTransfers: [], transactionsAvailable: false, tokenTransfersAvailable: false })
+  const [ownerDepositLoading, setOwnerDepositLoading] = useState(false)
   const prepareInFlightRef = useRef(null)
   const preparationKeyRef = useRef('')
 
@@ -87,6 +90,24 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     && wallet?.tronWeb?.isAddress?.(connectedAddress)
     && typeof wallet?.tronWeb?.trx?.sign === 'function'
     && addressesEqual(wallet.tronWeb, wallet.tronWeb.defaultAddress?.base58, connectedAddress))
+  const refreshOwnerDeposits = useCallback(async () => {
+    if (!walletReady || !connectedAddress) return
+    setOwnerDepositLoading(true)
+    try {
+      const response = await fetch(RESOURCE_API_BASE + '/v1/transactions/' + encodeURIComponent(connectedAddress) + '?limit=20', { cache: 'no-store' })
+      if (!response.ok) throw new Error('Confirmed deposit history returned HTTP ' + response.status)
+      const payload = await response.json()
+      if (payload?.address !== connectedAddress || payload?.network !== 'TRON Mainnet' || !Array.isArray(payload.data)) throw new Error('Confirmed deposit history response was invalid')
+      setOwnerDepositHistory({ transactions: payload.data, tokenTransfers: Array.isArray(payload.trc20Transfers) ? payload.trc20Transfers : [], transactionsAvailable: true, tokenTransfersAvailable: payload.trc20Available === true })
+    } catch {
+      setOwnerDepositHistory({ transactions: [], tokenTransfers: [], transactionsAvailable: false, tokenTransfersAvailable: false })
+    } finally { setOwnerDepositLoading(false) }
+  }, [walletReady, connectedAddress])
+
+  useEffect(() => {
+    if (walletReady && activePage === 'portfolio') void refreshOwnerDeposits()
+  }, [walletReady, activePage, refreshOwnerDeposits])
+
   useEffect(() => {
     if (walletReady) return
     setPendingOperation(null)
@@ -506,6 +527,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <div className="trax-balance-note"><b>Estimated combined portfolio value: </b>{snapshot && referencePrice ? formatUsd(calculatePortfolioValue({ trx: formatTokenUnits(snapshot.ownerTrx), trax: formatTokenUnits(snapshot.ownerBalance), usdt: formatTokenUnits(snapshot.ownerUsdt), prices: referencePrice })?.totalUsd) : 'Unavailable — refresh when live prices are available'}</div>
         <p className="fine-print">{referencePrice ? 'TRX/USD: ' + formatUsd(referencePrice.trxUsd) + ' · USDT/USD: ' + formatUsd(referencePrice.usdtUsd) + ' · ' + referencePrice.source + ' · ' + new Date(referencePrice.updatedAt).toLocaleString() : 'Live prices unavailable or stale.'} TRӾ has no verified market quote. Combined USD valuation is withheld whenever TRӾ holdings are non-zero; no price is inferred from native TRX.</p>
       </div>
+      <WalletDepositPanel role="Owner" address={connectedAddress} addressHex={readOnlyTronWeb.address.toHex(connectedAddress)} transactions={ownerDepositHistory.transactions} tokenTransfers={ownerDepositHistory.tokenTransfers} transactionsAvailable={ownerDepositHistory.transactionsAvailable} tokenTransfersAvailable={ownerDepositHistory.tokenTransfersAvailable} onRefresh={refreshOwnerDeposits} refreshing={ownerDepositLoading}/>
       <div className="trax-actions">
         <div className="trax-section-title"><h3>Live on-chain contract status</h3><button className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={14}/> Refresh</button></div>
         {snapshot ? <div className="trax-stats">
