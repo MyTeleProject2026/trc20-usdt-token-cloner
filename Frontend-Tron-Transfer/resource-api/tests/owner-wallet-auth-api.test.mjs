@@ -123,21 +123,6 @@ test('Owner identity validation rejects malformed or Sponsor-equal configured ad
   assert.equal(same.ready, false)
 })
 
-test('Owner identity validation rejects malformed or Sponsor-equal configured addresses', () => {
-  const sponsorAddress = 'T' + '2'.repeat(33)
-  const report = createManagedWalletIdentityReport({
-    env: {
-      TRON_OWNER_ADDRESS: 'not-a-tron-address',
-      SPONSOR_MAINNET_ADDRESS: sponsorAddress,
-      SPONSOR_MAINNET_PRIVATE_KEY: '3'.repeat(64),
-    },
-    deriveAddress: () => sponsorAddress,
-  })
-  assert.equal(report.owner.ready, false)
-  assert.equal(report.identitiesDistinct, false)
-  assert.equal(report.ready, false)
-})
-
 test('Owner session verifier rejects the other workspace cookie and enforces its own database role', async () => {
   const queries=[]
   const database={async query(sql){queries.push(sql);return {rows:[]}}}
