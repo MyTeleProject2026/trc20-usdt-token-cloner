@@ -12,6 +12,7 @@ import { createPendingOwnerAcceptanceApi } from './pending-owner-acceptance-api.
 import { createSponsorWalletAuthApi } from './sponsor-wallet-auth-api.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
+export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
 export const ALLOWED_ORIGINS = new Set([
   'https://tron-transfer.onrender.com',
   'http://localhost:5173',
@@ -37,11 +38,12 @@ const MAINNET_READ_RPC_METHODS = new Set([
 ])
 let mainnetRpcQueue = Promise.resolve()
 let mainnetRpcNextAt = 0
-let mainnetRpcCooldownUntil = 0
+const mainnetRpcCooldownUntilByProvider = new Map()
 
-async function scheduledRpcFetch(fetchImpl, url, options) {
+async function scheduledRpcFetch(fetchImpl, url, options, providerId = 'trongrid') {
   const task = mainnetRpcQueue.then(async () => {
-    const waitMs = Math.max(0, mainnetRpcNextAt, mainnetRpcCooldownUntil) - Date.now()
+    const cooldownUntil = mainnetRpcCooldownUntilByProvider.get(providerId) || 0
+    const waitMs = Math.max(0, mainnetRpcNextAt, cooldownUntil) - Date.now()
     if (waitMs > 0) await new Promise(resolveWait => setTimeout(resolveWait, waitMs))
     const response = await fetchImpl(url, options)
     mainnetRpcNextAt = Date.now() + 550
@@ -49,7 +51,7 @@ async function scheduledRpcFetch(fetchImpl, url, options) {
       const retryAfter = Number(response.headers?.get?.('retry-after'))
       const providerCooldown = Number.isFinite(retryAfter) && retryAfter > 0
         ? Math.max(5000, Math.min(30_000, retryAfter * 1000)) : 5000
-      mainnetRpcCooldownUntil = Date.now() + providerCooldown
+      mainnetRpcCooldownUntilByProvider.set(providerId, Date.now() + providerCooldown)
     }
     return response
   })
@@ -147,36 +149,59 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
   }
 }
 
+function tatumRestBaseUrl(env = process.env) {
+  const configured = typeof env.TATUM_TRON_RPC_URL === 'string' ? env.TATUM_TRON_RPC_URL.trim() : ''
+  if (!configured) return TATUM_MAINNET_RPC
+  try {
+    const endpoint = new URL(configured)
+    if (endpoint.protocol !== 'https:' || endpoint.hostname !== 'tron-mainnet.gateway.tatum.io'
+      || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) return TATUM_MAINNET_RPC
+    return endpoint.origin
+  } catch { return TATUM_MAINNET_RPC }
+}
+
 function rpcProviders(env = process.env) {
+  const providers = []
+  const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
+  if (tatumKey && String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase() === 'mainnet') {
+    providers.push({ id: 'tatum', baseUrl: tatumRestBaseUrl(env), headers: { 'x-api-key': tatumKey } })
+  }
   const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
-  return [{
+  providers.push({
     id: 'trongrid',
     baseUrl: MAINNET_RPC,
     headers: tronGridKey ? { 'TRON-PRO-API-KEY': tronGridKey } : {},
-  }]
+  })
+  return providers
 }
 
 async function rpcPost(path, body, { fetchImpl = fetch, env = process.env } = {}) {
-  const node = rpcProviders(env)[0]
-  const response = await scheduledRpcFetch(fetchImpl, node.baseUrl + path, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'application/json',
-      ...node.headers,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    redirect: 'error',
-  })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok || data?.Error || data?.error) {
-    const status = response.status || 502
-    const error = new Error(String(data?.Error || data?.error || 'TronGrid rejected the Mainnet read request').slice(0, 240))
-    error.status = status
-    throw error
+  let lastError
+  for (const node of rpcProviders(env)) {
+    try {
+      const response = await scheduledRpcFetch(fetchImpl, node.baseUrl + path, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json',
+          ...node.headers,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        redirect: 'error',
+      }, node.id)
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data?.Error || data?.error) {
+        const error = new Error(String(data?.Error || data?.error || (node.id + ' rejected the Mainnet read request')).slice(0, 240))
+        error.status = response.status || 502
+        throw error
+      }
+      return { data, provider: node.id }
+    } catch (error) {
+      lastError = error
+    }
   }
-  return { data, provider: node.id }
+  throw lastError || new Error('No TRON Mainnet RPC provider is configured.')
 }
 
 async function readResources(address, options = {}) {
@@ -585,12 +610,15 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
       return send(res, 200, value, origin)
     }
     if (req.method === 'GET' && url.pathname === '/health') {
+      const providers = rpcProviders(env)
+      const tatumConfigured = providers.some(provider => provider.id === 'tatum')
       const tronGridConfigured = typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim().length > 0
       return send(res, 200, {
         ok: true,
         network: 'TRON Mainnet',
-        rpc: tronGridConfigured ? 'TronGrid Mainnet node API key configured' : 'TronGrid public Mainnet node',
-        rpcNode: 'trongrid',
+        rpc: tatumConfigured ? 'Tatum Mainnet primary with TronGrid fallback' : (tronGridConfigured ? 'TronGrid Mainnet node API key configured' : 'TronGrid public Mainnet node'),
+        rpcNode: providers[0]?.id || 'trongrid',
+        rpcProviderPriority: providers.map(provider => provider.id),
         service: 'tron-transfer-resource-api',
       }, origin)
     }
@@ -678,8 +706,8 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
       return send(res, status === 429 ? 503 : status, {
         error: isAuthOrRate ? 'PUBLIC_RPC_LIMITED' : 'TRON_RPC_UNAVAILABLE',
         message: isAuthOrRate
-          ? 'The configured TronGrid Mainnet node rejected or rate-limited the request. Check its API key and quota; no resource amount has been assumed.'
-          : 'Could not read current Mainnet resources from TronGrid. No resource amount has been assumed.',
+          ? 'Tatum and TronGrid Mainnet RPC reads failed or were rate-limited. Check configured RPC credentials and quotas; no resource amount has been assumed.'
+          : 'Could not read current Mainnet resources from Tatum or TronGrid. No resource amount has been assumed.',
       }, origin)
     } finally {
       if (resourceReadsInFlight.get(address) === readPromise) resourceReadsInFlight.delete(address)
