@@ -10,6 +10,21 @@ const root = dirname(fileURLToPath(import.meta.url))
 const migrationsDir = join(root, '..', 'migrations')
 const ACK = 'APPLY_TRON_TRANSFER_OWNER_ADMIN_MIGRATIONS'
 
+export function ownerAdminDatabaseIdentityFingerprint(connection) {
+  let parsed
+  try { parsed = new URL(String(connection || '')) } catch { throw new Error('invalid-owner-admin-database-url') }
+  if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname || !parsed.pathname || parsed.pathname === '/') {
+    throw new Error('invalid-owner-admin-database-url')
+  }
+  const identity = JSON.stringify({
+    hostname: parsed.hostname.toLowerCase(),
+    port: parsed.port || '5432',
+    database: decodeURIComponent(parsed.pathname.slice(1)),
+    username: decodeURIComponent(parsed.username),
+  })
+  return createHash('sha256').update(identity).digest('hex')
+}
+
 // Migration files may be run independently, but this orchestrator owns the one
 // transaction spanning the complete ordered migration set. Strip only an
 // optional outer BEGIN/COMMIT envelope so a file cannot commit that transaction.
@@ -126,6 +141,10 @@ async function main() {
   if (process.env.OWNER_ADMIN_MIGRATIONS_ACK !== ACK) throw new Error('Set OWNER_ADMIN_MIGRATIONS_ACK=' + ACK + ' only after a verified Neon backup and restore plan.')
   const connection = process.env.OWNER_ADMIN_DATABASE_URL || process.env.SPONSOR_DATABASE_URL || process.env.DATABASE_URL
   if (!connection) throw new Error('Set OWNER_ADMIN_DATABASE_URL, SPONSOR_DATABASE_URL, or DATABASE_URL to the direct PostgreSQL URL. Values are never printed.')
+  const expectedIdentity = String(process.env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256 || '').trim().toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(expectedIdentity)) throw new Error('Set OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256 to the independently verified target database fingerprint before applying migrations.')
+  const actualIdentity = ownerAdminDatabaseIdentityFingerprint(connection)
+  if (actualIdentity !== expectedIdentity) throw new Error('Owner Admin migration target database identity does not match the pinned production target; no migration was applied.')
   let host = ''
   try { host = new URL(connection).hostname } catch { throw new Error('The direct PostgreSQL URL is invalid.') }
   if (host.includes('-pooler.')) throw new Error('Owner Admin migrations require a direct PostgreSQL endpoint, not a transaction pooler.')
