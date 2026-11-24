@@ -58,7 +58,7 @@ jobs:
         run: npm install --prefix Frontend-Tron-Transfer/resource-api --no-audit --no-fund
       - name: Audit isolated Resource API dependencies
         run: npm audit --prefix Frontend-Tron-Transfer/resource-api --audit-level=high
-      - name: Test TRON Mainnet resource API and single TronGrid RPC
+      - name: Test TRON Mainnet resource API with Tatum-first reads and TronGrid fallback
         run: npm test --prefix Frontend-Tron-Transfer/resource-api
       - name: Build frontend and compile contract
         run: npm run build
