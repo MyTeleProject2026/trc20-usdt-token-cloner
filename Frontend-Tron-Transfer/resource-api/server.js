@@ -3,7 +3,6 @@ import { isIP } from 'node:net'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createFreeDelegationResourceReader } from '../../server/free-delegation-resources.mjs'
 import { createRuntimeObservatory } from './runtime-observatory.mjs'
 import { createSponsorResourceApi } from './sponsor-api.mjs'
 import { createOwnerWalletAuthApi } from './owner-wallet-auth-api.mjs'
@@ -13,7 +12,6 @@ import { createPendingOwnerAcceptanceApi } from './pending-owner-acceptance-api.
 import { createSponsorWalletAuthApi } from './sponsor-wallet-auth-api.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
-export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
 export const ALLOWED_ORIGINS = new Set([
   'https://tron-transfer.onrender.com',
   'http://localhost:5173',
@@ -143,87 +141,42 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
     },
     freeEnergyAvailable: false,
     publicFreeOffers: [],
-    publicFreeDelegationProviders: [{
-      id: 'tenergy-mainnet-promo',
-      provider: 'TEnergy',
-      resource: 'energy',
-      access: 'conditional-one-time-promo',
-      automation: 'server-to-server-challenge-and-redemption',
-      walletApproval: 'required-message-signature',
-      transactionRequired: false,
-      availability: 'queried-live-from-provider',
-      note: 'Only addresses pre-marked eligible by TEnergy can claim while its Mainnet promo is active. Count Energy only after a real on-chain delegation is confirmed.',
-    }],
-    freeBandwidthProviderStatus: 'no-external-free-bandwidth-delegation-api-verified',
     exactDeploymentEnergyEstimate: null,
     estimateNote: 'TRON has no protocol-level free Energy quota. Exact deployment Energy must be estimated for the compiled bytecode and current chain state; the feeLimit is only a maximum cap.',
     checkedAt: new Date().toISOString(),
   }
 }
 
-function tatumRestBaseUrl(env = process.env) {
-  const configured = typeof env.TATUM_TRON_RPC_URL === 'string' ? env.TATUM_TRON_RPC_URL.trim() : ''
-  if (!configured) return TATUM_MAINNET_RPC
-  try {
-    const endpoint = new URL(configured)
-    if (endpoint.protocol !== 'https:' || endpoint.hostname !== 'tron-mainnet.gateway.tatum.io'
-      || endpoint.username || endpoint.password || !['', '/', '/jsonrpc'].includes(endpoint.pathname)
-      || endpoint.search || endpoint.hash) return TATUM_MAINNET_RPC
-    // The resource reader calls Tatum's TRON REST-compatible /wallet endpoints.
-    // Render may store the provider's JSON-RPC URL; use its trusted origin here.
-    return endpoint.origin
-  } catch { return TATUM_MAINNET_RPC }
-}
-
 function rpcProviders(env = process.env) {
-  const providers = []
-  const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
-  const tatumNetwork = String(env.TATUM_TRON_NETWORK || 'mainnet').toLowerCase()
   const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
-  if (tatumKey && tatumNetwork === 'mainnet') {
-    providers.push({
-      id: 'tatum',
-      baseUrl: tatumRestBaseUrl(env),
-      headers: { 'x-api-key': tatumKey },
-    })
-  }
-  providers.push({
+  return [{
     id: 'trongrid',
     baseUrl: MAINNET_RPC,
     headers: tronGridKey ? { 'TRON-PRO-API-KEY': tronGridKey } : {},
-  })
-  return providers
+  }]
 }
 
 async function rpcPost(path, body, { fetchImpl = fetch, env = process.env } = {}) {
-  let lastError
-  for (const provider of rpcProviders(env)) {
-    try {
-      const response = await scheduledRpcFetch(fetchImpl, provider.baseUrl + path, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json',
-          ...provider.headers,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-        redirect: 'error',
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok || data?.Error || data?.error) {
-        const status = response.status || 502
-        const detail = String(data?.Error || data?.error || provider.id + ' rejected the read request').slice(0, 240)
-        const error = new Error(detail)
-        error.status = status
-        throw error
-      }
-      return { data, provider: provider.id }
-    } catch (error) {
-      lastError = error
-    }
+  const node = rpcProviders(env)[0]
+  const response = await scheduledRpcFetch(fetchImpl, node.baseUrl + path, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      ...node.headers,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    redirect: 'error',
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data?.Error || data?.error) {
+    const status = response.status || 502
+    const error = new Error(String(data?.Error || data?.error || 'TronGrid rejected the Mainnet read request').slice(0, 240))
+    error.status = status
+    throw error
   }
-  throw lastError || new Error('No TRON Mainnet RPC provider is configured')
+  return { data, provider: node.id }
 }
 
 async function readResources(address, options = {}) {
@@ -320,7 +273,6 @@ function send(res, status, payload, origin) {
 }
 
 export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', fetchImpl = fetch, env = process.env, sponsorEngine, sponsorDatabase } = {}) {
-  const readDelegationStatus = readFreeDelegationStatus ?? createFreeDelegationResourceReader({ addressValidator: isMainnetAddress, env })
   const runtimeObservatory = createRuntimeObservatory()
   const ownerWalletAuthApi = createOwnerWalletAuthApi({ env, send })
   const ownerOperationApi = createOwnerOperationApi({
@@ -633,133 +585,14 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       return send(res, 200, value, origin)
     }
     if (req.method === 'GET' && url.pathname === '/health') {
-      const tatumConfigured = typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim().length > 0
       const tronGridConfigured = typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim().length > 0
       return send(res, 200, {
         ok: true,
         network: 'TRON Mainnet',
-        rpc: tatumConfigured
-          ? 'Tatum Mainnet API key configured; TronGrid fallback enabled'
-          : tronGridConfigured
-            ? 'TronGrid API key configured'
-            : 'TronGrid public node (no API key configured)',
-        rpcProviderPriority: tatumConfigured ? ['tatum', 'trongrid'] : ['trongrid'],
+        rpc: tronGridConfigured ? 'TronGrid Mainnet node API key configured' : 'TronGrid public Mainnet node',
+        rpcNode: 'trongrid',
         service: 'tron-transfer-resource-api',
       }, origin)
-    }
-    if (req.method === 'GET' && url.pathname === '/api/tron/resources/free-delegation/status') {
-      const address = typeof url.searchParams.get('address') === 'string' ? url.searchParams.get('address') : ''
-      if (address !== allowedAddress || !isMainnetAddress(address)) {
-        return send(res, 403, { success: false, error: 'wallet-not-allowed', message: 'This free-delegation policy is restricted to the configured TRON Mainnet owner wallet.' }, origin)
-      }
-      const refresh = url.searchParams.get('refresh')
-      if (refresh !== null && refresh !== '0' && refresh !== '1') return send(res, 400, { success: false, error: 'invalid-refresh' }, origin)
-      const ip = observatoryRateLimitIp(req)
-      if (!allowRequest(ip, 'free-delegation-resource')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
-      const result = await readDelegationStatus(address, { refresh: refresh === '1' })
-      return send(res, result.success ? 200 : 503, result, origin)
-    }
-
-    const tenergyBase = 'https://api.tenergy.me/v1'
-    const tenergyRequest = async (path, method = 'GET', body = undefined) => {
-      const response = await fetchImpl(tenergyBase + path, {
-        method, headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(8000), redirect: 'error',
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const providerDetail = payload?.message ?? payload?.error_description ?? payload?.error ?? payload?.code ?? 'TEnergy promotional endpoint rejected the request'
-        const detail = typeof providerDetail === 'string' ? providerDetail : (() => { try { return JSON.stringify(providerDetail) } catch { return 'TEnergy promotional endpoint rejected the request' } })()
-        const error = new Error(String(detail || 'TEnergy promotional endpoint rejected the request').slice(0, 220))
-        error.status = response.status; error.providerCode = payload?.code || payload?.error_code || null; throw error
-      }
-      return payload
-    }
-    const promoRoot = '/api/tron/resources/free-delegation/tenergy'
-    const promoAliasRoot = '/api/tron/tenergy/promo'
-    const legacyPromoMatch = url.pathname.startsWith(promoRoot + '/') ? [url.pathname, url.pathname.slice(promoRoot.length + 1)] : null
-    const aliasPromoMatch = url.pathname.startsWith(promoAliasRoot + '/') ? [url.pathname, url.pathname.slice(promoAliasRoot.length + 1)] : null
-    const promoMatch = legacyPromoMatch || aliasPromoMatch
-    const isPromoAlias = Boolean(aliasPromoMatch)
-    const promoAction = !promoMatch ? null : isPromoAlias
-      ? ({ status: 'promo', challenge: 'challenge', redeem: 'redeem', redemption: 'redemption' }[promoMatch[1]] || promoMatch[1])
-      : promoMatch[1]
-    if (promoMatch) {
-      let body = null
-      if (req.method === 'POST') {
-        body = await new Promise(resolveBody => {
-          let raw = ''
-          req.on('data', chunk => { raw += chunk; if (raw.length > 8192) req.destroy() })
-          req.on('end', () => { try { resolveBody(JSON.parse(raw || '{}')) } catch { resolveBody(null) } })
-          req.on('error', () => resolveBody(null))
-        })
-        if (!body || typeof body !== 'object' || Array.isArray(body)) return send(res, 400, { success: false, error: 'INVALID_JSON_BODY' }, origin)
-      }
-      if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
-      const walletAddress = req.method === 'GET' ? (url.searchParams.get('address') || '') : body.address
-      if (walletAddress !== allowedAddress || !isMainnetAddress(walletAddress)) return send(res, 403, { success: false, error: 'wallet-not-allowed' }, origin)
-      const ip = observatoryRateLimitIp(req)
-      if (!allowRequest(ip, 'tenergy-promo')) return send(res, 429, { success: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
-      try {
-        if (promoAction === 'promo' && req.method === 'GET') {
-          const terms = await tenergyRequest('/promo')
-          if (terms.network !== 'mainnet') return send(res, 502, { success: false, error: 'PROVIDER_NETWORK_MISMATCH' }, origin)
-          let redemption = null
-          try { redemption = await tenergyRequest('/promo/redemptions/' + encodeURIComponent(walletAddress)) }
-          catch (error) { if (error.status !== 404) throw error }
-          if (isPromoAlias) {
-            return send(res, 200, {
-              success: true,
-              provider: 'TEnergy',
-              network: 'mainnet',
-              promo: { state: terms.state || 'unknown', grant: terms.grant && typeof terms.grant === 'object' ? terms.grant : null },
-              redemption,
-              requiresOwnerMessageSignature: !redemption && terms.state === 'active',
-              claimSubmitsNoTransaction: true,
-              resourceCoverage: { energy: true, bandwidth: false, contractDeploymentFee: false },
-              claimMethod: 'wallet-message-signature',
-              transactionRequired: false,
-            }, origin)
-          }
-          return send(res, 200, { success: true, provider: 'TEnergy', network: 'mainnet', terms, redemption, claimMethod: 'wallet-message-signature', transactionRequired: false, note: 'One-time promotional Energy only for addresses the provider marked eligible while its Mainnet promotion is active. No paid order or TRX transfer is used.' }, origin)
-        }
-        if (promoAction === 'challenge' && req.method === 'POST') {
-          const terms = await tenergyRequest('/promo')
-          if (terms.network !== 'mainnet' || terms.state !== 'active' || !Number(terms.left_today)) return send(res, 409, { success: false, error: 'FREE_PROMO_NOT_ACTIVE', terms }, origin)
-          const challenge = await tenergyRequest('/promo/redeem/challenge', 'POST', { address: walletAddress })
-          if (challenge.address !== walletAddress || typeof challenge.nonce !== 'string' || typeof challenge.message !== 'string') return send(res, 502, { success: false, error: 'INVALID_PROVIDER_CHALLENGE' }, origin)
-          if (isPromoAlias) {
-            return send(res, 201, {
-              success: true,
-              provider: 'TEnergy',
-              network: 'mainnet',
-              address: challenge.address,
-              nonce: challenge.nonce,
-              message: challenge.message,
-              expiresAt: challenge.expires_at || null,
-              approval: 'Sign this exact message with the imported local Owner Wallet; this is not a transaction.',
-            }, origin)
-          }
-          return send(res, 201, { success: true, provider: 'TEnergy', network: 'mainnet', challenge, approval: 'Sign this exact message with the imported local Owner Wallet; this is not a transaction.' }, origin)
-        }
-        if (promoAction === 'redeem' && req.method === 'POST') {
-          const { nonce, signature } = body
-          if (typeof nonce !== 'string' || nonce.length < 8 || nonce.length > 256 || typeof signature !== 'string' || !/^(?:0x)?[0-9a-fA-F]{130}$/.test(signature)) return send(res, 400, { success: false, error: 'INVALID_NONCE_OR_SIGNATURE' }, origin)
-          const result = await tenergyRequest('/promo/redeem', 'POST', { address: walletAddress, nonce, signature })
-          if (result.address !== walletAddress || !['granting', 'delegated', 'failed'].includes(result.status)) return send(res, 502, { success: false, error: 'INVALID_PROVIDER_REDEMPTION' }, origin)
-          return send(res, 201, { success: true, provider: 'TEnergy', network: 'mainnet', redemption: result, verificationPath: promoRoot + '/redemption?address=' + encodeURIComponent(walletAddress) }, origin)
-        }
-        if (promoAction === 'redemption' && req.method === 'GET') {
-          const redemption = await tenergyRequest('/promo/redemptions/' + encodeURIComponent(walletAddress))
-          if (redemption.address !== walletAddress) return send(res, 502, { success: false, error: 'PROVIDER_ADDRESS_MISMATCH' }, origin)
-          return send(res, 200, { success: true, provider: 'TEnergy', network: 'mainnet', redemption }, origin)
-        }
-        return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
-      } catch (error) {
-        const status = Number.isInteger(error?.status) ? error.status : 503
-        return send(res, status === 429 ? 503 : status, { success: false, provider: 'TEnergy', network: 'mainnet', error: error.providerCode || (status === 404 ? 'PROMO_NOT_REDEEMED' : status === 403 ? 'PROMO_NOT_ELIGIBLE' : status === 409 ? 'PROMO_UNAVAILABLE_OR_ALREADY_REDEEMED' : 'PROVIDER_UNAVAILABLE'), message: String(error.message || 'TEnergy promotional API unavailable').slice(0, 220), retryable: status >= 500 || status === 429 }, origin)
-      }
     }
     const transactionsMatch = url.pathname.match(/^\/v1\/transactions\/([^/]+)$/)
     if (transactionsMatch) {
@@ -844,8 +677,8 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
       return send(res, status === 429 ? 503 : status, {
         error: isAuthOrRate ? 'PUBLIC_RPC_LIMITED' : 'TRON_RPC_UNAVAILABLE',
         message: isAuthOrRate
-          ? 'Configured TRON Mainnet RPC provider rejected or rate-limited the request. Check its API key and quota; no resource amount has been assumed.'
-          : 'Could not read current Mainnet resources from Tatum or TronGrid. No resource amount has been assumed.',
+          ? 'The configured TronGrid Mainnet node rejected or rate-limited the request. Check its API key and quota; no resource amount has been assumed.'
+          : 'Could not read current Mainnet resources from TronGrid. No resource amount has been assumed.',
       }, origin)
     } finally {
       if (resourceReadsInFlight.get(address) === readPromise) resourceReadsInFlight.delete(address)

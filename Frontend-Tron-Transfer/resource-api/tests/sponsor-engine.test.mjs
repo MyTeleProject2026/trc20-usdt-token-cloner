@@ -57,7 +57,6 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverr
   const engine = createSponsorTransactionEngine({
     env: configuredEnv(envOverrides),
     tronWebFactory: privateKey => { assert.equal(privateKey, null); return fakeTronWeb },
-    signerAdapter: { address: SPONSOR, signTransaction: async tx => fakeTronWeb.trx.sign(tx) },
     fetchImpl,
   })
   return {
@@ -67,32 +66,28 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverr
   }
 }
 
-test('legacy SPONSOR_MAINNET_PRIVATE_KEY environment values are ignored', async () => {
+test('Sponsor engine uses the local vault only and ignores server private-key configuration', () => {
   const engine = createSponsorTransactionEngine({
     env: configuredEnv({ SPONSOR_MAINNET_PRIVATE_KEY: '1'.repeat(64) }),
   })
   const state = engine.readiness()
-  assert.equal(state.signerMode, 'client-local-required')
+  assert.equal(state.signerMode, 'client-local-vault')
   assert.equal(state.signerConfigured, false)
-  assert.equal(state.broadcastAvailable, false)
-  const result = await engine.execute({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
-  assert.equal(result.signed, false)
-  assert.equal(result.broadcast, false)
-  assert.equal(result.status, 'sponsor-engine-disabled-or-unconfigured')
+  assert.equal(state.serverSignerConfigured, false)
+  assert.equal(state.clientSigningAvailable, true)
+  assert.equal(typeof engine.execute, 'undefined')
 })
 
-test('engine requires an explicit signer adapter and never loads a server-side Sponsor private key', async () => {
-  const engine = createSponsorTransactionEngine({ env: {} })
-  const state = engine.readiness()
-  assert.equal(state.broadcastAvailable, false)
-  assert.equal(state.signerMode, 'client-local-required')
-  assert.equal(state.signerConfigured, false)
-  const result = await engine.execute({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
-  assert.equal(result.broadcast, false)
-  assert.equal(result.signed, false)
-  assert.equal(result.status, 'sponsor-engine-disabled-or-unconfigured')
+test('Sponsor engine requires explicit, distinct Owner and Sponsor Mainnet addresses', () => {
+  const missingOwner = createSponsorTransactionEngine({ env: { SPONSOR_MAINNET_ADDRESS: SPONSOR } })
+  assert.equal(missingOwner.readiness().ownerAddressValid, false)
+  assert.equal(missingOwner.readiness().clientSigningAvailable, false)
+  const sameWallet = createSponsorTransactionEngine({
+    env: configuredEnv({ TRON_OWNER_ADDRESS: SPONSOR }),
+  })
+  assert.equal(sameWallet.readiness().addressesIndependent, false)
+  assert.equal(sameWallet.readiness().clientSigningAvailable, false)
 })
-
 
 test('client-local preparation returns an unsigned exact transaction without signing or broadcasting', async () => {
   const f = fixture()
