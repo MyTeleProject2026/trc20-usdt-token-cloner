@@ -242,10 +242,6 @@ function sessionSecret(env) {
   return typeof env.SPONSOR_SESSION_SECRET === 'string' && Buffer.byteLength(env.SPONSOR_SESSION_SECRET) >= 32
     ? env.SPONSOR_SESSION_SECRET : null
 }
-function ownerAdminSessionRequired() {
-  return true
-}
-
 function sponsorLedgerDurabilityVerified(env) {
   return env.SPONSOR_LEDGER_DURABLE === 'true'
     && env.SPONSOR_LEDGER_BACKUP_VERIFIED === 'true'
@@ -395,7 +391,6 @@ export function createSponsorResourceApi({
           && databaseTargetIdentityMatches(env)
         const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
         const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
-        const adminRequired = false // Sponsor transactions require only the independently authenticated Sponsor session.
         const adminConfigured = ownerAdminAuthConfigured
         const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
         let databaseReady = false
@@ -479,8 +474,8 @@ export function createSponsorResourceApi({
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
-          ownerAdminSessionRequired: adminRequired,
-          ownerAdminSessionRequiredForLedgerBootstrap: ownerAdminAuthConfigured,
+          ownerAdminSessionRequired: false,
+          ownerAdminSessionConfiguredForLedgerBootstrap: ownerAdminAuthConfigured,
           ownerAdminSessionConfigured: adminConfigured,
           checkedAt: new Date(now()).toISOString(),
         }
