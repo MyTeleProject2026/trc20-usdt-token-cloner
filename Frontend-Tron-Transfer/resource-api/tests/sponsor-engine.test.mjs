@@ -35,7 +35,7 @@ async function signAndSubmitLocally(engine, localWallet, input) {
   })
 }
 
-function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverrides = {} } = {}) {
+function fixture({ bandwidth = 600, stakedBandwidth = 0, balance = 10_000_000n, onBroadcast, envOverrides = {} } = {}) {
   let signedCount = 0
   let broadcastCount = 0
   let durableTxId = false
@@ -58,7 +58,7 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverr
     transactionBuilder: { freezeBalanceV2: async () => transaction },
     trx: {
       getBalance: async () => balance,
-      getAccountResources: async () => ({ freeNetLimit: bandwidth, freeNetUsed: 0, NetLimit: 0, NetUsed: 0 }),
+      getAccountResources: async () => ({ freeNetLimit: bandwidth, freeNetUsed: 0, NetLimit: stakedBandwidth, NetUsed: 0 }),
       getChainParameters: async () => [{ key: 'getTransactionFee', value: 1000 }],
       sign: async tx => { signedCount += 1; return { ...tx, signature: ['b'.repeat(130)] } },
       getSignWeight: async () => ({ result: {}, current_weight: 1, permission: { id: 0, threshold: 1, keys: [{ address: SPONSOR, weight: 1 }] }, approved_list: [SPONSOR] }),
@@ -188,6 +188,19 @@ test('zero-fee policy blocks transactions whose own Bandwidth pool cannot cover 
   assert.equal(result.status, 'bandwidth-shortfall-exceeds-authorized-fee-cap')
   assert.equal(f.counts().signedCount, 0)
   assert.equal(f.counts().broadcastCount, 0)
+})
+
+test('preflight combines independent free and staked Bandwidth pools', async () => {
+  // The transaction consumes 110 bytes in this fixture. Neither pool covers
+  // it alone, but their combined available Bandwidth does.
+  const f = fixture({ bandwidth: 60, stakedBandwidth: 50 })
+  const result = await f.engine.execute({
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
+    onSigned: async txid => assert.equal(txid, TXID),
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.deepEqual(f.counts(), { signedCount: 1, broadcastCount: 1 })
 })
 
 test('Stake 2.0 checks the protected liquid reserve before signing', async () => {
