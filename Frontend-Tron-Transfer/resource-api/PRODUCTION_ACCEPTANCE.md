@@ -25,7 +25,7 @@ The report evaluates:
 10. Sponsor session authentication configuration.
 11. Mainnet deployment execution remains explicitly disabled during acceptance.
 12. Artifact-pinned TRӾ deployment source, creation bytecode, runtime bytecode and manifest fingerprints match the pinned Solidity build.
-13. The connected Owner TronLink wallet signs the exact prepared transaction; the Resource API recovers and verifies the configured Owner address and live TRON permission, then durably persists the signed transaction and broadcast intent before broadcasting. The backend does not sign Owner transactions or require an Owner private-key environment variable.
+13. The encrypted local Owner Wallet signs the exact prepared transaction in the existing browser workspace; no TronLink or other external wallet connection is required. The Resource API recovers and verifies the configured Owner address and live TRON permission, then durably persists the signed transaction and broadcast intent before broadcasting. The backend does not receive or sign with the Owner private key.
 14. Pending-owner challenge/session is distinct from the configured Owner session and acceptance verifies the exact pending-owner signature, transaction and solidified owner state.
 15. Owner and Sponsor password changes, role-scoped one-time recovery, single-session revocation and revoke-other-sessions routes are available; recovery tokens and session tokens are hash-stored.
 
@@ -45,13 +45,13 @@ The command uses HTTPS only, refuses redirects, checks the health and acceptance
 
 Use the existing production frontend in a real desktop and mobile browser. Do not paste passwords, private keys, seed phrases, session cookies, or database credentials into browser developer tools.
 
-- Confirm the Owner workspace loads and navigation works. Owner access requires both the independent managed Owner password session and a connected TronLink signer; the app session address, TronLink authorized account, TronWeb active address, configured Owner address and transaction owner must all match.
+- Confirm the Owner workspace loads and navigation works. Owner access requires the independent managed Owner password session and unlock of the encrypted local Owner Wallet; the imported vault address, authenticated Owner session address, configured Owner address and transaction owner must all match. No TronLink connection is required.
 - Confirm the Sponsor workspace loads independently and displays the Sponsor identity separately.
 - Confirm read-only Sponsor status is visible and blocked checks are clearly labelled.
 - Confirm browser storage, page source, network responses, and console output contain no Sponsor or Owner private key, static Sponsor Admin token, session secret, or database URL. Confirm Sponsor transaction requests include the independent Owner session cookie and Sponsor CSRF proof, without any private-key or static admin-token header.
 - Confirm navigation, reload, logout/session expiry, narrow mobile viewport, keyboard focus, and error/empty states.
 - Confirm no Owner or Sponsor page silently submits, signs, or broadcasts a transaction during page load or status refresh.
-- Confirm Owner deployment and contract-operation prompts appear only after explicit confirmation and fresh resource preflight. TronLink must sign the exact persisted unsigned transaction; the Resource API must reject missing, mismatched or invalid signatures and must persist the verified signature before broadcasting.
+- Confirm Owner deployment and contract-operation prompts appear only after explicit confirmation and fresh resource preflight. The encrypted local Owner Wallet must sign the exact persisted unsigned transaction; the Resource API must reject missing, mismatched or invalid signatures and must persist the verified signature before broadcasting.
 - Keep all write controls disabled while acceptance is in progress.
 
 Browser acceptance must be recorded with browser/version, viewport, build commit, route, observed result, and timestamp. A screenshot alone does not prove signing custody or transaction safety.
@@ -59,9 +59,9 @@ Browser acceptance must be recorded with browser/version, viewport, build commit
 ## Release gates not automated by this layer
 
 - A real Neon database snapshot/backup and restoration drill must be evidenced independently; environment flags are operator attestations, not proof.
-- Apply Owner Admin migrations only with the direct PostgreSQL endpoint after the backup/restore gate, then verify migration checksums and required tables.
-- Owner TronLink signing must be tested with broadcast disabled and the recovered signature verified against the configured Owner address and live permission.
-- Sponsor signing must be tested with broadcast disabled and the signature recovered/verified against the configured Sponsor address.
+- Apply Owner Admin migrations only with the direct PostgreSQL endpoint after the backup/restore gate. Set `OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256` to the independently verified target fingerprint; the runner refuses a missing or mismatched host/database/role pin and rejects Neon pooler endpoints. Then verify migration checksums and required tables.
+- Owner encrypted-local-vault signing must be tested with broadcast disabled and the recovered signature verified against the configured Owner address and live permission.
+- Sponsor encrypted-local-vault signing must be tested with broadcast disabled and the recovered signature verified against the configured Sponsor address; Owner and Sponsor session, vault, and signer identities must not cross-authorize.
 - Owner and Sponsor recovery tokens must be generated for the intended role, consumed once, and verified not to cross-authenticate the other wallet role.
 - Process-restart recovery must be exercised against a non-production or safely isolated test ledger.
 - Mainnet deployment and pending-owner acceptance remain disabled until artifact pins, live resource coverage, database durability, backup/restore evidence, independent security review and explicit approval are complete.
@@ -70,7 +70,7 @@ Browser acceptance must be recorded with browser/version, viewport, build commit
 
 ## Database restoration and migration checksum reconciliation
 
-The isolated restore rehearsal was performed from the existing Neon snapshot on branch `br-royal-shadow-be3pzyvg`. The six current migration files were replayed transactionally and the restored Owner Admin schema was compared against production using a stable catalog fingerprint over Owner/Sponsor-control columns, defaults, constraints, indexes, sequences, triggers, policies, functions and table properties. Both branches produced fingerprint `928d5dbfef69ff32cffe4513e267b60a9d84206ac727399cecbb206257903c8d`.
+The isolated restore rehearsal was performed from the existing Neon snapshot on branch `br-royal-shadow-be3pzyvg`. The six current migration files were replayed transactionally and the restored Owner Admin schema was compared against production using a stable catalog fingerprint over Owner/Sponsor-control columns, defaults, constraints, indexes, sequences, triggers, policies, functions and table properties. Both branches produced fingerprint `0eb0424ecbab1e18a0ab5db74ea2bfe0251956faba02b3cbcfc3e0146ce804df`.
 
 Production's six migration-ledger checksum values are legacy values from the earlier migration source. They do not equal the current file hashes, even though the catalog fingerprint matches. The migration runner now recognizes only those six exact legacy values and updates them to the current file hashes only after the complete schema fingerprint matches. An unknown checksum or schema drift aborts and rolls back. The restored branch ledger was updated to the current file hashes for this rehearsal; production's ledger was not directly modified.
 
