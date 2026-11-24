@@ -479,8 +479,8 @@ export function createSponsorResourceApi({
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
-          adminTokenRequired: adminRequired,
-          adminTokenConfigured: adminConfigured,
+          ownerAdminSessionRequired: adminRequired,
+          ownerAdminSessionConfigured: adminConfigured,
           checkedAt: new Date(now()).toISOString(),
         }
   }
