@@ -290,8 +290,8 @@ export function createSponsorTransactionEngine({
       const accountResources = await tronWeb.trx.getAccountResources(sponsorAddress)
       const freeBandwidth = Math.max(0, Number(accountResources.freeNetLimit || 0) - Number(accountResources.freeNetUsed || 0))
       const stakedBandwidth = Math.max(0, Number(accountResources.NetLimit || 0) - Number(accountResources.NetUsed || 0))
-      // TRON exposes free and staked Bandwidth as independent pools; both contribute to the usable total.
-      const availableBandwidth = freeBandwidth + stakedBandwidth
+      // Match the deployment preflight: a transaction must fit within one available Bandwidth quota.
+      const availableBandwidth = Math.max(freeBandwidth, stakedBandwidth)
       const transactionBytes = Buffer.from(transaction.raw_data_hex, 'hex').length + 100
       const chainParameters = await tronWeb.trx.getChainParameters()
       const bandwidthFee = Number((chainParameters || []).find(item => item.key === 'getTransactionFee')?.value || 0)
@@ -381,7 +381,7 @@ export function createSponsorTransactionEngine({
       const parameters = await tronWeb.trx.getChainParameters()
       const bandwidthFee = Number((parameters || []).find(item => item.key === 'getTransactionFee')?.value || 0)
       if (!Number.isSafeInteger(bytes) || bytes <= 0 || !Number.isSafeInteger(bandwidthFee) || bandwidthFee <= 0) throw new Error('mainnet-bandwidth-preflight-unavailable')
-      const bandwidthFeeSun = BigInt(Math.max(0, bytes - (freeBandwidth + stakedBandwidth))) * BigInt(bandwidthFee)
+      const bandwidthFeeSun = BigInt(Math.max(0, bytes - Math.max(freeBandwidth, stakedBandwidth))) * BigInt(bandwidthFee)
       if (bandwidthFeeSun > maxFee) throw new Error('bandwidth-shortfall-exceeds-authorized-fee-cap')
       const principal = ['stake', 'topup'].includes(operation) ? BigInt(String(amountSun)) : 0n
       if (balance < principal + reserve + bandwidthFeeSun) throw new Error('insufficient-balance-for-authorized-fee-cap')
