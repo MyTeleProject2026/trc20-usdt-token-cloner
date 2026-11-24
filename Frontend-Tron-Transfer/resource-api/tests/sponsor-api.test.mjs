@@ -14,21 +14,20 @@ function request(method, path, body, token, adminToken, client = {}) {
   const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   stream.method = method
   stream.url = path
-  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}), ...(client.headers || {}) }
+  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-sponsor-admin-token': adminToken, 'x-test-owner-admin-session': 'valid' } : {}), ...(client.headers || {}) }
   stream.socket = { remoteAddress: client.remoteAddress || '127.0.0.1' }
   return stream
 }
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '', expectedDatabaseIdentitySha256 = '', authenticateManagedSession = null, authenticateOwnerAdminSession = null } = {}) {
+function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '', expectedDatabaseIdentitySha256 = '', authenticateManagedSession = null, authenticateOwnerAdminSession = async req => req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null } = {}) {
   let clock = Date.now()
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
     SPONSOR_LEDGER_DURABLE: 'true',
     SPONSOR_LEDGER_BACKUP_VERIFIED: 'true',
     SPONSOR_LEDGER_RESTORE_TESTED: 'true',
-    ...(adminToken ? { SPONSOR_ADMIN_TOKEN: adminToken } : {}),
     SPONSOR_MAINNET_ADDRESS: SPONSOR,
     TRON_OWNER_ADDRESS: OWNER,
     ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
@@ -424,7 +423,7 @@ test('Sponsor status classifies database connection failures without exposing er
   assert.equal(JSON.stringify(result.payload).includes('private-db-host.example'), false)
 })
 
-test('invalid configured Sponsor Admin token keeps write execution unavailable', async () => {
+test('Sponsor write readiness does not depend on a static admin token', async () => {
   const database = {
     async query(sql) {
       if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
@@ -441,7 +440,7 @@ test('invalid configured Sponsor Admin token keeps write execution unavailable',
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
   assert.equal(result.payload.adminTokenRequired, true)
-  assert.equal(result.payload.adminTokenConfigured, false)
+  assert.equal(result.payload.adminTokenConfigured, true)
   assert.equal(result.payload.databaseReady, true)
   assert.equal(result.payload.databaseStatus, 'ready')
   assert.equal(result.payload.transactionExecutionAvailable, false)
@@ -679,7 +678,7 @@ test('invalid resource combinations cannot create Sponsor intents', async () => 
 })
 
 
-test('configured Sponsor Admin token is required as a second factor for write intents', async () => {
+test('Owner Admin session is required for Sponsor write intents', async () => {
   const adminToken = 'admin-token-with-at-least-thirty-two-bytes-long'
   const { api } = setup({ adminToken })
   const token = await authenticated(api)
@@ -723,8 +722,8 @@ test('Sponsor transaction preparation fails closed until ledger durability, back
   assert.equal(prepared.payload.error, 'sponsor-ledger-durability-not-verified')
 })
 
-test('missing Sponsor Admin token configuration fails closed for every write', async () => {
-  const { api } = setup({ adminToken: '' })
+test('missing Owner Admin session fails closed for Sponsor writes', async () => {
+  const { api } = setup({ adminToken: '', authenticateOwnerAdminSession: null })
   const status = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(status.payload.adminTokenRequired, true)
   assert.equal(status.payload.adminTokenConfigured, false)
