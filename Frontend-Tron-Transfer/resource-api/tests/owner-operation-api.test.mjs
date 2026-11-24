@@ -172,7 +172,7 @@ function makeExecutionFixture(overrides = {}) {
     database: { async query() { return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } } },
     send: (_res, status, payload) => replies.push({ status, payload }),
     authenticateManagedSession: async () => ({ address: owner, sessionId: 9 }),
-    ledgerFactory: () => ledger,
+    ledgerFactory: () => overrides.ledger || ledger,
     tronWebFactory: () => ({ trx: {} }),
     verifyContractState: async () => { counts.verify++ },
     verifyUnsignedTransaction: async () => {},
@@ -183,7 +183,7 @@ function makeExecutionFixture(overrides = {}) {
     reconcileTransaction: async (_txId, _owner, _contract, options) => { reconciledTransactions.push(options.expectedTransaction); return { solidified: true, success: true, status: 'SUCCESS', blockNumber: 123 } },
   })
   const replies = []
-  return { api, operation, intentSha256, transitions, counts, replies, reconciledTransactions }
+  return { api, operation, intentSha256, transitions, counts, replies, reconciledTransactions, ledger }
 }
 
 test('Owner confirmation verifies the encrypted local Owner Wallet signature and durably journals before broadcast', async () => {
@@ -202,6 +202,30 @@ test('Owner confirmation verifies the encrypted local Owner Wallet signature and
   assert.equal(fixture.reconciledTransactions[0]?.txID, 'b'.repeat(64))
   assert.equal(fixture.reconciledTransactions[0]?.raw_data_hex, 'ab'.repeat(32))
   assert.deepEqual(fixture.transitions.map(item => item.state), ['signed', 'broadcast-unknown', 'broadcast', 'confirmed'])
+})
+
+test('Owner signed operation is reconciled after Resource API restart without signing or rebroadcasting', async () => {
+  const beforeRestart = makeExecutionFixture()
+  beforeRestart.operation.state = 'broadcast-unknown'
+  beforeRestart.operation.transaction_id = 'b'.repeat(64)
+  beforeRestart.operation.receipt.signedTransaction = {
+    txID: 'b'.repeat(64), raw_data_hex: 'ab'.repeat(32),
+    raw_data: { expiration: Date.now() + 60_000 }, signature: ['a'.repeat(130)],
+  }
+  const afterRestart = makeExecutionFixture({ ledger: beforeRestart.ledger })
+  await afterRestart.api.handle(
+    request('GET'),
+    response(),
+    new URL('https://api.test/api/owner/operations/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+    'https://tron-transfer.onrender.com',
+  )
+  assert.equal(afterRestart.replies[0].status, 200)
+  assert.equal(afterRestart.replies[0].payload.operation.state, 'confirmed')
+  assert.equal(afterRestart.replies[0].payload.reconciliation.solidified, true)
+  assert.equal(afterRestart.counts.broadcast, 0)
+  assert.equal(afterRestart.counts.signatureCheck, 0)
+  assert.equal(afterRestart.reconciledTransactions.length, 1)
+  assert.equal(beforeRestart.operation.state, 'confirmed')
 })
 
 test('Owner confirmation accepts full-size local Owner Wallet batch transaction payloads before execution gates', async () => {
