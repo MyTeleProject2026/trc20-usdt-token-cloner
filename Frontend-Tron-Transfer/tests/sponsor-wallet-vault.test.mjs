@@ -32,7 +32,10 @@ test('Sponsor vault encrypts locally with AES-256-GCM and PBKDF2-SHA256 and veri
 })
 
 test('Sponsor local vault is independent from the Owner and matches the authenticated Sponsor session', () => {
-  assert.ok(ui.includes('account.address === OWNER_ADDRESS'))
+  assert.ok(ui.includes('account.address === ownerAddress'))
+  assert.ok(ui.includes('account.address !== managedSponsorAddress'))
+  assert.ok(ui.includes("const configuredOwnerAddress = typeof session?.address === 'string'"))
+  assert.ok(!ui.includes('const OWNER_ADDRESS ='))
   assert.ok(ui.includes('account.address !== managedSponsorAddress'))
   assert.ok(ui.includes('Sponsor Wallet imported'))
   assert.ok(ui.includes('Sponsor Wallet unlocked'))
