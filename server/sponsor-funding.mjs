@@ -1,8 +1,8 @@
-import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
+import { tronGridProviderFetch } from './trongrid-provider-fetch.mjs'
 const NETWORKS = Object.freeze({
-  mainnet: { host: 'https://tron-mainnet.gateway.tatum.io', addressEnv: 'SPONSOR_MAINNET_ADDRESS' },
-  shasta: { host: 'https://tron-shasta.gateway.tatum.io', addressEnv: 'SPONSOR_SHASTA_ADDRESS' },
-  nile: { host: 'https://tron-nile.gateway.tatum.io', addressEnv: 'SPONSOR_NILE_ADDRESS' },
+  mainnet: { host: 'https://api.trongrid.io', addressEnv: 'SPONSOR_MAINNET_ADDRESS' },
+  shasta: { host: 'https://api.shasta.trongrid.io', addressEnv: 'SPONSOR_SHASTA_ADDRESS' },
+  nile: { host: 'https://nile.trongrid.io', addressEnv: 'SPONSOR_NILE_ADDRESS' },
 })
 
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -38,7 +38,7 @@ function readTokenAllowlist(env, network) {
 
 export function createSponsorFundingReader({
   env = process.env,
-  fetchImpl = tatumProviderFetch,
+  fetchImpl = tronGridProviderFetch,
   tronWebFactory = async (host) => {
     const { TronWeb } = await import('tronweb')
     return new TronWeb({ fullHost: host })
@@ -79,13 +79,13 @@ export function createSponsorFundingReader({
         submissionEnabled: false,
       }
     }
-    if (typeof env.TATUM_API_KEY !== 'string' || !env.TATUM_API_KEY.trim()) {
+    if (typeof env.TRONGRID_API_KEY !== 'string' || !env.TRONGRID_API_KEY.trim()) {
       return {
         configured: true,
         network,
         status: 'provider-credentials-missing',
         sponsorAddress,
-        requiredEnvironment: ['TATUM_API_KEY'],
+        requiredEnvironment: ['TRONGRID_API_KEY'],
         onChainBalanceRead: false,
         sponsorFundingVerified: false,
         canSubmitSponsoredTransfer: false,
@@ -118,7 +118,7 @@ export function createSponsorFundingReader({
       }
       const headers = {
         'content-type': 'application/json',
-        'x-api-key': env.TATUM_API_KEY.trim(),
+        'TRON-PRO-API-KEY': env.TRONGRID_API_KEY.trim(),
       }
       const accountResponse = await fetchImpl(config.host + '/walletsolidity/getaccount', {
         method: 'POST',
@@ -228,7 +228,7 @@ export function createSponsorFundingReader({
         configured: true,
         network,
         status: 'solidified-sponsor-balances-read',
-        source: 'Tatum TRON SolidityNode account and constant-contract queries',
+        source: 'TronGrid TRON SolidityNode account and constant-contract queries',
         checkedAt: new Date().toISOString(),
         sponsorAddress,
         onChainBalanceRead: true,
