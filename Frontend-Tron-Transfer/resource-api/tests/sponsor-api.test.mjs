@@ -1119,3 +1119,25 @@ test('Sponsor local-signing API commits the signed transaction before a single b
   assert.ok(timeline.indexOf('commit-signed') < timeline.indexOf('broadcast'))
   assert.ok(timeline.indexOf('broadcast') < timeline.indexOf('persist-final'))
 })
+
+test('Sponsor ledger bootstrap refuses a mismatched database identity before issuing any DDL', async () => {
+  const queries = []
+  const database = {
+    async query(sql) {
+      queries.push(sql)
+      throw new Error('database must not be touched when the target identity is not accepted')
+    },
+  }
+  const databaseUrl = 'postgres://test_user:test_password@ep-production.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const { api } = setup({
+    database,
+    databaseUrl,
+    expectedDatabaseIdentitySha256: 'f'.repeat(64),
+  })
+  const result = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {
+    confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA',
+  }, null, TEST_ADMIN_TOKEN)
+  assert.equal(result.status, 503)
+  assert.equal(result.payload.error, 'sponsor-ledger-database-identity-not-accepted')
+  assert.deepEqual(queries, [])
+})
