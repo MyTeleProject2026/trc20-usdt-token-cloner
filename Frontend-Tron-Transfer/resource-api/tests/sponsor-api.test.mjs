@@ -985,7 +985,10 @@ test('database target identity uses the direct Owner Admin URL while Sponsor run
   assert.equal(runtime.sourceVariable, 'DATABASE_URL_POOLED')
   assert.equal(target.sourceVariable, 'OWNER_ADMIN_DATABASE_URL')
   assert.equal(target.identityFingerprint, directOnly.identityFingerprint)
-  assert.notEqual(runtime.identityFingerprint, target.identityFingerprint)
+  assert.equal(runtime.identityFingerprint, target.identityFingerprint, 'Neon pooler and direct endpoints for the same branch/database/role must normalize to one identity')
+
+  const otherBranch = sponsorDatabaseConnectionInfo({ DATABASE_URL_POOLED: 'postgres://app_role@ep-other-pooler.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  assert.notEqual(otherBranch.identityFingerprint, target.identityFingerprint, 'a different Neon branch must remain a different database identity')
 })
 
 test('managed Sponsor session cannot invoke the legacy server signer endpoint', async () => {
