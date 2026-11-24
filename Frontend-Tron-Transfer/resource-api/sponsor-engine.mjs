@@ -381,7 +381,7 @@ export function createSponsorTransactionEngine({
       const parameters = await tronWeb.trx.getChainParameters()
       const bandwidthFee = Number((parameters || []).find(item => item.key === 'getTransactionFee')?.value || 0)
       if (!Number.isSafeInteger(bytes) || bytes <= 0 || !Number.isSafeInteger(bandwidthFee) || bandwidthFee <= 0) throw new Error('mainnet-bandwidth-preflight-unavailable')
-      const bandwidthFeeSun = BigInt(Math.max(0, bytes - freeBandwidth + stakedBandwidth)) * BigInt(bandwidthFee)
+      const bandwidthFeeSun = BigInt(Math.max(0, bytes - (freeBandwidth + stakedBandwidth))) * BigInt(bandwidthFee)
       if (bandwidthFeeSun > maxFee) throw new Error('bandwidth-shortfall-exceeds-authorized-fee-cap')
       const principal = ['stake', 'topup'].includes(operation) ? BigInt(String(amountSun)) : 0n
       if (balance < principal + reserve + bandwidthFeeSun) throw new Error('insufficient-balance-for-authorized-fee-cap')
