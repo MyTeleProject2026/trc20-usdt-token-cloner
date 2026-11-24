@@ -24,7 +24,7 @@ test('Resource API uses only TronGrid even when obsolete Tatum settings are pres
   const tatumKey = 'obsolete-tatum-key-must-not-be-used'
   const calls = []
   const server = createServer({
-    env: { TRONGRID_API_KEY: tronGridKey, TATUM_API_KEY: tatumKey, TATUM_TRON_NETWORK: 'mainnet' },
+    env: { TRONGRID_API_KEY: tronGridKey, TATUM_API_KEY: tatumKey, TATUM_TRON_NETWORK: 'nile' },
     fetchImpl: async (url, options = {}) => {
       calls.push({ url, options })
       return new Response(JSON.stringify(mainnetPayload(url)), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -53,7 +53,7 @@ test('Resource API uses only TronGrid even when obsolete Tatum settings are pres
 test('Resource API does not fall back to another RPC node when TronGrid is unavailable', async t => {
   const calls = []
   const server = createServer({
-    env: { TRONGRID_API_KEY: 'test-trongrid-key', TATUM_API_KEY: 'obsolete-tatum-key' },
+    env: { TRONGRID_API_KEY: 'test-trongrid-key' },
     fetchImpl: async (url, options = {}) => {
       calls.push({ url, options })
       return new Response(JSON.stringify({ Error: 'node unavailable' }), { status: 503, headers: { 'content-type': 'application/json' } })
@@ -63,6 +63,6 @@ test('Resource API does not fall back to another RPC node when TronGrid is unava
   t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
   const response = await fetch('http://127.0.0.1:' + server.address().port + '/v1/resources/' + FAILURE_ADDRESS)
   assert.equal(response.status, 503)
-  assert.equal(calls.length, 1)
+  assert.equal(calls.length, 3)
   assert.ok(calls.every(call => call.url.startsWith(MAINNET_RPC + '/wallet/')))
 })
