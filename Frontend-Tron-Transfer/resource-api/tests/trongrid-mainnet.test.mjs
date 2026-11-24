@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createServer, MAINNET_RPC } from '../server.js'
 
 const ADDRESS = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const FAILURE_ADDRESS = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
 
 function mainnetPayload(url) {
   if (url.endsWith('/wallet/getaccountresource')) return {
@@ -60,7 +61,7 @@ test('Resource API does not fall back to another RPC node when TronGrid is unava
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
-  const response = await fetch('http://127.0.0.1:' + server.address().port + '/v1/resources/' + ADDRESS)
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/v1/resources/' + FAILURE_ADDRESS)
   assert.equal(response.status, 503)
   assert.equal(calls.length, 3)
   assert.ok(calls.every(call => call.url.startsWith(MAINNET_RPC + '/wallet/')))
