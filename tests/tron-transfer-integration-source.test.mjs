@@ -54,6 +54,8 @@ test('legacy payout, external-sponsor and exchange-status artifacts are absent',
     '../docs/SPONSORED_TRON_TRANSFER.md',
     '../docs/SPONSOR_TESTNET_SIGNING_BROADCAST_PATH.md',
     '../.github/ISSUE_TEMPLATE/individual-sponsor-inquiry.yml',
+    '../server/receiver-history-worker.mjs',
+    '../docs/sponsor-fee-settlement-design.md',
   ]
   for (const path of removed) {
     await assert.rejects(readFile(new URL(path, import.meta.url)), error => error?.code === 'ENOENT')

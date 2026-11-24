@@ -29,7 +29,7 @@ The existing `contracts/Restricted1TRAX.sol` source is preserved byte-for-byte. 
 
 ## Intentionally excluded
 
-The active platform has no testnet execution path, third-party Energy/Bandwidth supplier, GasFree relay, TEnergy promotion or claim, WDK wallet provider, Fincra payout, Fireblocks custody/inventory, external treasury, external Sponsor account, Sponsor Direct Payout, provider payout, exchange-credit workflow, or backend private-key signer. These are not hidden behind feature flags; obsolete modules, routes, tests, scripts and documentation are removed from the active repository.
+The active platform has no testnet execution path, third-party Energy/Bandwidth supplier, GasFree relay, TEnergy promotion or claim, WDK wallet provider, Fincra payout, Fireblocks custody/inventory, external treasury, third-party Sponsor account, Sponsor Direct Payout, provider payout, exchange-credit workflow, or backend private-key signer. These are not hidden behind feature flags; obsolete modules, routes, tests, scripts and documentation are removed from the active repository.
 
 ## Production acceptance boundary
 
@@ -43,5 +43,5 @@ Sponsor funding/resource arrangements are treated as already prepared. The remai
 - [Integrated Sponsor Wallet implementation](docs/INTEGRATED_SPONSOR_WALLET.md)
 - [Sponsor Mainnet go-live gates](docs/SPONSOR_GO_LIVE_GATES.md)
 - [Render, Tatum, TronGrid and Neon configuration](docs/RENDER_SPONSOR_CONFIGURATION.md)
-- [Production acceptance requirements](docs/PRODUCTION_ACCEPTANCE.md)
+- [Production acceptance requirements](Frontend-Tron-Transfer/resource-api/PRODUCTION_ACCEPTANCE.md)
 - [Current implementation PR #263](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/263)
