@@ -22,7 +22,7 @@ The live endpoint reports these server-side checks only:
 6. Sponsor operations table, prepared/signed payload columns, and control row are present.
 7. Backup and restore acceptance flags are set.
 8. Sponsor writes remain paused.
-9. Independent Owner Admin authorization is configured for Sponsor administration.
+9. Owner-session authorization is configured for the one-time Sponsor ledger bootstrap; ordinary Sponsor operations use the independent Sponsor wallet session and Sponsor-local signature.
 10. Managed wallet session authentication is configured.
 11. The local Sponsor signer execution path is available in code/configuration.
 12. Mainnet execution remains explicitly disabled during acceptance.
