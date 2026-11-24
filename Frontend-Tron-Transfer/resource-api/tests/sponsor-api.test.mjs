@@ -8,20 +8,20 @@ const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const SECRET = 'test-session-secret-with-at-least-thirty-two-bytes'
 const SIGNATURE = 'a'.repeat(130)
-const TEST_ADMIN_TOKEN = 'test-admin-token-with-at-least-thirty-two-bytes'
+const OWNER_SESSION_FIXTURE = 'test-admin-token-with-at-least-thirty-two-bytes'
 
-function request(method, path, body, token, adminToken, client = {}) {
+function request(method, path, body, token, ownerSessionFixture, client = {}) {
   const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   stream.method = method
   stream.url = path
-  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-test-owner-admin-session': 'valid' } : {}), ...(client.headers || {}) }
+  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(ownerSessionFixture ? { 'x-test-owner-admin-session': 'valid' } : {}), ...(client.headers || {}) }
   stream.socket = { remoteAddress: client.remoteAddress || '127.0.0.1' }
   return stream
 }
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '', expectedDatabaseIdentitySha256 = '', authenticateManagedSession = null, authenticateOwnerAdminSession = async req => req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null } = {}) {
+function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SESSION_FIXTURE, databaseUrl = '', expectedDatabaseIdentitySha256 = '', authenticateManagedSession = null, authenticateOwnerAdminSession = async req => req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null } = {}) {
   let clock = Date.now()
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
@@ -53,9 +53,9 @@ function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, 
   })
   return { api, calls, env, advanceClock: milliseconds => { clock += milliseconds } }
 }
-async function call(api, method, path, body, token, adminToken = TEST_ADMIN_TOKEN, client = {}) {
+async function call(api, method, path, body, token, ownerSessionFixture = OWNER_SESSION_FIXTURE, client = {}) {
   const res = response()
-  const handled = await api.handle(request(method, path, body, token, adminToken, client), res, new URL(path, 'http://localhost'), null)
+  const handled = await api.handle(request(method, path, body, token, ownerSessionFixture, client), res, new URL(path, 'http://localhost'), null)
   assert.equal(handled, true)
   return res
 }
@@ -206,12 +206,12 @@ test('Sponsor API rate limits use validated Cloudflare client IPs, not caller-co
   const firstClient = { headers: { 'cf-connecting-ip': '198.51.100.10', 'x-forwarded-for': '203.0.113.77' } }
   const results = []
   for (let index = 0; index < 9; index += 1) {
-    results.push(await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, TEST_ADMIN_TOKEN, firstClient))
+    results.push(await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, OWNER_SESSION_FIXTURE, firstClient))
   }
   assert.deepEqual(results.slice(0, 8).map(result => result.status), Array(8).fill(201))
   assert.equal(results[8].status, 429)
   const secondClient = { headers: { 'cf-connecting-ip': '198.51.100.11', 'x-forwarded-for': '203.0.113.77' } }
-  const second = await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, TEST_ADMIN_TOKEN, secondClient)
+  const second = await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, OWNER_SESSION_FIXTURE, secondClient)
   assert.equal(second.status, 201)
 })
 
@@ -298,12 +298,12 @@ test('Sponsor ledger bootstrap requires admin authorization and explicit confirm
   assert.equal(denied.status, 401)
   assert.equal(schemaCreated, false)
 
-  const missingConfirmation = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, TEST_ADMIN_TOKEN)
+  const missingConfirmation = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, OWNER_SESSION_FIXTURE)
   assert.equal(missingConfirmation.status, 400)
   assert.equal(missingConfirmation.payload.error, 'explicit-ledger-bootstrap-confirmation-required')
   assert.equal(schemaCreated, false)
 
-  const initialized = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' }, null, TEST_ADMIN_TOKEN)
+  const initialized = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' }, null, OWNER_SESSION_FIXTURE)
   assert.equal(initialized.status, 200)
   assert.equal(initialized.payload.schemaInitialized, true)
   assert.equal(initialized.payload.databaseReady, true)
@@ -330,7 +330,7 @@ test('managed Owner Admin authorization for Sponsor bootstrap requires the CSRF-
     database,
     databaseUrl,
     expectedDatabaseIdentitySha256,
-    adminToken: '',
+    ownerSessionFixture: '',
     authenticateOwnerAdminSession: async (req, options) => {
       assert.equal(options.requireCsrf, true)
       const valid = String(req.headers.cookie || '').includes('tron_owner_session=owner-session')
@@ -423,7 +423,7 @@ test('Sponsor status classifies database connection failures without exposing er
   assert.equal(JSON.stringify(result.payload).includes('private-db-host.example'), false)
 })
 
-test('Sponsor write readiness does not depend on a static admin token', async () => {
+test('Sponsor readiness reports Owner-session authorization accurately', async () => {
   const database = {
     async query(sql) {
       if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
@@ -436,7 +436,7 @@ test('Sponsor write readiness does not depend on a static admin token', async ()
     execute: async () => assert.fail('execution must remain disabled'),
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine, adminToken: 'too-short' })
+  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine, ownerSessionFixture: 'too-short' })
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
   assert.equal(result.payload.ownerAdminSessionRequired, true)
@@ -500,14 +500,14 @@ test('managed password session authorizes a short-lived exact intent without a b
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
     idempotencyKey: 'managed-password-intent-test-0001',
-  }, null, TEST_ADMIN_TOKEN, client)
+  }, null, OWNER_SESSION_FIXTURE, client)
   assert.equal(intent.status, 201)
   assert.equal(authCalls[0].requireCsrf, true)
 
   const result = await call(api, 'POST', '/api/sponsor/operations', {
     intentId: intent.payload.intentId,
     confirmPhrase: intent.payload.confirmationPhrase,
-  }, null, TEST_ADMIN_TOKEN, client)
+  }, null, OWNER_SESSION_FIXTURE, client)
   assert.equal(result.status, 410)
   assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
   assert.equal(authCalls.length, 2)
@@ -686,7 +686,7 @@ test('Owner Admin session, not a legacy static token header, authorizes Sponsor 
     idempotencyKey: 'sponsor-admin-topup-0123456789',
   }
   const legacyTokenOnly = await call(api, 'POST', '/api/sponsor/intent', body, token, null, {
-    headers: { 'x-sponsor-admin-token': TEST_ADMIN_TOKEN },
+    headers: { 'x-sponsor-admin-token': OWNER_SESSION_FIXTURE },
   })
   assert.equal(legacyTokenOnly.status, 403)
   assert.equal(legacyTokenOnly.payload.error, 'sponsor-admin-authorization-required')
@@ -724,7 +724,7 @@ test('Sponsor transaction preparation fails closed until ledger durability, back
 })
 
 test('missing Owner Admin session fails closed for Sponsor writes', async () => {
-  const { api } = setup({ adminToken: '', authenticateOwnerAdminSession: null })
+  const { api } = setup({ ownerSessionFixture: '', authenticateOwnerAdminSession: null })
   const status = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(status.payload.ownerAdminSessionRequired, true)
   assert.equal(status.payload.ownerAdminSessionConfigured, false)
@@ -961,13 +961,13 @@ test('Sponsor readiness coalesces simultaneous status refreshes into one databas
   assert.equal(queryCount, 2)
 })
 
-test('production Owner Admin session supersedes static Sponsor Admin token for Sponsor intents', async () => {
+test('production Owner Admin session is required for Sponsor intents', async () => {
   const { api } = setup({
     authenticateOwnerAdminSession: async req => String(req.headers.cookie || '').includes('owner-admin-session') ? { address: OWNER } : null,
   })
   const token = await authenticated(api)
   const intent = { operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'owner-admin-session-intent-0001' }
-  const tokenOnly = await call(api, 'POST', '/api/sponsor/intent', intent, token, TEST_ADMIN_TOKEN)
+  const tokenOnly = await call(api, 'POST', '/api/sponsor/intent', intent, token, OWNER_SESSION_FIXTURE)
   assert.equal(tokenOnly.status, 403)
   assert.equal(tokenOnly.payload.error, 'sponsor-admin-authorization-required')
 
@@ -1136,7 +1136,7 @@ test('Sponsor ledger bootstrap refuses a mismatched database identity before iss
   })
   const result = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {
     confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA',
-  }, null, TEST_ADMIN_TOKEN)
+  }, null, OWNER_SESSION_FIXTURE)
   assert.equal(result.status, 503)
   assert.equal(result.payload.error, 'sponsor-ledger-database-identity-not-accepted')
   assert.deepEqual(queries, [])
