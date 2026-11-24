@@ -96,7 +96,7 @@ export function sponsorDatabaseConnectionInfo(env = process.env) {
     // A one-way fingerprint proves which database endpoint/name/role is selected
     // without returning a hostname or credential in production diagnostics.
     const identity = JSON.stringify({
-      hostname,
+      hostname: hostname.replace(/-pooler(?=\\.)/i, ''),
       port: parsed.port || '5432',
       database: decodeURIComponent(parsed.pathname.slice(1)),
       username: decodeURIComponent(parsed.username),
@@ -325,8 +325,15 @@ export function databaseTargetIdentityMatches(env = process.env) {
   const expected = typeof env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256 === 'string'
     ? env.OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256.trim().toLowerCase()
     : ''
-  return /^[0-9a-f]{64}$/.test(expected)
-    && sponsorDatabaseTargetIdentityInfo(env).identityFingerprint === expected
+  if (!/^[0-9a-f]{64}$/.test(expected)) return false
+
+  // Pin both the approved direct endpoint and the actual runtime connection.
+  // A valid OWNER_ADMIN_DATABASE_URL must not mask a Sponsor pool configured
+  // to point at a different database. Pooled Neon hostnames are canonicalized
+  // by sponsorDatabaseConnectionInfo before comparing their logical identity.
+  const approved = sponsorDatabaseTargetIdentityInfo(env).identityFingerprint
+  const runtime = sponsorDatabaseConnectionInfo(env).identityFingerprint
+  return approved === expected && runtime === expected
 }
 
 export function createSponsorResourceApi({
@@ -391,6 +398,7 @@ export function createSponsorResourceApi({
         const databaseTargetIdentity = sponsorDatabaseTargetIdentityInfo(env)
         const databaseIdentityMatches = expectedDatabaseIdentityValid
           && databaseTargetIdentity.identityFingerprint === expectedDatabaseIdentity
+          && databaseTargetIdentityMatches(env)
         const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
         const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
         const adminRequired = true
