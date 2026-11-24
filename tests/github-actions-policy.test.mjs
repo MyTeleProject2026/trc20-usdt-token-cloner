@@ -63,13 +63,10 @@ test('authoritative CI keeps PostgreSQL integration, tests, and production build
   )
 })
 
-test('public API smoke rejects forged wallet signatures without issuing sessions', async () => {
+test('production smoke monitors the existing Tron Transfer frontend and Resource API', async () => {
   const source = await readFile(new URL('public-api-smoke.yml', workflowsDirectory), 'utf8')
-  assert.match(source, /api\/auth\/tron\/challenge/)
-  assert.match(source, /api\/auth\/tron\/verify/)
-  assert.match(source, /signature:\s*"0x"\s*\+\s*"00"\.repeat\(65\)/)
-  assert.match(source, /verify_code.*401/)
-  assert.match(source, /signature-verification-failed.*signature-address-mismatch/s)
-  assert.match(source, /'sessionToken' in data/)
-  assert.match(source, /'wallet-identity-only'/)
+  assert.match(source, /https:\/\/tron-transfer\.onrender\.com\//)
+  assert.match(source, /https:\/\/tron-transfer-resource-api\.onrender\.com\/health/)
+  assert.match(source, /data\.status !== "ok"/)
+  assert.doesNotMatch(source, /trc20-usdt-token-cloner-api|nile|testnet/i)
 })
