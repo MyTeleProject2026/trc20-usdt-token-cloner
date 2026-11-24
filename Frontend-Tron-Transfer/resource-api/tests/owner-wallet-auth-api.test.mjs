@@ -74,28 +74,53 @@ test('Owner session accepts its role-specific CSRF header alongside an independe
   assert.equal(rejected, null)
 })
 
-test('Owner identity is address-only and never reads or derives a backend Owner private key', () => {
-  const ownerAddress = 'T' + '1'.repeat(33)
-  const sponsorAddress = 'T' + '2'.repeat(33)
-  const sponsorKey = '3'.repeat(64)
-  const derivedKeys = []
+test('Owner and Sponsor identity checks are address-only and never read backend wallet private keys', () => {
+  const ownerAddress = address
+  const sponsorAddress = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
   const report = createManagedWalletIdentityReport({
     env: {
       TRON_OWNER_ADDRESS: ownerAddress,
       TRON_OWNER_PRIVATE_KEY: '4'.repeat(64),
       SPONSOR_MAINNET_ADDRESS: sponsorAddress,
-      SPONSOR_MAINNET_PRIVATE_KEY: sponsorKey,
+      SPONSOR_MAINNET_PRIVATE_KEY: '3'.repeat(64),
     },
-    deriveAddress: key => { derivedKeys.push(key); return sponsorAddress },
   })
-  assert.deepEqual(derivedKeys, [sponsorKey])
   assert.equal(report.owner.address, ownerAddress)
-  assert.equal(report.owner.signerCustody, 'tronlink')
+  assert.equal(report.owner.signerCustody, 'encrypted-local-owner-vault')
   assert.equal(report.owner.ready, true)
-  assert.equal(report.sponsor.signerCustody, 'resource-api')
+  assert.equal(report.sponsor.address, sponsorAddress)
+  assert.equal(report.sponsor.signerCustody, 'encrypted-local-sponsor-vault')
   assert.equal(report.sponsor.ready, true)
+  assert.equal(report.sponsor.addressValid, true)
   assert.equal(report.identitiesDistinct, true)
   assert.equal(report.ready, true)
+})
+
+test('Owner and Sponsor enrollment identity validation does not require either backend private key', () => {
+  const report = createManagedWalletIdentityReport({
+    env: {
+      TRON_OWNER_ADDRESS: address,
+      SPONSOR_MAINNET_ADDRESS: 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR',
+    },
+  })
+  assert.equal(report.owner.ready, true)
+  assert.equal(report.sponsor.ready, true)
+  assert.equal(report.ready, true)
+})
+
+test('Owner identity validation rejects malformed or Sponsor-equal configured addresses', () => {
+  const sponsorAddress = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
+  const malformed = createManagedWalletIdentityReport({
+    env: { TRON_OWNER_ADDRESS: 'not-a-tron-address', SPONSOR_MAINNET_ADDRESS: sponsorAddress },
+  })
+  const same = createManagedWalletIdentityReport({
+    env: { TRON_OWNER_ADDRESS: sponsorAddress, SPONSOR_MAINNET_ADDRESS: sponsorAddress },
+  })
+  assert.equal(malformed.owner.ready, false)
+  assert.equal(malformed.identitiesDistinct, false)
+  assert.equal(malformed.ready, false)
+  assert.equal(same.identitiesDistinct, false)
+  assert.equal(same.ready, false)
 })
 
 test('Owner identity validation rejects malformed or Sponsor-equal configured addresses', () => {
