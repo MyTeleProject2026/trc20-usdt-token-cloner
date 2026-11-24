@@ -1,15 +1,13 @@
-# Provider-independent Sponsor System — Owner-controlled two-wallet model
+# Production environment — Owner/Sponsor-only Mainnet architecture
 
-This platform has two independently controlled TRON Mainnet wallets owned by the platform owner.
+The deployed Owner Admin application uses two independently controlled TRON Mainnet wallets and one TronGrid RPC connection.
 
-- **Owner workspace:** deploys the existing TRӾ contract and signs Owner-authorized transactions.
-- **Sponsor workspace:** stakes and unstakes its own TRX, delegates its own Energy and Bandwidth directly to the Owner address, and may explicitly transfer its own TRX to Owner.
-- Each wallet signs only its own transactions locally. The Sponsor never signs as Owner.
-- Private keys and recovery material remain encrypted locally and are never sent to the API or stored in Neon.
-- Both workspaces use the existing Resource API and one configured TronGrid Mainnet RPC connection.
+Required backend settings: NODE_ENV=production, DATABASE_URL (existing Neon connection), FRONTEND_ORIGIN (exact frontend origin), and optional TRONGRID_API_KEY. Store secrets only in the backend secret manager.
 
-No external sponsor, public Energy/Bandwidth provider, GasFree relay, Fincra payout, Fireblocks custody, Tatum RPC, or alternate resource supplier is part of this design.
+Owner and Sponsor are independent wallets. Each signs only its own transactions locally from its encrypted local vault. No private key, seed phrase, or recovery phrase is sent to Render or Neon. Owner deploys the existing TRӾ contract and signs Owner operations. Sponsor stakes and unstakes its own TRX, delegates its own Energy and Bandwidth directly to Owner, and may explicitly transfer its own TRX to Owner.
 
-Transaction intents must be persisted before broadcast and reconciled by transaction ID before any retry. Staking and delegation are complete only after fresh Mainnet state confirms them. The TRӾ Solidity contract is unchanged.
+TronGrid is the only configured TRON RPC node. It provides blockchain reads and signed-transaction broadcast; it does not provide Energy, Bandwidth, TRX, liquidity, custody, or fee sponsorship. No public resource supplier, external Sponsor, GasFree relay, payout processor, custodian, or alternate RPC provider is part of this architecture.
 
-Removing legacy code does not enroll wallets, initialize production tables, deploy Render services, or broadcast transactions; those remain explicit release and owner-enrollment steps.
+Mainnet only. Validate wallet identity, network, resource state, transaction parameters, and fee limit before signing. Persist transaction intent before broadcast and reconcile ambiguous submissions by transaction ID before retrying. Confirm staking/delegation from fresh Mainnet chain state. Do not enable production Sponsor writes until Owner bootstrap, Sponsor enrollment, persistence, recovery, and independent signing tests pass.
+
+The existing TRӾ Solidity contract is preserved. Cleanup does not itself enroll wallets, initialize production database tables, deploy Render services, or authorize Mainnet transactions.
