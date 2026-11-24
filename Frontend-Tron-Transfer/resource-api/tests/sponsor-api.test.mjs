@@ -1006,6 +1006,8 @@ test('managed Sponsor session is rejected if its enrolled address no longer matc
 
 test('Sponsor local-signing API commits the signed transaction before a single broadcast attempt', async () => {
   const timeline = []
+  let persistedTransactionId = null
+  let persistedSignedPayload = null
   const operationReference = 'sponsor-two-phase-lifecycle-0123456789'
   const transaction = {
     txID: 'a'.repeat(64),
@@ -1032,7 +1034,7 @@ test('Sponsor local-signing API commits the signed transaction before a single b
             operation: 'stake', resource: 'ENERGY', amount_sun: '1000000', sponsor_address: SPONSOR,
             owner_address: OWNER, status: 'reserved', prepared_transaction: transaction,
           }] }
-          if (sql.includes('SET status=\'signed-not-broadcast\'')) { transactionState = 'signed'; timeline.push('persist-signed'); return { rowCount: 1, rows: [{ id: 1 }] } }
+          if (sql.includes('SET status=\'signed-not-broadcast\'')) { persistedTransactionId = params[1]; persistedSignedPayload = JSON.parse(params[2]); transactionState = 'signed'; timeline.push('persist-signed'); return { rowCount: 1, rows: [{ id: 1 }] } }
           if (sql.includes('SELECT status,transaction_id')) return { rowCount: 1, rows: [{ status: 'signed-not-broadcast', transaction_id: transaction.txID }] }
           if (sql.includes('SET status=$2,result_code=$3')) { timeline.push('persist-final'); return { rowCount: 1, rows: [{ id: 1 }] } }
           throw new Error('unexpected client query: ' + sql)
@@ -1072,6 +1074,8 @@ test('Sponsor local-signing API commits the signed transaction before a single b
   }, token)
   assert.equal(submitted.status, 200)
   assert.equal(submitted.payload.solidified, true)
+  assert.equal(persistedTransactionId, transaction.txID, 'the exact prepared txID must be durable before broadcast')
+  assert.deepEqual(persistedSignedPayload, signedTransaction, 'the complete signed payload, not only txID, must be durable before broadcast')
   assert.ok(timeline.indexOf('persist-signed') < timeline.indexOf('commit-signed'))
   assert.ok(timeline.indexOf('commit-signed') < timeline.indexOf('broadcast'))
   assert.ok(timeline.indexOf('broadcast') < timeline.indexOf('persist-final'))
