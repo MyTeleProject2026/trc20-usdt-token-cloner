@@ -62,6 +62,7 @@ export default function PendingOwnerAcceptance() {
       const current=await refreshState()
       if(current.pendingOwner!==session.address)throw new Error('The on-chain Pending Owner proposal changed. Verify the newly proposed wallet before continuing.')
       const prepared=await client.prepare({idempotencyKey:window.crypto.randomUUID(),confirmationPhrase:PREPARE_PHRASE})
+      setOperation(prepared.operation)
       const signed=await signer.trx.sign(prepared.unsignedTransaction)
       const result=await client.confirm({operationId:prepared.operation.operation_id,intentSha256:prepared.intentSha256,signedTransaction:signed,confirmationPhrase:CONFIRM_PHRASE})
       const op=result.operation||prepared.operation
