@@ -249,7 +249,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       }
     }).catch(() => {})
     return () => { active = false }
-  }, [workspaceActive, sponsorAuth, ownerAuth])
+  }, [workspaceActive, sponsorAuth, ownerAuth, ownerAddress])
 
   async function loginOwnerAdmin() {
     if (busy || ownerAdminPassword.length < 12) return
