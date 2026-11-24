@@ -88,5 +88,5 @@ test('production smoke command requires the current local-wallet acceptance chec
   assert.match(source, /blocked\.length/)
   assert.match(source, /ready-for-independent-review/)
   assert.doesNotMatch(source, /sponsor-signer-address-match/)
-  assert.doesNotMatch(source, /admin-second-factor-configured'/)
+  assert.doesNotMatch(source, /['\"]admin-second-factor-configured['\"]/)
 })
