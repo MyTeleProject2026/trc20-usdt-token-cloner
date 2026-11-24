@@ -105,6 +105,7 @@ export function createPendingOwnerAcceptanceApi({
     const status=p.match(/^\/api\/pending-owner\/operations\/([0-9a-f-]{36})$/i)
     if(![statePath,challengePath,verifyPath,sessionPath,preparePath,confirmPath,logoutPath].some(Boolean)&&!status)return false
     const databaseApi=db();if(!databaseApi)return send(res,503,{error:'PENDING_OWNER_DATABASE_UNAVAILABLE'},origin)
+    let claimedOperationId = null
     try {
       if(statePath&&req.method==='GET'){
         const t=tron(),s=await chain(t),zero='T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb'
@@ -176,6 +177,7 @@ export function createPendingOwnerAcceptanceApi({
         if(input.confirmationPhrase!==CONFIRM||!/^[0-9a-f-]{36}$/i.test(id)||!/^[0-9a-f]{64}$/.test(intentHash))return send(res,400,{error:'PENDING_OWNER_CONFIRMATION_INVALID'},origin)
         const claim=await databaseApi.query("UPDATE public.tron_transfer_pending_owner_acceptances SET state='confirming',updated_at=now() WHERE operation_id=$1 AND pending_owner_address=$2 AND session_id=$3 AND intent_sha256=$4 AND state='prepared' RETURNING *",[id,s.address,s.sessionId,intentHash])
         const row=claim.rows?.[0];if(!row)return send(res,409,{error:'PENDING_OWNER_OPERATION_NOT_CONFIRMABLE'},origin)
+        claimedOperationId = id
         const t=tron(),chainNow=await chain(t)
         if(!sameAddress(t,chainNow.pendingOwner,s.address)||chainNow.contractAddress!==s.contractAddress)fail('PENDING_OWNER_PROPOSAL_CHANGED',409)
         checkIntegrity(t,row.unsigned_transaction,'Persisted pending-owner unsigned transaction')
@@ -226,7 +228,12 @@ export function createPendingOwnerAcceptanceApi({
         clearCookies(res);return send(res,200,{success:true,loggedOut:true},origin)
       }
       return send(res,405,{error:'METHOD_NOT_ALLOWED'},origin)
-    }catch(e){return send(res,Number.isInteger(e?.status)?e.status:503,{error:e?.code||'PENDING_OWNER_API_FAILED',message:String(e?.message||'Pending-owner request failed').slice(0,220)},origin)}
+    }catch(e){
+      if(claimedOperationId){
+        await databaseApi.query("UPDATE public.tron_transfer_pending_owner_acceptances SET state='failed',failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='confirming'",[claimedOperationId,String(e?.code||e?.message||'PENDING_OWNER_CONFIRMATION_FAILED').slice(0,120)]).catch(()=>{})
+      }
+      return send(res,Number.isInteger(e?.status)?e.status:503,{error:e?.code||'PENDING_OWNER_API_FAILED',message:String(e?.message||'Pending-owner request failed').slice(0,220)},origin)
+    }
   }
   return Object.freeze({handle,authenticateRequest:async(req,options={})=>{const databaseApi=db();if(!databaseApi)return null;try{return await auth(req,databaseApi,options.requireCsrf===true)}catch{return null}}})
 }
