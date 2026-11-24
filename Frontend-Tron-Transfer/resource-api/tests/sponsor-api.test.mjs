@@ -14,7 +14,7 @@ function request(method, path, body, token, adminToken, client = {}) {
   const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   stream.method = method
   stream.url = path
-  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-sponsor-admin-token': adminToken, 'x-test-owner-admin-session': 'valid' } : {}), ...(client.headers || {}) }
+  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-test-owner-admin-session': 'valid' } : {}), ...(client.headers || {}) }
   stream.socket = { remoteAddress: client.remoteAddress || '127.0.0.1' }
   return stream
 }
@@ -439,8 +439,8 @@ test('Sponsor write readiness does not depend on a static admin token', async ()
   const { api } = setup({ database, databaseUrl: 'postgres://configured', engine, adminToken: 'too-short' })
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
-  assert.equal(result.payload.adminTokenRequired, true)
-  assert.equal(result.payload.adminTokenConfigured, true)
+  assert.equal(result.payload.ownerAdminSessionRequired, true)
+  assert.equal(result.payload.ownerAdminSessionConfigured, true)
   assert.equal(result.payload.databaseReady, true)
   assert.equal(result.payload.databaseStatus, 'ready')
   assert.equal(result.payload.transactionExecutionAvailable, false)
@@ -678,19 +678,20 @@ test('invalid resource combinations cannot create Sponsor intents', async () => 
 })
 
 
-test('Owner Admin session is required for Sponsor write intents', async () => {
-  const adminToken = 'admin-token-with-at-least-thirty-two-bytes-long'
-  const { api } = setup({ adminToken })
+test('Owner Admin session, not a legacy static token header, authorizes Sponsor write intents', async () => {
+  const { api } = setup()
   const token = await authenticated(api)
   const body = {
     operation: 'topup', resource: 'TRX', amountSun: '1000000',
     idempotencyKey: 'sponsor-admin-topup-0123456789',
   }
-  const denied = await call(api, 'POST', '/api/sponsor/intent', body, token, null)
-  assert.equal(denied.status, 403)
-  assert.equal(denied.payload.error, 'sponsor-admin-authorization-required')
-  const accepted = await call(api, 'POST', '/api/sponsor/intent', body, token, adminToken)
-  assert.equal(accepted.status, 201)
+  const legacyTokenOnly = await call(api, 'POST', '/api/sponsor/intent', body, token, null, {
+    headers: { 'x-sponsor-admin-token': TEST_ADMIN_TOKEN },
+  })
+  assert.equal(legacyTokenOnly.status, 403)
+  assert.equal(legacyTokenOnly.payload.error, 'sponsor-admin-authorization-required')
+  const ownerAuthorized = await call(api, 'POST', '/api/sponsor/intent', body, token, 'owner-session-fixture')
+  assert.equal(ownerAuthorized.status, 201)
 })
 
 
@@ -725,8 +726,8 @@ test('Sponsor transaction preparation fails closed until ledger durability, back
 test('missing Owner Admin session fails closed for Sponsor writes', async () => {
   const { api } = setup({ adminToken: '', authenticateOwnerAdminSession: null })
   const status = await call(api, 'GET', '/api/sponsor/status')
-  assert.equal(status.payload.adminTokenRequired, true)
-  assert.equal(status.payload.adminTokenConfigured, false)
+  assert.equal(status.payload.ownerAdminSessionRequired, true)
+  assert.equal(status.payload.ownerAdminSessionConfigured, false)
   assert.equal(status.payload.transactionExecutionAvailable, false)
   const token = await authenticated(api)
   const result = await call(api, 'POST', '/api/sponsor/intent', {
