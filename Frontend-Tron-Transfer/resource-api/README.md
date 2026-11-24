@@ -99,14 +99,11 @@ Configure these only on the existing Resource API service in Render. Never put s
 
 There is no Sponsor private-key environment variable in the local-vault architecture. Remove any obsolete `SPONSOR_MAINNET_PRIVATE_KEY`, `SPONSOR_SIGNER_URL` or remote-signer HMAC secret from the existing Render service only after confirming the deployed production revision no longer depends on the old signer. This feature branch has not been deployed.
 
-## Mainnet resource reads and RPC providers
+## Mainnet resource reads and RPC
 
-- `GET /health` — service health and upstream identity.
-- `POST /api/tron/mainnet/rpc/:walletMethod` — allowlisted read-only TronWeb RPC proxy. Transaction signing, deployment and arbitrary RPC methods are not exposed through this proxy.
-- `GET /v1/resources/:base58Address` — native TRX balance, Energy, free and staked/delegated Bandwidth by source, network resource weights and fee parameters.
-- `GET /v1/transactions/:base58Address?limit=20` — recent confirmed native transactions and official USDT TRC-20 transfers.
+The Resource API uses **TronGrid as its single TRON Mainnet RPC node** for account resources, balances, chain parameters, transaction history, Owner deployment/operation checks, Sponsor transaction checks, and signed-transaction broadcast. Configure `TRONGRID_API_KEY` only as a server-side secret when an API key is required. No Tatum RPC fallback is used.
 
-Tatum is preferred when `TATUM_API_KEY` is configured; TronGrid is the fallback. Keep `TATUM_API_KEY` and `TRONGRID_API_KEY` in server-side secrets. The API never returns provider credentials. If both providers fail, the API reports unavailable and does not invent resource values.
+TronGrid is a blockchain node connection, not an Energy/Bandwidth supplier or fee sponsor. It does not supply resources, TRX, liquidity, or sponsorship. The platform's own Sponsor wallet stakes its TRX, delegates its own Energy/Bandwidth directly to the configured Owner wallet, and can explicitly transfer its own TRX to Owner. If TronGrid is unavailable, Mainnet reads fail closed; the API never invents resource values or switches to another provider.
 
 TRON does not combine free Bandwidth and staked/delegated Bandwidth into one single-transaction allowance. The preflight uses the more conservative single-source coverage rule. The fee cap defaults to zero, so a transaction that needs an uncovered TRX fee is blocked. A provider API key does not grant Energy, Bandwidth or transaction authorization.
 

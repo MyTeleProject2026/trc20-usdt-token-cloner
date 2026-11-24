@@ -325,7 +325,7 @@ export function createServer({ allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GR
         'access-control-allow-origin': origin || 'null',
         'access-control-allow-credentials': 'true',
         'access-control-allow-methods': 'GET, POST, OPTIONS',
-        'access-control-allow-headers': 'content-type, authorization, x-sponsor-admin-token, x-owner-enrollment-token, x-sponsor-enrollment-token, x-csrf-token, x-owner-csrf-token',
+        'access-control-allow-headers': 'content-type, authorization, x-owner-enrollment-token, x-sponsor-enrollment-token, x-csrf-token, x-owner-csrf-token',
         'access-control-max-age': '600',
         vary: 'Origin',
       })

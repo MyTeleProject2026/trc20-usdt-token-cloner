@@ -174,7 +174,7 @@ test('confirmed Sponsor Wallet transaction history rejects invalid addresses and
   assert.equal((await fetch(base + '/v1/transactions/TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp?limit=100')).status, 400)
 })
 
-test('Sponsor admin-token header is permitted by the Resource API CORS preflight', async (t) => {
+test('Owner and Sponsor session enrollment and CSRF headers are permitted by the Resource API CORS preflight', async (t) => {
   const { createServer } = await import('../server.js')
   const server = createServer()
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -186,7 +186,7 @@ test('Sponsor admin-token header is permitted by the Resource API CORS preflight
     headers: {
       origin,
       'access-control-request-method': 'POST',
-      'access-control-request-headers': 'authorization, content-type, x-sponsor-admin-token',
+      'access-control-request-headers': 'authorization, content-type, x-sponsor-enrollment-token, x-owner-csrf-token',
     },
   })
   assert.equal(response.status, 204)
@@ -195,7 +195,8 @@ test('Sponsor admin-token header is permitted by the Resource API CORS preflight
   const allowedHeaders = response.headers.get('access-control-allow-headers').toLowerCase().split(',').map(value => value.trim())
   assert.ok(allowedHeaders.includes('authorization'))
   assert.ok(allowedHeaders.includes('content-type'))
-  assert.ok(allowedHeaders.includes('x-sponsor-admin-token'))
+  assert.ok(allowedHeaders.includes('x-sponsor-enrollment-token'))
+  assert.ok(allowedHeaders.includes('x-owner-csrf-token'))
 })
 
 test('Resource API CORS preflight still rejects an unapproved browser origin', async (t) => {
