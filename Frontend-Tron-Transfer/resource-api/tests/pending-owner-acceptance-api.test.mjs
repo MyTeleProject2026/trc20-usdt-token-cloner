@@ -52,3 +52,33 @@ test('pending-owner acceptance persists signature and broadcast-unknown state be
  assert.equal(state,'broadcast')
  assert.equal(out[0].status,202)
 })
+
+
+test('pending-owner confirmation failure before signed persistence closes the claimed operation',async()=>{
+ const origin='https://tron-transfer.onrender.com',csrf='csrf-token',txid='b'.repeat(64),raw='cc'.repeat(32)
+ const unsigned={txID:txid,raw_data_hex:raw,raw_data:{timestamp:Date.now(),expiration:Date.now()+120000,fee_limit:150000000,contract:[{type:'TriggerSmartContract',parameter:{value:{owner_address:pending,contract_address:contract,data:'12345678',call_value:0}}}]}}
+ const row={operation_id:'123e4567-e89b-42d3-a456-426614174000',session_id:'session-id',contract_address:contract,pending_owner_address:pending,intent:{feeLimitSun:'150000000'},intent_sha256:'e'.repeat(64),transaction_id:txid,unsigned_transaction:unsigned,state:'prepared'}
+ const session={session_id:'session-id',csrf_hash:hash(csrf),contract_address:contract,pending_owner_address:pending,origin}
+ let state='prepared',failureCode=null
+ const db={async query(sql,params=[]){
+  if(sql.includes('SELECT session_id,csrf_hash'))return{rows:[session]}
+  if(sql.includes('SET last_seen_at'))return{rows:[]}
+  if(sql.includes("SET state='confirming'")){state='confirming';return{rows:[row]}}
+  if(sql.includes("SET state='failed',failure_code=$2")){state='failed';failureCode=params[1];return{rows:[{}]}}
+  return{rows:[]}
+ }}
+ const out=[]
+ const api=createPendingOwnerAcceptanceApi({
+  database:db,env:{TRAX_CONTRACT_ADDRESS:contract},
+  send:(_r,status,payload)=>out.push({status,payload}),
+  tronWebFactory:fakeTron,
+  checkIntegrity:()=>{throw Object.assign(new Error('test-signature-integrity-failure'),{code:'TEST_SIGNATURE_INTEGRITY_FAILED',status:409})},
+  checkSigner:()=>true,checkPermission:async()=>true,
+  estimateEnergy:async()=>({energyUsed:'1'}),readResources:async()=>({}),
+  calculateBudget:()=>({}),assertBudget:()=>true,
+ })
+ await api.handle(req('POST',{operationId:row.operation_id,intentSha256:row.intent_sha256,signedTransaction:{...unsigned,signature:['d'.repeat(130)]},confirmationPhrase:'CONFIRM TRӾ OWNERSHIP ACCEPTANCE'},{origin,cookie:'tron_pending_owner_session=token','x-csrf-token':csrf}),res(),new URL('https://api.test/api/pending-owner/confirm'),origin)
+ assert.equal(out[0].status,409)
+ assert.equal(state,'failed')
+ assert.equal(failureCode,'TEST_SIGNATURE_INTEGRITY_FAILED')
+})
