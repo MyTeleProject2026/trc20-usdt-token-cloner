@@ -117,6 +117,20 @@ test('Sponsor login is rate-limited per validated client IP after ten attempts i
  assert.equal(JSON.parse(limited.body).error,'LOGIN_RATE_LIMITED')
 })
 
+test('Sponsor recovery endpoint is rate-limited before expensive password hashing', async () => {
+  const db=fakeDatabase()
+  const api=createSponsorWalletAuthApi({env:{},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
+  for(let attempt=0;attempt<3;attempt+=1){
+    const res=response()
+    await api.handle(request('POST',{'origin':'https://tron-transfer.onrender.com','cf-connecting-ip':'203.0.113.13'},{recoveryToken:'short',newPassword:'short'}),res,new URL('https://api.test/api/wallet-auth/sponsor/recover'),'https://tron-transfer.onrender.com')
+    assert.equal(res.status,400)
+  }
+  const limited=response()
+  await api.handle(request('POST',{'origin':'https://tron-transfer.onrender.com','cf-connecting-ip':'203.0.113.13'},{recoveryToken:'short',newPassword:'short'}),limited,new URL('https://api.test/api/wallet-auth/sponsor/recover'),'https://tron-transfer.onrender.com')
+  assert.equal(limited.status,429)
+  assert.equal(JSON.parse(limited.body).error,'RECOVERY_RATE_LIMITED')
+})
+
 function authHeaders(loginResponse) {
   const cookies=loginResponse.headers['set-cookie']
   const session=cookies.find(value=>value.startsWith('tron_sponsor_session=')).split(';')[0]
