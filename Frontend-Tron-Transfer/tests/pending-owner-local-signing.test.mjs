@@ -7,7 +7,7 @@ test('pending-owner acceptance uses an ephemeral local signer and no injected wa
   assert.match(source, /deriveOwnerAccount/)
   assert.match(source, /createOwnerTronWeb\(account\.privateKey\)/)
   assert.match(source, /signer\.trx\.signMessageV2\(challenge\.message\)/)
-  assert.match(source, /signer\.trx\.sign\(prepared\.unsignedTransaction\)/)
+  assert.match(source, /setOperation\(prepared\.operation\)[\s\S]*signer\.trx\.sign\(prepared\.unsignedTransaction\)/)
   assert.match(source, /pendingSigner\.current=null/)
   assert.match(source, /unlockPendingOwnerSigner/)
   assert.match(source, /pendingKeyInput\.current\.value=''/)
