@@ -208,6 +208,22 @@ test('Owner password login creates a new session and returns no private key mate
 })
 
 
+test('Owner login is rate-limited per validated client IP after ten attempts in fifteen minutes', async () => {
+  const db = fakeDatabase()
+  const verifier = await hashWalletPassword('correct owner password phrase 123')
+  db.state.account = { wallet_address: address, password_hash: verifier.passwordHash, password_salt: verifier.passwordSalt, password_algorithm: verifier.passwordAlgorithm, password_params: verifier.passwordParams, enabled: true, failed_attempts: 0 }
+  const api = createOwnerWalletAuthApi({ env: {}, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) } })
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const res = response()
+    await api.handle(request('POST', { 'cf-connecting-ip': '203.0.113.10' }, { password: 'correct owner password phrase 123' }), res, new URL('https://api.test/api/wallet-auth/owner/login'), 'https://tron-transfer.onrender.com')
+    assert.equal(res.status, 200)
+  }
+  const limited = response()
+  await api.handle(request('POST', { 'cf-connecting-ip': '203.0.113.10' }, { password: 'correct owner password phrase 123' }), limited, new URL('https://api.test/api/wallet-auth/owner/login'), 'https://tron-transfer.onrender.com')
+  assert.equal(limited.status, 429)
+  assert.equal(JSON.parse(limited.body).error, 'LOGIN_RATE_LIMITED')
+})
+
 test('Owner recovery token is one-time, expires server-side, and revokes every session', async () => {
   const recoveryToken = 'one-time-owner-recovery-token-value-which-is-long-enough'
   const tokenHash = createHash('sha256').update(recoveryToken).digest('hex')
