@@ -93,7 +93,7 @@ export default function PendingOwnerAcceptance() {
     {session&&<article className="pending-owner-card">
       <div className="pending-owner-card-title"><CheckCircle2/><div><h3>Accept ownership</h3><p>Review the exact action, then sign locally with the verified pending-owner wallet.</p></div></div>
       <label>Type to confirm<input value={typed} onChange={e=>setTyped(e.target.value)} autoComplete="off" spellCheck="false" placeholder={CONFIRM_PHRASE}/></label>
-      <button type="button" className="pending-owner-primary" onClick={acceptOwnership} disabled={busy||typed!==CONFIRM_PHRASE||!pending}>Prepare and approve acceptance</button>
+      <button type="button" className="pending-owner-primary" onClick={acceptOwnership} disabled={busy||typed!==CONFIRM_PHRASE||!pending||!signerUnlocked}>Prepare and approve acceptance</button>
       <p className="pending-owner-muted">The backend checks Energy, Bandwidth, fee cap, signer and permission. It persists the signed transaction before broadcast and never automatically rebroadcasts an ambiguous result.</p>
     </article>}
     {operation&&<article className="pending-owner-card">
