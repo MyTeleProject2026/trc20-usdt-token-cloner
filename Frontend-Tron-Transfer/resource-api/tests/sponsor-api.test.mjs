@@ -440,7 +440,7 @@ test('Sponsor readiness distinguishes Sponsor execution from Owner-only ledger b
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
   assert.equal(result.payload.ownerAdminSessionRequired, false)
-  assert.equal(result.payload.ownerAdminSessionRequiredForLedgerBootstrap, true)
+  assert.equal(result.payload.ownerAdminSessionConfiguredForLedgerBootstrap, true)
   assert.equal(result.payload.ownerAdminSessionConfigured, true)
   assert.equal(result.payload.databaseReady, true)
   assert.equal(result.payload.databaseStatus, 'ready')
