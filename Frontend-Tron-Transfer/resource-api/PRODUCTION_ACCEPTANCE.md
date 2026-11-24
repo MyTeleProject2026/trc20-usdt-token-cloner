@@ -58,6 +58,22 @@ Use the existing production frontend in a real desktop and mobile browser. Do no
 
 Browser acceptance must be recorded with browser/version, viewport, build commit, route, observed result, and timestamp. A screenshot alone does not prove signing custody or transaction safety.
 
+## Owner and Sponsor deposit acceptance
+
+The existing frontend includes a shared receive panel in both workspaces. It displays the address of the currently unlocked role wallet, supports copying that address, links to its TRONSCAN account page, and shows recent incoming native TRX and official USDT (TRC20) transfers. The panel does not create an intermediary deposit address, initiate a transfer, or custody incoming funds.
+
+The Resource API history route is read-only and requests confirmed-only records from TronGrid. The USDT history request is restricted to the official TRON Mainnet USDT contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`. TRӾ is intentionally not represented as USDT or included in this deposit feed.
+
+During browser acceptance, verify separately for Owner and Sponsor:
+- The displayed/copyable address matches that role's configured Mainnet address and unlocked local vault; it must never show the other role's address.
+- The TRONSCAN link opens the same address.
+- Refresh updates that role's own history and does not cross-populate the other workspace.
+- Only confirmed incoming TRX transfers and official-USDT incoming transfers are shown; outgoing transfers, unrelated token contracts, malformed transaction IDs, zero-value transfers, and unrelated recipients are excluded.
+- If history retrieval fails, the panel clearly reports unavailable history without hiding the receive address or implying a deposit was received.
+- The UI does not claim to detect every asset or provide a complete account statement; the history is limited to the latest indexed records.
+
+A deposit is received directly by the selected wallet on TRON Mainnet. Never use an address from the other workspace or send assets over another network. Do not use a real-value transfer merely to satisfy the software acceptance checklist.
+
 ## Release gates not automated by this layer
 
 - A real Neon database snapshot/backup and restoration drill must be evidenced independently; environment flags are operator attestations, not proof.
