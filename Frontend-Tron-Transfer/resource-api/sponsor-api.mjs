@@ -242,15 +242,8 @@ function sessionSecret(env) {
   return typeof env.SPONSOR_SESSION_SECRET === 'string' && Buffer.byteLength(env.SPONSOR_SESSION_SECRET) >= 32
     ? env.SPONSOR_SESSION_SECRET : null
 }
-function adminTokenRequired() {
-  // Sponsor writes always require the independent Owner Admin second factor.
-  // Missing configuration must fail closed, not silently disable the factor.
+function ownerAdminSessionRequired() {
   return true
-}
-function verifyAdminToken(req, env) {
-  const expected = env.SPONSOR_ADMIN_TOKEN
-  return typeof expected === 'string' && expected.length >= 32
-    && equalText(req.headers?.['x-sponsor-admin-token'], expected)
 }
 
 function sponsorLedgerDurabilityVerified(env) {
@@ -355,11 +348,12 @@ export function createSponsorResourceApi({
   const ownerAddress = allowedAddress
   const ownerAdminAuthConfigured = typeof authenticateOwnerAdminSession === 'function'
   async function verifyAdminAuthorization(req) {
-    if (ownerAdminAuthConfigured) {
-      const session = await authenticateOwnerAdminSession(req, { requireCsrf: true })
-      return Boolean(session && session.address === ownerAddress)
-    }
-    return verifyAdminToken(req, env)
+    // Sponsor administration is always authorized by the authenticated Owner
+    // session with CSRF validation. Never fall back to a static bearer/header
+    // secret: an omitted authenticator must fail closed.
+    if (!ownerAdminAuthConfigured) return false
+    const session = await authenticateOwnerAdminSession(req, { requireCsrf: true })
+    return Boolean(session && session.address === ownerAddress)
   }
   const rateCounts = new Map()
   function rateLimit(req, key, max = 12) {
@@ -401,8 +395,8 @@ export function createSponsorResourceApi({
           && databaseTargetIdentityMatches(env)
         const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
         const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
-        const adminRequired = true
-        const adminConfigured = ownerAdminAuthConfigured || (typeof env.SPONSOR_ADMIN_TOKEN === 'string' && env.SPONSOR_ADMIN_TOKEN.length >= 32)
+        const adminRequired = ownerAdminSessionRequired()
+        const adminConfigured = ownerAdminAuthConfigured
         const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
         let databaseReady = false
         let databaseStatus = dbConfigured ? 'unchecked' : 'not-configured'
