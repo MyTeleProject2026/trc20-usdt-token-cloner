@@ -726,7 +726,7 @@ test('Sponsor transaction readiness does not depend on Owner Admin session avail
   const { api } = setup({ ownerSessionFixture: '', authenticateOwnerAdminSession: null })
   const status = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(status.payload.ownerAdminSessionRequired, false)
-  assert.equal(status.payload.ownerAdminSessionRequiredForLedgerBootstrap, false)
+  assert.equal(status.payload.ownerAdminSessionConfiguredForLedgerBootstrap, false)
   const token = await authenticated(api)
   const result = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
