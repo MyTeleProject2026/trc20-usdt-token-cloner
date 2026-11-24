@@ -35,14 +35,15 @@ test('production Resource API mounts Sponsor readiness and permits Sponsor Admin
     headers: {
       origin: FRONTEND_ORIGIN,
       'access-control-request-method': 'POST',
-      'access-control-request-headers': 'authorization,content-type,x-sponsor-admin-token,x-csrf-token,x-owner-csrf-token',
+      'access-control-request-headers': 'authorization,content-type,x-sponsor-enrollment-token,x-csrf-token,x-owner-csrf-token',
     },
   })
   assert.equal(preflight.status, 204)
   const allowedHeaders = preflight.headers.get('access-control-allow-headers') || ''
   assert.match(allowedHeaders, /authorization/i)
   assert.match(allowedHeaders, /content-type/i)
-  assert.match(allowedHeaders, /x-sponsor-admin-token/i)
+  assert.match(allowedHeaders, /x-sponsor-enrollment-token/i)
+  assert.doesNotMatch(allowedHeaders, /x-sponsor-admin-token/i)
   assert.match(allowedHeaders, /x-csrf-token/i)
   assert.match(allowedHeaders, /x-owner-csrf-token/i)
 })
