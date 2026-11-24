@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 test('pending-owner acceptance uses an ephemeral local signer and no injected wallet provider', async () => {
-  const source = await readFile(new URL('./PendingOwnerAcceptance.jsx', import.meta.url), 'utf8')
+  const source = await readFile(new URL('../src/PendingOwnerAcceptance.jsx', import.meta.url), 'utf8')
   assert.match(source, /deriveOwnerAccount/)
   assert.match(source, /createOwnerTronWeb\(account\.privateKey\)/)
   assert.match(source, /signer\.trx\.signMessageV2\(challenge\.message\)/)
