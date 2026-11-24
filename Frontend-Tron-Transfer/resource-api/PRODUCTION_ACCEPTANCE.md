@@ -12,23 +12,26 @@ The acceptance endpoint is diagnostic only. It does not create schema, migrate d
 
 ## Acceptance checks
 
-The report evaluates:
-1. Owner address configuration consistency.
-2. Sponsor address format and separation from Owner.
-3. Sponsor signer configuration and derived/declared address match.
-4. Sponsor ledger database configuration.
-5. Exact database target identity matches the operator-approved Neon endpoint, database name and role; only a one-way fingerprint is returned.
-6. Existing ledger schema and control-row availability.
-7. Operator-attested durable backup and restore-test flags.
-8. Sponsor writes remain paused.
-9. Independent Owner Admin password-session integration and Sponsor-session separation.
-10. Sponsor session authentication configuration.
-11. Mainnet deployment execution remains explicitly disabled during acceptance.
-12. Artifact-pinned TRӾ deployment source, creation bytecode, runtime bytecode and manifest fingerprints match the pinned Solidity build.
-13. The encrypted local Owner Wallet signs the exact prepared transaction in the existing browser workspace; no TronLink or other external wallet connection is required. The Resource API recovers and verifies the configured Owner address and live TRON permission, then durably persists the signed transaction and broadcast intent before broadcasting. The backend does not receive or sign with the Owner private key.
-14. Pending-owner challenge/session is distinct from the configured Owner session and acceptance verifies the exact pending-owner signature, transaction and solidified owner state.
-15. Owner and Sponsor password changes, role-scoped one-time recovery, single-session revocation and revoke-other-sessions routes are available; recovery tokens and session tokens are hash-stored.
+The live endpoint reports these server-side checks only:
 
+1. Configured Owner Mainnet address is valid.
+2. Sponsor Mainnet address is valid and distinct from Owner.
+3. Sponsor address configuration is present and independent.
+4. Sponsor ledger database is configured.
+5. Selected database target matches the operator-approved Neon endpoint, database name and role fingerprint.
+6. Sponsor operations table, prepared/signed payload columns, and control row are present.
+7. Backup and restore acceptance flags are set.
+8. Sponsor writes remain paused.
+9. Independent Owner Admin authorization is configured for Sponsor administration.
+10. Managed wallet session authentication is configured.
+11. The local Sponsor signer execution path is available in code/configuration.
+12. Mainnet execution remains explicitly disabled during acceptance.
+
+The endpoint does **not** claim to prove that a browser vault is unlocked, that a user has completed Owner or Sponsor enrollment, or that a real wallet signature has been produced. It also does not perform pending-owner transaction acceptance or exercise password recovery. Those are separate browser and integration acceptance gates.
+
+The Owner local-signing path, pending-owner acceptance, role-scoped password recovery, session revocation, persistence-before-broadcast, and solidified recovery have dedicated source and regression tests. Passing those tests is not a substitute for a real browser acceptance run against the deployed build.
+
+A passing server-side report is labelled `ready-for-independent-review`, not production-approved. Operator evidence, independent review, and explicit release approval remain mandatory. The API always reports `executionEnabled: false` in this acceptance report.
 A passing report is labelled `ready-for-independent-review`, not production-approved. Operator evidence, independent review, and explicit release approval remain mandatory. The API always reports `executionEnabled: false` in this acceptance report.
 
 ## Run the production smoke check
