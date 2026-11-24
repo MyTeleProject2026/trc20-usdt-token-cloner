@@ -90,9 +90,10 @@ export async function verifySponsorSignedTransaction({
 export function createSponsorTransactionEngine({
   env = process.env,
   fetchImpl = globalThis.fetch,
-  tronWebFactory = (privateKey) => new TronWeb({
+  // This engine is a read/preparation/broadcast adapter only. It deliberately
+  // cannot construct a TronWeb instance with private-key signing material.
+  tronWebFactory = () => new TronWeb({
     fullHost: MAINNET,
-    ...(privateKey ? { privateKey } : {}),
     headers: env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {},
   }),
   now = () => Date.now(),
@@ -237,7 +238,7 @@ export function createSponsorTransactionEngine({
       if (cap === null || cap <= 0n || amount > cap) return { success: false, status: 'owner-topup-disabled-or-amount-exceeds-configured-cap' }
     }
     try {
-      const tronWeb = tronWebFactory(null)
+      const tronWeb = tronWebFactory()
       const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
       if (!ADDRESS.test(sponsorAddress || '') || sponsorAddress === recipient) throw new Error('sponsor-signer-address-mismatch')
       const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
@@ -325,7 +326,7 @@ export function createSponsorTransactionEngine({
     let signed = false
     let broadcastAttempted = false
     try {
-      const tronWeb = tronWebFactory(null)
+      const tronWeb = tronWebFactory()
       await verifySponsorSignedTransaction({
         tronWeb, unsignedTransaction: preparedTransaction, signedTransaction,
         operation, resource, amountSun, sponsorAddress, ownerAddress: recipient,

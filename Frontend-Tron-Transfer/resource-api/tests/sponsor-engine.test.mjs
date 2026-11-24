@@ -73,7 +73,7 @@ function fixture({ bandwidth = 600, balance = 10_000_000n, onBroadcast, envOverr
   })
   const engine = createSponsorTransactionEngine({
     env: configuredEnv(envOverrides),
-    tronWebFactory: privateKey => { assert.equal(privateKey, null); return fakeTronWeb },
+    tronWebFactory: (...args) => { assert.equal(args.length, 0, 'server TronWeb factory must never receive private-key material'); return fakeTronWeb },
     fetchImpl,
   })
   const testEngine = Object.freeze({
