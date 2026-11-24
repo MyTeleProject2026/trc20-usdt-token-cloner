@@ -96,7 +96,7 @@ export function sponsorDatabaseConnectionInfo(env = process.env) {
     // A one-way fingerprint proves which database endpoint/name/role is selected
     // without returning a hostname or credential in production diagnostics.
     const identity = JSON.stringify({
-      hostname: hostname.replace(/-pooler(?=\\.)/i, ''),
+      hostname: hostname.replace(/-pooler(?=\.)/i, ''),
       port: parsed.port || '5432',
       database: decodeURIComponent(parsed.pathname.slice(1)),
       username: decodeURIComponent(parsed.username),
