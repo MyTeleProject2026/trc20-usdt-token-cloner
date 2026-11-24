@@ -35,13 +35,15 @@ try {
   const required = [
     'owner-address',
     'sponsor-address-format-and-separation',
-    'sponsor-signer-address-match',
+    'sponsor-mainnet-address-configured-and-independent',
     'ledger-database-configured',
+    'database-target-identity',
     'ledger-schema-and-control-row',
     'ledger-durability-and-restore-attestation',
     'writes-remain-paused-until-release',
-    'admin-second-factor-configured',
+    'owner-admin-second-factor-configured',
     'session-authentication-configured',
+    'sponsor-local-transaction-signer',
     'mainnet-execution-explicitly-disabled',
   ]
   const checks = Array.isArray(report.acceptance?.checks) ? report.acceptance.checks : []
@@ -60,7 +62,7 @@ try {
     mainnetExecutionRemainsDisabled: safe,
   }
   process.stdout.write(JSON.stringify(result, null, 2) + '\n')
-  if (health.ok !== true || missing.length || !safe) process.exitCode = 1
+  if (health.ok !== true || missing.length || blocked.length || result.acceptanceState !== 'ready-for-independent-review' || !safe) process.exitCode = 1
 } catch (error) {
   process.stderr.write('Production acceptance smoke test failed: ' + String(error?.message || 'unknown-error') + '\n')
   process.exitCode = 1
