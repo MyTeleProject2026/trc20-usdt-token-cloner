@@ -286,8 +286,7 @@ test('Sponsor TRX top-up fails closed above the configured Owner funding cap', a
   const f = fixture({ envOverrides: { SPONSOR_MAX_OWNER_TOPUP_TRX: '0.5' } })
   const result = await f.engine.execute({ operation: 'topup', resource: 'TRX', amountSun: '600000', ownerAddress: OWNER })
   assert.equal(result.status, 'owner-topup-disabled-or-amount-exceeds-configured-cap')
-  assert.equal(result.signed, false)
-  assert.equal(result.broadcast, false)
+  assert.equal(result.success, false)
   assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
 })
 
@@ -378,7 +377,7 @@ test('unstake rejects amounts still delegated to the Owner before signing', asyn
     delegatedRows: [{ frozen_balance_for_energy: '2000000' }],
   })
   const result = await f.execute()
-  assert.equal(result.status, 'unstake-exceeds-unlocked-self-stake')
+  assert.equal(result.status, 'unstake-exceeds-unlocked-self-stake-or-no-slots')
   assert.deepEqual(f.counts(), { signed: 0, broadcast: 0 })
 })
 

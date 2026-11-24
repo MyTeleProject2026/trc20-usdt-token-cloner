@@ -638,8 +638,9 @@ export function createServer({ allowedAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GR
       }
     }
     if (req.method !== 'GET') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
-    const match = url.pathname.match(/^\/v1\/resources\/(T[1-9A-HJ-NP-Za-km-z]{33})$/)
-    if (!match || !isMainnetAddress(match[1])) return send(res, 400, { error: 'INVALID_TRON_ADDRESS' }, origin)
+    const match = url.pathname.match(/^\\/v1\\/resources\\/([^/]+)$/)
+    if (!match) return send(res, 404, { error: 'NOT_FOUND' }, origin)
+    if (!isMainnetAddress(match[1])) return send(res, 400, { error: 'INVALID_TRON_ADDRESS' }, origin)
     const address = match[1]
     // Serve fresh cache hits before applying the per-IP miss budget. Dashboard
     // refreshes can legitimately request the same address from multiple widgets.
