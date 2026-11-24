@@ -9,8 +9,7 @@ The module is import-only:
 - standard V3 Keystore JSON and its password;
 - TRON mnemonic phrase using TronWeb's default TRON BIP-44 derivation path.
 
-There is no Create Wallet action. The imported sponsor account must be different from the configured Owner Wallet:
-`TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp`.
+There is no Create Wallet action. The imported Sponsor account must be different from the configured Owner Mainnet address returned by the Resource API's Owner identity status. The Owner address is configuration-driven; it is not hard-coded in the frontend.
 
 Lock returns to the encrypted-wallet unlock prompt. Logout clears the active session and returns to the import screen while retaining the encrypted backup; a separate Reconnect saved Sponsor Wallet action restores the unlock prompt. Neither action deletes the vault. The wallet can be replaced by importing another account; the previous encrypted backup is retained until the replacement import succeeds. Removing the encrypted local backup is a separate, explicitly confirmed action.
 
@@ -37,6 +36,10 @@ The integrated Sponsor workspace uses the following Resource API lifecycle:
 - `GET /api/sponsor/operations/:reference`: reconciles the persisted transaction ID against Mainnet. An unsigned preparation that expires is marked failed; a signed or ambiguous transaction is never replaced with a new transaction automatically.
 
 The former one-step server-signer route is disabled. A legacy remote-signer adapter module was removed because no HSM/KMS service or signer key handle was provisioned. The active workflow is local Sponsor vault signing followed by backend signature verification and controlled broadcast.
+
+## Sponsor session lock policy
+
+The Resource API uses Tatum as the preferred read-only TRON Mainnet RPC provider and TronGrid as the read fallback. Signed transaction broadcasts remain on TronGrid. Neither provider signs transactions, receives private keys, supplies Energy/Bandwidth or pays transaction fees.
 
 ## Sponsor session lock policy
 

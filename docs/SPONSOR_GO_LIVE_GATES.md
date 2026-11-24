@@ -1,41 +1,55 @@
-<!-- Scope note: this checklist covers the separate legacy sponsor-direct USDT payout backend. It is not the go-live checklist for the integrated local Sponsor resource wallet; see INTEGRATED_SPONSOR_WALLET.md for that workflow. -->
+# Sponsor Wallet Mainnet go-live gates
 
-# Sponsor integration go-live gates
+## Scope
 
-This checklist is a release gate, not a claim that sponsorship is currently enabled.
+This checklist applies only to the integrated Sponsor workspace inside the existing Tron Transfer Owner Admin application. It covers Sponsor-owned TRX/resource operations and the direct Sponsor-to-Owner resource/funding relationship. It is not a USDT payout, provider-credit, exchange-deposit, or third-party sponsorship workflow.
 
-## Current verified contract
+## Required architecture
 
-- The backend sponsorship status is fail-closed.
-- The current Mainnet sponsor-direct route is conditional, not active by virtue of being deployed: no payout can move until a separate sponsor voluntarily applies, the owner reviews it, the sponsor wallet has the full USDT principal and sufficient network resources, and the sponsor signs that exact transfer. Owner review in the app is a wallet-participation decision only; it is not KYC, KYB, sanctions screening, proof of legal identity or source-of-funds verification. Any applicable legal/compliance obligations remain in force.
-- The generic sponsor ledger transition API remains fail-closed for caller-supplied authorized/submitted changes. A separate Shasta/Nile-only sponsor-wallet path now persists one unsigned transaction, validates the exact signed bytes against that persisted intent, checks TRON signature permission and current resource capacity, atomically binds the transaction ID before broadcast, and only then marks the row submitted when the selected node accepts that exact ID.
-- A separate private owner-only Mainnet sponsor-direct route is mounted at `/api/tron/sponsor-direct`. Only the wallet matching `OWNER_WALLET_ADDRESS` may create a withdrawal request. An independently authenticated self-custody sponsor wallet must apply, receive platform-owner review and bounded per-payout/daily limits, pass live solidified Mainnet USDT and TRON-resource checks, and sign each exact transfer in its own wallet. Tatum broadcasts the sponsor-signed transaction; a reconciliation worker independently verifies the solidified transaction, successful receipt and exact official USDT Transfer event. This is a direct wallet-to-wallet sponsor transfer, not provider credit or a promise of provider-owned liquidity.
-- Settlement logic is tested separately from submission. PostgreSQL reconciliation tests seed a prior `submitted` row only as a test fixture, then check exact persisted chain evidence; that fixture is not real provider-broadcast evidence or a live Nile end-to-end test.
-- A testnet-only direct TRX-burn settlement route now books a positive finalized fee only when the active approved `network-fee` budget wallet is the exact transaction owner/observed burn payer. An admin-only immutable link can bind one asset transfer to one pre-reserved fee hold; settlement consumes that exact hold and releases its unused remainder atomically, marking the reservation `fee-settled`. Legacy unlinked transfers use unreserved capacity only. This does not settle a different external wallet's delegated Energy/Bandwidth contribution; the fee wallet in this narrow path is also the asset-principal sender wallet.
-- GasFree routes are read-only for capability, account and trace lookup; `POST /api/gasfree/submit` returns HTTP 503 without calling the provider.
-- Fee sponsor and asset-principal sponsor are separate roles and are read independently.
-- Sponsor account balances and resource snapshots are diagnostics only. They are not an approved budget, an authorization to spend, or a receiver balance.
-- Receiver spendability is derived from verified on-chain assets. A normal transfer to an external wallet cannot impose app-defined restrictions after receipt.
-- GasFree network support in this integration is Mainnet and Nile. Shasta must not be treated as Nile.
-- Tatum KMS is not part of the current web/API runtime. Any future KMS use must be a separately operated sponsor-wallet signer with encrypted persistent storage, managed secrets, mandatory four-eye approval, and a dedicated testnet pilot; see [the Tatum KMS integration audit](./TATUM_KMS_INTEGRATION_AUDIT.md).
-- The locked dependency tree now overrides TronWeb's transitive protobuf runtime to `google-protobuf@4.0.3`, and the local transaction encode/decode/sign regression test plus current CI and dependency audit passed. This mitigates the tracked protobuf runtime advisory at the lockfile level; it is not a formal security certification or approval to enable sponsored transfers. See [dependency security triage](./DEPENDENCY_SECURITY_TRIAGE.md) and [issue #49](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/issues/49).
+- The Owner and Sponsor are distinct TRON Mainnet wallets, independently enrolled and independently unlocked.
+- Sponsor private-key material stays in the encrypted local Sponsor vault. The Resource API receives only the exact signed transaction and public metadata.
+- Sponsor signs only Sponsor-owned operations. Owner signs only Owner-owned TRӾ contract operations.
+- Tatum is the preferred read-only Mainnet RPC provider; TronGrid is the read fallback and signed-transaction broadcast/history path.
+- Neon is the existing persistent database. Render hosts the existing frontend and Resource API services.
+- No backend signer, external Sponsor, third-party resource provider, GasFree, TEnergy, WDK, Fincra, Fireblocks, external treasury, or payout route is permitted.
 
-## Required evidence before any sponsored submission can be considered
+## Code and data acceptance
 
-- [ ] Written sponsor consent, legal/account ownership confirmation, and an actual funded sponsor account for each role.
-- [ ] Provider contract and fee model independently verified against the desired external-sponsor-only policy. Token-denominated fees paid from the transfer amount do not meet a requirement that the receiver receive the full requested amount.
-- [ ] Provider-specific signing authorization, transaction allowlists, recipient and token restrictions, maximum amount/fee limits, expiry, replay protection, and idempotency.
-- [ ] Complete separate external-sponsor delegated-resource settlement: obtain transaction-specific provider evidence proving which authorized delegator supplied the exact transfer's Energy/Bandwidth and settle that provider debit atomically. The same-wallet direct-burn case now supports explicit fee-hold linkage and exact reserve reconciliation, but this does not prove a different sponsor supplied delegated resources.
-- [ ] Database migration and integration tests covering duplicate requests, concurrent reservations, insufficient funds, provider timeouts, failed transactions, chain reorg/finality, and reconciliation drift.
-- [ ] Testnet end-to-end tests prove the sender/receiver/token/amount/fee policy from independently verified chain data; no test may depend on UI-only balances. The new transaction path has unit-level adapter/route guards, but no supported live Shasta/Nile end-to-end run is yet recorded.
-- [ ] Security review of authorization, signing, API authentication, rate limits, secret handling, audit trails, and emergency pause.
-- [ ] Browser CORS is configured with the exact deployed frontend origins; empty/invalid configuration fails closed and never reflects arbitrary browser origins. See [CORS origin policy](./CORS_ORIGIN_POLICY.md).
-- [ ] Explicit operator approval for any production launch after all prior gates pass.
+1. **Identity isolation**
+   - Confirm the configured Owner and Sponsor addresses are valid Mainnet addresses and distinct.
+   - Confirm each authenticated session maps to the correct wallet role.
+   - Confirm Sponsor cannot invoke Owner operations and Owner cannot sign Sponsor operations.
+2. **Local custody**
+   - Import and unlock each existing wallet independently.
+   - Verify private keys, mnemonic phrases and keystore passwords never appear in API requests, database rows, logs or browser network payloads.
+   - Verify lock/logout clears the active signer and revokes the matching application session.
+3. **Sponsor operations**
+   - Prepare and locally sign TRX staking and unstaking.
+   - Prepare and locally sign matured unfreeze withdrawal.
+   - Prepare and locally sign Energy/Bandwidth delegation to the configured Owner.
+   - Prepare and locally sign undelegation.
+   - Prepare and locally sign explicit TRX top-up to Owner.
+   - Verify exact amount, recipient, resource type, permission, balance and fee/resource preflight for each operation.
+4. **Transaction reliability**
+   - Persist the operation intent and idempotency key before returning an unsigned transaction.
+   - Verify exact signed bytes and recovered Sponsor signer before broadcast.
+   - Persist the signed payload and transaction ID before one TronGrid broadcast attempt.
+   - Reconcile the original transaction ID against solidified Mainnet state.
+   - Prove duplicate requests do not create duplicate operations and ambiguous outcomes are not automatically re-signed or rebroadcast.
+5. **Neon production readiness**
+   - Verify the runtime database URL fingerprint matches the approved existing Neon database.
+   - Verify the Sponsor operations table, required columns, indexes, constraints and paused control row.
+   - Complete authenticated Owner-session and CSRF-protected Sponsor ledger bootstrap only after backup/restore and rollback checks.
+   - Keep Sponsor writes paused until independent acceptance is complete.
+6. **Browser acceptance**
+   - Complete desktop and mobile tests for Owner and Sponsor import, unlock, lock, session recovery, signing, transaction history, errors and interrupted network outcomes.
+   - Do not use a real-value Mainnet transfer as a test.
+7. **Operational acceptance**
+   - Verify health/readiness, provider fallback, TronGrid-only broadcast, audit history, rate limiting, monitoring, backup/restore and emergency pause.
+   - Confirm no private-key environment variable or server-side signing path remains.
 
-## Release rule
+## Activation rule
 
-Do not treat deployment, owner approval, environment variables, a configured address, a displayed balance, or a queued request as a completed payout. The direct-wallet route permits only sponsor-signed transfers after live balance/resource checks; a confirmed payout requires the exact solidified Mainnet event. No user-funded fallback is permitted. Provider-based automated payouts remain disabled until a real provider separately authorizes the account and funding arrangement.
+Passing CI is necessary but not sufficient. Keep Sponsor writes and Owner deployment execution disabled until independent security review and all acceptance evidence are complete. Enable each execution gate only with explicit operator authorization.
 
-## Exchange deposits
-
-A solidified on-chain transaction is not proof that an exchange credited a deposit. Exchange credit requires the receiving exchange's own confirmation/status or supported API, correct network and token contract, any required memo/tag, confirmation count, minimum deposit, and account eligibility.
+Sponsor funding and resource arrangements are treated as already prepared. These gates verify the application and actual current Mainnet state; they do not require sourcing another Sponsor, resource provider, Energy, Bandwidth or fee arrangement.

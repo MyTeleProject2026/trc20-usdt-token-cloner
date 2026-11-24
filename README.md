@@ -1,64 +1,47 @@
 # TRON Transfer Owner Admin
 
-TRON Transfer is the existing TRON Mainnet Owner Admin application. It includes the AETHERIA Home, TRӾ contract administration, and two independent local wallet workspaces: Owner and Sponsor. The Sponsor Wallet is part of the same application; it is not a separate portal or a wallet-creation service.
+TRON Transfer is the existing TRON Mainnet Owner Admin application. It contains the AETHERIA Home monitor, the existing TRӾ contract administration workspace, and two independent local wallet workspaces: Owner and Sponsor. This repository does not define a second application or a separate Sponsor portal.
 
-> **Release status — 24 November 2026:** architecture corrections and the local Sponsor signing protocol are implemented on [draft PR #263](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/263). The latest verified frontend workflows passed (155 tests, zero failures, frontend build successful). The PR is not merged or verified as deployed to production. Production database acceptance and Mainnet release gates remain closed.
+## Fixed architecture
 
-## Wallet architecture
+- **Owner wallet:** independently imported into an encrypted local browser vault; signs only Owner contract deployment and Owner-authorized TRӾ operations.
+- **Sponsor wallet:** independently imported into its own encrypted local browser vault; signs only its own TRX staking, unstaking, matured withdrawal, Energy/Bandwidth delegation or undelegation to Owner, and explicit TRX top-ups to Owner.
+- **Tatum:** preferred TRON Mainnet read-only RPC provider when configured.
+- **TronGrid:** read fallback and the explicit signed-transaction broadcast and transaction-history path.
+- **Neon:** the existing PostgreSQL database for Owner/Sponsor sessions, operation ledgers, idempotency, audit history and recovery.
+- **Render:** hosts the existing frontend and Resource API services. The Blueprint does not provision a replacement database.
+- **TRӾ contract:** existing Solidity source and deployed contract behavior are preserved.
 
-### Owner Wallet
-- Import an existing TRON Mainnet private key, V3 Keystore JSON, or mnemonic.
-- Encrypt the local vault in the browser with AES-256-GCM and PBKDF2-SHA256.
-- Unlock only for the Owner's local transaction-signing session.
-- Keep application password/session authentication separate from wallet key custody.
-- Sign Owner operations locally; no injected TronLink connection is required.
+Tatum and TronGrid are blockchain connectivity services only. Neither signs transactions, holds wallet keys, provides Energy/Bandwidth, pays fees, supplies TRX, or acts as Sponsor.
 
-### Sponsor Wallet
-- Import an existing Sponsor private key, V3 Keystore JSON, or mnemonic. There is no Create Wallet action.
-- Keep its encrypted vault, unlock/lock/logout/reconnect/replace lifecycle independent from the Owner Wallet.
-- Require a distinct Sponsor address and a separate Sponsor application session.
-- Sign the exact prepared resource transaction locally. The Sponsor private key is not sent to the Resource API, and the legacy server-side Sponsor private-key fallback is disabled.
+## Wallet custody and transaction rules
 
-## Sponsor transaction lifecycle
-
-1. The Resource API validates the Sponsor intent, Mainnet policy, current balance and resource state, then builds an exact unsigned transaction.
-2. The API reserves the idempotency key and persists the unsigned transaction before returning it to the browser.
-3. The imported Sponsor vault verifies the transaction belongs to that Sponsor address and signs it locally after explicit operator confirmation.
-4. The API verifies unchanged transaction bytes, protobuf integrity, recovered signer and TRON permission; it repeats current balance, fee, Bandwidth and operation-specific state checks.
-5. The API persists the exact signed payload and transaction ID before a single broadcast attempt, then reconciles the original transaction against solidified Mainnet state.
-6. Unsigned reservations can be cancelled; expired reservations are marked failed. Signed or ambiguous operations are reconciled, never silently re-signed or replaced.
-
-The client does not broadcast raw transactions. The Resource API does not receive private keys, mnemonic phrases, Keystore passwords or vault passwords.
-
-## Mainnet safety and release gates
-
-- Mainnet only; no testnet execution path is part of this application workflow.
-- Sponsor ledger writes remain paused until production schema, database identity, backup/restore and durability acceptance are verified.
-- Sponsor Mainnet execution flags remain disabled until the operator explicitly approves release after independent security review.
-- The current production Sponsor operations table/bootstrap has not been accepted or activated.
-- No Mainnet Sponsor transaction was signed or broadcast as part of this implementation work.
-- Energy/Bandwidth rental, automatic free grants and independent fee sponsorship are not claimed or assumed. No provider is configured as a guaranteed resource source.
-- Importing a Sponsor Wallet does not make TRӾ deployment ready; the Owner deployment page must pass its own fresh resource and zero-TRX-burn preflight.
+- Owner and Sponsor private keys, mnemonics, keystore passwords and vault passwords remain in their respective browser-local vaults and are never sent to the Resource API or stored in Neon.
+- Each wallet signs only transactions owned by that wallet.
+- The Resource API prepares exact unsigned transactions, validates the returned signature and permission, persists signed payloads and transaction IDs before broadcast, broadcasts once through TronGrid, and reconciles the original transaction against solidified Mainnet state.
+- Ambiguous submissions are reconciled by their original transaction ID. The API must not silently re-sign or replace an ambiguous operation.
+- Owner and Sponsor application sessions are separate. Sponsor writes require the independent Sponsor and Owner Admin authorization checks.
+- No TronLink injection is required for the primary Owner or Sponsor workflow.
 
 ## TRӾ contract
 
-The existing `contracts/Restricted1TRAX.sol` source is preserved byte-for-byte. The token remains an owner-issued TRC-20 on TRON Mainnet, with six decimals and display symbol TRӾ. It is not native TRX, collateral, a redemption promise, or a guaranteed-price asset.
+The existing `contracts/Restricted1TRAX.sol` source is preserved byte-for-byte. TRӾ is an owner-issued TRC-20 on TRON Mainnet with six decimals and display symbol TRӾ. It is not native TRX, collateral, a redemption promise, or a guaranteed-price asset.
 
-## Useful project documentation
+## Intentionally excluded
 
-- [Integrated Sponsor Wallet architecture](docs/INTEGRATED_SPONSOR_WALLET.md)
-- [Sponsor go-live gates](docs/SPONSOR_GO_LIVE_GATES.md)
-- [Draft implementation PR #263](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/263)
+The active platform has no testnet execution path, third-party Energy/Bandwidth supplier, GasFree relay, TEnergy promotion or claim, WDK wallet provider, Fincra payout, Fireblocks custody/inventory, external treasury, external Sponsor account, Sponsor Direct Payout, provider payout, exchange-credit workflow, or backend private-key signer. These are not hidden behind feature flags; obsolete modules, routes, tests, scripts and documentation are removed from the active repository.
 
-## Separate legacy sponsor-direct payout service
+## Production acceptance boundary
 
-The repository retains a separate sponsor-direct USDT payout backend for existing treasury/settlement integrations. It is **not** the integrated Sponsor resource wallet, and its former standalone TronLink UI has been removed from the Owner Admin application. The historical individual sponsor brief ([read it here](docs/SPONSOR_BRIEF.md)) (status date 12 November 2026) describes that separate workflow and should not be used as instructions for the active local Sponsor vault.
+The implementation branch is not production release evidence. Before enabling production writes or deployment execution, complete independent security review, verify the existing Render service identities and actual Neon database fingerprint, confirm backup/restore readiness, apply the guarded Sponsor ledger bootstrap through authenticated Owner/CSRF authorization, enroll Owner and Sponsor separately, and complete desktop/mobile browser acceptance for local signing, persistence-before-broadcast, idempotency and solidified transaction recovery.
 
-- [Read the individual sponsor brief](docs/SPONSOR_BRIEF.md).
-- Open a [public, non-sensitive individual sponsor inquiry](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/issues/new?template=individual-sponsor-inquiry.yml). Do not post wallet addresses, personal documents, private keys or seed phrases.
-- [Legacy sponsor operating rules](docs/EXTERNAL_SPONSOR_OPERATING_CONTRACT.md).
-- [Legacy sponsor/provider integration notes](docs/INDIVIDUAL_SPONSOR_AND_PROVIDER_FUNDING_INTEGRATION.md).
+Sponsor funding/resource arrangements are treated as already prepared. The remaining release work is implementation verification and controlled acceptance—not sourcing another Sponsor, provider, Energy, Bandwidth or fee arrangement.
 
-The historical brief documents a $5,000–$10,000 equivalent target in sponsor-controlled official TRON Mainnet USDT capacity. That is not a current funding claim, platform deposit, owner-controlled treasury balance, or promise of payout liquidity. The current integrated Sponsor Wallet is for TRX/resource management and Sponsor-to-Owner resource top-ups as documented above.
+## Project documentation
 
-A separate legacy sponsor-direct payout backend remains distinct from the integrated Sponsor resource wallet. Its pure USDT transaction encoding and signature-validation helpers now live in `server/owner-usdt-transfer.mjs`; the former unmounted Owner withdrawal router/UI is deleted. The legacy backend is not exposed as a page in the Owner Admin navigation and is not used for Sponsor staking, delegation, or TRӾ deployment.
+- [Owner/Sponsor Mainnet architecture](docs/OWNER_SPONSOR_WALLET_ARCHITECTURE.md)
+- [Integrated Sponsor Wallet implementation](docs/INTEGRATED_SPONSOR_WALLET.md)
+- [Sponsor Mainnet go-live gates](docs/SPONSOR_GO_LIVE_GATES.md)
+- [Render, Tatum, TronGrid and Neon configuration](docs/RENDER_SPONSOR_CONFIGURATION.md)
+- [Production acceptance requirements](docs/PRODUCTION_ACCEPTANCE.md)
+- [Current implementation PR #263](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/263)

@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url'
 import nativeTronRoutes from './routes/native-tron.mjs'
 import trc20VerificationRoutes from './routes/trc20-verification.mjs'
 import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-wallet-auth.mjs'
-import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
 import { credentialGuard } from './credential-guard.mjs'
@@ -46,7 +45,6 @@ app.use('/api/tron', trc20VerificationRoutes)
 app.use('/api/tron', nativeTronRoutes)
 app.use('/api/auth/tron', tronWalletAuthRoutes)
 app.use('/api/auth/owner', createOwnerAuthRouter())
-app.use('/api/okx', okxDepositStatusRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())
 if (process.env.NODE_ENV !== 'production') {

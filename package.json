@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node server/index.mjs",
+    "dev": "npm run dev --prefix Frontend-Tron-Transfer",
     "build": "npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund && npm run build --prefix Frontend-Tron-Transfer",
     "test": "node --test tests/base-units.test.mjs tests/chain-token-inspection.test.mjs tests/cors-policy.test.mjs tests/github-actions-policy.test.mjs tests/protobuf-runtime-security.test.mjs tests/security-headers.test.mjs tests/token-authenticity.test.mjs tests/trax-mainnet-contracts.test.mjs tests/tron-address.test.mjs tests/tron-transfer-integration-source.test.mjs tests/wallet-vault-crypto.test.mjs",
-    "start": "node server/index.mjs",
+    "start": "npm start --prefix Frontend-Tron-Transfer/resource-api",
     "worker:receiver-history": "node server/receiver-history-worker.mjs"
   },
   "dependencies": {
