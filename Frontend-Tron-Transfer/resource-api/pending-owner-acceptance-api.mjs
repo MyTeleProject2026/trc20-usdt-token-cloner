@@ -204,7 +204,11 @@ export function createPendingOwnerAcceptanceApi({
       if(status&&req.method==='GET'){
         const s=await auth(req,databaseApi);if(!s)return send(res,401,{error:'PENDING_OWNER_SESSION_REQUIRED'},origin)
         const r=await databaseApi.query('SELECT operation_id,contract_address,pending_owner_address,idempotency_key,intent,intent_sha256,transaction_id,preflight,receipt,state,failure_code,created_at,updated_at,confirmed_at,unsigned_transaction FROM public.tron_transfer_pending_owner_acceptances WHERE operation_id=$1 AND pending_owner_address=$2 AND contract_address=$3',[status[1],s.address,s.contractAddress])
-        const row=r.rows?.[0];if(!row)return send(res,404,{error:'PENDING_OWNER_OPERATION_NOT_FOUND'},origin)
+        let row=r.rows?.[0];if(!row)return send(res,404,{error:'PENDING_OWNER_OPERATION_NOT_FOUND'},origin)
+        if(row.state==='confirming'&&Date.now()-new Date(row.updated_at).getTime()>5*60_000){
+          const stale=await databaseApi.query("UPDATE public.tron_transfer_pending_owner_acceptances SET state='failed',failure_code='PENDING_OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE',updated_at=now() WHERE operation_id=$1 AND state='confirming' RETURNING state,failure_code,updated_at",[row.operation_id])
+          if(stale.rows?.[0])row={...row,...stale.rows[0]}
+        }
         const {unsigned_transaction:_unsigned,...safe}=row
         if(['signed','broadcast-unknown','broadcast'].includes(row.state)){
           try{
