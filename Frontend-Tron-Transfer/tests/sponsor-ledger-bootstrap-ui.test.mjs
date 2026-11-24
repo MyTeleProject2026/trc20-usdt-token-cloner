@@ -15,6 +15,8 @@ test('Sponsor workspace exposes only an Owner-Admin-authorized paused ledger boo
   assert.ok(source.includes('Initialize paused Sponsor ledger schema'))
   assert.ok(source.includes("if (busy) return"))
   assert.ok(source.includes("{activePage === 'sponsor' && ['schema-missing', 'control-row-missing'].includes(sponsorApiStatus?.databaseStatus)"))
+  assert.ok(source.includes("{activePage === 'sponsor' && <section className=\"sponsor-card\">"), 'readiness and bootstrap panel must render before Sponsor vault unlock')
+  assert.ok(!source.includes("{wallet && activePage === 'sponsor' && <section className=\"sponsor-card\">"), 'readiness panel must not be gated by the Sponsor wallet')
   assert.ok(!source.includes("if (busy || !wallet?.address) return"), 'database bootstrap must not depend on an unlocked Sponsor vault')
   assert.ok(!source.includes("{wallet && ['schema-missing', 'control-row-missing'].includes(sponsorApiStatus?.databaseStatus)"), 'bootstrap must be available before Sponsor vault import/unlock')
   assert.ok(source.includes('does not migrate historical records, enable writes, sign transactions or broadcast to Mainnet'))
