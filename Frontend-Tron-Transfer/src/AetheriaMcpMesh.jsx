@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowDownUp, ArrowUpRight, CheckCircle2, Clock3, Cpu,
   Database, ExternalLink, Globe2, Layers3, Network, Radio, RefreshCw, Server,
-  ShieldCheck, Terminal, Wallet, Waves, Zap,
+  ShieldCheck, Terminal, Wallet, Waves,
 } from 'lucide-react'
 import './aetheria-mcp-mesh.css'
 
@@ -12,7 +12,6 @@ const POLL = Object.freeze({
   health: 30_000,
   runtime: 5_000,
   resources: 30_000,
-  tenergy: 60_000,
   transactions: 60_000,
   renderEvents: 60_000,
   uptime: 300_000,
@@ -22,7 +21,6 @@ const API_FLOWS = [
   { id: 'health', hub: 'RESOURCE API', fn: 'platform.health.read', method: 'GET', path: '/health', interval: '30s' },
   { id: 'runtime', hub: 'RUNTIME CORE', fn: 'runtime.snapshot.read', method: 'GET', path: '/api/observatory/snapshot', interval: '5s' },
   { id: 'resources', hub: 'TRON MAINNET', fn: 'mainnet.resources.read', method: 'GET', path: '/v1/resources/{owner}', interval: '30s · cached' },
-  { id: 'tenergy', hub: 'TENERGY', fn: 'tenergy.promotion.status', method: 'GET', path: '/api/tron/tenergy/promo?address={owner}', interval: '60s' },
   { id: 'transactions', hub: 'TRON MAINNET', fn: 'mainnet.confirmed.transactions', method: 'GET', path: '/api/observatory/transactions?address={owner}', interval: '60s' },
   { id: 'renderEvents', hub: 'RENDER CONTROL PLANE', fn: 'render.service.events.list', method: 'GET', path: '/api/observatory/render-events', interval: '60s' },
   { id: 'uptime', hub: 'GITHUB ARCHIVE', fn: 'uptime.history.read', method: 'GET', path: '/api/observatory/uptime-history', interval: '5m' },
@@ -92,7 +90,6 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const [health, setHealth] = useState(null)
   const [runtime, setRuntime] = useState(null)
   const [resources, setResources] = useState(null)
-  const [promo, setPromo] = useState(null)
   const [transactions, setTransactions] = useState([])
   const [renderEvents, setRenderEvents] = useState([])
   const [uptimeRuns, setUptimeRuns] = useState([])
@@ -154,11 +151,6 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     if (!valid) throw new Error('Mainnet resource response did not match the expected owner/network schema')
     setResources(body)
   }), [invoke])
-  const refreshPromo = useCallback(() => invoke('tenergy', '/api/tron/tenergy/promo?address=' + encodeURIComponent(OWNER), body => {
-    if (!body.success) throw new Error(body.error || 'TEnergy promotion response was unsuccessful')
-    setPromo(body)
-    return body.promo?.state === 'active' ? null : { state: 'warning', detail: 'TEnergy promotion is not active; provider response received' }
-  }), [invoke])
   const refreshTransactions = useCallback(() => invoke('transactions', '/api/observatory/transactions?address=' + encodeURIComponent(OWNER), body => {
     if (!body.success) throw new Error(body.message || 'Confirmed transaction response was unsuccessful')
     setTransactions(Array.isArray(body.transactions) ? body.transactions : [])
@@ -184,9 +176,9 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const refreshAll = useCallback(async () => {
     setRefreshing(true)
     try {
-      await Promise.all([refreshHealth(), refreshRuntime(), refreshResources(), refreshPromo(), refreshTransactions(), refreshRenderEvents(), refreshUptime(), refreshRenderMetrics()])
+      await Promise.all([refreshHealth(), refreshRuntime(), refreshResources(), refreshTransactions(), refreshRenderEvents(), refreshUptime(), refreshRenderMetrics()])
     } finally { setRefreshing(false) }
-  }, [refreshHealth, refreshRuntime, refreshResources, refreshPromo, refreshTransactions, refreshRenderEvents, refreshUptime, refreshRenderMetrics])
+  }, [refreshHealth, refreshRuntime, refreshResources, refreshTransactions, refreshRenderEvents, refreshUptime, refreshRenderMetrics])
 
   useEffect(() => {
     alive.current = true
@@ -200,7 +192,6 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
       refreshHealth()
       refreshRuntime()
       refreshResources()
-      refreshPromo()
       refreshTransactions()
       refreshRenderEvents()
       refreshUptime()
@@ -209,7 +200,6 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
         window.setInterval(refreshHealth, POLL.health),
         window.setInterval(refreshRuntime, POLL.runtime),
         window.setInterval(refreshResources, POLL.resources),
-        window.setInterval(refreshPromo, POLL.tenergy),
         window.setInterval(refreshTransactions, POLL.transactions),
         window.setInterval(refreshRenderEvents, POLL.renderEvents),
         window.setInterval(refreshUptime, POLL.uptime),
@@ -228,7 +218,7 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
       stopPolling()
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [refreshHealth, refreshRuntime, refreshResources, refreshPromo, refreshTransactions, refreshRenderEvents, refreshUptime, refreshRenderMetrics])
+  }, [refreshHealth, refreshRuntime, refreshResources, refreshTransactions, refreshRenderEvents, refreshUptime, refreshRenderMetrics])
 
   const heartbeat = runtime?.heartbeat
   const process = runtime?.process
@@ -238,11 +228,9 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     : heartbeatAge != null && heartbeatAge <= 8000 && calls.runtime.state === 'online' ? 'online'
       : runtime ? 'warning' : 'checking'
   const resourceState = calls.resources.state
-  const promoState = calls.tenergy.state === 'online' && promo?.promo?.state === 'active' ? 'online' : calls.tenergy.state === 'online' ? 'warning' : calls.tenergy.state
   const ownerConnected = wallet?.address === OWNER
   const energy = resources?.energy?.available
   const bandwidth = resources?.bandwidth?.maxSingleTransactionAvailable
-  const providers = health?.rpcProviderPriority || []
   const providerUsed = resources?.rpc?.providersUsed || {}
     const flowCount = API_FLOWS.length
   const allFlowCount = API_FLOWS.filter(item => calls[item.id].state === 'online').length
@@ -254,15 +242,13 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     { id: 'owner', label: 'OWNER CONSOLE', sub: ownerConnected ? 'Configured owner wallet connected' : 'Dashboard session · wallet not connected', state: ownerConnected ? 'online' : 'warning', x: 500, y: 220, icon: Wallet },
     { id: 'gateway', label: 'MCP GATEWAY', sub: 'Resource API · 1:1 routes', state: calls.health.state === 'online' && runtimeState === 'online' ? 'online' : calls.health.state, x: 500, y: 78, icon: Network },
     { id: 'mainnet', label: 'TRON MAINNET', sub: 'Owner resources · confirmed chain', state: calls.resources.state, x: 210, y: 220, icon: Globe2 },
-    { id: 'tatum', label: 'TATUM RPC', sub: 'Primary provider route', state: providers.includes('tatum') ? 'online' : calls.resources.state === 'online' ? 'warning' : 'checking', x: 115, y: 85, icon: Server },
-    { id: 'trongrid', label: 'TRONGRID RPC', sub: 'Fallback provider route', state: providers.includes('trongrid') ? 'online' : calls.resources.state === 'online' ? 'warning' : 'checking', x: 115, y: 355, icon: Server },
-    { id: 'tenergy', label: 'TENERGY HUB', sub: 'Promotion & redemption', state: promoState, x: 790, y: 85, icon: Zap },
+    { id: 'trongrid', label: 'TRONGRID MAINNET RPC', sub: 'Single node · chain reads and signed broadcasts', state: calls.resources.state, x: 115, y: 85, icon: Server },
     { id: 'render', label: 'RENDER CONTROL', sub: 'Service events · metrics', state: calls.renderEvents.state === 'online' && calls.renderMetrics.state === 'online' ? 'online' : calls.renderEvents.state, x: 790, y: 355, icon: Layers3 },
     { id: 'archive', label: 'GITHUB ARCHIVE', sub: 'Persistent uptime callbacks', state: calls.uptime.state, x: 500, y: 390, icon: Database },
   ]
   const links = [
-    ['owner', 'gateway'], ['gateway', 'mainnet'], ['mainnet', 'tatum'], ['mainnet', 'trongrid'],
-    ['gateway', 'tenergy'], ['gateway', 'render'], ['gateway', 'archive'], ['owner', 'mainnet'],
+    ['owner', 'gateway'], ['gateway', 'mainnet'], ['mainnet', 'trongrid'],
+    ['gateway', 'render'], ['gateway', 'archive'], ['owner', 'mainnet'],
   ]
   const callAge = id => age(calls[id].returnedAt, clockNow)
   const liveFlows = API_FLOWS.map(flow => ({ ...flow, call: calls[flow.id] }))
@@ -326,13 +312,11 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
         <div className="am-runtime-foot"><span><Cpu size={14}/> RSS {process ? bytes(process.rssBytes) : '—'} · Heap {process ? bytes(process.heapUsedBytes) : '—'} / {process ? bytes(process.heapTotalBytes) : '—'}</span><span><Server size={14}/> PID {process?.pid ?? '—'} · {process?.nodeVersion ?? 'Node runtime pending'}</span></div>
         <p className="am-note">{runtime?.retention || 'Process samples are volatile and reset when the API restarts.'}</p>
       </section>
-      <section className="am-panel"><div className="am-panel-head"><div><span className="am-eyebrow">04 / API CONNECTIONS</span><h3>Provider routing & callbacks</h3></div><Status state={calls.health.state}/></div>
-        <div className="am-provider"><span>Tatum Mainnet · primary</span><Status state={providers.includes('tatum') ? 'online' : 'warning'} label={providers.includes('tatum') ? 'IN PRIORITY' : 'NOT REPORTED'}/></div>
-        <div className="am-provider"><span>TronGrid · fallback</span><Status state={providers.includes('trongrid') ? 'online' : 'warning'} label={providers.includes('trongrid') ? 'IN PRIORITY' : 'NOT REPORTED'}/></div>
-        <div className="am-provider"><span>TEnergy promotion</span><Status state={promoState}/></div>
+      <section className="am-panel"><div className="am-panel-head"><div><span className="am-eyebrow">04 / MAINNET CONNECTION</span><h3>RPC node & callbacks</h3></div><Status state={calls.health.state}/></div>
+        <div className="am-provider"><span>TronGrid Mainnet RPC · single node</span><Status state={calls.resources.state} label={calls.resources.state === 'online' ? 'CONNECTED' : 'UNAVAILABLE'}/></div>
         <div className="am-provider"><span>Render control plane</span><Status state={calls.renderEvents.state}/></div>
         <div className="am-provider"><span>GitHub archive</span><Status state={calls.uptime.state}/></div>
-        <p className="am-note">Provider priority is reported by the API. Actual provider usage comes from the latest resource response; a configured provider is not proof that a request used it.</p>
+        <p className="am-note">TronGrid supplies Mainnet chain reads and signed-transaction broadcast only. It does not provide Energy, Bandwidth or TRX sponsorship. Resource provisioning is performed by the owner's separate Sponsor wallet.</p>
         <div className="am-provider-used">{Object.entries(providerUsed).map(([key,value])=><span key={key}><b>{key}</b>{value}</span>)}</div>
       </section>
     </div>
@@ -344,9 +328,8 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
       <Metric label="Staked / delegated Bandwidth" value={resources?.bandwidth?.stakedOrDelegatedAvailable == null ? '—' : Number(resources.bandwidth.stakedOrDelegatedAvailable).toLocaleString()} note={'Limit ' + (resources?.bandwidth?.stakedOrDelegatedLimit ?? '—') + ' · Used ' + (resources?.bandwidth?.stakedOrDelegatedUsed ?? '—')}/>
       <Metric label="Max single-transaction Bandwidth" value={bandwidth == null ? '—' : Number(bandwidth).toLocaleString()} note="Reported maximum bytes from the resource API"/>
       <Metric label="Native TRX" value={resources?.balanceSun == null ? '—' : (Number(resources.balanceSun)/1_000_000).toFixed(6)} note="TRX · exact Mainnet account balance"/>
-      <Metric label="TEnergy promotion" value={promo?.promo?.state || '—'} note={promo?.redemption?.status ? 'Redemption: ' + promo.redemption.status : 'Promotion endpoint response'} state={promoState}/>
     </div>
-    <div className="am-safety-note"><ShieldCheck size={15}/><span>Observability is read-only. It does not sign, broadcast, claim, deploy or transfer. Resource availability is not a deployment approval: exact simulation, fee balance and TronLink owner approval remain mandatory.</span></div>
+    <div className="am-safety-note"><ShieldCheck size={15}/><span>Observability is read-only. It does not sign, broadcast, claim, deploy or transfer. Resource availability is not a deployment approval: exact simulation, fee balance and explicit local Owner-vault approval remain mandatory. Sponsor operations require separate local Sponsor-vault approval.</span></div>
 
     <div className="am-dual-grid">
       <section className="am-panel"><div className="am-panel-head"><div><span className="am-eyebrow">06 / RENDER TELEMETRY</span><h3>Infrastructure metrics</h3></div><Status state={calls.renderMetrics.state}/></div>

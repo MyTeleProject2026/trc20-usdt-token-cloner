@@ -37,10 +37,9 @@ test('each TRӾ admin page is wired to the existing on-chain operation', async (
   const mesh = await read('../src/AetheriaMcpMesh.jsx')
   assert.ok(app.includes("activePage === 'home' ? <AetheriaMcpMesh"), 'Home must render AETHERIA Global MCP Mesh')
   assert.ok(mesh.includes("/health") && mesh.includes("/v1/resources/"), 'mesh must poll real API routes')
-  assert.ok(mesh.includes("/api/tron/tenergy/promo"), 'mesh must poll TEnergy status')
+  assert.doesNotMatch(mesh, /tenergy|promo|Tatum|tatum/i, 'Home monitoring must not expose external resource-provider integrations')
   assert.ok(mesh.includes('MCP EXECUTION ROUTER') && mesh.includes('FUNCTION RETURN BUS'), 'mesh must expose function and callback flows')
-  assert.ok(panel.includes('onClick={claimTenergyPromo}'), 'deployment page must expose explicit TEnergy claim action')
-  assert.ok(panel.includes('Check &amp; claim TEnergy Energy'), 'TEnergy claim action must be visible')
+  assert.doesNotMatch(panel, /claimTenergyPromo|TEnergy|free energy promotion/i, 'Owner deployment must not expose external resource claims')
   for (const page of ['portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
     assert.ok(panel.includes("show('" + page + "')"), 'missing page rendering: ' + page)
   }

@@ -53,181 +53,20 @@ test('treats omitted protobuf numeric values as zero and never reports negative 
 })
 
 
-test('free-delegation route is Mainnet-wallet restricted and returns injected live status', async (t) => {
+test('legacy external resource-claim and promotion endpoints are not mounted', async (t) => {
   const { createServer } = await import('../server.js')
-  const expected = {
-    success: true,
-    network: 'mainnet',
-    status: 'mainnet-resource-snapshot-read',
-    address: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
-    resourceRead: true,
-    policy: { mode: 'free-delegation', walletApprovalRequired: true },
-    transactionActions: { unsignedTransactionCreated: false, walletSignatureRequested: false, transactionBroadcast: false },
-  }
-  let calls = 0
-  const server = createServer({
-    allowedAddress: expected.address,
-    readFreeDelegationStatus: async (address, options) => {
-      calls += 1
-      assert.equal(address, expected.address)
-      assert.equal(options.refresh, true)
-      return expected
-    },
-  })
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
-  const base = 'http://127.0.0.1:' + server.address().port
-  const allowed = await fetch(base + '/api/tron/resources/free-delegation/status?address=' + expected.address + '&refresh=1')
-  assert.equal(allowed.status, 200)
-  assert.deepEqual(await allowed.json(), expected)
-  const denied = await fetch(base + '/api/tron/resources/free-delegation/status?address=TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL')
-  assert.equal(denied.status, 403)
-  assert.equal(calls, 1)
-})
-
-test('TEnergy promo routes are Mainnet-only, wallet-restricted, and use a message signature rather than a transaction', async (t) => {
-  const { createServer } = await import('../server.js')
-  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-  const calls = []
-  const fetchImpl = async (url, options = {}) => {
-    calls.push({ url, options })
-    let payload
-    if (url.endsWith('/promo')) payload = { network: 'mainnet', state: 'active', left_today: 5, grant: { resource: 'energy', amount: 50000, duration_seconds: 3600 } }
-    else if (url.endsWith('/promo/redeem/challenge')) payload = { address, nonce: 'nonce-12345678', message: 'Sign this exact TEnergy promo message' }
-    else if (url.endsWith('/promo/redeem')) payload = { address, status: 'granting', energy: 50000, method: 'signature' }
-    else if (url.endsWith('/promo/redemptions/' + address)) payload = { address, status: 'delegated', energy: 50000, method: 'signature' }
-    else throw new Error('unexpected provider URL ' + url)
-    return new Response(JSON.stringify(payload), { status: url.endsWith('/promo/redeem/challenge') || url.endsWith('/promo/redeem') ? 201 : 200, headers: { 'content-type': 'application/json' } })
-  }
-  const server = createServer({ allowedAddress: address, fetchImpl })
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
-  const base = 'http://127.0.0.1:' + server.address().port + '/api/tron/resources/free-delegation/tenergy'
-  const challenge = await fetch(base + '/challenge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address }) })
-  assert.equal(challenge.status, 201)
-  assert.equal((await challenge.json()).challenge.message, 'Sign this exact TEnergy promo message')
-  const redeem = await fetch(base + '/redeem', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address, nonce: 'nonce-12345678', signature: 'a'.repeat(130) }) })
-  assert.equal(redeem.status, 201)
-  assert.equal((await redeem.json()).redemption.status, 'granting')
-  assert.equal(calls.every(call => call.url.startsWith('https://api.tenergy.me/v1/')), true)
-})
-
-test('TEnergy promo routes reject other wallets and malformed signatures before contacting the provider', async (t) => {
-  const { createServer } = await import('../server.js')
-  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-  const server = createServer({ allowedAddress: address, fetchImpl: async () => { throw new Error('provider must not be called') } })
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
-  const base = 'http://127.0.0.1:' + server.address().port + '/api/tron/resources/free-delegation/tenergy/redeem'
-  const denied = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address: 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL', nonce: 'nonce-12345678', signature: 'a'.repeat(130) }) })
-  assert.equal(denied.status, 403)
-  const malformed = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address, nonce: 'nonce-12345678', signature: 'not-a-signature' }) })
-  assert.equal(malformed.status, 400)
-})
-
-
-test('TRӾ deploy-flow TEnergy aliases are served by the production resource API', async (t) => {
-  const { createServer } = await import('../server.js')
-  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-  const providerCalls = []
-  let redemptionReads = 0
-  const fetchImpl = async (url, options = {}) => {
-    providerCalls.push({ url, options })
-    if (url.endsWith('/promo')) {
-      return new Response(JSON.stringify({
-        network: 'mainnet', state: 'active', left_today: 5,
-        grant: { resource: 'energy', amount: 65000, duration_seconds: 3600 },
-      }), { status: 200, headers: { 'content-type': 'application/json' } })
-    }
-    if (url.endsWith('/promo/redeem/challenge')) {
-      return new Response(JSON.stringify({
-        address, nonce: 'nonce-12345678', message: 'Sign this exact TEnergy deployment claim.',
-        expires_at: new Date(Date.now() + 600000).toISOString(),
-      }), { status: 201, headers: { 'content-type': 'application/json' } })
-    }
-    if (url.endsWith('/promo/redeem')) {
-      return new Response(JSON.stringify({
-        address, status: 'granting', energy: 65000, method: 'signature',
-      }), { status: 201, headers: { 'content-type': 'application/json' } })
-    }
-    if (url.endsWith('/promo/redemptions/' + address)) {
-      redemptionReads += 1
-      if (redemptionReads === 1) {
-        return new Response(JSON.stringify({ code: 'promo_not_redeemed' }), {
-          status: 404, headers: { 'content-type': 'application/json' },
-        })
-      }
-      return new Response(JSON.stringify({
-        address, status: 'delegated', energy: 65000, method: 'signature',
-      }), { status: 200, headers: { 'content-type': 'application/json' } })
-    }
-    throw new Error('unexpected provider URL ' + url)
-  }
-  const server = createServer({ allowedAddress: address, fetchImpl })
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
-  const base = 'http://127.0.0.1:' + server.address().port + '/api/tron/tenergy/promo'
-  const status = await fetch(base + '/status?address=' + address)
-  assert.equal(status.status, 200)
-  const statusBody = await status.json()
-  assert.equal(statusBody.promo.state, 'active')
-  assert.equal(statusBody.promo.grant.resource, 'energy')
-  assert.equal(statusBody.resourceCoverage.bandwidth, false)
-  assert.equal(statusBody.resourceCoverage.contractDeploymentFee, false)
-  assert.equal(statusBody.requiresOwnerMessageSignature, true)
-
-  const challenge = await fetch(base + '/challenge', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ address }),
-  })
-  assert.equal(challenge.status, 201)
-  const challengeBody = await challenge.json()
-  assert.equal(challengeBody.address, address)
-  assert.equal(challengeBody.nonce, 'nonce-12345678')
-  assert.equal(challengeBody.message, 'Sign this exact TEnergy deployment claim.')
-
-  const redeem = await fetch(base + '/redeem', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ address, nonce: 'nonce-12345678', signature: 'a'.repeat(130) }),
-  })
-  assert.equal(redeem.status, 201)
-  assert.equal((await redeem.json()).redemption.status, 'granting')
-
-  const refreshed = await fetch(base + '/status?address=' + address)
-  assert.equal(refreshed.status, 200)
-  assert.equal((await refreshed.json()).redemption.status, 'delegated')
-  assert.ok(providerCalls.every(call => call.url.startsWith('https://api.tenergy.me/v1/')))
-})
-
-
-test('TEnergy promo polling has an independent rate budget from Mainnet resource reads', async (t) => {
-  const { createServer } = await import('../server.js')
-  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-  const server = createServer({
-    allowedAddress: address,
-    readFreeDelegationStatus: async () => ({
-      success: true, network: 'mainnet', resourceRead: true,
-      inboundDelegations: { records: [] },
-    }),
-    fetchImpl: async (url) => {
-      if (url.endsWith('/promo')) return new Response(JSON.stringify({
-        network: 'mainnet', state: 'active', left_today: 5,
-        grant: { resource: 'energy', amount: 65000 },
-      }), { status: 200, headers: { 'content-type': 'application/json' } })
-      if (url.endsWith('/promo/redemptions/' + address)) return new Response('{}', {
-        status: 404, headers: { 'content-type': 'application/json' },
-      })
-      throw new Error('unexpected provider request: ' + url)
-    },
-  })
+  const server = createServer({ fetchImpl: async () => { throw new Error('external resource provider must never be called') } })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
   const base = 'http://127.0.0.1:' + server.address().port
-  for (let i = 0; i < 20; i += 1) {
-    const promo = await fetch(base + '/api/tron/tenergy/promo/status?address=' + address)
-    assert.equal(promo.status, 200)
-    const resources = await fetch(base + '/api/tron/resources/free-delegation/status?address=' + address)
-    assert.equal(resources.status, 200)
+  for (const path of [
+    '/api/tron/resources/free-delegation/status',
+    '/api/tron/resources/free-delegation/tenergy/status',
+    '/api/tron/tenergy/promo/status',
+    '/api/tron/resources/claims/readiness',
+  ]) {
+    const response = await fetch(base + path)
+    assert.equal(response.status, 404, path + ' must not be exposed')
   }
 })
 
@@ -271,7 +110,8 @@ test('Mainnet resource reads use an optional server-side TronGrid API key withou
   const base = 'http://127.0.0.1:' + server.address().port
   const health = await fetch(base + '/health')
   const healthBody = await health.json()
-  assert.equal(healthBody.rpc, 'TronGrid API key configured')
+  assert.equal(healthBody.rpc, 'TronGrid Mainnet node API key configured')
+  assert.equal(healthBody.rpcNode, 'trongrid')
   assert.equal(JSON.stringify(healthBody).includes(secret), false)
   const response = await fetch(base + '/v1/resources/' + address)
   assert.equal(response.status, 200)
@@ -281,31 +121,6 @@ test('Mainnet resource reads use an optional server-side TronGrid API key withou
   assert.equal(calls.length, 3)
   assert.ok(calls.every(call => call.options.headers['TRON-PRO-API-KEY'] === secret))
   assert.equal(JSON.stringify(body).includes(secret), false)
-})
-
-
-test('TEnergy promo rate limit ignores caller-controlled X-Forwarded-For rotation', async (t) => {
-  const { createServer } = await import('../server.js')
-  const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-  const server = createServer({
-    allowedAddress: address,
-    fetchImpl: async (url) => {
-      if (url.endsWith('/promo')) return new Response(JSON.stringify({ network: 'mainnet', state: 'active' }), { status: 200 })
-      if (url.endsWith('/promo/redemptions/' + address)) return new Response('{}', { status: 404 })
-      throw new Error('unexpected provider request: ' + url)
-    },
-  })
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
-  const url = 'http://127.0.0.1:' + server.address().port + '/api/tron/tenergy/promo/status?address=' + address
-
-  let lastStatus = 0
-  for (let i = 0; i < 31; i += 1) {
-    const response = await fetch(url, { headers: { 'x-forwarded-for': '198.51.100.' + (i + 1) } })
-    lastStatus = response.status
-    if (i < 30) assert.equal(response.status, 200)
-  }
-  assert.equal(lastStatus, 429)
 })
 
 
