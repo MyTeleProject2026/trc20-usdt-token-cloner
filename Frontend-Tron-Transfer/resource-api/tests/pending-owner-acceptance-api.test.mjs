@@ -82,3 +82,25 @@ test('pending-owner confirmation failure before signed persistence closes the cl
  assert.equal(state,'failed')
  assert.equal(failureCode,'TEST_SIGNATURE_INTEGRITY_FAILED')
 })
+
+
+test('pending-owner status closes an abandoned confirming claim after five minutes',async()=>{
+ const origin='https://tron-transfer.onrender.com',csrf='csrf-token'
+ const session={session_id:'session-id',csrf_hash:hash(csrf),contract_address:contract,pending_owner_address:pending,origin}
+ const row={operation_id:'123e4567-e89b-42d3-a456-426614174000',contract_address:contract,pending_owner_address:pending,idempotency_key:'pending-owner-key-123456',intent:{feeLimitSun:'150000000'},intent_sha256:'f'.repeat(64),transaction_id:'c'.repeat(64),preflight:{},receipt:null,state:'confirming',failure_code:null,created_at:new Date(Date.now()-600000).toISOString(),updated_at:new Date(Date.now()-600000).toISOString(),confirmed_at:null,unsigned_transaction:{raw_data_hex:'dd'}}
+ let state='confirming'
+ const db={async query(sql){
+  if(sql.includes('SELECT session_id,csrf_hash'))return{rows:[session]}
+  if(sql.includes('SET last_seen_at'))return{rows:[]}
+  if(sql.includes('SELECT operation_id,contract_address,pending_owner_address'))return{rows:[{...row,state,updated_at:row.updated_at}]}
+  if(sql.includes("SET state='failed',failure_code='PENDING_OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE'")){state='failed';return{rows:[{state,failure_code:'PENDING_OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE',updated_at:new Date().toISOString()}]}}
+  return{rows:[]}
+ }}
+ const out=[]
+ const api=createPendingOwnerAcceptanceApi({database:db,env:{TRAX_CONTRACT_ADDRESS:contract},send:(_r,status,payload)=>out.push({status,payload})})
+ await api.handle(req('GET',{}, {origin,cookie:'tron_pending_owner_session=token'}),res(),new URL('https://api.test/api/pending-owner/operations/'+row.operation_id),origin)
+ assert.equal(out[0].status,200)
+ assert.equal(out[0].payload.operation.state,'failed')
+ assert.equal(out[0].payload.operation.failure_code,'PENDING_OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE')
+ assert.equal(state,'failed')
+})
