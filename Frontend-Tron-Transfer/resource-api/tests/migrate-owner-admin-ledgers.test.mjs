@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope, LEGACY_MIGRATION_CHECKSUMS, OWNER_ADMIN_SCHEMA_FINGERPRINT, getOwnerAdminSchemaFingerprint, ownerAdminDatabaseIdentityFingerprint } from '../scripts/migrate-owner-admin-ledgers.mjs'
+import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope, LEGACY_MIGRATION_CHECKSUMS, OWNER_ADMIN_SCHEMA_FINGERPRINT, getOwnerAdminSchemaFingerprint, ownerAdminDatabaseIdentityFingerprint, assertOwnerAdminDatabaseIdentity } from '../scripts/migrate-owner-admin-ledgers.mjs'
 import { readFile } from 'node:fs/promises'
 
 test('Owner Admin migration target fingerprint pins host, database, port and role without exposing credentials',()=>{
@@ -13,6 +13,9 @@ test('Owner Admin migration target fingerprint pins host, database, port and rol
  assert.notEqual(first,differentDatabase)
  assert.match(first,/^[0-9a-f]{64}$/)
  assert.ok(!JSON.stringify({first}).includes('secret'))
+ assert.equal(assertOwnerAdminDatabaseIdentity('postgresql://neondb_owner:secret@ep-example.c-9.us-east-2.aws.neon.tech:5432/tron_transfer?sslmode=require',first),first)
+ assert.throws(()=>assertOwnerAdminDatabaseIdentity('postgresql://other_role:secret@ep-example.c-9.us-east-2.aws.neon.tech:5432/tron_transfer',first),/owner-admin-database-identity-mismatch/)
+ assert.throws(()=>assertOwnerAdminDatabaseIdentity('postgresql://neondb_owner:secret@ep-example.c-9.us-east-2.aws.neon.tech:5432/tron_transfer',''),/missing-owner-admin-database-identity-pin/)
 })
 
 test('Owner Admin migration target fingerprint rejects pooler URLs only at main guard, not identity parsing',()=>{
