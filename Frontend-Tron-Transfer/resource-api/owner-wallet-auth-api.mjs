@@ -85,6 +85,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
   }
   const identity = () => identityReport || createManagedWalletIdentityReport({ env })
   const allowLoginAttempt = createLoginRateLimiter()
+  const allowRecoveryAttempt = createLoginRateLimiter({ limit: 3 })
   async function audit(db, type, outcome, metadata = {}) {
     await db.query('INSERT INTO public.tron_transfer_wallet_auth_audit (wallet_role,event_type,outcome,metadata) VALUES ($1,$2,$3,$4::jsonb)', ['owner', type, outcome, JSON.stringify(metadata)])
   }
@@ -281,6 +282,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
         }
         if (url.pathname === '/api/wallet-auth/owner/recover' && req.method === 'POST') {
           if (!allowedOrigins.includes(String(req.headers.origin || ''))) { send(res, 403, { success: false, error: 'ORIGIN_NOT_ALLOWED' }, origin); return true }
+          if (!allowRecoveryAttempt(req)) { send(res, 429, { success: false, error: 'RECOVERY_RATE_LIMITED', retryAfterSeconds: 900 }, origin); return true }
           const input = await body(req)
           const recoveryToken = String(input.recoveryToken || '')
           if (recoveryToken.length < 32 || recoveryToken.length > 256
