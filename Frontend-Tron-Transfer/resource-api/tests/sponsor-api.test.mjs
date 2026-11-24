@@ -423,7 +423,7 @@ test('Sponsor status classifies database connection failures without exposing er
   assert.equal(JSON.stringify(result.payload).includes('private-db-host.example'), false)
 })
 
-test('Sponsor readiness reports Owner-session authorization accurately', async () => {
+test('Sponsor readiness distinguishes Sponsor execution from Owner-only ledger bootstrap', async () => {
   const database = {
     async query(sql) {
       if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
@@ -439,7 +439,8 @@ test('Sponsor readiness reports Owner-session authorization accurately', async (
   const { api } = setup({ database, databaseUrl: 'postgres://configured', engine, ownerSessionFixture: 'too-short' })
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
-  assert.equal(result.payload.ownerAdminSessionRequired, true)
+  assert.equal(result.payload.ownerAdminSessionRequired, false)
+  assert.equal(result.payload.ownerAdminSessionRequiredForLedgerBootstrap, true)
   assert.equal(result.payload.ownerAdminSessionConfigured, true)
   assert.equal(result.payload.databaseReady, true)
   assert.equal(result.payload.databaseStatus, 'ready')
@@ -678,20 +679,18 @@ test('invalid resource combinations cannot create Sponsor intents', async () => 
 })
 
 
-test('Owner Admin session, not a legacy static token header, authorizes Sponsor write intents', async () => {
-  const { api } = setup()
+test('independent Sponsor session authorizes its own operation intent without an Owner session', async () => {
+  const { api } = setup({ ownerSessionFixture: '', authenticateOwnerAdminSession: null })
   const token = await authenticated(api)
   const body = {
     operation: 'topup', resource: 'TRX', amountSun: '1000000',
-    idempotencyKey: 'sponsor-admin-topup-0123456789',
+    idempotencyKey: 'sponsor-independent-topup-0123456789',
   }
-  const legacyTokenOnly = await call(api, 'POST', '/api/sponsor/intent', body, token, null, {
+  const sponsorAuthorized = await call(api, 'POST', '/api/sponsor/intent', body, token, null, {
     headers: { 'x-sponsor-admin-token': OWNER_SESSION_FIXTURE },
   })
-  assert.equal(legacyTokenOnly.status, 403)
-  assert.equal(legacyTokenOnly.payload.error, 'sponsor-admin-authorization-required')
-  const ownerAuthorized = await call(api, 'POST', '/api/sponsor/intent', body, token, 'owner-session-fixture')
-  assert.equal(ownerAuthorized.status, 201)
+  assert.equal(sponsorAuthorized.status, 201)
+  assert.equal(sponsorAuthorized.payload.success, true)
 })
 
 
@@ -723,19 +722,17 @@ test('Sponsor transaction preparation fails closed until ledger durability, back
   assert.equal(prepared.payload.error, 'sponsor-ledger-durability-not-verified')
 })
 
-test('missing Owner Admin session fails closed for Sponsor writes', async () => {
+test('Sponsor transaction readiness does not depend on Owner Admin session availability', async () => {
   const { api } = setup({ ownerSessionFixture: '', authenticateOwnerAdminSession: null })
   const status = await call(api, 'GET', '/api/sponsor/status')
-  assert.equal(status.payload.ownerAdminSessionRequired, true)
-  assert.equal(status.payload.ownerAdminSessionConfigured, false)
-  assert.equal(status.payload.transactionExecutionAvailable, false)
+  assert.equal(status.payload.ownerAdminSessionRequired, false)
+  assert.equal(status.payload.ownerAdminSessionRequiredForLedgerBootstrap, false)
   const token = await authenticated(api)
   const result = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
-    idempotencyKey: 'sponsor-missing-admin-factor-012345',
+    idempotencyKey: 'sponsor-no-owner-session-012345',
   }, token, null)
-  assert.equal(result.status, 403)
-  assert.equal(result.payload.error, 'sponsor-admin-authorization-required')
+  assert.equal(result.status, 201)
 })
 
 
@@ -961,19 +958,15 @@ test('Sponsor readiness coalesces simultaneous status refreshes into one databas
   assert.equal(queryCount, 2)
 })
 
-test('production Owner Admin session is required for Sponsor intents', async () => {
+test('Sponsor intents are authorized by the Sponsor session, not the Owner Admin session', async () => {
   const { api } = setup({
     authenticateOwnerAdminSession: async req => String(req.headers.cookie || '').includes('owner-admin-session') ? { address: OWNER } : null,
   })
   const token = await authenticated(api)
-  const intent = { operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'owner-admin-session-intent-0001' }
-  const tokenOnly = await call(api, 'POST', '/api/sponsor/intent', intent, token, OWNER_SESSION_FIXTURE)
-  assert.equal(tokenOnly.status, 403)
-  assert.equal(tokenOnly.payload.error, 'sponsor-admin-authorization-required')
-
-  const ownerAuthorized = await call(api, 'POST', '/api/sponsor/intent', intent, token, '', { headers: { cookie: 'tron_owner_session=owner-admin-session' } })
-  assert.equal(ownerAuthorized.status, 201)
-  assert.equal(ownerAuthorized.payload.success, true)
+  const intent = { operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-session-intent-0001' }
+  const sponsorAuthorized = await call(api, 'POST', '/api/sponsor/intent', intent, token)
+  assert.equal(sponsorAuthorized.status, 201)
+  assert.equal(sponsorAuthorized.payload.success, true)
 })
 
 test('database target identity uses the direct Owner Admin URL while Sponsor runtime may use the pooler', () => {
