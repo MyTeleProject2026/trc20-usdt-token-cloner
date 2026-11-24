@@ -99,10 +99,10 @@ test('Owner and Sponsor workspaces do not depend on injected TRON wallet provide
 
 test('contract administration checks the configured owner against the on-chain token owner', async () => {
   const panel = await read('../src/TRXMainnetPanel.jsx')
-  for (const value of ['callMainnetView(token.owner())', 'EXPECTED_OWNER_ADDRESS', 'connectedAddress']) {
+  for (const value of ['callMainnetView(token.owner())', 'connectedAddress', 'addressesEqual(wallet.tronWeb, wallet.tronWeb.defaultAddress?.base58, connectedAddress)']) {
     assert.ok(panel.includes(value), 'missing on-chain owner check: ' + value)
   }
-  assert.doesNotMatch(panel, /vaultAddress|vaultOwner|TRAX_VAULT_ARTIFACT/)
+  assert.doesNotMatch(panel, /EXPECTED_OWNER_ADDRESS|TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp|vaultAddress|vaultOwner|TRAX_VAULT_ARTIFACT/)
 })
 
 test('production build runs the complete frontend regression suite', async () => {

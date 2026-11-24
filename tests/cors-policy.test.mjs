@@ -95,7 +95,7 @@ test('server entrypoint uses the fail-closed CORS policy and reports valid confi
   assert.match(entrypoint, /process\.env\.TRON_TRANSFER_UI_ORIGIN/)
   assert.match(entrypoint, /createCorsPolicy\(configuredOrigins\)/)
   assert.match(entrypoint, /app\.use\(corsPolicy\)/)
-  assert.match(entrypoint, /frontendOriginConfigured: allowedOrigins\\.size > 0/)
+  assert.match(entrypoint, /frontendOriginConfigured: allowedOrigins\.size > 0/)
   assert.doesNotMatch(entrypoint, /!allowedOrigins\.size\s*\|\|\s*allowedOrigins\.has\(origin\)/)
 })
 
