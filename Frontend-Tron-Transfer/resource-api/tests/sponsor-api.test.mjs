@@ -397,7 +397,7 @@ test('Sponsor status fails closed when the ledger control row is missing', async
   }
   const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
   const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
-  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine, authenticateOwnerAdminSession: null })
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
   assert.equal(result.payload.databaseReady, false)
