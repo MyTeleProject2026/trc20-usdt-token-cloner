@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer, MAINNET_RPC } from '../server.js'
 
-const ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const ADDRESS = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
 function mainnetPayload(url) {
   if (url.endsWith('/wallet/getaccountresource')) return {
