@@ -27,12 +27,11 @@ The live endpoint reports these server-side checks only:
 11. The local Sponsor signer execution path is available in code/configuration.
 12. Mainnet execution remains explicitly disabled during acceptance.
 
-The endpoint does **not** claim to prove that a browser vault is unlocked, that a user has completed Owner or Sponsor enrollment, or that a real wallet signature has been produced. It also does not perform pending-owner transaction acceptance or exercise password recovery. Those are separate browser and integration acceptance gates.
+The endpoint does **not** claim to prove that a browser vault is unlocked, that a user has completed Owner or Sponsor enrollment, or that a real wallet signature has been produced. It also does not exercise pending-owner transaction acceptance or password recovery. Pending-owner acceptance now uses an ephemeral local signer imported in the browser; its private key is not persisted or sent to the API. These remain separate browser and integration acceptance gates.
 
 The Owner local-signing path, pending-owner acceptance, role-scoped password recovery, session revocation, persistence-before-broadcast, and solidified recovery have dedicated source and regression tests. Passing those tests is not a substitute for a real browser acceptance run against the deployed build.
 
 A passing server-side report is labelled `ready-for-independent-review`, not production-approved. Operator evidence, independent review, and explicit release approval remain mandatory. The API always reports `executionEnabled: false` in this acceptance report.
-A passing report is labelled `ready-for-independent-review`, not production-approved. Operator evidence, independent review, and explicit release approval remain mandatory. The API always reports `executionEnabled: false` in this acceptance report.
 
 ## Run the production smoke check
 
