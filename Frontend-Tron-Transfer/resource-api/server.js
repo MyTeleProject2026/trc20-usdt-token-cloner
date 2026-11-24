@@ -738,10 +738,10 @@ export function createServer({ readFreeDelegationStatus, allowedAddress = 'TNj5w
               nonce: challenge.nonce,
               message: challenge.message,
               expiresAt: challenge.expires_at || null,
-              approval: 'Sign this exact message in TronLink; this is not a transaction.',
+              approval: 'Sign this exact message with the imported local Owner Wallet; this is not a transaction.',
             }, origin)
           }
-          return send(res, 201, { success: true, provider: 'TEnergy', network: 'mainnet', challenge, approval: 'Sign this exact message in TronLink; this is not a transaction.' }, origin)
+          return send(res, 201, { success: true, provider: 'TEnergy', network: 'mainnet', challenge, approval: 'Sign this exact message with the imported local Owner Wallet; this is not a transaction.' }, origin)
         }
         if (promoAction === 'redeem' && req.method === 'POST') {
           const { nonce, signature } = body
