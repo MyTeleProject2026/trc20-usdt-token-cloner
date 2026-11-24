@@ -1,4 +1,5 @@
 import { TronWeb } from 'tronweb'
+import { createMainnetTronWeb, postMainnetRead } from './mainnet-rpc-provider.mjs'
 import { assertTransactionIntegrity, verifyTransactionSigner, assertTransactionPermission } from '../src/tron-mainnet-preflight.mjs'
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
@@ -92,12 +93,12 @@ export function createSponsorTransactionEngine({
   fetchImpl = globalThis.fetch,
   // This engine is a read/preparation/broadcast adapter only. It deliberately
   // cannot construct a TronWeb instance with private-key signing material.
-  tronWebFactory = () => new TronWeb({
-    fullHost: MAINNET,
-    headers: env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {},
-  }),
+  tronWebFactory = null,
   now = () => Date.now(),
 } = {}) {
+  const makeTronWeb = typeof tronWebFactory === 'function'
+    ? tronWebFactory
+    : () => createMainnetTronWeb({ env, fetchImpl })
   const ownerAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || ''
   function readiness() {
     const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
@@ -144,15 +145,7 @@ export function createSponsorTransactionEngine({
 
   async function verifySolidified({ transactionId, operation, resource, amountSun, sponsorAddress, ownerAddress: recipient }) {
     if (!TXID.test(transactionId || '')) return { confirmed: false, status: 'invalid-transaction-id' }
-    const post = async (path, body) => {
-      const response = await fetchImpl(MAINNET + path, {
-        method: 'POST',
-        headers: { accept: 'application/json', 'content-type': 'application/json', ...(env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {}) },
-        body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(8_000),
-      })
-      if (!response.ok) throw new Error('solidified-mainnet-read-unavailable')
-      return response.json()
-    }
+    const post = (path, body) => postMainnetRead(path, body, { env, fetchImpl })
     const info = await post('/walletsolidity/gettransactioninfobyid', { value: transactionId })
     if (String(info?.id || '').toLowerCase() !== transactionId.toLowerCase()
       || !Number.isSafeInteger(info.blockNumber) || info.blockNumber <= 0) return { confirmed: false, status: 'not-solidified' }
@@ -238,7 +231,7 @@ export function createSponsorTransactionEngine({
       if (cap === null || cap <= 0n || amount > cap) return { success: false, status: 'owner-topup-disabled-or-amount-exceeds-configured-cap' }
     }
     try {
-      const tronWeb = tronWebFactory()
+      const tronWeb = makeTronWeb()
       const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
       if (!ADDRESS.test(sponsorAddress || '') || sponsorAddress === recipient) throw new Error('sponsor-signer-address-mismatch')
       const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
@@ -326,7 +319,7 @@ export function createSponsorTransactionEngine({
     let signed = false
     let broadcastAttempted = false
     try {
-      const tronWeb = tronWebFactory()
+      const tronWeb = makeTronWeb()
       await verifySponsorSignedTransaction({
         tronWeb, unsignedTransaction: preparedTransaction, signedTransaction,
         operation, resource, amountSun, sponsorAddress, ownerAddress: recipient,

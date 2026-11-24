@@ -305,7 +305,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
     authenticateManagedSession: (req, options) => ownerWalletAuthApi.authenticateRequest(req, options),
   })
   const traxDeploymentApi = createTRAXDeploymentApi({
-    env, send, database: sponsorDatabase || null,
+    env, send, fetchImpl, database: sponsorDatabase || null,
     authenticateManagedSession: (req, options) => ownerWalletAuthApi.authenticateRequest(req, options),
   })
   const pendingOwnerAcceptanceApi = createPendingOwnerAcceptanceApi({ env, send, database: sponsorDatabase || null })

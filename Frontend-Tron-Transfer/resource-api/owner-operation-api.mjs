@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { TronWeb } from 'tronweb'
+import { createMainnetTronWeb, postMainnetRead } from './mainnet-rpc-provider.mjs'
 import pg from 'pg'
 import { createOwnerOperationLedger } from './owner-operation-ledger.mjs'
 import { normalizeMainnetAccountResources, normalizeMainnetPermissionSnapshot, estimateMainnetContractCallEnergy, calculateDeploymentResourceBudget, assertZeroTrxBurnBudget, assertTransactionIntegrity, verifyTransactionSigner, assertTransactionPermission } from '../src/tron-mainnet-preflight.mjs'
@@ -139,14 +139,14 @@ function rpcHeaders(env) {
   }
 }
 async function rpcPost(path, payload, { fetchImpl, env }) {
-  const response = await fetchImpl(mainnetHost(env) + path, {
-    method: 'POST', headers: rpcHeaders(env), body: JSON.stringify(payload),
-    redirect: 'error', signal: AbortSignal.timeout(8_000),
-  })
-  const result = await response.json().catch(() => ({}))
-  if (!response.ok) throw Object.assign(new Error('TRON Mainnet node returned HTTP ' + response.status + ' for ' + path), { code: 'OWNER_MAINNET_RPC_UNAVAILABLE', status: 503, upstreamStatus: response.status })
-  if (result?.Error || result?.error) throw Object.assign(new Error(String(result?.Error || result?.error).slice(0, 160)), { code: 'OWNER_MAINNET_RPC_UNAVAILABLE', status: 503 })
-  return result
+  try {
+    return await postMainnetRead(path, payload, { fetchImpl, env })
+  } catch (error) {
+    throw Object.assign(
+      new Error('TRON Mainnet read provider is unavailable for ' + path),
+      { code: 'OWNER_MAINNET_RPC_UNAVAILABLE', status: 503, upstreamStatus: Number(error?.status || error?.response?.status) || null },
+    )
+  }
 }
 function asAddress(tronWeb, value) {
   try { return value && (String(value).startsWith('T') ? value : tronWeb.address.fromHex(value)) } catch { return '' }
@@ -262,7 +262,7 @@ async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { 
 
 export function createOwnerOperationApi({
   env = process.env, send, authenticateManagedSession, database = null,
-  fetchImpl = fetch, tronWebFactory = options => new TronWeb(options),
+  fetchImpl = fetch, tronWebFactory = null,
   prepareTransaction = buildUnsigned, preflightTransaction = preflight,
   verifyContractState = verifyContract,
   verifyUnsignedTransaction = (tronWeb, unsigned) => assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ Owner operation'),
@@ -300,6 +300,9 @@ export function createOwnerOperationApi({
 } = {}) {
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('Owner operation API dependencies are required')
   const pacedFetch = createPacedFetch(fetchImpl)
+  const makeTronWeb = typeof tronWebFactory === 'function'
+    ? options => tronWebFactory(options)
+    : () => createMainnetTronWeb({ env, fetchImpl: pacedFetch })
   let pool = database
   async function getDatabase() {
     if (typeof pool === 'function') {
@@ -418,7 +421,7 @@ export function createOwnerOperationApi({
         let transaction
         let result
         try {
-          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
+          const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
           result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env })
@@ -522,7 +525,7 @@ export function createOwnerOperationApi({
             || !/^[1-9][0-9]{0,11}$/.test(normalized.feeLimitSun)) fail('OWNER_OPERATION_STORED_INTENT_INVALID', 409)
           const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
           if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
-          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
+          const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
           const unsigned = preparedUnsigned
           const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env })
@@ -604,7 +607,7 @@ export function createOwnerOperationApi({
           await ledger.transition({ operationId, ownerAddress: String(env.TRON_OWNER_ADDRESS || ''), nextState: 'failed', failureCode: 'OWNER_CONFIRMATION_INTERRUPTED_BEFORE_SIGN_PERSISTENCE' })
         }
         if (operation.transaction_id && ['signed', 'broadcast-unknown', 'broadcast'].includes(operation.state)) {
-          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
+          const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           try {
             reconciliation = await reconcileTransaction(operation.transaction_id, String(env.TRON_OWNER_ADDRESS || ''), operation.contract_address, { fetchImpl: pacedFetch, env, tronWeb, expectedTransaction: operation.receipt?.unsignedTransaction })
             if (reconciliation?.solidified) {

@@ -208,11 +208,22 @@ export async function getMainnetNativeBalance(tronWeb, address) {
 
 async function postNode(tronWeb, path, body) {
   for (let attempt = 0; ; attempt += 1) {
-    const { response, detail } = await enqueueNodeRequest(async () => {
-      const rpcHost = String(tronWeb?.fullNode?.host || TRON_MAINNET_HOST).replace(/\/+$/, '')
+    const result = await enqueueNodeRequest(async () => {
+      const provider = tronWeb?.fullNode
+      if (typeof provider?.request === 'function') {
+        try {
+          return { value: await provider.request(String(path).replace(/^\/+/, ''), body, 'post') }
+        } catch (error) {
+          const detail = String(error?.message || error || '').slice(0, 500)
+          return { error, detail }
+        }
+      }
+
+      // Compatibility for minimal test doubles and older TronWeb adapters.
+      const rpcHost = String(provider?.host || TRON_MAINNET_HOST).replace(/\/+$/, '')
       const response = await fetch(rpcHost + path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(tronWeb?.fullNode?.headers || {}) },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(provider?.headers || {}) },
         body: JSON.stringify(body),
         cache: 'no-store',
       })
@@ -222,15 +233,20 @@ async function postNode(tronWeb, path, body) {
       }
       return { response, detail }
     })
-    if (response.ok) return response.json()
-    if (response.status === 429 && attempt < NODE_MAX_RETRIES_429) {
-      // Re-enqueue immediately; the shared queue enforces the provider cooldown
-      // once for this tab and prevents other app requests from bypassing it.
+
+    if (Object.hasOwn(result, 'value')) return result.value
+    if (result.response?.ok) return result.response.json()
+
+    const status = Number(result.response?.status || result.error?.response?.status || result.error?.status || 0)
+    const detail = result.detail || String(result.error?.message || '')
+    if (status === 429 && attempt < NODE_MAX_RETRIES_429) {
+      const cooldown = retryDelayMs(result.response || result.error?.response, attempt, detail)
+      nodeCooldownUntil = Math.max(nodeCooldownUntil, Date.now() + cooldown)
       continue
     }
-    throw new Error('TRON Mainnet node returned HTTP ' + response.status + ' for ' + path
+    throw new Error('TRON Mainnet node returned HTTP ' + (status || 'unavailable') + ' for ' + path
       + (detail ? ': ' + detail : '')
-      + (response.status === 429 ? '. Public TronGrid rate limit reached after paced retries; the public node is still throttling this network. Wait before retrying.' : ''))
+      + (status === 429 ? '. Mainnet read providers are rate-limited after bounded retries; wait before retrying.' : ''))
   }
 }
 

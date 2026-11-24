@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { TronWeb } from 'tronweb'
+import { createMainnetTronWeb } from './mainnet-rpc-provider.mjs'
 import pg from 'pg'
 import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
@@ -90,8 +90,9 @@ export function createTRAXDeploymentApi({
   send,
   database,
   authenticateManagedSession,
+  fetchImpl = globalThis.fetch,
   artifactLoader = loadPinnedTRAXDeploymentArtifact,
-  tronWebFactory = options => new TronWeb(options),
+  tronWebFactory = null,
   buildTransaction = createMainnetDeploymentTransaction,
   estimateEnergy = estimateMainnetDeploymentEnergy,
   readResources = getMainnetAccountResourceSnapshot,
@@ -105,6 +106,9 @@ export function createTRAXDeploymentApi({
   broadcastDeployment = (client, signed) => client.trx.sendRawTransaction(signed),
 } = {}) {
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('TRӾ deployment API requires response and Owner-session adapters.')
+  const makeTronWeb = typeof tronWebFactory === 'function'
+    ? options => tronWebFactory(options)
+    : () => createMainnetTronWeb({ env, fetchImpl })
   let pool = database
   async function getDatabase() {
     if (pool) return pool
@@ -183,7 +187,7 @@ export function createTRAXDeploymentApi({
         try {
           const artifactNow = await artifactLoader({ env })
           if (artifactNow.artifactSha256 !== row.artifact_sha256) fail('TRAX_DEPLOYMENT_ARTIFACT_CHANGED', 409)
-          const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
+          const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           const recovered = await recoverDeployment(tronWeb, {
             txID: row.transaction_id, ownerAddress: session.address, artifact: artifactNow,
           }, {
@@ -261,7 +265,7 @@ export function createTRAXDeploymentApi({
         if (artifactNow.artifactSha256 !== claimed.artifact_sha256
           || artifactNow.creationBytecodeSha256 !== claimed.creation_bytecode_sha256
           || artifactNow.runtimeBytecodeSha256 !== claimed.runtime_bytecode_sha256) fail('TRAX_DEPLOYMENT_ARTIFACT_CHANGED', 409)
-        const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
+        const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
         if (session.address !== env.TRON_OWNER_ADDRESS) fail('TRAX_DEPLOYMENT_OWNER_SESSION_MISMATCH', 403)
         const unsigned = claimed.unsigned_transaction
         assertIntegrity(tronWeb, unsigned, 'Persisted TRӾ deployment transaction')
@@ -377,7 +381,7 @@ export function createTRAXDeploymentApi({
     }
     try {
       const artifactNow = await artifactLoader({ env })
-      const tronWeb = tronWebFactory({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
+      const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
       const unsigned = await buildTransaction(tronWeb, {
         abi: artifactNow.abi, bytecode: artifactNow.bytecode, feeLimit: Number(feeLimitSun),
         originEnergyLimit: Number(env.TRAX_DEPLOYMENT_ORIGIN_ENERGY_LIMIT || 10000000),
