@@ -1,7 +1,25 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope, LEGACY_MIGRATION_CHECKSUMS, OWNER_ADMIN_SCHEMA_FINGERPRINT, getOwnerAdminSchemaFingerprint } from '../scripts/migrate-owner-admin-ledgers.mjs'
+import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope, LEGACY_MIGRATION_CHECKSUMS, OWNER_ADMIN_SCHEMA_FINGERPRINT, getOwnerAdminSchemaFingerprint, ownerAdminDatabaseIdentityFingerprint } from '../scripts/migrate-owner-admin-ledgers.mjs'
 import { readFile } from 'node:fs/promises'
+
+test('Owner Admin migration target fingerprint pins host, database, port and role without exposing credentials',()=>{
+ const first=ownerAdminDatabaseIdentityFingerprint('postgresql://neondb_owner:secret@ep-example.c-9.us-east-2.aws.neon.tech:5432/tron_transfer?sslmode=require')
+ const same=ownerAdminDatabaseIdentityFingerprint('postgres://neondb_owner:other-secret@EP-EXAMPLE.C-9.US-EAST-2.AWS.NEON.TECH/tron_transfer')
+ const differentRole=ownerAdminDatabaseIdentityFingerprint('postgresql://other_role:secret@ep-example.c-9.us-east-2.aws.neon.tech:5432/tron_transfer')
+ const differentDatabase=ownerAdminDatabaseIdentityFingerprint('postgresql://neondb_owner:secret@ep-example.c-9.us-east-2.aws.neon.tech:5432/other_db')
+ assert.equal(first,same)
+ assert.notEqual(first,differentRole)
+ assert.notEqual(first,differentDatabase)
+ assert.match(first,/^[0-9a-f]{64}$/)
+ assert.ok(!JSON.stringify({first}).includes('secret'))
+})
+
+test('Owner Admin migration target fingerprint rejects pooler URLs only at main guard, not identity parsing',()=>{
+ assert.throws(()=>ownerAdminDatabaseIdentityFingerprint('not-a-database-url'),/invalid-owner-admin-database-url/)
+ assert.throws(()=>ownerAdminDatabaseIdentityFingerprint('https://example.com/db'),/invalid-owner-admin-database-url/)
+})
+
 
 test('Owner Admin schema fingerprint reads the stable catalog manifest',async()=>{
  let statement=''
