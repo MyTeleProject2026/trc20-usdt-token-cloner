@@ -6,6 +6,7 @@ TRON Transfer is the existing TRON Mainnet Owner Admin application. It contains 
 
 - **Owner wallet:** independently imported into an encrypted local browser vault; signs only Owner contract deployment and Owner-authorized TRӾ operations.
 - **Sponsor wallet:** independently imported into its own encrypted local browser vault; signs only its own TRX staking, unstaking, matured withdrawal, Energy/Bandwidth delegation or undelegation to Owner, and explicit TRX top-ups to Owner.
+- **Wallet deposits:** Owner and Sponsor workspaces display their own receive address, copy/open-address actions, and confirmed incoming native TRX plus official USDT (TRC20) history. Deposits go directly to the selected wallet; no intermediary or deposit contract is involved.
 - **Tatum:** preferred TRON Mainnet read-only RPC provider when configured.
 - **TronGrid:** read fallback and the explicit signed-transaction broadcast and transaction-history path.
 - **Neon:** the existing PostgreSQL database for Owner/Sponsor sessions, operation ledgers, idempotency, audit history and recovery.
@@ -21,6 +22,7 @@ Tatum and TronGrid are blockchain connectivity services only. Neither signs tran
 - The Resource API prepares exact unsigned transactions, validates the returned signature and permission, persists signed payloads and transaction IDs before broadcast, broadcasts once through TronGrid, and reconciles the original transaction against solidified Mainnet state.
 - Ambiguous submissions are reconciled by their original transaction ID. The API must not silently re-sign or replace an ambiguous operation.
 - Owner and Sponsor application sessions are separate. Sponsor writes require the independent Sponsor and Owner Admin authorization checks.
+- Deposit history is read-only, confirmed-only, and sourced from the existing Resource API transaction feed. The UI never treats an unavailable feed as proof that no funds arrived.
 - No TronLink injection is required for the primary Owner or Sponsor workflow.
 
 ## TRӾ contract

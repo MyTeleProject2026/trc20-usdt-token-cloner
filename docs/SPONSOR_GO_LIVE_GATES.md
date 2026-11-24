@@ -44,7 +44,12 @@ This checklist applies only to the integrated Sponsor workspace inside the exist
 6. **Browser acceptance**
    - Complete desktop and mobile tests for Owner and Sponsor import, unlock, lock, session recovery, signing, transaction history, errors and interrupted network outcomes.
    - Do not use a real-value Mainnet transfer as a test.
-7. **Operational acceptance**
+7. **Wallet receive/deposit acceptance**
+   - Verify Owner and Sponsor show different configured receive addresses matching their authenticated wallet identities.
+   - Verify copy-address and TRONSCAN links use the correct wallet address.
+   - Verify confirmed incoming TRX and official USDT TRC20 transfers are classified as received only when the destination matches the wallet.
+   - Verify the UI labels history as unavailable when the Resource API cannot provide it and never reports an unavailable feed as zero deposits.
+8. **Operational acceptance**
    - Verify health/readiness, provider fallback, TronGrid-only broadcast, audit history, rate limiting, monitoring, backup/restore and emergency pause.
    - Confirm no private-key environment variable or server-side signing path remains.
 

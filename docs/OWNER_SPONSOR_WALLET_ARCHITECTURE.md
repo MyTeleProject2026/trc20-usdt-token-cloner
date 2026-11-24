@@ -33,6 +33,10 @@ Sponsor does not become the TRӾ contract owner merely by providing resources. D
 
 The same read-provider policy is used by the Resource API, Owner-operation API, deployment API and Sponsor transaction engine. Browser Owner contract reads use the Resource API read proxy; the proxy applies Tatum-first/TronGrid-fallback routing.
 
+## Receiving deposits
+
+Each wallet workspace displays only its own authenticated/unlocked wallet address as its receive address. The operator can copy the address or open it on TRONSCAN. The existing Resource API confirmed transaction feed is used to display incoming native TRX transfers and official USDT TRC20 transfers. This is a read-only receive flow: it does not generate a new address, create a deposit contract, custody funds, credit an internal balance, or submit a transaction. TRӾ is not included in the deposit feed because it is a custom token and must be separately identified by its verified contract.
+
 ## Persistent application data
 
 The existing Neon PostgreSQL database stores:
