@@ -79,7 +79,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
     if (pool) return pool
     const connection = walletAuthDatabaseConnectionString(env)
     if (!connection) return null
-    pool = new Pool({ connectionString: normalizePostgresTlsMode(connection), connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, max: 3 })
+    pool = new Pool({ connectionString: normalizePostgresTlsMode(connection), connectionTimeoutMillis: 8000, query_timeout: 8000, statement_timeout: 7000, idleTimeoutMillis: 30000, max: 3, application_name: 'tron-transfer-wallet-auth' })
     pool.on('error', error => process.stderr.write('Sponsor wallet auth database error: ' + String(error?.code || 'unknown') + '\\n'))
     return pool
   }
@@ -325,7 +325,9 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
         send(res, 405, { success: false, error: 'METHOD_NOT_ALLOWED' }, origin); return true
       } catch (error) {
         const status = Number.isInteger(error?.status) ? error.status : 503
-        send(res, status, { success: false, error: status === 400 ? 'INVALID_REQUEST' : 'WALLET_AUTH_UNAVAILABLE' }, origin)
+        const diagnosticCode = typeof error?.code === 'string' && /^[A-Z0-9_]{2,32}$/.test(error.code) ? error.code : (status === 400 ? 'INVALID_REQUEST' : 'DATABASE_QUERY_FAILED')
+        if (status >= 500) process.stderr.write('Sponsor wallet auth request failed: ' + diagnosticCode + '\\n')
+        send(res, status, { success: false, error: status === 400 ? 'INVALID_REQUEST' : 'WALLET_AUTH_UNAVAILABLE', diagnosticCode }, origin)
         return true
       }
     },
