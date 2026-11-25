@@ -8,6 +8,7 @@ import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-iden
 
 const { Pool } = pg
 const MAINNET = 'https://api.trongrid.io'
+const OFFICIAL_USDT_MAINNET_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 function mainnetHost() { return MAINNET }
 const CONFIRMATION_PHRASE = 'CONFIRM TRON MAINNET OWNER OPERATION'
 const TXID = /^[0-9a-f]{64}$/i
@@ -41,6 +42,7 @@ const METHODS = Object.freeze({
     return [recipients, amounts, references]
   } },
   transfer: { method: 'transfer', args: input => [address(input.recipient), uint(input.amount)] },
+  'usdt-transfer': { method: 'transfer', args: input => [address(input.recipient), uint(input.amount)] },
   pause: { method: 'setPaused', args: () => [true] },
   unpause: { method: 'setPaused', args: () => [false] },
   'minting-enable': { method: 'setMintingEnabled', args: () => [true] },
@@ -172,6 +174,23 @@ async function verifyContract(tronWeb, contractAddress, ownerAddress, { fetchImp
   if (asAddress(tronWeb, owner) !== ownerAddress) fail('OWNER_NOT_CURRENT_ONCHAIN_CONTRACT_OWNER', 403)
   return { name: String(name), symbol: String(symbol), decimals: Number(decimals), owner: ownerAddress }
 }
+
+async function verifyOfficialUsdtContract(tronWeb, contractAddress, _ownerAddress, { fetchImpl, env }) {
+  if (contractAddress !== OFFICIAL_USDT_MAINNET_CONTRACT) fail('OWNER_USDT_CONTRACT_ADDRESS_NOT_OFFICIAL', 409)
+  const info = await rpcPost('/wallet/getcontractinfo', { value: contractAddress, visible: true }, { fetchImpl, env })
+  const runtimeCode = String(info?.runtimecode || '').replace(/^0x/i, '').toLowerCase()
+  if (!/^(?:[0-9a-f]{2})+$/i.test(runtimeCode)) fail('OWNER_USDT_CONTRACT_CODE_UNAVAILABLE', 409)
+  const contract = await tronWeb.contract(ABI).at(contractAddress)
+  const [name, symbol, decimals] = await Promise.all([
+    contract.name().call(),
+    contract.symbol().call(),
+    contract.decimals().call(),
+  ])
+  if (String(name) !== 'Tether USD' || String(symbol) !== 'USDT' || Number(decimals) !== 6) {
+    fail('OWNER_USDT_CONTRACT_METADATA_MISMATCH', 409)
+  }
+  return { name: String(name), symbol: String(symbol), decimals: Number(decimals), contractAddress }
+}
 async function buildUnsigned(tronWeb, contractAddress, ownerAddress, normalized) {
   if (!tronWeb.isAddress(ownerAddress) || !tronWeb.isAddress(contractAddress)) fail('OWNER_OPERATION_MAINNET_ADDRESS_INVALID')
   const abi = ABI.find(item => item.type === 'function' && item.name === normalized.method)
@@ -265,6 +284,7 @@ export function createOwnerOperationApi({
   fetchImpl = fetch, tronWebFactory = null,
   prepareTransaction = buildUnsigned, preflightTransaction = preflight,
   verifyContractState = verifyContract,
+  verifyUsdtContractState = verifyOfficialUsdtContract,
   verifyUnsignedTransaction = (tronWeb, unsigned) => assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ Owner operation'),
   verifySignedTransaction = async (tronWeb, signed, ownerAddress) => {
     assertTransactionIntegrity(tronWeb, signed, 'Signed TRӾ Owner operation')
@@ -393,11 +413,15 @@ export function createOwnerOperationApi({
       if (req.method === 'POST' && path === '/api/owner/operations/prepare') {
         const input = await readBody(req)
         const ownerAddress = String(env.TRON_OWNER_ADDRESS || '')
-        const contractAddress = String(env.TRAX_CONTRACT_ADDRESS || '')
-        if (!ADDRESS.test(ownerAddress) || !ADDRESS.test(contractAddress)) {
-          return reply(res, 503, { success: false, error: 'OWNER_MAINNET_IDENTITY_OR_TRAX_CONTRACT_NOT_CONFIGURED' }, origin)
+        const operationType = String(input.operationType || '')
+        const contractAddress = operationType === 'usdt-transfer'
+          ? OFFICIAL_USDT_MAINNET_CONTRACT
+          : String(env.TRAX_CONTRACT_ADDRESS || '')
+        if (!ADDRESS.test(ownerAddress) || !ADDRESS.test(contractAddress)
+          || (operationType !== 'usdt-transfer' && !ADDRESS.test(String(env.TRAX_CONTRACT_ADDRESS || '')))) {
+          return reply(res, 503, { success: false, error: 'OWNER_MAINNET_IDENTITY_OR_TOKEN_CONTRACT_NOT_CONFIGURED' }, origin)
         }
-        if (String(input.contractAddress || '') !== contractAddress) fail('OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', 409)
+        if (String(input.contractAddress || '') !== contractAddress) fail(operationType === 'usdt-transfer' ? 'OWNER_USDT_CONTRACT_ADDRESS_NOT_OFFICIAL' : 'OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', 409)
         const normalized = normalizeIntent(input, ownerAddress)
         if (session.address !== ownerAddress) fail('OWNER_SESSION_IDENTITY_MISMATCH', 403)
         const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
@@ -422,7 +446,8 @@ export function createOwnerOperationApi({
         let result
         try {
           const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
-          await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
+          if (operationType === 'usdt-transfer') await verifyUsdtContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
+          else await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
           result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env })
         } catch (error) {
@@ -477,9 +502,12 @@ export function createOwnerOperationApi({
           || operationIntentHash(operation.operation_type, operation.intent) !== intentHash) {
           return reply(res, 409, { success: false, error: 'OWNER_OPERATION_LEDGER_INTENT_INTEGRITY_FAILED', retryAllowed: false }, origin)
         }
-        if (operation.contract_address !== env.TRAX_CONTRACT_ADDRESS
+        const expectedContractAddress = operation.operation_type === 'usdt-transfer'
+          ? OFFICIAL_USDT_MAINNET_CONTRACT
+          : String(env.TRAX_CONTRACT_ADDRESS || '')
+        if (!expectedContractAddress || operation.contract_address !== expectedContractAddress
           || operation.contract_address !== String(input.contractAddress || '')) {
-          return reply(res, 409, { success: false, error: 'OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', retryAllowed: false }, origin)
+          return reply(res, 409, { success: false, error: operation.operation_type === 'usdt-transfer' ? 'OWNER_USDT_CONTRACT_ADDRESS_NOT_OFFICIAL' : 'OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', retryAllowed: false }, origin)
         }
         const preparedUnsigned = operation.receipt?.unsignedTransaction
         const signedCandidate = input.signedTransaction
@@ -526,7 +554,8 @@ export function createOwnerOperationApi({
           const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
           if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
           const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
-          await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
+          if (normalized.operationType === 'usdt-transfer') await verifyUsdtContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
+          else await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
           const unsigned = preparedUnsigned
           const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env })
           const expiration = Number(unsigned?.raw_data?.expiration)
