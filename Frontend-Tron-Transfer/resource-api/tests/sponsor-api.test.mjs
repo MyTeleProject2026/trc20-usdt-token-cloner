@@ -242,6 +242,21 @@ test('Sponsor-specific database URLs take precedence over shared application URL
   )
 })
 
+test('pinned Owner Admin direct Neon URL is the runtime fallback when shared database URLs are absent', () => {
+  const direct = 'postgres://owner_admin:secret@ep-curly-cherry-bej1ybw8.c-9.us-east-2.aws.neon.tech/Tron%20Transfer%20Resource%20Database%20?sslmode=require'
+  const env = {
+    OWNER_ADMIN_DATABASE_URL: direct,
+    OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: sponsorDatabaseTargetIdentityInfo({ OWNER_ADMIN_DATABASE_URL: direct }).identityFingerprint,
+  }
+  assert.equal(sponsorDatabaseConnectionString(env), direct)
+  assert.equal(sponsorDatabaseConnectionInfo(env).sourceVariable, 'OWNER_ADMIN_DATABASE_URL')
+  assert.equal(databaseTargetIdentityMatches(env), true)
+  assert.equal(databaseTargetIdentityMatches({
+    ...env,
+    DATABASE_URL: 'postgres://other:secret@ep-other.ap-southeast-1.aws.neon.tech/other-db',
+  }), false, 'an explicitly configured but different runtime URL must not be masked by the Owner Admin fallback')
+})
+
 test('Sponsor status exposes readiness but never secret values', async () => {
   const { api } = setup()
   const result = await call(api, 'GET', '/api/sponsor/status')
