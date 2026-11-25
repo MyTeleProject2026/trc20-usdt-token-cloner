@@ -230,25 +230,51 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     void sponsorAuth.status().then(status => {
       if (active) setSaved(status.enrolled === true)
     }).catch(() => { if (active) setSaved(false) })
+
+    // The configured Owner address is public Mainnet routing data, not an
+    // Owner-authentication session. Sponsor must be able to sign in and
+    // manage its own wallet while the Owner workspace is logged out.
+    void sponsorApiRequest('/api/sponsor/status').then(status => {
+      if (!active) return
+      setSponsorApiStatus(status)
+      const configuredOwnerAddress = typeof status?.ownerAddress === 'string' && ADDRESS_PATTERN.test(status.ownerAddress)
+        ? status.ownerAddress
+        : ''
+      setOwnerAddress(configuredOwnerAddress)
+    }).catch(() => {
+      if (active) {
+        setSponsorApiStatus(null)
+        setOwnerAddress('')
+      }
+    })
+
+    // Owner authentication is checked independently and is used only for
+    // the explicitly guarded, one-time Sponsor ledger bootstrap.
     void ownerAuth.session().then(session => {
       if (!active) return
-      const configuredOwnerAddress = typeof session?.address === 'string' && ADDRESS_PATTERN.test(session.address) ? session.address : ''
-      setOwnerAddress(configuredOwnerAddress)
-      const ownerSessionValid = Boolean(configuredOwnerAddress)
-      setOwnerAdminReady(ownerSessionValid)
-      setOwnerAdminCsrfToken(ownerSessionValid ? (session.csrfToken || '') : '')
-    }).catch(() => { if (active) { setOwnerAddress(''); setOwnerAdminReady(false); setOwnerAdminCsrfToken('') } })
-    void sponsorAuth.session().then(session => {
-      if (active && session?.address && session.address !== ownerAddress) {
-        setManagedSponsorAddress(session.address)
-        setVaultSaved(hasSavedSponsorWallet())
-        setAuthCsrfToken(session.csrfToken || '')
-        setWallet(null)
-        setSnapshot(null)
+      const ownerSessionAddress = typeof session?.address === 'string' && ADDRESS_PATTERN.test(session.address)
+        ? session.address
+        : ''
+      setOwnerAdminReady(Boolean(ownerSessionAddress))
+      setOwnerAdminCsrfToken(ownerSessionAddress ? (session.csrfToken || '') : '')
+    }).catch(() => {
+      if (active) {
+        setOwnerAdminReady(false)
+        setOwnerAdminCsrfToken('')
       }
+    })
+
+    // Restore Sponsor authentication without depending on an Owner session.
+    void sponsorAuth.session().then(session => {
+      if (!active || !session?.address) return
+      setManagedSponsorAddress(session.address)
+      setVaultSaved(hasSavedSponsorWallet())
+      setAuthCsrfToken(session.csrfToken || '')
+      setWallet(null)
+      setSnapshot(null)
     }).catch(() => {})
     return () => { active = false }
-  }, [workspaceActive, sponsorAuth, ownerAuth, ownerAddress])
+  }, [workspaceActive, sponsorAuth, ownerAuth])
 
   async function loginOwnerAdmin() {
     if (busy || ownerAdminPassword.length < 12) return
@@ -312,7 +338,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       await sponsorAuth.login(authPassword)
       const session = await sponsorAuth.session()
       if (!session?.address) throw new Error('Sponsor password session did not return the enrolled Mainnet address.')
-      if (!ownerAddress || session.address === ownerAddress) throw new Error('Owner and Sponsor wallet identities must remain separate. Authenticate the configured Owner account first.')
+      if (!ownerAddress) throw new Error('The configured Owner Mainnet address is not available yet. Refresh Sponsor status and try again; Owner login is not required.')
+      if (session.address === ownerAddress) throw new Error('The Sponsor wallet must be a different Mainnet address from the configured Owner wallet.')
       setManagedSponsorAddress(session.address)
       setVaultSaved(hasSavedSponsorWallet())
       setReplacing(false)
