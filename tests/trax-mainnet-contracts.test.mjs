@@ -62,11 +62,19 @@ test('external credit emits standard mint Transfer and OwnerCredit audit event',
 })
 
 
-test('TRӾ deployment is restricted to the configured Mainnet owner before wallet approval', async () => {
+test('TRӾ Owner administration requires the configured Owner session and encrypted local Owner signer', async () => {
   const panel = await fs.readFile(new URL('../Frontend-Tron-Transfer/src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
   const helper = await fs.readFile(new URL('../Frontend-Tron-Transfer/src/trax-mainnet.mjs', import.meta.url), 'utf8')
-  assert.ok(panel.includes("const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
-  assert.ok(panel.includes('{ expectedOwnerAddress: EXPECTED_OWNER_ADDRESS }'))
+  assert.doesNotMatch(panel, /EXPECTED_OWNER_ADDRESS|TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp/)
+  assert.ok(panel.includes('walletReady = Boolean(wallet?.managedSession'))
+  assert.ok(panel.includes('addressesEqual(wallet.tronWeb, wallet.tronWeb.defaultAddress?.base58, connectedAddress)'))
+  assert.ok(panel.includes("typeof wallet?.tronWeb?.trx?.sign === 'function'"))
+  assert.ok(panel.includes("wallet?.signerType === 'encrypted-local-owner-vault'"))
+  assert.ok(!panel.includes('tronlink-provider.mjs'))
+  assert.ok(panel.includes('signer.trx.sign(pendingOperation.unsignedTransaction)'))
+  assert.doesNotMatch(helper, /TEnergy|tenergy\/promo|claimTenergyPromoForDeployment|free-delegation/)
+  assert.ok(panel.includes("'/api/owner/operations/prepare'"))
+  assert.ok(panel.includes('confirmOwnerOperation'))
   assert.ok(helper.includes('if (expectedOwnerAddress && !addressesEqual'))
 })
 

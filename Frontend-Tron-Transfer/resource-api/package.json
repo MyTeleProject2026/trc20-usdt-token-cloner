@@ -7,20 +7,27 @@
     "node": ">=22"
   },
   "scripts": {
-    "pretest": "npm install --no-audit --no-fund",
+    "pretest": "npm install --no-audit --no-fund && npm run build:trax-artifact",
     "start": "node server.js",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check server.js && node --check sponsor-api.mjs && node --check sponsor-engine.mjs && node --check remote-sponsor-signer.mjs && node --check scripts/migrate-sponsor-ledger.mjs && node --check scripts/check-sponsor-ledger-migration.mjs && node --check scripts/sponsor-ledger-database-identity.mjs && node --check scripts/run-sponsor-ledger-migration.mjs",
+    "check": "node --check mainnet-rpc-provider.mjs && node --check server.js && node --check sponsor-api.mjs && node --check owner-wallet-auth-api.mjs && node --check owner-operation-ledger.mjs && node --check owner-operation-api.mjs && node --check trax-deployment-api.mjs && node --check pending-owner-acceptance-api.mjs && node --check trax-deployment-artifact.mjs && node --check scripts/build-trax-deployment-artifact.mjs && node --check sponsor-wallet-auth-api.mjs && node --check managed-wallet-auth-crypto.mjs && node --check managed-wallet-identities.mjs && node --check sponsor-engine.mjs && node --check scripts/migrate-sponsor-ledger.mjs && node --check scripts/check-sponsor-ledger-migration.mjs && node --check scripts/sponsor-ledger-database-identity.mjs && node --check scripts/run-sponsor-ledger-migration.mjs && node --check scripts/create-owner-recovery-token.mjs && node --check scripts/migrate-owner-admin-ledgers.mjs && node --check scripts/print-database-identity-fingerprint.mjs",
     "migrate:sponsor-ledger": "node scripts/migrate-sponsor-ledger.mjs",
     "check:migrate:sponsor-ledger": "node scripts/check-sponsor-ledger-migration.mjs",
     "sponsor-ledger:pause": "node scripts/run-sponsor-ledger-migration.mjs pause",
     "sponsor-ledger:preflight": "node scripts/run-sponsor-ledger-migration.mjs preflight",
     "sponsor-ledger:migrate": "node scripts/run-sponsor-ledger-migration.mjs migrate",
-    "smoke:production-acceptance": "node scripts/production-acceptance-smoke.mjs"
+    "smoke:production-acceptance": "node scripts/production-acceptance-smoke.mjs",
+    "build:trax-artifact": "node scripts/build-trax-deployment-artifact.mjs",
+    "prestart": "npm run build:trax-artifact",
+    "owner:recovery-token": "node scripts/create-owner-recovery-token.mjs",
+    "database:identity-fingerprint": "node scripts/print-database-identity-fingerprint.mjs",
+    "sponsor:recovery-token": "WALLET_ROLE=sponsor node scripts/create-owner-recovery-token.mjs",
+    "migrate:owner-admin-ledgers": "node scripts/migrate-owner-admin-ledgers.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",
-    "tronweb": "6.5.2"
+    "tronweb": "6.5.2",
+    "solc": "0.8.25"
   },
   "overrides": {
     "axios": "^1.19.1",

@@ -3,9 +3,9 @@ import { TronWeb } from 'tronweb'
 import { isValidTronAddress } from '../tron-address.mjs'
 
 const NETWORKS = Object.freeze({
-  mainnet: { tronGrid: 'https://api.trongrid.io', tatum: 'https://tron-mainnet.gateway.tatum.io' },
-  nile: { tronGrid: 'https://nile.trongrid.io', tatum: 'https://tron-nile.gateway.tatum.io' },
-  shasta: { tronGrid: 'https://api.shasta.trongrid.io', tatum: 'https://tron-shasta.gateway.tatum.io' },
+  mainnet: { tronGrid: 'https://api.trongrid.io' },
+  nile: { tronGrid: 'https://nile.trongrid.io' },
+  shasta: { tronGrid: 'https://api.shasta.trongrid.io' },
 })
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const CACHE_TTL_MS = 15_000
@@ -58,16 +58,7 @@ export function createChainTokenInspectionRouter({
   env = process.env,
   tronWebFactory = async (network) => {
     const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
-    const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
-    if (tronGridKey) {
-      return new TronWeb({ fullHost: NETWORKS[network].tronGrid, headers: { 'TRON-PRO-API-KEY': tronGridKey } })
-    }
-    if (tatumKey) {
-      return new TronWeb({ fullHost: NETWORKS[network].tatum, headers: { 'x-api-key': tatumKey } })
-    }
-    // Read-only fallback. Provider credentials remain server-side; deploy a
-    // provider key in production to avoid public endpoint rate limits.
-    return new TronWeb({ fullHost: NETWORKS[network].tronGrid })
+    return new TronWeb({ fullHost: NETWORKS[network].tronGrid, headers: env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {} })
   },
   now = () => Date.now(),
 } = {}) {

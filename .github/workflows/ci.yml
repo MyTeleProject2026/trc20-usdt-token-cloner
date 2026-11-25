@@ -58,11 +58,7 @@ jobs:
         run: npm install --prefix Frontend-Tron-Transfer/resource-api --no-audit --no-fund
       - name: Audit isolated Resource API dependencies
         run: npm audit --prefix Frontend-Tron-Transfer/resource-api --audit-level=high
-      - name: Test TRON Mainnet resource API and Tatum fallback
+      - name: Test TRON Mainnet resource API with Tatum-first reads and TronGrid fallback
         run: npm test --prefix Frontend-Tron-Transfer/resource-api
       - name: Build frontend and compile contract
         run: npm run build
-      - name: Install integrated Owner Admin frontend dependencies
-        run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
-      - name: Test and build integrated Owner Admin static frontend
-        run: npm run build --prefix Frontend-Tron-Transfer

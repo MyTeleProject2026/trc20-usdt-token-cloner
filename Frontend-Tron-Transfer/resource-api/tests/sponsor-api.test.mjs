@@ -1,36 +1,37 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
-import { createSponsorResourceApi, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString } from '../sponsor-api.mjs'
+import { createSponsorResourceApi, databaseTargetIdentityMatches, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString, sponsorDatabaseTargetIdentityInfo } from '../sponsor-api.mjs'
 import { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const SECRET = 'test-session-secret-with-at-least-thirty-two-bytes'
 const SIGNATURE = 'a'.repeat(130)
-const TEST_ADMIN_TOKEN = 'test-admin-token-with-at-least-thirty-two-bytes'
+const OWNER_SESSION_FIXTURE = 'test-admin-token-with-at-least-thirty-two-bytes'
 
-function request(method, path, body, token, adminToken, client = {}) {
+function request(method, path, body, token, ownerSessionFixture, client = {}) {
   const stream = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   stream.method = method
   stream.url = path
-  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(adminToken ? { 'x-sponsor-admin-token': adminToken } : {}), ...(client.headers || {}) }
+  stream.headers = { ...(token ? { authorization: 'Bearer ' + token } : {}), ...(ownerSessionFixture ? { 'x-test-owner-admin-session': 'valid' } : {}), ...(client.headers || {}) }
   stream.socket = { remoteAddress: client.remoteAddress || '127.0.0.1' }
   return stream
 }
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, databaseUrl = '' } = {}) {
+function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SESSION_FIXTURE, databaseUrl = '', expectedDatabaseIdentitySha256 = '', authenticateManagedSession = null, authenticateOwnerAdminSession = async req => req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null } = {}) {
+  let clock = Date.now()
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
     SPONSOR_LEDGER_DURABLE: 'true',
     SPONSOR_LEDGER_BACKUP_VERIFIED: 'true',
     SPONSOR_LEDGER_RESTORE_TESTED: 'true',
-    ...(adminToken ? { SPONSOR_ADMIN_TOKEN: adminToken } : {}),
     SPONSOR_MAINNET_ADDRESS: SPONSOR,
     TRON_OWNER_ADDRESS: OWNER,
     ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
+    ...(expectedDatabaseIdentitySha256 ? { OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: expectedDatabaseIdentitySha256 } : {}),
     SPONSOR_TRANSACTION_ENGINE_ENABLED: 'false',
     SPONSOR_MAINNET_BROADCAST_ENABLED: 'false',
   }
@@ -39,6 +40,8 @@ function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, 
     env,
     allowedAddress: OWNER,
     getDatabase: () => database,
+    ...(authenticateManagedSession ? { authenticateManagedSession } : {}),
+    ...(authenticateOwnerAdminSession ? { authenticateOwnerAdminSession } : {}),
     engine: engine || {
       readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, feePolicy: {} }),
       execute: async () => { calls.push('execute'); return { success: true } },
@@ -46,13 +49,13 @@ function setup({ database = null, engine = null, adminToken = TEST_ADMIN_TOKEN, 
     },
     verifyMessage: async (message, signature) => signature === SIGNATURE ? SPONSOR : '',
     send: (res, status, payload) => { res.status = status; res.payload = payload },
-    now: () => Date.now(),
+    now: () => clock,
   })
-  return { api, calls, env }
+  return { api, calls, env, advanceClock: milliseconds => { clock += milliseconds } }
 }
-async function call(api, method, path, body, token, adminToken = TEST_ADMIN_TOKEN, client = {}) {
+async function call(api, method, path, body, token, ownerSessionFixture = OWNER_SESSION_FIXTURE, client = {}) {
   const res = response()
-  const handled = await api.handle(request(method, path, body, token, adminToken, client), res, new URL(path, 'http://localhost'), null)
+  const handled = await api.handle(request(method, path, body, token, ownerSessionFixture, client), res, new URL(path, 'http://localhost'), null)
   assert.equal(handled, true)
   return res
 }
@@ -77,6 +80,7 @@ test('Sponsor database status identifies the selected URL source and provider wi
     sourceVariable: 'SPONSOR_DATABASE_URL_POOLED',
     provider: 'neon',
     connectionMode: 'pooled',
+    identityFingerprint: sponsorDatabaseConnectionInfo({ SPONSOR_DATABASE_URL_POOLED: env.SPONSOR_DATABASE_URL_POOLED }).identityFingerprint,
   })
   assert.equal(sponsorDatabaseConnectionString(env), env.SPONSOR_DATABASE_URL_POOLED)
 
@@ -86,6 +90,7 @@ test('Sponsor database status identifies the selected URL source and provider wi
     sourceVariable: 'DATABASE_URL',
     provider: 'render-postgres',
     connectionMode: 'direct',
+    identityFingerprint: sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://user:password@db.render.com/sponsor' }).identityFingerprint,
   })
   assert.deepEqual(sponsorDatabaseConnectionInfo({}), {
     configured: false,
@@ -93,6 +98,85 @@ test('Sponsor database status identifies the selected URL source and provider wi
     provider: 'not-configured',
     connectionMode: 'unknown',
   })
+})
+
+test('database identity fingerprint excludes passwords but changes with endpoint, database, or role', () => {
+  const first = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://app_user:first-secret@ep-a.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  const passwordRotation = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://app_user:second-secret@ep-a.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  const otherBranch = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://app_user:first-secret@ep-b.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  const otherDatabase = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://app_user:first-secret@ep-a.ap-southeast-1.aws.neon.tech/other-db?sslmode=require' })
+  const otherRole = sponsorDatabaseConnectionInfo({ DATABASE_URL: 'postgres://other_user:first-secret@ep-a.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  assert.equal(first.identityFingerprint, passwordRotation.identityFingerprint)
+  assert.notEqual(first.identityFingerprint, otherBranch.identityFingerprint)
+  assert.notEqual(first.identityFingerprint, otherDatabase.identityFingerprint)
+  assert.notEqual(first.identityFingerprint, otherRole.identityFingerprint)
+})
+
+test('approved direct Neon target must match the actual Sponsor runtime connection, including pooled host normalization', () => {
+  const direct = 'postgresql://app_user:secret@ep-production.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  const pooled = 'postgresql://app_user:secret@ep-production-pooler.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  const expected = sponsorDatabaseConnectionInfo({ DATABASE_URL: direct }).identityFingerprint
+
+  assert.equal(sponsorDatabaseConnectionInfo({ DATABASE_URL: pooled }).identityFingerprint, expected)
+  assert.equal(databaseTargetIdentityMatches({
+    DATABASE_URL: pooled,
+    OWNER_ADMIN_DATABASE_URL: direct,
+    OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: expected,
+  }), true)
+
+  const wrongRuntime = 'postgresql://app_user:secret@ep-other-pooler.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  assert.equal(databaseTargetIdentityMatches({
+    DATABASE_URL: wrongRuntime,
+    OWNER_ADMIN_DATABASE_URL: direct,
+    OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: expected,
+  }), false, 'an approved direct URL must not mask a different Sponsor runtime database')
+})
+
+test('production acceptance requires an exact configured database identity fingerprint', async () => {
+  const databaseUrl = 'postgres://neon_user:neon_secret@ep-production.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
+  const expected = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const matched = setup({ databaseUrl, expectedDatabaseIdentitySha256: expected })
+  const matchResult = await call(matched.api, 'GET', '/api/acceptance/production')
+  assert.equal(matchResult.status, 200)
+  assert.equal(matchResult.payload.databaseIdentityMatches, true)
+  assert.equal(matchResult.payload.expectedDatabaseIdentityConfigured, true)
+  assert.equal(matchResult.payload.acceptance.checks.find(check => check.id === 'database-target-identity').state, 'passed')
+
+  const mismatched = setup({ databaseUrl, expectedDatabaseIdentitySha256: 'f'.repeat(64) })
+  const mismatchResult = await call(mismatched.api, 'GET', '/api/acceptance/production')
+  assert.equal(mismatchResult.payload.databaseIdentityMatches, false)
+  assert.equal(mismatchResult.payload.acceptance.checks.find(check => check.id === 'database-target-identity').state, 'blocked')
+  const serialized = JSON.stringify(matchResult.payload)
+  assert.equal(serialized.includes('ep-production'), false)
+  assert.equal(serialized.includes('neon_secret'), false)
+})
+
+test('production acceptance blocks when the Sponsor runtime URL differs from the approved direct Neon endpoint', async () => {
+  const direct = 'postgresql://app_user:secret@ep-approved.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  const wrongRuntime = 'postgresql://app_user:secret@ep-unapproved.c-9.us-east-2.aws.neon.tech/tron-transfer?sslmode=require'
+  const expected = sponsorDatabaseConnectionInfo({ DATABASE_URL: direct }).identityFingerprint
+  const fixture = setup({ databaseUrl: wrongRuntime, expectedDatabaseIdentitySha256: expected })
+  fixture.env.OWNER_ADMIN_DATABASE_URL = direct
+
+  const result = await call(fixture.api, 'GET', '/api/acceptance/production')
+  assert.equal(result.payload.databaseIdentityMatches, false)
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'database-target-identity').state, 'blocked')
+})
+
+test('Sponsor transaction preparation is blocked when the configured database identity does not match the approved target', async () => {
+  const databaseUrl = 'postgres://neon_user:secret@ep-production.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
+  const { api } = setup({ databaseUrl, expectedDatabaseIdentitySha256: 'f'.repeat(64) })
+  const token = await authenticated(api)
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-db-identity-mismatch-0123456789',
+  }, token)
+  assert.equal(intent.status, 201)
+  const prepared = await call(api, 'POST', '/api/sponsor/operations/prepare', {
+    intentId: intent.payload.intentId, confirmPhrase: intent.payload.confirmationPhrase,
+  }, token)
+  assert.equal(prepared.status, 503)
+  assert.equal(prepared.payload.error, 'sponsor-ledger-database-identity-not-accepted')
 })
 
 test('Sponsor status reports selected database source but never returns hostnames or credentials', async () => {
@@ -105,7 +189,11 @@ test('Sponsor status reports selected database source but never returns hostname
     sourceVariable: 'DATABASE_URL',
     provider: 'neon',
     connectionMode: 'direct',
+    identityFingerprint: sponsorDatabaseConnectionInfo({ DATABASE_URL: secretUrl }).identityFingerprint,
   })
+  assert.equal(result.payload.databaseIdentityMatches, false)
+  assert.equal(result.payload.expectedDatabaseIdentityConfigured, false)
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'database-target-identity').state, 'blocked')
   const serialized = JSON.stringify(result.payload)
   assert.equal(serialized.includes('neon_secret'), false)
   assert.equal(serialized.includes('ep-private'), false)
@@ -118,12 +206,12 @@ test('Sponsor API rate limits use validated Cloudflare client IPs, not caller-co
   const firstClient = { headers: { 'cf-connecting-ip': '198.51.100.10', 'x-forwarded-for': '203.0.113.77' } }
   const results = []
   for (let index = 0; index < 9; index += 1) {
-    results.push(await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, TEST_ADMIN_TOKEN, firstClient))
+    results.push(await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, OWNER_SESSION_FIXTURE, firstClient))
   }
   assert.deepEqual(results.slice(0, 8).map(result => result.status), Array(8).fill(201))
   assert.equal(results[8].status, 429)
   const secondClient = { headers: { 'cf-connecting-ip': '198.51.100.11', 'x-forwarded-for': '203.0.113.77' } }
-  const second = await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, TEST_ADMIN_TOKEN, secondClient)
+  const second = await call(api, 'POST', '/api/sponsor/session/challenge', { address: SPONSOR }, null, OWNER_SESSION_FIXTURE, secondClient)
   assert.equal(second.status, 201)
 })
 
@@ -177,7 +265,9 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
       return { rowCount: 1, rows: [{ operations_table: null, control_table: null }] }
     },
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
   assert.equal(result.payload.databaseConfigured, true)
@@ -185,11 +275,13 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
   assert.equal(result.payload.databaseStatus, 'schema-missing')
   assert.equal(result.payload.sponsorWritesPaused, true)
   assert.equal(result.payload.transactionExecutionAvailable, false)
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0].trimStart().startsWith('CREATE'), false)
+  assert.equal(calls.length, 2)
+  assert.match(calls[0], /SELECT wallet_role, wallet_address, enabled/)
+  assert.match(calls[1], /to_regclass/)
+  assert.equal(calls.some(sql => /^\\s*(CREATE|ALTER|DROP|INSERT|UPDATE)\\b/im.test(sql)), false)
 })
 
-test('Sponsor ledger bootstrap requires admin authorization and leaves writes paused', async () => {
+test('Sponsor ledger bootstrap requires admin authorization and explicit confirmation and leaves writes paused', async () => {
   let schemaCreated = false
   const database = {
     async query(sql) {
@@ -201,17 +293,71 @@ test('Sponsor ledger bootstrap requires admin authorization and leaves writes pa
       throw new Error('unexpected bootstrap query')
     },
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
   const denied = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, '')
   assert.equal(denied.status, 401)
   assert.equal(schemaCreated, false)
 
-  const initialized = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, TEST_ADMIN_TOKEN)
+  const missingConfirmation = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {}, null, OWNER_SESSION_FIXTURE)
+  assert.equal(missingConfirmation.status, 400)
+  assert.equal(missingConfirmation.payload.error, 'explicit-ledger-bootstrap-confirmation-required')
+  assert.equal(schemaCreated, false)
+
+  const initialized = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' }, null, OWNER_SESSION_FIXTURE)
   assert.equal(initialized.status, 200)
   assert.equal(initialized.payload.schemaInitialized, true)
   assert.equal(initialized.payload.databaseReady, true)
   assert.equal(initialized.payload.sponsorWritesPaused, true)
   assert.equal(initialized.payload.transactionExecutionAvailable, false)
+  assert.equal(schemaCreated, true)
+})
+
+test('managed Owner Admin authorization for Sponsor bootstrap requires the CSRF-protected Owner session', async () => {
+  let schemaCreated = false
+  const database = {
+    async query(sql) {
+      if (sql.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_operations')) {
+        schemaCreated = true
+        return { rowCount: 0, rows: [] }
+      }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      throw new Error('unexpected bootstrap query')
+    },
+  }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({
+    database,
+    databaseUrl,
+    expectedDatabaseIdentitySha256,
+    ownerSessionFixture: '',
+    authenticateOwnerAdminSession: async (req, options) => {
+      assert.equal(options.requireCsrf, true)
+      const valid = String(req.headers.cookie || '').includes('tron_owner_session=owner-session')
+        && req.headers['x-csrf-token'] === 'owner-csrf-proof'
+        && req.headers.origin === 'https://tron-transfer.onrender.com'
+      return valid ? { address: OWNER } : null
+    },
+  })
+  const body = { confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA' }
+  const denied = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', body, null, '', {
+    headers: { cookie: 'tron_owner_session=owner-session' },
+  })
+  assert.equal(denied.status, 401)
+  assert.equal(schemaCreated, false)
+
+  const accepted = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', body, null, '', {
+    headers: {
+      cookie: 'tron_owner_session=owner-session',
+      'x-csrf-token': 'owner-csrf-proof',
+      origin: 'https://tron-transfer.onrender.com',
+    },
+  })
+  assert.equal(accepted.status, 200)
+  assert.equal(accepted.payload.sponsorWritesPaused, true)
+  assert.equal(accepted.payload.transactionExecutionAvailable, false)
   assert.equal(schemaCreated, true)
 })
 
@@ -221,7 +367,7 @@ test('Sponsor operation history reads never bootstrap or mutate the ledger schem
     async query(sql) {
       queries.push(sql)
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.includes('SELECT operation,resource,amount_sun')) return { rowCount: 0, rows: [] }
@@ -240,7 +386,7 @@ test('Sponsor status fails closed when the ledger control row is missing', async
   const database = {
     async query(sql) {
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 0, rows: [] }
       throw new Error('status endpoint must remain read-only')
@@ -251,7 +397,9 @@ test('Sponsor status fails closed when the ledger control row is missing', async
     execute: async () => assert.fail('missing control row must never enable execution'),
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine, authenticateOwnerAdminSession: null })
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
   assert.equal(result.payload.databaseReady, false)
@@ -277,10 +425,10 @@ test('Sponsor status classifies database connection failures without exposing er
   assert.equal(JSON.stringify(result.payload).includes('private-db-host.example'), false)
 })
 
-test('invalid configured Sponsor Admin token keeps write execution unavailable', async () => {
+test('Sponsor readiness distinguishes Sponsor execution from Owner-only ledger bootstrap', async () => {
   const database = {
     async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       throw new Error('status endpoint must not mutate the Sponsor ledger schema')
     },
@@ -290,11 +438,12 @@ test('invalid configured Sponsor Admin token keeps write execution unavailable',
     execute: async () => assert.fail('execution must remain disabled'),
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine, adminToken: 'too-short' })
+  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine, ownerSessionFixture: 'too-short' })
   const result = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(result.status, 200)
-  assert.equal(result.payload.adminTokenRequired, true)
-  assert.equal(result.payload.adminTokenConfigured, false)
+  assert.equal(result.payload.ownerAdminSessionRequired, false)
+  assert.equal(result.payload.ownerAdminSessionConfiguredForLedgerBootstrap, true)
+  assert.equal(result.payload.ownerAdminSessionConfigured, true)
   assert.equal(result.payload.databaseReady, true)
   assert.equal(result.payload.databaseStatus, 'ready')
   assert.equal(result.payload.transactionExecutionAvailable, false)
@@ -322,6 +471,51 @@ test('challenge can be verified once and creates a short-lived bearer session', 
   assert.equal(replay.status, 401)
 })
 
+test('managed Sponsor password sessions authorize through the backend cookie verifier and require CSRF on writes', async () => {
+  const calls = []
+  const { api } = setup({
+    authenticateManagedSession: async (_req, options) => {
+      calls.push(options)
+      return null
+    },
+  })
+  const deniedWrite = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'managed-session-csrf-test-0001',
+  }, null)
+  assert.equal(deniedWrite.status, 401)
+  assert.deepEqual(calls, [{ requireCsrf: true }])
+
+  const deniedRead = await call(api, 'GET', '/api/sponsor/operations?limit=10')
+  assert.equal(deniedRead.status, 401)
+  assert.deepEqual(calls, [{ requireCsrf: true }, { requireCsrf: false }])
+})
+
+test('managed password session authorizes a short-lived exact intent without a browser message signature', async () => {
+  const authCalls = []
+  const { api } = setup({
+    authenticateManagedSession: async (_req, options) => {
+      authCalls.push(options)
+      return { address: SPONSOR, sessionId: 'managed-sponsor-session' }
+    },
+  })
+  const client = { headers: { origin: 'https://tron-transfer.onrender.com', 'x-csrf-token': 'csrf-proof' } }
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'managed-password-intent-test-0001',
+  }, null, OWNER_SESSION_FIXTURE, client)
+  assert.equal(intent.status, 201)
+  assert.equal(authCalls[0].requireCsrf, true)
+
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: intent.payload.intentId,
+    confirmPhrase: intent.payload.confirmationPhrase,
+  }, null, OWNER_SESSION_FIXTURE, client)
+  assert.equal(result.status, 410)
+  assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
+  assert.equal(authCalls.length, 2)
+})
+
 test('all private Sponsor operations require a valid bearer session', async () => {
   const { api } = setup()
   const result = await call(api, 'POST', '/api/sponsor/intent', {
@@ -344,143 +538,120 @@ test('transaction intent binds exact operation, resource, amount, wallets and id
   assert.equal(result.payload.confirmationPhrase, 'CONFIRM TRON MAINNET SPONSOR TRANSACTION')
 })
 
-test('unsigned or invalid intent signatures cannot invoke the transaction engine', async () => {
-  const { api, calls } = setup()
-  const token = await authenticated(api)
-  const intent = await call(api, 'POST', '/api/sponsor/intent', {
-    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-op-0123456789012345',
-  }, token)
-  const result = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: intent.payload.intentId, signature: 'invalid', confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(result.status, 400)
-  assert.deepEqual(calls, [])
-})
-
-test('valid signed intent still fails closed when durable idempotency storage is unavailable', async () => {
-  const { api, calls } = setup()
-  const token = await authenticated(api)
-  const intent = await call(api, 'POST', '/api/sponsor/intent', {
-    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-op-0123456789012345',
-  }, token)
-  const result = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: intent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(result.status, 503)
-  assert.deepEqual(calls, [])
-})
-
-test('durable Sponsor maintenance pause blocks a valid signed operation before reservation or signing', async () => {
-  const database = {
-    async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
-      if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX') || sql === 'BEGIN' || sql === 'ROLLBACK' || sql === 'COMMIT' || sql === 'SELECT 1') return { rowCount: 0, rows: [] }
-      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
-      throw new Error('unexpected fake database query: ' + sql)
-    },
-  }
-  const engine = {
-    readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
-    execute: async () => assert.fail('paused Sponsor engine must never sign or broadcast'),
-    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
-  }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
-  const status = await call(api, 'GET', '/api/sponsor/status')
-  assert.equal(status.payload.sponsorWritesPaused, true)
-  assert.equal(status.payload.databaseStatus, 'ready')
-  assert.equal(status.payload.transactionExecutionAvailable, false)
-  const token = await authenticated(api)
-  const intent = await call(api, 'POST', '/api/sponsor/intent', {
-    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-pause-0123456789012345',
-  }, token)
-  const result = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: intent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(result.status, 423)
-  assert.equal(result.payload.error, 'sponsor-writes-paused-for-maintenance')
-})
-
-test('expired or reused intent cannot be executed twice', async () => {
+test('legacy one-step endpoint rejects all Sponsor execution attempts after migration to two-phase local signing', async () => {
   const { api, calls } = setup()
   const token = await authenticated(api)
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'BANDWIDTH', amountSun: '1000000', idempotencyKey: 'sponsor-op-0123456789012345',
   }, token)
-  const body = { intentId: intent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'wrong phrase' }
+  const body = { intentId: intent.payload.intentId, signature: SIGNATURE, confirmPhrase: intent.payload.confirmationPhrase }
   const first = await call(api, 'POST', '/api/sponsor/operations', body, token)
-  assert.equal(first.status, 400)
+  assert.equal(first.status, 410)
+  assert.equal(first.payload.error, 'legacy-sponsor-server-signer-route-disabled')
   const replay = await call(api, 'POST', '/api/sponsor/operations', body, token)
-  assert.equal(replay.status, 409)
+  assert.equal(replay.status, 410)
   assert.deepEqual(calls, [])
 })
 
-test('durable Sponsor idempotency prevents a second signer invocation for the same exact intent', async () => {
-  const rows = new Map()
+
+test('Sponsor local transaction preparation refuses to run while the durable Mainnet write pause is active', async () => {
+  const queries = []
   const database = {
-    async query(sql, params = []) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
-      if (sql.trimStart().startsWith('CREATE TABLE') || sql.trimStart().startsWith('CREATE INDEX')
-        || ['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rowCount: 0, rows: [] }
-      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
-      if (sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')) {
-        const [keyHash, requestHash, operation, resource, amountSun, sponsorAddress, ownerAddress] = params
-        if (rows.has(keyHash)) return { rowCount: 0, rows: [] }
-        rows.set(keyHash, { idempotency_key_hash: keyHash, request_hash: requestHash, operation, resource, amount_sun: amountSun, sponsor_address: sponsorAddress, owner_address: ownerAddress, status: 'reserved', transaction_id: null })
-        return { rowCount: 1, rows: [{ id: 1 }] }
-      }
-      if (sql.startsWith('SELECT request_hash,status,transaction_id,result_code,confirmation_block')) {
-        const row = rows.get(params[0])
-        return { rowCount: row ? 1 : 0, rows: row ? [row] : [] }
-      }
-      if (sql.startsWith("UPDATE public.tron_transfer_sponsor_operations SET status='broadcast-unknown'")) {
-        const row = rows.get(params[0])
-        if (!row || row.status !== 'reserved') return { rowCount: 0, rows: [] }
-        row.status = 'broadcast-unknown'
-        row.transaction_id = params[1]
-        return { rowCount: 1, rows: [{ id: 1 }] }
-      }
-      if (sql.startsWith('UPDATE public.tron_transfer_sponsor_operations SET status=$2')) {
-        const row = rows.get(params[0])
-        if (!row) return { rowCount: 0, rows: [] }
-        row.status = params[1]
-        row.transaction_id = params[2] || row.transaction_id
-        row.result_code = params[3]
-        row.confirmation_block = params[4]
-        return { rowCount: 1, rows: [] }
-      }
-      throw new Error('unexpected fake database query: ' + sql)
+    async query(sql) {
+      queries.push(sql)
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      if (sql === 'BEGIN' || sql === 'ROLLBACK') return { rowCount: 0, rows: [] }
+      throw new Error('unexpected database query: ' + sql)
     },
+    async connect() { return this },
+    release() {},
+  }
+  let prepareCalls = 0
+  const engine = {
+    readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, clientSigningAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
+    prepare: async () => { prepareCalls++; return { success: true, transaction: { txID: 'a'.repeat(64) } } },
+    submitSigned: async () => { assert.fail('submit must not run while paused') },
+    execute: async () => assert.fail('legacy engine must not run'),
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, engine, databaseUrl, expectedDatabaseIdentitySha256 })
+  const token = await authenticated(api)
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '127852400',
+    idempotencyKey: 'sponsor-paused-prepare-0123456789',
+  }, token)
+  assert.equal(intent.status, 201)
+  const result = await call(api, 'POST', '/api/sponsor/operations/prepare', {
+    intentId: intent.payload.intentId, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  }, token)
+  assert.equal(result.status, 423)
+  assert.equal(result.payload.error, 'sponsor-writes-paused-for-maintenance')
+  assert.equal(prepareCalls, 0)
+  assert.equal(queries.some(sql => sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')), false)
+})
+
+
+test('Sponsor cancellation can only close an unsigned reserved operation', async () => {
+  const queries = []
+  const database = {
+    async query(sql) {
+      queries.push(sql)
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      if (sql.startsWith("UPDATE public.tron_transfer_sponsor_operations SET status='failed'")) return { rowCount: 1, rows: [{ id: 1 }] }
+      throw new Error('unexpected database query: ' + sql)
+    },
+  }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
+  const token = await authenticated(api)
+  const result = await call(api, 'POST', '/api/sponsor/operations/cancel', {
+    operationReference: 'sponsor-cancel-reservation-0123456789',
+  }, token)
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.operationStatus, 'failed')
+  assert.equal(result.payload.resultCode, 'cancelled-before-signing')
+  assert.ok(queries.some(sql => sql.includes("signed_transaction IS NULL")))
+})
+
+test('legacy one-step Sponsor execution endpoint is disabled in favor of local prepare and submit', async () => {
+  const queries = []
+  const database = {
+    async query(sql) {
+      queries.push(sql)
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+      if (sql === 'ROLLBACK' || sql === 'BEGIN') return { rowCount: 0, rows: [] }
+      throw new Error('unexpected database query: ' + sql)
+    },
+    async connect() { return this },
+    release() {},
   }
   let executions = 0
   const engine = {
     readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
-    execute: async ({ onSigned }) => {
-      executions += 1
-      await onSigned('b'.repeat(64))
-      return { success: true, status: 'solidified-success', txid: 'b'.repeat(64), signed: true, broadcast: true, solidified: true, blockNumber: 456 }
-    },
-    reconcile: async () => ({ confirmed: true, status: 'solidified-success', blockNumber: 456 }),
+    execute: async () => { executions += 1; return { success: true } },
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
   const { api } = setup({ database, engine })
   const token = await authenticated(api)
-  const idempotencyKey = 'sponsor-idempotency-012345678901'
-  const createIntent = () => call(api, 'POST', '/api/sponsor/intent', {
-    operation: 'delegate', resource: 'ENERGY', amountSun: '127852400', idempotencyKey,
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '127852400',
+    idempotencyKey: 'sponsor-idempotency-012345678901',
   }, token)
-  const firstIntent = await createIntent()
-  const first = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: firstIntent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
+  assert.equal(intent.status, 201)
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: intent.payload.intentId, signature: SIGNATURE,
+    confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
   }, token)
-  assert.equal(first.status, 200)
-  assert.equal(first.payload.operationStatus, 'confirmed')
-  assert.equal(first.payload.transactionId, 'b'.repeat(64))
-  const secondIntent = await createIntent()
-  const second = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: secondIntent.payload.intentId, signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(second.status, 409)
-  assert.equal(second.payload.error, 'operation-already-recorded')
-  assert.equal(executions, 1)
+  assert.equal(result.status, 410)
+  assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
+  assert.equal(executions, 0)
+  assert.equal(queries.some(sql => sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')), false)
 })
 
 
@@ -510,82 +681,63 @@ test('invalid resource combinations cannot create Sponsor intents', async () => 
 })
 
 
-test('configured Sponsor Admin token is required as a second factor for write intents', async () => {
-  const adminToken = 'admin-token-with-at-least-thirty-two-bytes-long'
-  const { api } = setup({ adminToken })
+test('independent Sponsor session authorizes its own operation intent without an Owner session', async () => {
+  const { api } = setup({ ownerSessionFixture: '', authenticateOwnerAdminSession: null })
   const token = await authenticated(api)
   const body = {
     operation: 'topup', resource: 'TRX', amountSun: '1000000',
-    idempotencyKey: 'sponsor-admin-topup-0123456789',
+    idempotencyKey: 'sponsor-independent-topup-0123456789',
   }
-  const denied = await call(api, 'POST', '/api/sponsor/intent', body, token, null)
-  assert.equal(denied.status, 403)
-  assert.equal(denied.payload.error, 'sponsor-admin-authorization-required')
-  const accepted = await call(api, 'POST', '/api/sponsor/intent', body, token, adminToken)
-  assert.equal(accepted.status, 201)
+  const sponsorAuthorized = await call(api, 'POST', '/api/sponsor/intent', body, token, null, {
+    headers: { 'x-sponsor-admin-token': OWNER_SESSION_FIXTURE },
+  })
+  assert.equal(sponsorAuthorized.status, 201)
+  assert.equal(sponsorAuthorized.payload.success, true)
 })
 
 
-test('Sponsor writes fail closed until ledger durability, backup and restore are verified', async () => {
-  const { api } = setup()
+test('Sponsor transaction preparation fails closed until ledger durability, backup and restore are verified', async () => {
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api, env, advanceClock } = setup({ databaseUrl, expectedDatabaseIdentitySha256 })
   const token = await authenticated(api)
   const status = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(status.payload.ledgerDurabilityVerified, true)
 
-  const { api: unverifiedApi, env: unverifiedEnv } = setup()
-  const unverifiedToken = await authenticated(unverifiedApi)
-  const prepared = await call(unverifiedApi, 'POST', '/api/sponsor/intent', {
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
     idempotencyKey: 'sponsor-unverified-ledger-0123456789',
-  }, unverifiedToken)
-  assert.equal(prepared.status, 201)
+  }, token)
+  assert.equal(intent.status, 201)
 
-  unverifiedEnv.SPONSOR_LEDGER_DURABLE = 'false'
-  const unverifiedStatus = await call(unverifiedApi, 'GET', '/api/sponsor/status')
+  env.SPONSOR_LEDGER_DURABLE = 'false'
+  advanceClock(5_001)
+  const unverifiedStatus = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(unverifiedStatus.payload.ledgerDurabilityVerified, false)
   assert.equal(unverifiedStatus.payload.transactionExecutionAvailable, false)
 
-  const intent = await call(unverifiedApi, 'POST', '/api/sponsor/intent', {
-    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
-    idempotencyKey: 'sponsor-unverified-ledger-second-012345',
-  }, unverifiedToken)
-  assert.equal(intent.status, 503)
-  assert.equal(intent.payload.error, 'sponsor-ledger-durability-not-verified')
-
-  const execution = await call(unverifiedApi, 'POST', '/api/sponsor/operations', {
-    intentId: prepared.payload.intentId,
-    signature: SIGNATURE,
-    confirmPhrase: prepared.payload.confirmationPhrase,
-  }, unverifiedToken)
-  assert.equal(execution.status, 503)
-  assert.equal(execution.payload.error, 'sponsor-ledger-durability-not-verified')
+  const prepared = await call(api, 'POST', '/api/sponsor/operations/prepare', {
+    intentId: intent.payload.intentId,
+    confirmPhrase: intent.payload.confirmationPhrase,
+  }, token)
+  assert.equal(prepared.status, 503)
+  assert.equal(prepared.payload.error, 'sponsor-ledger-durability-not-verified')
 })
 
-test('missing Sponsor Admin token configuration fails closed for every write', async () => {
-  const { api } = setup({ adminToken: '' })
+test('Sponsor transaction readiness does not depend on Owner Admin session availability', async () => {
+  const { api } = setup({ ownerSessionFixture: '', authenticateOwnerAdminSession: null })
   const status = await call(api, 'GET', '/api/sponsor/status')
-  assert.equal(status.payload.adminTokenRequired, true)
-  assert.equal(status.payload.adminTokenConfigured, false)
-  assert.equal(status.payload.transactionExecutionAvailable, false)
+  assert.equal(status.payload.ownerAdminSessionRequired, false)
+  assert.equal(status.payload.ownerAdminSessionConfiguredForLedgerBootstrap, false)
   const token = await authenticated(api)
   const result = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
-    idempotencyKey: 'sponsor-missing-admin-factor-012345',
+    idempotencyKey: 'sponsor-no-owner-session-012345',
   }, token, null)
-  assert.equal(result.status, 403)
-  assert.equal(result.payload.error, 'sponsor-admin-authorization-required')
+  assert.equal(result.status, 201)
 })
 
-test('Sponsor Admin token comparison is required for execution route too', async () => {
-  const adminToken = 'admin-token-with-at-least-thirty-two-bytes-long'
-  const { api, calls } = setup({ adminToken })
-  const token = await authenticated(api)
-  const result = await call(api, 'POST', '/api/sponsor/operations', {
-    intentId: 'untrusted-intent', signature: SIGNATURE, confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
-  }, token)
-  assert.equal(result.status, 403)
-  assert.deepEqual(calls, [])
-})
+
 
 
 test('Stake 2.0 reclaim and withdrawal intents are accepted with exact resource bindings', async () => {
@@ -627,7 +779,7 @@ test('Sponsor Resource API prefers the Neon pooled URL and retains direct URL as
 })
 
 
-test('signed-not-broadcast operation is reconciled against solidified Mainnet state without replay', async () => {
+test('signed-not-broadcast operation recovers after API restart against solidified Mainnet state without replay', async () => {
   const key = 'sponsor-signed-recovery-0123456789'
   const keyHash = (await import('node:crypto')).createHash('sha256').update(key).digest('hex')
   const row = {
@@ -638,7 +790,7 @@ test('signed-not-broadcast operation is reconciled against solidified Mainnet st
   const updates = []
   const database = {
     async query(sql, params = []) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.includes('SELECT idempotency_key_hash,operation,resource,amount_sun::text')) return { rowCount: 1, rows: [row] }
       if (sql.includes('SET status=$2,result_code=$3,confirmation_block=$4')) {
@@ -660,9 +812,15 @@ test('signed-not-broadcast operation is reconciled against solidified Mainnet st
       return { confirmed: true, status: 'solidified-success', blockNumber: 987654 }
     },
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
-  const token = await authenticated(api)
-  const result = await call(api, 'GET', '/api/sponsor/operations/' + key, undefined, token)
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const firstProcess = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
+  const token = await authenticated(firstProcess.api)
+  // Simulate a Render process restart: create a fresh API instance with empty
+  // in-memory challenge/intent maps while retaining only the durable DB row
+  // and the same session-signing secret.
+  const restartedProcess = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
+  const result = await call(restartedProcess.api, 'GET', '/api/sponsor/operations/' + key, undefined, token)
   assert.equal(result.status, 200)
   assert.equal(result.payload.success, true)
   assert.equal(result.payload.operation.status, 'confirmed')
@@ -682,7 +840,7 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
   const updates = []
   const database = {
     async query(sql, params = []) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.includes('SELECT idempotency_key_hash,operation,resource,amount_sun::text')) return { rowCount: 1, rows: [row] }
       if (sql.includes('SET result_code=$2,updated_at=now()')) {
@@ -698,7 +856,9 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
     execute: async () => { executions += 1; return assert.fail('ambiguous operation must never be replayed') },
     reconcile: async () => ({ confirmed: false, status: 'solidified-provider-unavailable' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
   const token = await authenticated(api)
   const result = await call(api, 'GET', '/api/sponsor/operations/' + key, undefined, token)
   assert.equal(result.status, 200)
@@ -711,56 +871,36 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
 })
 
 
-test('Sponsor maintenance pause lock remains held until signing and broadcast lifecycle is durably recorded', async () => {
+test('legacy Sponsor server-signed execution endpoint is permanently disabled', async () => {
   const timeline = []
-  const row = { idempotency_key_hash: '', request_hash: '', status: 'reserved', transaction_id: null }
   const database = {
-    async query(sql, params = []) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control' }] }
+    async query(sql) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
-      if (sql.startsWith("UPDATE public.tron_transfer_sponsor_operations SET status='broadcast-unknown'")) {
-        timeline.push('persist-transaction-id')
-        row.transaction_id = params[1]
-        return { rowCount: 1, rows: [{ id: 1 }] }
-      }
-      if (sql.includes('SET status=$2,transaction_id=COALESCE')) {
-        timeline.push('persist-final-status')
-        row.status = params[1]
-        return { rowCount: 1, rows: [] }
-      }
       throw new Error('unexpected database query: ' + sql)
     },
     async connect() {
       return {
-        async query(sql, params = []) {
-          if (sql === 'BEGIN') { timeline.push('begin'); return { rowCount: 0, rows: [] } }
-          if (sql.includes('FOR SHARE')) { timeline.push('acquire-pause-lock'); return { rowCount: 1, rows: [{ writes_paused: false }] } }
-          if (sql.startsWith('INSERT INTO public.tron_transfer_sponsor_operations')) {
-            timeline.push('reserve')
-            row.idempotency_key_hash = params[0]; row.request_hash = params[1]
-            return { rowCount: 1, rows: [{ id: 1 }] }
-          }
-          if (sql === 'COMMIT') { timeline.push('commit'); return { rowCount: 0, rows: [] } }
-          if (sql === 'ROLLBACK') { timeline.push('rollback'); return { rowCount: 0, rows: [] } }
+        async query(sql) {
+          timeline.push(sql)
+          if (sql === 'BEGIN') return { rowCount: 0, rows: [] }
+          if (sql.includes('FOR SHARE')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+          if (sql === 'ROLLBACK') return { rowCount: 0, rows: [] }
           throw new Error('unexpected transaction query: ' + sql)
         },
         release() { timeline.push('release') },
       }
     },
   }
+  let executions = 0
   const engine = {
     readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
-    execute: async ({ onSigned }) => {
-      assert.equal(timeline.includes('acquire-pause-lock'), true)
-      assert.equal(timeline.includes('commit'), false, 'maintenance lock must remain held during execution')
-      timeline.push('engine-execute')
-      await onSigned('e'.repeat(64))
-      timeline.push('engine-finished')
-      return { success: false, status: 'broadcast-outcome-unknown', txid: 'e'.repeat(64), signed: true, broadcast: true, solidified: false }
-    },
+    execute: async () => { executions += 1; return { success: true } },
     reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
   }
-  const { api } = setup({ database, databaseUrl: 'postgres://configured', engine })
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
   const token = await authenticated(api)
   const intent = await call(api, 'POST', '/api/sponsor/intent', {
     operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
@@ -770,12 +910,12 @@ test('Sponsor maintenance pause lock remains held until signing and broadcast li
     intentId: intent.payload.intentId, signature: SIGNATURE,
     confirmPhrase: 'CONFIRM TRON MAINNET SPONSOR TRANSACTION',
   }, token)
-  assert.equal(result.status, 202)
-  assert.ok(timeline.indexOf('acquire-pause-lock') < timeline.indexOf('engine-execute'))
-  assert.ok(timeline.indexOf('engine-finished') < timeline.indexOf('persist-final-status'))
-  assert.ok(timeline.indexOf('persist-final-status') < timeline.indexOf('commit'))
-  assert.equal(timeline.at(-1), 'release')
+  assert.equal(result.status, 410)
+  assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
+  assert.equal(executions, 0)
+  assert.equal(timeline.length, 0)
 })
+
 
 test('PostgreSQL legacy require mode is normalized to explicit verify-full without weakening TLS', () => {
   const input = 'postgresql://user:password@ep-example.neon.tech/db?sslmode=require&channel_binding=require'
@@ -790,4 +930,368 @@ test('PostgreSQL explicit verify-full and local disable modes are preserved', ()
   const local = 'postgres://user:password@localhost/app?sslmode=disable'
   assert.equal(normalizePostgresTlsMode(strict), new URL(strict).toString())
   assert.equal(normalizePostgresTlsMode(local), new URL(local).toString())
+})
+
+test('Sponsor readiness coalesces simultaneous status refreshes into one database snapshot', async () => {
+  let queryCount = 0
+  const database = {
+    async query(sql) {
+      queryCount += 1
+      await new Promise(resolve => setTimeout(resolve, 20))
+      if (sql.includes('to_regclass')) {
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      throw new Error('unexpected Sponsor status query')
+    },
+  }
+  const { api } = setup({ database, databaseUrl: 'postgres://configured' })
+  const [first, second] = await Promise.all([
+    call(api, 'GET', '/api/sponsor/status'),
+    call(api, 'GET', '/api/sponsor/status'),
+  ])
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
+  assert.equal(first.payload.sponsorWritesPaused, true)
+  assert.equal(first.payload.writesReleaseAvailable, false)
+  assert.ok(first.payload.writesReleaseChecks.some(check => check.id === 'explicit-release-flag' && check.state === 'blocked'))
+  assert.equal(second.payload.sponsorWritesPaused, true)
+  assert.equal(queryCount, 3)
+  const cached = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(cached.status, 200)
+  assert.equal(queryCount, 3)
+})
+
+test('Sponsor intents are authorized by the Sponsor session, not the Owner Admin session', async () => {
+  const { api } = setup({
+    authenticateOwnerAdminSession: async req => String(req.headers.cookie || '').includes('owner-admin-session') ? { address: OWNER } : null,
+  })
+  const token = await authenticated(api)
+  const intent = { operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: 'sponsor-session-intent-0001' }
+  const sponsorAuthorized = await call(api, 'POST', '/api/sponsor/intent', intent, token)
+  assert.equal(sponsorAuthorized.status, 201)
+  assert.equal(sponsorAuthorized.payload.success, true)
+})
+
+test('database target identity uses the direct Owner Admin URL while Sponsor runtime may use the pooler', () => {
+  const direct = 'postgres://app_role@ep-main.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
+  const pooled = 'postgres://app_role@ep-main-pooler.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require'
+  const runtime = sponsorDatabaseConnectionInfo({ DATABASE_URL_POOLED: pooled, OWNER_ADMIN_DATABASE_URL: direct })
+  const target = sponsorDatabaseTargetIdentityInfo({ DATABASE_URL_POOLED: pooled, OWNER_ADMIN_DATABASE_URL: direct })
+  const directOnly = sponsorDatabaseTargetIdentityInfo({ DATABASE_URL: direct })
+  assert.equal(runtime.sourceVariable, 'DATABASE_URL_POOLED')
+  assert.equal(target.sourceVariable, 'OWNER_ADMIN_DATABASE_URL')
+  assert.equal(target.identityFingerprint, directOnly.identityFingerprint)
+  assert.equal(runtime.identityFingerprint, target.identityFingerprint, 'Neon pooler and direct endpoints for the same branch/database/role must normalize to one identity')
+
+  const otherBranch = sponsorDatabaseConnectionInfo({ DATABASE_URL_POOLED: 'postgres://app_role@ep-other-pooler.ap-southeast-1.aws.neon.tech/tron-transfer?sslmode=require' })
+  assert.notEqual(otherBranch.identityFingerprint, target.identityFingerprint, 'a different Neon branch must remain a different database identity')
+})
+
+test('managed Sponsor session cannot invoke the legacy server signer endpoint', async () => {
+  let engineCalls = 0
+  let rollbackCalls = 0
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) {
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+      if (sql === 'BEGIN') return { rowCount: 0, rows: [] }
+      if (sql === 'ROLLBACK') { rollbackCalls += 1; return { rowCount: 0, rows: [] } }
+      throw new Error('unexpected database query in fail-closed test: ' + sql)
+    },
+  }
+  const engine = {
+    readiness: () => ({ configured: true, enabled: true, broadcastAvailable: true, ownerAddress: OWNER, feePolicy: {} }),
+    execute: async () => { engineCalls += 1; return { success: true, signed: true, broadcast: true } },
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
+  const token = await authenticated(api)
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-local-signing-blocked-0001',
+  }, token)
+  assert.equal(intent.status, 201)
+
+  const result = await call(api, 'POST', '/api/sponsor/operations', {
+    intentId: intent.payload.intentId,
+    confirmPhrase: intent.payload.confirmationPhrase,
+  }, token)
+  assert.equal(result.status, 410)
+  assert.equal(result.payload.error, 'legacy-sponsor-server-signer-route-disabled')
+  assert.equal(engineCalls, 0, 'the legacy server-side signer must never be invoked')
+  assert.equal(rollbackCalls, 0, 'the disabled route must not open a database transaction')
+})
+
+test('managed Sponsor session is rejected if its enrolled address no longer matches the configured Mainnet Sponsor', async () => {
+  const { api, env } = setup({
+    authenticateManagedSession: async () => ({ address: SPONSOR, sessionId: 'managed-sponsor-session' }),
+  })
+  env.SPONSOR_MAINNET_ADDRESS = 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb'
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'delegate', resource: 'ENERGY', amountSun: '1000000',
+    idempotencyKey: 'sponsor-session-address-rotation-0001',
+  }, 'managed-sponsor-session-token')
+  assert.equal(result.status, 403)
+  assert.equal(result.payload.error, 'sponsor-session-address-mismatch')
+})
+
+test('Sponsor local-signing API commits the signed transaction before a single broadcast attempt', async () => {
+  const timeline = []
+  let persistedTransactionId = null
+  let persistedSignedPayload = null
+  const operationReference = 'sponsor-two-phase-lifecycle-0123456789'
+  const transaction = {
+    txID: 'a'.repeat(64),
+    raw_data_hex: '01'.repeat(20),
+    raw_data: { expiration: Date.now() + 60_000, contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: '41' + '11'.repeat(20), resource: 1, frozen_balance: '1000000' } } }] },
+  }
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+      throw new Error('unexpected pool query: ' + sql)
+    },
+    async connect() {
+      let transactionState = 'initial'
+      return {
+        async query(sql, params = []) {
+          if (sql === 'BEGIN') { timeline.push('begin'); return { rowCount: 0, rows: [] } }
+          if (sql === 'COMMIT') { timeline.push(transactionState === 'signed' ? 'commit-signed' : 'commit-final'); return { rowCount: 0, rows: [] } }
+          if (sql === 'ROLLBACK') { timeline.push('rollback'); return { rowCount: 0, rows: [] } }
+          if (sql.includes('SELECT writes_paused') && sql.includes('FOR SHARE')) return { rowCount: 1, rows: [{ writes_paused: false }] }
+          if (sql.includes('INSERT INTO public.tron_transfer_sponsor_operations')) return { rowCount: 1, rows: [{ id: 1 }] }
+          if (sql.includes('SET prepared_transaction=')) { transactionState = 'prepared'; timeline.push('persist-prepared'); return { rowCount: 1, rows: [{ id: 1 }] } }
+          if (sql.includes('SELECT operation,resource,amount_sun')) return { rowCount: 1, rows: [{
+            operation: 'stake', resource: 'ENERGY', amount_sun: '1000000', sponsor_address: SPONSOR,
+            owner_address: OWNER, status: 'reserved', prepared_transaction: transaction,
+          }] }
+          if (sql.includes('SET status=\'signed-not-broadcast\'')) { persistedTransactionId = params[1]; persistedSignedPayload = JSON.parse(params[2]); transactionState = 'signed'; timeline.push('persist-signed'); return { rowCount: 1, rows: [{ id: 1 }] } }
+          if (sql.includes('SELECT status,transaction_id')) return { rowCount: 1, rows: [{ status: 'signed-not-broadcast', transaction_id: transaction.txID }] }
+          if (sql.includes('SET status=$2,result_code=$3')) { timeline.push('persist-final'); return { rowCount: 1, rows: [{ id: 1 }] } }
+          throw new Error('unexpected client query: ' + sql)
+        },
+        release() { timeline.push('release') },
+      }
+    },
+  }
+  const engine = {
+    readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, clientSigningAvailable: true, ownerAddress: OWNER, sponsorAddress: SPONSOR, feePolicy: {} }),
+    prepare: async () => ({ success: true, transaction, sponsorAddress: SPONSOR, ownerAddress: OWNER, operation: 'stake', resource: 'ENERGY', amountSun: '1000000', feePolicy: { reserveSun: '2000000', maxBandwidthFeeSun: '0', requiredBandwidthFeeSun: '0' } }),
+    submitSigned: async ({ onSigned }) => {
+      await onSigned(transaction.txID)
+      assert.ok(timeline.indexOf('commit-signed') >= 0, 'signed payload must be committed before broadcast')
+      timeline.push('broadcast')
+      return { success: true, status: 'solidified-success', txid: transaction.txID, signed: true, broadcast: true, solidified: true, blockNumber: 456 }
+    },
+    execute: async () => assert.fail('legacy server signer must never run'),
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, engine })
+  const token = await authenticated(api)
+  const intent = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'stake', resource: 'ENERGY', amountSun: '1000000', idempotencyKey: operationReference,
+  }, token)
+  assert.equal(intent.status, 201)
+  const prepared = await call(api, 'POST', '/api/sponsor/operations/prepare', {
+    intentId: intent.payload.intentId, confirmPhrase: intent.payload.confirmationPhrase,
+  }, token)
+  assert.equal(prepared.status, 201, JSON.stringify({ intent: intent.payload, prepared: prepared.payload }))
+  assert.equal(prepared.payload.unsignedTransaction.txID, transaction.txID)
+  const signedTransaction = { ...transaction, signature: ['b'.repeat(130)] }
+  const submitted = await call(api, 'POST', '/api/sponsor/operations/submit', {
+    operationReference, signedTransaction,
+  }, token)
+  assert.equal(submitted.status, 200)
+  assert.equal(submitted.payload.solidified, true)
+  assert.equal(persistedTransactionId, transaction.txID, 'the exact prepared txID must be durable before broadcast')
+  assert.deepEqual(persistedSignedPayload, signedTransaction, 'the complete signed payload, not only txID, must be durable before broadcast')
+  assert.ok(timeline.indexOf('persist-signed') < timeline.indexOf('commit-signed'))
+  assert.ok(timeline.indexOf('commit-signed') < timeline.indexOf('broadcast'))
+  assert.ok(timeline.indexOf('broadcast') < timeline.indexOf('persist-final'))
+})
+
+test('Sponsor ledger bootstrap refuses a mismatched database identity before issuing any DDL', async () => {
+  const queries = []
+  const database = {
+    async query(sql) {
+      queries.push(sql)
+      throw new Error('database must not be touched when the target identity is not accepted')
+    },
+  }
+  const databaseUrl = 'postgres://test_user:test_password@ep-production.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const { api } = setup({
+    database,
+    databaseUrl,
+    expectedDatabaseIdentitySha256: 'f'.repeat(64),
+  })
+  const result = await call(api, 'POST', '/api/sponsor/ledger/bootstrap', {
+    confirm: 'INITIALIZE_SPONSOR_LEDGER_SCHEMA',
+  }, null, OWNER_SESSION_FIXTURE)
+  assert.equal(result.status, 503)
+  assert.equal(result.payload.error, 'sponsor-ledger-database-identity-not-accepted')
+  assert.deepEqual(queries, [])
+})
+
+function sponsorControlDatabase(initialPaused, sponsorEnrolled = true) {
+  let writesPaused = initialPaused
+  let updateCount = 0
+  let connectCount = 0
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{
+        operations_table: 'tron_transfer_sponsor_operations',
+        control_table: 'tron_transfer_sponsor_control',
+        prepared_transaction_column: true,
+        signed_transaction_column: true,
+      }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
+      if (sql.includes('SELECT wallet_role, wallet_address, enabled')) return { rowCount: 2, rows: [{ wallet_role: 'owner', wallet_address: OWNER, enabled: true }, { wallet_role: 'sponsor', wallet_address: sponsorEnrolled ? SPONSOR : OWNER, enabled: sponsorEnrolled }] }
+      throw new Error('unexpected Sponsor control pool query: ' + sql)
+    },
+    async connect() {
+      connectCount += 1
+      return {
+        async query(sql, params = []) {
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: 0, rows: [] }
+          if (sql.includes('FOR UPDATE')) return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
+          if (sql.includes('UPDATE public.tron_transfer_sponsor_control')) {
+            writesPaused = params[0]
+            updateCount += 1
+            return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
+          }
+          throw new Error('unexpected Sponsor control transaction query: ' + sql)
+        },
+        release() {},
+      }
+    },
+  }
+  return { database, state: () => ({ writesPaused, updateCount, connectCount }) }
+}
+function releaseReadySponsorEngine() {
+  return {
+    readiness: () => ({
+      configured: true, enabled: true, broadcastAvailable: true, clientSigningAvailable: true,
+      ownerAddress: OWNER, sponsorAddress: SPONSOR, sponsorAddressValid: true, feePolicy: {},
+      stakingPolicy: { enabled: true }, ownerTopupPolicy: { enabled: true },
+    }),
+    prepare: async () => ({ success: true }),
+    submitSigned: async () => ({ success: true }),
+    execute: async () => assert.fail('release control must not execute Sponsor transactions'),
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+}
+
+test('Sponsor ledger release requires Owner Admin, explicit release flag and every Mainnet gate', async () => {
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const blockedDb = sponsorControlDatabase(true)
+  const blocked = setup({ database: blockedDb.database, databaseUrl, expectedDatabaseIdentitySha256, engine: releaseReadySponsorEngine() })
+  const blockedResult = await call(blocked.api, 'POST', '/api/sponsor/ledger/release', {
+    confirm: 'ENABLE_SPONSOR_MAINNET_WRITES',
+  })
+  assert.equal(blockedResult.status, 423)
+  assert.equal(blockedResult.payload.error, 'sponsor-writes-release-gates-blocked')
+  assert.equal(blockedDb.state().updateCount, 0)
+  assert.ok(blockedResult.payload.writesReleaseChecks.some(check => check.id === 'explicit-release-flag' && check.state === 'blocked'))
+
+  const unenrolledDb = sponsorControlDatabase(true, false)
+  const unenrolled = setup({ database: unenrolledDb.database, databaseUrl, expectedDatabaseIdentitySha256, engine: releaseReadySponsorEngine() })
+  unenrolled.env.SPONSOR_WRITES_RELEASE_ENABLED = 'true'
+  const unenrolledResult = await call(unenrolled.api, 'POST', '/api/sponsor/ledger/release', {
+    confirm: 'ENABLE_SPONSOR_MAINNET_WRITES',
+  })
+  assert.equal(unenrolledResult.status, 423)
+  assert.ok(unenrolledResult.payload.writesReleaseChecks.some(check => check.id === 'sponsor-wallet-enrolled' && check.state === 'blocked'))
+  assert.equal(unenrolledDb.state().updateCount, 0)
+
+  const db = sponsorControlDatabase(true)
+  const ready = setup({ database: db.database, databaseUrl, expectedDatabaseIdentitySha256, engine: releaseReadySponsorEngine() })
+  ready.env.SPONSOR_WRITES_RELEASE_ENABLED = 'true'
+  const result = await call(ready.api, 'POST', '/api/sponsor/ledger/release', {
+    confirm: 'ENABLE_SPONSOR_MAINNET_WRITES',
+  })
+  assert.equal(result.status, 200, JSON.stringify({ payload: result.payload, database: db.state() }))
+  assert.equal(result.payload.sponsorWritesPaused, false)
+  assert.equal(result.payload.transactionExecutionAvailable, true)
+  assert.equal(db.state().writesPaused, false)
+  assert.equal(db.state().updateCount, 1)
+})
+
+test('Sponsor emergency pause requires Owner Admin but not Sponsor engine or release configuration', async () => {
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const db = sponsorControlDatabase(false)
+  const { api } = setup({ database: db.database, databaseUrl, expectedDatabaseIdentitySha256 })
+  const result = await call(api, 'POST', '/api/sponsor/ledger/pause', {
+    confirm: 'PAUSE_SPONSOR_MAINNET_WRITES',
+  })
+  assert.equal(result.status, 200, JSON.stringify(result.payload))
+  assert.equal(result.payload.sponsorWritesPaused, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
+  assert.equal(db.state().writesPaused, true)
+  assert.equal(db.state().updateCount, 1)
+})
+
+test('Sponsor write release cannot be invoked without an authenticated Owner Admin session', async () => {
+  let databaseQueries = 0
+  const database = { async query() { databaseQueries += 1; throw new Error('database must not be touched without Owner Admin authorization') } }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({
+    database, databaseUrl, expectedDatabaseIdentitySha256,
+    authenticateOwnerAdminSession: async () => null,
+  })
+  const result = await call(api, 'POST', '/api/sponsor/ledger/release', {
+    confirm: 'ENABLE_SPONSOR_MAINNET_WRITES',
+  }, null, null)
+  assert.equal(result.status, 401)
+  assert.equal(result.payload.error, 'admin-authorization-required')
+  assert.equal(databaseQueries, 0)
+})
+
+
+
+test('production acceptance verifies Owner and Sponsor enrollment before Sponsor ledger bootstrap', async () => {
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const database = {
+    async query(sql) {
+      if (sql.includes('SELECT wallet_role, wallet_address, enabled')) {
+        return {
+          rowCount: 2,
+          rows: [
+            { wallet_role: 'owner', wallet_address: OWNER, enabled: true },
+            { wallet_role: 'sponsor', wallet_address: SPONSOR, enabled: true },
+          ],
+        }
+      }
+      if (sql.includes('to_regclass')) {
+        return {
+          rowCount: 1,
+          rows: [{
+            operations_table: null,
+            control_table: null,
+            prepared_transaction_column: false,
+            signed_transaction_column: false,
+          }],
+        }
+      }
+      throw new Error('pre-bootstrap acceptance must remain read-only')
+    },
+  }
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
+  const result = await call(api, 'GET', '/api/acceptance/production')
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'owner-wallet-enrolled').state, 'passed')
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'sponsor-wallet-enrolled').state, 'passed')
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'ledger-schema-and-control-row').state, 'blocked')
+  assert.equal(result.payload.sponsorWritesPaused, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
 })

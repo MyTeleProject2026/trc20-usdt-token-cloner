@@ -1,18 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { TronWeb } from 'tronweb'
 import { AlertTriangle, ArrowUpRight, CheckCircle2, Coins, ExternalLink, RefreshCw, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 import {
-  TRAX_TOKEN_ARTIFACT, addressesEqual, assertMainnetWallet, deployContractWithOwnerSigner, preflightContractDeployments,
-  callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts, parseBatchCreditRows, parseTokenUnits, saveContractAddresses,
-  sendAndVerifyContractCall, verifyTRAXTokenContract, getMainnetUSDTBalance, claimTenergyPromoForDeployment,
+  addressesEqual, callMainnetView, formatTokenUnits, getMainnetNativeBalance, loadSavedContracts,
+  parseBatchCreditRows, parseTokenUnits, saveContractAddresses, verifyTRAXTokenContract, getMainnetUSDTBalance,
 } from './trax-mainnet.mjs'
 import { calculatePortfolioValue, fetchTRXReferencePrice } from './trax-pricing.mjs'
 import TRAXOwnershipControls from './TRAXOwnershipControls.jsx'
 import TRAXCreditHistory from './TRAXCreditHistory.jsx'
+import WalletDepositPanel from './WalletDepositPanel.jsx'
 import './trax-mainnet.css'
 
-const EXPECTED_OWNER_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const DEFAULT_RECIPIENT = ''
 const DEFAULT_FEE_CAP = '150'
+const OFFICIAL_USDT_MAINNET_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const RESOURCE_API_BASE = String(import.meta.env?.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 
 const SPONSOR_TARGETS_KEY = 'tron-transfer.sponsor-resource-targets.v1'
 
@@ -32,7 +34,7 @@ function makeReference() {
   return '0x' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 }
 
-function TraxTokenMark() { return <img className="trax-token-mark" src="https://thesvg.org/icons/tron/default.svg" alt="TRӾ token icon" width="22" height="22" loading="lazy"/> }
+function TraxTokenMark() { return <img className="trax-token-mark" src="/trax-token-mark.svg" alt="TRӾ token icon" width="22" height="22" loading="lazy"/> }
 
 function formatUsd(value) {
   return Number.isFinite(Number(value))
@@ -67,23 +69,89 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [lastTx, setLastTx] = useState('')
   const [step, setStep] = useState('')
   const [deploymentReadiness, setDeploymentReadiness] = useState(null)
-  const [promoClaimStatus, setPromoClaimStatus] = useState(null)
+  const [deploymentOperation, setDeploymentOperation] = useState(null)
+  const [deploymentConfirmationPhrase, setDeploymentConfirmationPhrase] = useState('')
+  const [deploymentExecutionEnabled, setDeploymentExecutionEnabled] = useState(false)
+  const [recentOperations, setRecentOperations] = useState([])
+  const [ownerDepositHistory, setOwnerDepositHistory] = useState({ transactions: [], tokenTransfers: [], transactionsAvailable: false, tokenTransfersAvailable: false })
+  const [ownerDepositLoading, setOwnerDepositLoading] = useState(false)
+  const [usdtWithdrawalRecipient, setUsdtWithdrawalRecipient] = useState('')
+  const [usdtWithdrawalAmount, setUsdtWithdrawalAmount] = useState('')
+  const [usdtWithdrawalBalance, setUsdtWithdrawalBalance] = useState(null)
+  const [usdtWithdrawalTrxBalanceSun, setUsdtWithdrawalTrxBalanceSun] = useState(null)
+  const [usdtWithdrawalReservedBalance, setUsdtWithdrawalReservedBalance] = useState('0')
+  const [usdtWithdrawalAvailableBalance, setUsdtWithdrawalAvailableBalance] = useState(null)
+  const [usdtWithdrawalHistory, setUsdtWithdrawalHistory] = useState([])
+  const [usdtWithdrawalBalanceAt, setUsdtWithdrawalBalanceAt] = useState('')
+  const prepareInFlightRef = useRef(null)
+  const preparationKeyRef = useRef('')
 
   useEffect(() => {
     try { saveContractAddresses({ tokenAddress }) } catch {}
   }, [tokenAddress])
 
   const connectedAddress = wallet?.address || ''
-  const walletReady = Boolean(wallet?.tronWeb && connectedAddress === EXPECTED_OWNER_ADDRESS)
+  const readOnlyTronWeb = useMemo(() => new TronWeb({ fullHost: RESOURCE_API_BASE + '/api/tron/mainnet/rpc' }), [])
+  const panelWallet = useMemo(() => wallet?.managedSession ? { ...wallet, readOnlyTronWeb } : wallet, [wallet, readOnlyTronWeb])
+  const walletReady = Boolean(wallet?.managedSession
+    && wallet?.signerType === 'encrypted-local-owner-vault'
+    && connectedAddress
+    && wallet?.tronWeb?.isAddress?.(connectedAddress)
+    && typeof wallet?.tronWeb?.trx?.sign === 'function'
+    && addressesEqual(wallet.tronWeb, wallet.tronWeb.defaultAddress?.base58, connectedAddress))
+  const refreshOwnerDeposits = useCallback(async () => {
+    if (!walletReady || !connectedAddress) return
+    setOwnerDepositLoading(true)
+    try {
+      const response = await fetch(RESOURCE_API_BASE + '/v1/transactions/' + encodeURIComponent(connectedAddress) + '?limit=20', { cache: 'no-store' })
+      if (!response.ok) throw new Error('Confirmed deposit history returned HTTP ' + response.status)
+      const payload = await response.json()
+      if (payload?.address !== connectedAddress || payload?.network !== 'TRON Mainnet' || !Array.isArray(payload.data)) throw new Error('Confirmed deposit history response was invalid')
+      setOwnerDepositHistory({ transactions: payload.data, tokenTransfers: Array.isArray(payload.trc20Transfers) ? payload.trc20Transfers : [], transactionsAvailable: true, tokenTransfersAvailable: payload.trc20Available === true })
+    } catch {
+      setOwnerDepositHistory({ transactions: [], tokenTransfers: [], transactionsAvailable: false, tokenTransfersAvailable: false })
+    } finally { setOwnerDepositLoading(false) }
+  }, [walletReady, connectedAddress])
+
+  useEffect(() => {
+    if (walletReady && activePage === 'portfolio') void refreshOwnerDeposits()
+  }, [walletReady, activePage, refreshOwnerDeposits])
+
+  useEffect(() => {
+    if (walletReady) return
+    setPendingOperation(null)
+    setConfirmationPhrase('')
+    setUsdtWithdrawalBalance(null)
+    setUsdtWithdrawalTrxBalanceSun(null)
+    setUsdtWithdrawalReservedBalance('0')
+    setUsdtWithdrawalAvailableBalance(null)
+    setUsdtWithdrawalHistory([])
+    setUsdtWithdrawalBalanceAt('')
+    setRecentOperations([])
+    setDeploymentReadiness(null)
+    setDeploymentOperation(null)
+    setDeploymentConfirmationPhrase('')
+    setDeploymentExecutionEnabled(false)
+  }, [walletReady])
+  const getOwnerSigner = async () => {
+    const signer = wallet?.tronWeb
+    if (!signer || !connectedAddress || !signer.isAddress?.(connectedAddress)
+      || !addressesEqual(signer, signer.defaultAddress?.base58, connectedAddress)
+      || typeof signer.trx?.sign !== 'function') {
+      throw new Error('Unlock the configured encrypted local Owner Wallet before signing.')
+    }
+    return signer
+  }
+
   const feeCapSun = useMemo(() => {
     try {
       const units = BigInt(parseTokenUnits(feeCap))
-      if (units > 500000000n) return 0
+      if (units > 150000000n) return 0
       return Number(units)
     } catch { return 0 }
   }, [feeCap])
 
-  const deploymentReady = Boolean(deploymentReadiness
+  const deploymentReady = Boolean(deploymentReadiness?.readyForPreparation
     && deploymentReadiness.owner === connectedAddress
     && deploymentReadiness.feeCapSun === feeCapSun
     && deploymentReadiness.tokenAddress === tokenAddress
@@ -107,17 +175,13 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   }, [])
 
   const getToken = useCallback(async () => {
-    const tronWeb = assertMainnetWallet(wallet)
+    if (!walletReady) throw new Error('Unlock the configured local Owner Wallet and authenticate the Owner session first.')
+    const tronWeb = readOnlyTronWeb
+    if (!tronWeb.isAddress(connectedAddress)) throw new Error('The authenticated Owner address is not a valid TRON Mainnet address.')
     if (!tronWeb.isAddress(tokenAddress)) throw new Error('Enter a valid deployed TRON Mainnet TRӾ contract address.')
     const token = await verifyTRAXTokenContract(tronWeb, tokenAddress)
     return { tronWeb, token }
-  }, [wallet, tokenAddress])
-
-  const assertOwner = useCallback(async (token, tronWeb) => {
-    const owner = await callMainnetView(token.owner())
-    if (!addressesEqual(tronWeb, owner, connectedAddress)) throw new Error('Connected Owner Wallet is not the on-chain TRӾ owner.')
-    return owner
-  }, [connectedAddress])
+  }, [walletReady, readOnlyTronWeb, connectedAddress, tokenAddress])
 
   const refresh = () => run('Reading TRON Mainnet token state', async () => {
     const { tronWeb, token } = await getToken()
@@ -143,185 +207,280 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return next
   })
 
-  const checkDeploymentReadiness = () => run('Checking live TRON Mainnet deployment readiness · read-only', async () => {
-    setDeploymentReadiness(null)
-    if (!walletReady) throw new Error('Unlock the configured Owner Wallet first.')
-    if (!feeCapSun) throw new Error('Enter a valid deployment fee cap between 0.000001 and 500 TRX.')
-    if (tokenAddress) throw new Error('A token contract address is already saved. Clear it only if you intend to deploy a new token.')
-    if (!TRAX_TOKEN_ARTIFACT?.bytecode || !TRAX_TOKEN_ARTIFACT?.deployedBytecode) throw new Error('The compiled TRӾ deployment artifact is incomplete.')
-    const result = await preflightContractDeployments(wallet, [{
-      artifact: TRAX_TOKEN_ARTIFACT,
-      contractName: 'Restricted1TRAX',
-      feeLimitSun: feeCapSun,
-    }])
-    const deployment = result.deployments?.[0]
-    saveSponsorResourceTargets(deployment)
-    if (!result.conservative || !deployment?.energyEstimateAvailable || result.requiredTrxSun !== '0') {
-      throw new Error('Deployment readiness is not established. Energy estimation, complete resource coverage, or zero-TRX fallback could not be verified. No wallet prompt, signature, or broadcast was attempted.')
-    }
-    setDeploymentReadiness({
-      owner: connectedAddress,
-      feeCapSun,
-      tokenAddress,
-      expiresAt: Date.now() + 60000,
-      energyRequired: deployment.energyRequired,
-      energyWithSafetyMargin: deployment.energyWithSafetyMargin,
-      bandwidthBytes: deployment.estimatedBandwidthBytes,
-    })
-    setNotice('Read-only Mainnet preflight passed. Energy, Bandwidth, owner permission and zero-TRX fallback were checked. Click Deploy automatically repeats these checks. No provider grant is assumed; the deployment proceeds only when existing resources cover the complete transaction with zero TRX fallback.')
-  })
-
-  const claimTenergyPromo = () => run('Checking TEnergy owner eligibility · message signature only', async () => {
-    if (!walletReady) throw new Error('Unlock the configured Owner Wallet on TRON Mainnet before requesting a TEnergy claim.')
-    const result = await claimTenergyPromoForDeployment(wallet, EXPECTED_OWNER_ADDRESS, {
-      onStage: stage => setStep(stage),
-    })
-    setPromoClaimStatus(result)
-    setNotice(result.message || 'TEnergy claim status updated. Check the live Mainnet resource snapshot before deployment.')
+  const checkDeploymentReadiness = () => run('Checking artifact-pinned TRӾ deployment readiness', async () => {
+    if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured Owner session before checking deployment readiness.')
+    const result = await wallet.authClient.apiRequest('/api/owner/deployment/readiness')
+    setDeploymentExecutionEnabled(Boolean(result.executionEnabled))
+    setDeploymentReadiness({ ...result, owner: connectedAddress, feeCapSun, tokenAddress, expiresAt: Date.now() + 60_000 })
+    setNotice(result.readyForPreparation ? 'Artifact pins and durable deployment ledger are ready. Preparation creates only an unsigned Mainnet transaction; execution remains ' + (result.executionEnabled ? 'enabled by configured gates.' : 'locked by production execution gates.') : 'Deployment preparation is blocked: ' + String(result.blocker || 'artifact, database, backup or restore gates are incomplete') + '. No transaction was signed or broadcast.')
     return result
   })
 
-  const deployToken = () => run('Preparing TRӾ Mainnet deployment · local Owner Wallet signing', async () => {
-    if (!walletReady) throw new Error('Unlock the configured Owner Wallet first.')
-    if (!feeCapSun) throw new Error('Enter a valid deployment fee cap between 0.000001 and 500 TRX.')
-    if (tokenAddress) throw new Error('A token contract address is already saved. Clear it only if you intend to deploy a new token.')
-    // Attempt the provider's documented one-time Energy promotion from this
-    // explicit user click. The provider may require a separate owner message
-    // signature; this is not an on-chain transaction. No signature is bypassed.
-    // A grant is never assumed: fresh Mainnet preflight below remains the sole
-    // authority for readiness and also checks Bandwidth.
-    setStep('Checking eligible free Energy promotion before deployment')
-    const promo = await claimTenergyPromoForDeployment(wallet, EXPECTED_OWNER_ADDRESS, {
-      onStage: stage => setStep(stage),
-    }).catch(error => ({
-      status: 'promo-check-failed',
-      energyVerified: false,
-      message: error instanceof Error ? error.message : String(error),
-    }))
-    setPromoClaimStatus(promo)
-    if (promo?.message) setNotice(promo.message)
-    // One-click flow: run a fresh read-only estimate immediately, then let
-    // deployContractWithOwnerSigner repeat resource/permission checks before the
-    // local signing, after signing, and immediately before broadcast.
-    setDeploymentReadiness(null)
-    setStep('Checking Mainnet Energy, Bandwidth, owner permission and zero-TRX fallback')
-    const preflight = await preflightContractDeployments(wallet, [{
-      artifact: TRAX_TOKEN_ARTIFACT,
-      contractName: 'Restricted1TRAX',
-      feeLimitSun: feeCapSun,
-    }])
-    const deployment = preflight.deployments?.[0]
-    saveSponsorResourceTargets(deployment)
-    if (!preflight.conservative || !deployment?.energyEstimateAvailable || preflight.requiredTrxSun !== '0') {
-      throw new Error('Deployment is blocked: exact Energy estimation, complete Bandwidth coverage, owner permission, or zero-TRX fallback could not be verified. No signature or broadcast was attempted.')
+  const deployToken = () => run('Preparing exact artifact-pinned TRӾ deployment transaction', async () => {
+    if (!walletReady || !deploymentReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Run a successful, unexpired backend deployment readiness check first.')
+    const result = await wallet.authClient.apiRequest('/api/owner/deployment/prepare', { method: 'POST', csrf: true, body: { confirmationPhrase: 'PREPARE TRӾ MAINNET DEPLOYMENT', idempotencyKey: makeIdempotencyKey(), feeLimitSun: String(feeCapSun) } })
+    const deployment = result.deployment || {}
+    setDeploymentOperation({ operationId: result.operationId || deployment.operation_id, intentSha256: result.intentSha256 || deployment.intent_sha256, unsignedTransaction: result.unsignedTransaction || deployment.unsignedTransaction || null, state: deployment.state || 'prepared', transactionId: deployment.transaction_id || deployment.transactionId, contractAddress: deployment.contract_address || deployment.contractAddress || '', confirmationPhrase: result.confirmationPhrase || 'CONFIRM TRӾ MAINNET DEPLOYMENT', executionEnabled: deploymentExecutionEnabled })
+    setDeploymentConfirmationPhrase('')
+    setNotice('The exact unsigned CreateSmartContract transaction and artifact fingerprints are persisted. No signature was requested yet; the separate confirmation will open local Owner vault for Owner approval.')
+    return result
+  })
+
+  const confirmDeployment = () => run('Signing the exact TRӾ deployment with the local Owner vault', async () => {
+    if (!deploymentOperation?.operationId || !deploymentOperation.intentSha256 || !deploymentOperation.unsignedTransaction) throw new Error('Prepare and review the exact unsigned deployment transaction first.')
+    if (!deploymentExecutionEnabled) throw new Error('Deployment execution remains locked until independent database backup/restore and production acceptance gates are verified.')
+    if (deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase) throw new Error('Type the exact deployment confirmation phrase shown below.')
+    const signer = await getOwnerSigner()
+    const signedTransaction = await signer.trx.sign(deploymentOperation.unsignedTransaction)
+    if (!Array.isArray(signedTransaction?.signature) || signedTransaction.signature.length !== 1
+      || String(signedTransaction.txID || '').toLowerCase() !== String(deploymentOperation.unsignedTransaction.txID || '').toLowerCase()
+      || String(signedTransaction.raw_data_hex || '').toLowerCase() !== String(deploymentOperation.unsignedTransaction.raw_data_hex || '').toLowerCase()) {
+      throw new Error('The local Owner vault did not return a signature for the exact prepared deployment. Nothing was submitted.')
     }
-    setDeploymentReadiness({
-      owner: connectedAddress,
-      feeCapSun,
-      tokenAddress,
-      expiresAt: Date.now() + 60000,
-      energyRequired: deployment.energyRequired,
-      energyWithSafetyMargin: deployment.energyWithSafetyMargin,
-      bandwidthBytes: deployment.estimatedBandwidthBytes,
-    })
-    setStep('Preflight passed · preparing the locally signed Owner deployment')
-    const result = await deployContractWithOwnerSigner(wallet, TRAX_TOKEN_ARTIFACT, 'Restricted1TRAX', feeCapSun, { expectedOwnerAddress: EXPECTED_OWNER_ADDRESS })
-    setTokenAddress(result.address)
-    setLastTx(result.txID)
-    setNotice('TRӾ deployment is confirmed on solidified TRON Mainnet. The deployed bytecode, owner and token metadata were verified. No public zero-cost Energy-and-Bandwidth grant provider is currently authorized for this owner; deployment proceeded only because the live owner resources covered the full cost with zero TRX fallback.')
+    let result
+    try { result = await wallet.authClient.apiRequest('/api/owner/deployment/confirm', { method: 'POST', csrf: true, body: { operationId: deploymentOperation.operationId, intentSha256: deploymentOperation.intentSha256, confirmationPhrase: deploymentOperation.confirmationPhrase, signedTransaction } }) }
+    catch (requestError) { const recovered = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId).catch(() => null); if (recovered?.deployment) setDeploymentOperation(current => ({ ...current, ...recovered.deployment, unsignedTransaction: recovered.unsignedTransaction || current?.unsignedTransaction || null, executionEnabled: deploymentExecutionEnabled })); throw requestError }
+    setDeploymentOperation(current => ({ ...current, ...(result.deployment || {}), executionEnabled: deploymentExecutionEnabled }))
+    setDeploymentConfirmationPhrase('')
+    setNotice(result.message || 'The local Owner vault signed the transaction. The Resource API verified the signature, persisted it, and submitted the original transaction for Mainnet confirmation.')
+    return result
+  })
+
+  const refreshDeploymentStatus = () => run('Reconciling TRӾ deployment against solidified Mainnet', async () => {
+    if (!deploymentOperation?.operationId) throw new Error('Prepare or recover a deployment operation first.')
+    const result = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId)
+    const deployment = result.deployment || {}
+    setDeploymentOperation(current => ({ ...current, ...deployment, unsignedTransaction: result.unsignedTransaction || current?.unsignedTransaction || null, executionEnabled: deploymentExecutionEnabled }))
+    const deployedAddress = deployment.contractAddress || deployment.contract_address
+    const transactionId = deployment.transactionId || deployment.transaction_id
+    if (deployment.state === 'confirmed' && deployedAddress) { setTokenAddress(deployedAddress); setLastTx(transactionId || ''); setSnapshot(null); setNotice('TRӾ deployment is solidified. The backend verified the exact transaction, runtime bytecode, Owner and token metadata.') }
+    else setNotice('Deployment state: ' + String(deployment.state || 'pending') + '. Automatic re-signing and rebroadcast are disabled.')
+    return deployment
   })
 
   const clearSavedTokenAddress = () => {
     setTokenAddress('')
     setSnapshot(null)
     setLookupBalance('')
-    setNotice('The saved contract address was cleared from this browser only. No blockchain contract or tokens were changed. You can now deploy a new TRӾ contract.')
+    setNotice('The saved contract address was cleared from this browser only. No blockchain contract or tokens were changed.')
     setError('')
   }
 
-  const activate = () => run('Enabling owner issuance · two explicit Owner signatures', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
-    const paused = await callMainnetView(token.paused())
-    const enabled = await callMainnetView(token.mintingEnabled())
-    if (!paused && enabled) { setNotice('Owner issuance is already enabled.'); return }
-    if (paused) {
-      const unpause = await sendAndVerifyContractCall(tronWeb, token, 'setPaused', [false], feeCapSun, connectedAddress)
-      setLastTx(unpause.txID)
+  const [pendingOperation, setPendingOperation] = useState(null)
+  const [confirmationPhrase, setConfirmationPhrase] = useState('')
+
+  const makeIdempotencyKey = () => {
+    const bytes = new Uint8Array(24)
+    window.crypto.getRandomValues(bytes)
+    return 'owner-' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
+  }
+
+  const prepareOwnerOperation = useCallback(async ({ operationType, summary, ...intent }) => {
+    if (prepareInFlightRef.current) return prepareInFlightRef.current
+    const task = run('Preparing guarded TRON Mainnet Owner operation', async () => {
+      if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured backend Owner session before preparing a write.')
+      const operationContractAddress = operationType === 'usdt-transfer' ? OFFICIAL_USDT_MAINNET_CONTRACT : tokenAddress.trim()
+      if (operationType !== 'usdt-transfer' && !operationContractAddress) throw new Error('Enter the existing verified TRӾ Mainnet contract address.')
+      if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
+      const idempotencyKey = preparationKeyRef.current || (preparationKeyRef.current = makeIdempotencyKey())
+      let result
+      try {
+        result = await wallet.authClient.apiRequest('/api/owner/operations/prepare', {
+          method: 'POST', csrf: true,
+          body: {
+            operationType, contractAddress: operationContractAddress,
+            feeLimitSun: String(feeCapSun), idempotencyKey, ...intent,
+          },
+        })
+        preparationKeyRef.current = ''
+      } catch (requestError) {
+        if (requestError?.status) preparationKeyRef.current = ''
+        throw requestError
+      }
+      if (!result.success || !result.operationId) throw new Error(result.error || 'OWNER_OPERATION_PREPARATION_FAILED')
+      if (result.replay) {
+        const recovered = await wallet.authClient.apiRequest('/api/owner/operations/' + result.operationId)
+        setPendingOperation({ ...recovered.operation, ...result, ...recovered.operation, ownerAddress: connectedAddress, summary, executionEnabled: recovered.executionEnabled })
+        setNotice('An existing operation with this exact idempotency key was recovered. Review its stored intent and state; no new transaction was created.')
+        return recovered
+      }
+      setPendingOperation({ ...result, summary, state: result.state })
+      setConfirmationPhrase('')
+      const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
+      if (journal?.success) setRecentOperations(journal.operations || [])
+      return result
+    })
+    prepareInFlightRef.current = task
+    try { return await task }
+    finally { if (prepareInFlightRef.current === task) prepareInFlightRef.current = null }
+  }, [run, wallet, walletReady, tokenAddress, feeCapSun])
+
+  const confirmOwnerOperation = () => run('Rechecking Mainnet state, signing and verifying the Owner operation', async () => {
+    if (!pendingOperation?.operationId) throw new Error('Prepare an Owner operation before confirming.')
+    if (!pendingOperation.executionEnabled) throw new Error('Backend Owner execution is still disabled by the independent production safety gates.')
+    if (confirmationPhrase !== pendingOperation.confirmationPhrase) throw new Error('Type the exact confirmation phrase shown below.')
+    let result
+    try {
+      if (!pendingOperation.unsignedTransaction) throw new Error('The prepared unsigned transaction is unavailable. Cancel and prepare the operation again.')
+      const signer = await getOwnerSigner()
+      const signedTransaction = await signer.trx.sign(pendingOperation.unsignedTransaction)
+      if (!Array.isArray(signedTransaction?.signature) || signedTransaction.signature.length !== 1
+        || String(signedTransaction.txID || '').toLowerCase() !== String(pendingOperation.unsignedTransaction.txID || '').toLowerCase()
+        || String(signedTransaction.raw_data_hex || '').toLowerCase() !== String(pendingOperation.unsignedTransaction.raw_data_hex || '').toLowerCase()) {
+        throw new Error('The local Owner vault did not return a signature for the exact prepared Owner operation. Nothing was submitted.')
+      }
+      result = await wallet.authClient.apiRequest('/api/owner/operations/' + pendingOperation.operationId + '/confirm', {
+        method: 'POST', csrf: true,
+        body: {
+          confirmationPhrase,
+          intentSha256: pendingOperation.intentSha256,
+          contractAddress: pendingOperation.contractAddress,
+          signedTransaction,
+        },
+      })
+    } catch (requestError) {
+      const recovered = await wallet.authClient.apiRequest('/api/owner/operations/' + pendingOperation.operationId).catch(() => null)
+      if (recovered?.operation) {
+        setPendingOperation(current => current ? {
+          ...current, ...recovered.operation,
+          confirmationPhrase: recovered.operation.confirmationPhrase || current.confirmationPhrase,
+          executionEnabled: recovered.executionEnabled,
+        } : current)
+        if (recovered.operation.transactionId) {
+          setNotice('The server recorded transaction ' + recovered.operation.transactionId + ' in state ' + recovered.operation.state + '. Do not retry or rebroadcast it.')
+        }
+        if (pendingOperation.operationType === 'usdt-transfer' && ['confirmed', 'failed'].includes(recovered.operation.state)) {
+          await readUsdtWithdrawalSnapshot().catch(() => {})
+        }
+      }
+      throw requestError
     }
-    if (!enabled) {
-      const enable = await sendAndVerifyContractCall(tronWeb, token, 'setMintingEnabled', [true], feeCapSun, connectedAddress)
-      setLastTx(enable.txID)
+    setPendingOperation(current => current ? { ...current, state: result.state || current.state, transactionId: result.transactionId || current.transactionId, blockNumber: result.blockNumber || current.blockNumber } : current)
+    if (result.state === 'confirmed' && result.transactionId) {
+      setLastTx(result.transactionId)
+      setNotice('The Owner operation is confirmed in a solidified TRON Mainnet block. Refresh contract state to verify the updated token values.')
+      setPendingOperation(null)
+      setConfirmationPhrase('')
+      setSnapshot(null)
+      if (pendingOperation.operationType === 'usdt-transfer') await readUsdtWithdrawalSnapshot().catch(() => {})
+      const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
+      if (journal?.success) setRecentOperations(journal.operations || [])
+      return result
     }
-    setNotice('Transfers are unpaused and owner minting is enabled. New issuance does not require TRX deposits.')
-    await refresh()
+    if (result.transactionId) {
+      setNotice('The signed transaction is recorded as ' + String(result.state || 'pending') + '. Do not retry or create a replacement operation. Refresh this operation status to reconcile the solidified receipt.')
+      if (pendingOperation.operationType === 'usdt-transfer') await readUsdtWithdrawalSnapshot().catch(() => {})
+      return result
+    }
+    throw new Error(result.error || 'OWNER_OPERATION_CONFIRMATION_FAILED')
   })
 
-  const unpauseTransfers = () => run('Unpausing TRӾ transfers · local Owner signature required', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
-    if (!await callMainnetView(token.paused())) { setNotice('Transfers are already active.'); return }
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'setPaused', [false], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setNotice('TRӾ transfers are active again.')
-    await refresh()
+  const cancelOwnerOperation = () => run('Cancelling unsubmitted Owner operation', async () => {
+    if (!pendingOperation?.operationId) return
+    await wallet.authClient.apiRequest('/api/owner/operations/' + pendingOperation.operationId + '/cancel', { method: 'POST', csrf: true, body: {} })
+    setPendingOperation(null)
+    setConfirmationPhrase('')
+    setNotice('The prepared Owner operation was cancelled. No transaction was signed or broadcast.')
+    if (pendingOperation.operationType === 'usdt-transfer') await readUsdtWithdrawalSnapshot().catch(() => {})
+    const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
+    if (journal?.success) setRecentOperations(journal.operations || [])
   })
 
-  const enableMinting = () => run('Enabling owner issuance · local Owner signature required', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
-    if (await callMainnetView(token.mintingEnabled())) { setNotice('Owner issuance is already enabled.'); return }
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'setMintingEnabled', [true], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setNotice('Owner TRӾ issuance has been enabled.')
-    await refresh()
+  const refreshPendingOperation = () => run('Reconciling Owner transaction against solidified TRON Mainnet', async () => {
+    if (!pendingOperation?.operationId) return
+    const result = await wallet.authClient.apiRequest('/api/owner/operations/' + pendingOperation.operationId)
+    const operation = result.operation
+    setPendingOperation(current => current ? {
+      ...current, ...operation, summary: current.summary || operation.operationType,
+      confirmationPhrase: operation.confirmationPhrase || current.confirmationPhrase,
+      executionEnabled: result.executionEnabled,
+    } : current)
+    if (operation.operationType === 'usdt-transfer' && ['confirmed', 'failed'].includes(operation.state)) {
+      await readUsdtWithdrawalSnapshot().catch(() => {})
+    }
+    if (operation.state === 'confirmed' && operation.transactionId) {
+      setLastTx(operation.transactionId)
+      const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
+      if (journal?.success) setRecentOperations(journal.operations || [])
+      setPendingOperation(null)
+      setSnapshot(null)
+      setNotice('The transaction is confirmed in a solidified Mainnet block.')
+    } else if (operation.state === 'failed') {
+      setNotice('The solidified transaction failed on-chain: ' + String(operation.failureCode || 'execution failed') + '. Do not retry this transaction ID.')
+    } else {
+      setNotice('Owner operation state: ' + operation.state + '. No automatic re-sign or rebroadcast was attempted.')
+    }
+    return operation
   })
 
-  const issueOwnerSupply = () => run('Issuing new TRӾ to the connected owner wallet', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
-    const units = parseTokenUnits(ownerIssueAmount)
-    const [paused, enabled] = await Promise.all([callMainnetView(token.paused()), callMainnetView(token.mintingEnabled())])
-    if (paused || !enabled) throw new Error('Token is paused or owner issuance is disabled. Enable minting first.')
-    const reference = makeReference()
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'credit', [connectedAddress, units, reference], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setNotice(ownerIssueAmount + ' TRӾ issued to the connected owner wallet. Reference: ' + reference)
-    await refresh()
+  const refreshOwnerOperations = () => run('Loading durable Owner operation journal', async () => {
+    if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the Owner session to read its operation journal.')
+    const result = await wallet.authClient.apiRequest('/api/owner/operations?limit=20')
+    setRecentOperations(result.operations || [])
+    return result.operations || []
   })
 
-  const issueCredit = () => run('Preparing owner credit to external TRON address', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
-    if (!tronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee cap.')
-    const units = parseTokenUnits(amount)
-    const [paused, enabled] = await Promise.all([callMainnetView(token.paused()), callMainnetView(token.mintingEnabled())])
-    if (paused || !enabled) throw new Error('Token is paused or owner issuance is disabled. Activate it first.')
-    const reference = makeReference()
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'credit', [recipient.trim(), units, reference], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setNotice(amount + ' TRӾ credited on-chain to ' + recipient.trim() + '. Reference: ' + reference)
-    await refresh()
+  const checkOwnerOperation = operationId => run('Checking Owner operation receipt', async () => {
+    const result = await wallet.authClient.apiRequest('/api/owner/operations/' + operationId)
+    const operation = result.operation
+    setRecentOperations(current => current.map(item => item.operationId === operationId ? { ...item, ...operation } : item))
+    if (operation.state === 'awaiting-confirmation') {
+      setPendingOperation({
+        ...operation, ownerAddress: connectedAddress, summary: operation.operationType,
+        confirmationPhrase: operation.confirmationPhrase,
+        executionEnabled: result.executionEnabled,
+      })
+      setConfirmationPhrase('')
+      setNotice('Recovered the exact pending Owner intent from the durable ledger. Review all ABI arguments before confirming.')
+    } else if (operation.transactionId) {
+      setNotice('Recovered transaction ' + operation.transactionId + ' · ' + operation.state + '. No automatic retry was attempted.')
+      if (operation.state === 'confirmed') { setLastTx(operation.transactionId); setPendingOperation(null) }
+    } else {
+      setNotice('Recovered Owner operation state: ' + operation.state + (operation.failureCode ? ' · ' + operation.failureCode : ''))
+    }
+    return operation
   })
 
-
-  const batchCredit = () => run('Preparing batch credits to external TRON addresses', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee cap.')
-    const { recipients, amounts } = parseBatchCreditRows(batchInput, (address) => tronWeb.isAddress(address), 50)
-    const references = recipients.map(() => makeReference())
-    const [paused, enabled] = await Promise.all([callMainnetView(token.paused()), callMainnetView(token.mintingEnabled())])
-    if (paused || !enabled) throw new Error('Token is paused or owner issuance is disabled. Activate it first.')
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'batchCredit', [recipients, amounts, references], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setNotice('Batch credit confirmed for ' + recipients.length + ' TRON addresses. Every row has a unique on-chain reference.')
-    await refresh()
+  const unpauseTransfers = () => prepareOwnerOperation({
+    operationType: 'unpause', summary: 'Unpause TRӾ transfers',
   })
+  const enableMinting = () => prepareOwnerOperation({
+    operationType: 'minting-enable', summary: 'Enable Owner TRӾ issuance',
+  })
+  const disableMinting = () => prepareOwnerOperation({
+    operationType: 'minting-disable', summary: 'Disable Owner TRӾ issuance',
+  })
+  const issueOwnerSupply = () => {
+    try {
+      const units = parseTokenUnits(ownerIssueAmount)
+      const referenceId = makeReference()
+      return prepareOwnerOperation({
+        operationType: 'owner-issue', amount: units, referenceId,
+        summary: 'Issue ' + ownerIssueAmount + ' TRӾ to the configured Owner wallet · reference ' + referenceId,
+      })
+    } catch (error) { setError(error.message); return null }
+  }
+  const issueCredit = () => {
+    try {
+      if (!readOnlyTronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
+      const units = parseTokenUnits(amount)
+      const referenceId = makeReference()
+      return prepareOwnerOperation({
+        operationType: 'credit', recipient: recipient.trim(), amount: units, referenceId,
+        summary: 'Issue ' + amount + ' TRӾ to ' + recipient.trim() + ' · reference ' + referenceId,
+      })
+    } catch (error) { setError(error.message); return null }
+  }
+  const batchCredit = () => {
+    try {
+      const { recipients, amounts } = parseBatchCreditRows(batchInput, address => readOnlyTronWeb.isAddress(address), 50)
+      const rows = recipients.map((address, index) => ({ recipient: address, amount: amounts[index], referenceId: makeReference() }))
+      return prepareOwnerOperation({
+        operationType: 'batch-credit', rows,
+        summary: 'Batch issue TRӾ to ' + rows.length + ' recipient addresses',
+      })
+    } catch (error) { setError(error.message); return null }
+  }
 
   const readBalance = () => run('Reading external wallet token balance', async () => {
     const { tronWeb, token } = await getToken()
@@ -335,69 +494,96 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return balance
   })
 
-  const transfer = () => run('Preparing owner wallet TRӾ transfer', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
-    if (!tronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
-    const units = parseTokenUnits(amount)
-    const balance = await callMainnetView(token.balanceOf(connectedAddress))
-    if (BigInt(String(balance)) < BigInt(units)) throw new Error('Owner wallet token balance is insufficient. Use owner credit to issue new tokens.')
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'transfer', [recipient.trim(), units], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setNotice(amount + ' existing TRӾ transferred from the owner wallet to ' + recipient.trim() + '.')
-    await refresh()
-  })
+  const transfer = () => {
+    try {
+      if (!readOnlyTronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
+      const units = parseTokenUnits(amount)
+      return prepareOwnerOperation({
+        operationType: 'transfer', recipient: recipient.trim(), amount: units,
+        summary: 'Transfer ' + amount + ' existing TRӾ from the Owner wallet to ' + recipient.trim(),
+      })
+    } catch (error) { setError(error.message); return null }
+  }
 
-  const pause = () => run('Emergency pause · local Owner signature required', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'setPaused', [true], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setNotice('Token transfers and owner issuance are paused.')
-    await refresh()
-  })
+  const readUsdtWithdrawalSnapshot = async () => {
+    if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Unlock the configured encrypted local Owner Wallet first.')
+    const [balance, trxBalanceSun, journal] = await Promise.all([
+      getMainnetUSDTBalance(readOnlyTronWeb, connectedAddress),
+      getMainnetNativeBalance(readOnlyTronWeb, connectedAddress),
+      wallet.authClient.apiRequest('/api/owner/operations?limit=50'),
+    ])
+    if (!journal?.success) throw new Error(journal?.error || 'OWNER_WITHDRAWAL_LEDGER_UNAVAILABLE')
+    if (!Object.hasOwn(journal, 'reservedUsdtBaseUnits')) throw new Error('OWNER_USDT_RESERVATION_SUMMARY_UNAVAILABLE')
+    const reserved = String(journal.reservedUsdtBaseUnits)
+    if (!/^(?:0|[1-9][0-9]*)$/.test(reserved)) throw new Error('OWNER_USDT_RESERVED_BALANCE_INVALID')
+    const available = BigInt(String(balance)) > BigInt(reserved)
+      ? (BigInt(String(balance)) - BigInt(reserved)).toString()
+      : '0'
+    setUsdtWithdrawalBalance(String(balance))
+    setUsdtWithdrawalTrxBalanceSun(String(trxBalanceSun))
+    setUsdtWithdrawalReservedBalance(reserved)
+    setUsdtWithdrawalAvailableBalance(available)
+    setUsdtWithdrawalHistory((journal.operations || []).filter(item => item.operationType === 'usdt-transfer'))
+    setUsdtWithdrawalBalanceAt(new Date().toISOString())
+    return { balance: String(balance), reserved, available }
+  }
 
-  const disableMinting = () => run('Disabling owner issuance · local Owner signature required', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'setMintingEnabled', [false], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setNotice('Owner minting is disabled. Existing token transfers remain available unless the token is paused.')
-    await refresh()
+  const refreshUsdtWithdrawalBalance = () => run('Reading official USDT balance and active withdrawal reservations', readUsdtWithdrawalSnapshot)
+
+  const prepareUsdtWithdrawal = async () => {
+    try {
+      if (!readOnlyTronWeb.isAddress(usdtWithdrawalRecipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
+      if (usdtWithdrawalRecipient.trim() === connectedAddress) throw new Error('The recipient must be different from the Owner wallet.')
+      const units = parseTokenUnits(usdtWithdrawalAmount)
+      const snapshot = await readUsdtWithdrawalSnapshot()
+      if (BigInt(units) > BigInt(snapshot.available)) throw new Error('The requested withdrawal exceeds the available official USDT balance after active withdrawal reservations.')
+      const prepared = await prepareOwnerOperation({
+        operationType: 'usdt-transfer',
+        recipient: usdtWithdrawalRecipient.trim(),
+        amount: units,
+        summary: 'Withdraw ' + usdtWithdrawalAmount + ' official USDT to ' + usdtWithdrawalRecipient.trim(),
+      })
+      await readUsdtWithdrawalSnapshot().catch(() => {})
+      return prepared
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      return null
+    }
+  }
+
+  const pause = () => prepareOwnerOperation({
+    operationType: 'pause', summary: 'Emergency pause TRӾ transfers and issuance',
   })
 
   const show = (...pages) => pages.includes(activePage)
 
   return <section className="trax-workspace">
     <div className="section-heading">
-      <div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token control center</h2><p>Manage the existing TRӾ TRC-20 contract. Every write is validated and signed locally by the unlocked Owner Wallet.</p></div>
-      <div className="panel-icon" aria-label="TRӾ token"><TraxTokenMark/><small>TRӾ / TRӾ</small></div>
+      <div><span className="eyebrow">TRON TRANSFER · OWNER WORKSPACE · MAINNET</span><h2>{show('withdraw') ? 'Official USDT withdrawal' : 'TRӾ token control center'}</h2><p>{show('withdraw') ? 'Transfer official TRC-20 USDT from the existing Owner wallet using its encrypted local signer and the shared durable Owner operation ledger.' : 'Manage the existing TRӾ TRC-20 contract. Writes require a backend-managed Owner session, exact-intent confirmation and a fresh Mainnet preflight.'}</p></div>
+      <div className="panel-icon" aria-label={show('withdraw') ? 'Official USDT' : 'TRӾ token'}>{show('withdraw') ? <Coins/> : <TraxTokenMark/>}<small>{show('withdraw') ? 'USDT / TRC20' : 'TRӾ / TRӾ'}</small></div>
     </div>
 
-    <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>
+    {!show('withdraw') && <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>}
 
-    {!walletReady ? <div className="trax-connect"><p>{connectedAddress ? 'Connected account does not match the configured contract owner (' + EXPECTED_OWNER_ADDRESS + '). Import or unlock the configured Owner Wallet.' : 'Unlock the configured Owner Wallet on TRON Mainnet to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Unlock Owner Wallet</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
+    {!walletReady ? <div className="trax-connect"><p>{wallet?.managedSession && connectedAddress ? 'Owner password session restored. Unlock the local Owner vault matching the authenticated Owner account (' + shorten(connectedAddress) + ') to review and approve Mainnet transactions.' : connectedAddress ? 'The local Owner vault must match the authenticated Owner session before Mainnet actions are enabled.' : 'Sign in to the configured backend Owner account to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> {wallet?.managedSession ? 'Unlock matching local Owner vault' : 'Unlock Owner Wallet'}</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
 
     {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/><div>{error}{typeof onNavigate === 'function' && /resource|energy|bandwidth|zero.TRX|deployment readiness/i.test(error) && <p><button type="button" className="outline-button" onClick={() => onNavigate('sponsor-automation')}>Open Sponsor resource provisioning</button></p>}</div></div>}
     {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
     {step && <div className="trax-progress" role="status"><RefreshCw size={15} className="trax-spin"/>{step}</div>}
 
     <div className="trax-addresses">
-      <label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
-      <p id="trax-contract-address-note" className="fine-print">The contract address identifies the custom token on TRON Mainnet. Verify its on-chain bytecode and metadata before accepting deposits.</p>
+      {!show('withdraw') && <><label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
+      <p id="trax-contract-address-note" className="fine-print">The contract address identifies the custom token on TRON Mainnet. Verify its on-chain bytecode and metadata before accepting deposits.</p></>}
       <label>Maximum transaction fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
       <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Energy and Bandwidth are used first; any shortfall can still burn TRX. Zero-TRX-burn protection remains active, and the application will block signing when its resource preflight detects a shortfall.</p>
       {show('deploy') && <div className="trax-deploy-actions">
-        <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. Click Deploy once; the platform repeats live resource checks and requests a local Owner Wallet signature only if the complete transaction is covered with zero TRX fallback.</span><span>4. Wait for a solidified receipt and verify bytecode, owner and metadata.</span></div>
-        {promoClaimStatus && <div className="trax-state-banner"><b>Free Energy promotion: {promoClaimStatus.status}</b><span>{promoClaimStatus.energyVerified ? "Provider delegation was independently observed; fresh deployment preflight will verify exact required coverage." : (promoClaimStatus.message || "No grant has been verified. Deployment remains subject to live Mainnet resource checks.")}</span></div>}
-        {deploymentReady && <div className="trax-state-banner success"><b>Readiness passed · expires in 60 seconds</b><span>Energy required with safety margin: {deploymentReadiness.energyWithSafetyMargin} · estimated transaction Bandwidth: {deploymentReadiness.bandwidthBytes} bytes · estimated TRX fallback: 0.</span></div>}
-        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={claimTenergyPromo}><ShieldCheck size={15}/> Check &amp; claim TEnergy Energy</button><button type="button" className="secondary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun} onClick={deployToken}><Rocket size={15}/> Preflight & deploy TRӾ</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+        <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. The backend pins source, creation bytecode, runtime bytecode and manifest; preparation is unsigned and execution remains gated.</span><span>4. The local Owner vault signs the exact prepared transaction; the Resource API verifies the signer, persists before broadcast, and verifies the solidified receipt, runtime, Owner and metadata.</span></div>
+        {deploymentReadiness && <div className={'trax-state-banner' + (deploymentReady ? ' success' : '')}><b>{deploymentReady ? 'Artifact and ledger readiness passed · expires in 60 seconds' : 'Deployment readiness blocked'}</b><span>{deploymentReadiness.blocker || ('Execution: ' + (deploymentReadiness.executionEnabled ? 'enabled by server gates' : 'locked') + ' · Backup: ' + (deploymentReadiness.gates?.backupVerified ? 'verified' : 'not verified') + ' · Restore test: ' + (deploymentReadiness.gates?.restoreTested ? 'verified' : 'not verified'))}</span></div>}
+        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}><Rocket size={15}/> Prepare deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+        {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span><label>Type confirmation phrase<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Confirm with local Owner vault</button><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshDeploymentStatus}><RefreshCw size={15}/> Reconcile status</button></div>{!deploymentExecutionEnabled && <p className="fine-print">Signing and broadcast remain locked until database durability, backup/restore and independent production acceptance gates pass. local Owner vault must approve the exact prepared transaction before the Resource API can verify and broadcast it.</p>}</div>}
       </div>}
       {show('portfolio') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
-      {!show('portfolio', 'deploy') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
+      {!show('portfolio', 'deploy', 'withdraw') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
     </div>
 
     {show('portfolio') && <>
@@ -412,6 +598,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <div className="trax-balance-note"><b>Estimated combined portfolio value: </b>{snapshot && referencePrice ? formatUsd(calculatePortfolioValue({ trx: formatTokenUnits(snapshot.ownerTrx), trax: formatTokenUnits(snapshot.ownerBalance), usdt: formatTokenUnits(snapshot.ownerUsdt), prices: referencePrice })?.totalUsd) : 'Unavailable — refresh when live prices are available'}</div>
         <p className="fine-print">{referencePrice ? 'TRX/USD: ' + formatUsd(referencePrice.trxUsd) + ' · USDT/USD: ' + formatUsd(referencePrice.usdtUsd) + ' · ' + referencePrice.source + ' · ' + new Date(referencePrice.updatedAt).toLocaleString() : 'Live prices unavailable or stale.'} TRӾ has no verified market quote. Combined USD valuation is withheld whenever TRӾ holdings are non-zero; no price is inferred from native TRX.</p>
       </div>
+      <WalletDepositPanel role="Owner" address={connectedAddress} addressHex={readOnlyTronWeb.address.toHex(connectedAddress)} transactions={ownerDepositHistory.transactions} tokenTransfers={ownerDepositHistory.tokenTransfers} transactionsAvailable={ownerDepositHistory.transactionsAvailable} tokenTransfersAvailable={ownerDepositHistory.tokenTransfersAvailable} onRefresh={refreshOwnerDeposits} refreshing={ownerDepositLoading}/>
       <div className="trax-actions">
         <div className="trax-section-title"><h3>Live on-chain contract status</h3><button className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={14}/> Refresh</button></div>
         {snapshot ? <div className="trax-stats">
@@ -424,6 +611,36 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       </div>
     </>}
 
+    {show('withdraw') && <div className="trax-actions" aria-label="Official USDT withdrawal">
+      <h3>Withdraw official USDT · TRC20</h3>
+      <p className="fine-print">Asset: USDT · Mainnet contract: {OFFICIAL_USDT_MAINNET_CONTRACT} · 6 decimals. The Owner wallet signs locally; the Resource API checks the exact transfer, resource budget, Owner permission and solidified receipt. Network fees are paid in native TRX from the Owner wallet and are never taken from the USDT amount.</p>
+      <div className="trax-stats">
+        <article><span>Owner official USDT balance</span><b>{usdtWithdrawalBalance === null ? 'Not refreshed' : formatTokenUnits(usdtWithdrawalBalance) + ' USDT'}</b><small>{usdtWithdrawalBalanceAt ? 'Read at ' + new Date(usdtWithdrawalBalanceAt).toLocaleString() : 'Live Mainnet balance required before preparation'}</small></article>
+        <article><span>Reserved for prepared / unresolved transfers</span><b>{formatTokenUnits(usdtWithdrawalReservedBalance)} USDT</b><small>Active reservations are deducted before new withdrawals</small></article>
+        <article><span>Available for a new withdrawal</span><b>{usdtWithdrawalAvailableBalance === null ? 'Not calculated' : formatTokenUnits(usdtWithdrawalAvailableBalance) + ' USDT'}</b><small>Balance minus active reservations</small></article>
+        <article><span>Native TRX for network fees</span><b>{usdtWithdrawalTrxBalanceSun === null ? 'Not refreshed' : formatTokenUnits(usdtWithdrawalTrxBalanceSun) + ' TRX'}</b><small>Energy and Bandwidth are checked separately during preflight</small></article>
+        <article><span>Network</span><b>TRON Mainnet</b><small>No testnet or alternate token contract</small></article>
+      </div>
+      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refreshUsdtWithdrawalBalance}><RefreshCw size={14}/> Refresh USDT balance</button></div>
+      <label>Recipient TRON Mainnet address<input value={usdtWithdrawalRecipient} onChange={event => setUsdtWithdrawalRecipient(event.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
+      <label>Withdrawal amount (USDT)<input value={usdtWithdrawalAmount} onChange={event => setUsdtWithdrawalAmount(event.target.value)} inputMode="decimal" placeholder="0.00"/></label>
+      <div className="trax-balance-note">Six decimal places · Requested base units: {(() => { try { return parseTokenUnits(usdtWithdrawalAmount) } catch { return '—' } })()}</div>
+      <button type="button" className="primary-button" disabled={!walletReady || busy || !usdtWithdrawalRecipient.trim() || !usdtWithdrawalAmount.trim() || !feeCapSun} onClick={prepareUsdtWithdrawal}><ArrowUpRight size={15}/> Review official USDT withdrawal</button>
+      <p className="fine-print">Preparation is unsigned. The next screen displays the exact recipient, amount, fee ceiling and Mainnet resource estimate. A separate explicit confirmation is required. Insufficient Energy, Bandwidth, TRX fallback or database readiness blocks signing. An ambiguous broadcast is reconciled by transaction ID; it is never automatically retried.</p>
+      <a href={'https://tronscan.org/#/contract/' + OFFICIAL_USDT_MAINNET_CONTRACT} target="_blank" rel="noreferrer">Official USDT contract on TRONSCAN <ExternalLink size={12}/></a>
+
+      <div className="trax-history">
+        <h4>Recent official USDT withdrawals</h4>
+        {!usdtWithdrawalHistory.length ? <p className="fine-print">No official USDT withdrawals are recorded in the Owner operation ledger yet.</p> : <div className="transaction-list">
+          {usdtWithdrawalHistory.map(item => <article className="transaction-row" key={item.operationId}>
+            <div><b>{formatTokenUnits(item.args?.[1] || '0')} USDT</b><span>To {item.args?.[0] || 'Unknown recipient'}</span></div>
+            <div><b>{String(item.state || 'unknown').replaceAll('-', ' ')}</b><span>{item.blockNumber ? 'Solidified block ' + item.blockNumber : item.transactionId ? 'Transaction submitted' : 'No transaction broadcast'}</span></div>
+            <div>{item.transactionId ? <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">{item.transactionId.slice(0, 12)}… <ExternalLink size={11}/></a> : <span>{item.failureCode || 'Awaiting transaction'}</span>}</div>
+          </article>)}
+        </div>}
+      </div>
+    </div>}
+
     {show('issuance') && <div className="trax-actions">
       <h3>Owner issuance overview</h3>
       <div className="trax-stats"><article><span>Total supply</span><b>{snapshot ? formatTokenUnits(snapshot.totalSupply) + ' TRӾ' : 'Not loaded'}</b></article><article><span>Owner authorization</span><b>{snapshot ? snapshot.mintingEnabled ? 'Enabled' : 'Disabled' : 'Not loaded'}</b></article><article><span>Transfer status</span><b>{snapshot ? snapshot.paused ? 'Paused' : 'Active' : 'Not loaded'}</b></article></div>
@@ -435,7 +652,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
     {show('credits') && <div className="trax-actions">
       <h3>External wallet credit</h3>
-      <p className="fine-print">Mint new TRӾ directly to a valid TRON Mainnet address. Recipient ownership signatures are not needed to receive tokens, but your owner wallet must approve and broadcast the mint transaction.</p>
+      <p className="fine-print">Mint new TRӾ directly to a valid TRON Mainnet address. Recipient ownership signatures are not needed to receive tokens; the configured Owner session reviews and confirms the issuance operation.</p>
       <label>Recipient TRON Mainnet address<input value={recipient} onChange={e => setRecipient(e.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
       <label>Amount to issue (TRӾ)<input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" placeholder="100"/></label>
       <div className="trax-balance-note">Raw token units (6 decimals): {(() => { try { return parseTokenUnits(amount) } catch { return '—' } })()}</div>
@@ -445,7 +662,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
     {show('batch') && <div className="trax-actions">
       <h3>Batch wallet credits</h3>
-      <p className="fine-print">Issue multiple recipient credits in one contract call. Maximum 50 addresses per batch. Review every address and amount before requesting the local Owner Wallet signature.</p>
+      <p className="fine-print">Issue multiple recipient credits in one contract call. Maximum 50 addresses per batch. Review every address and amount before requesting backend Owner confirmation.</p>
       <label>Recipient list (one TRON_ADDRESS,AMOUNT per line)<textarea value={batchInput} onChange={e => setBatchInput(e.target.value)} rows={7} placeholder={'TAddressOne,100\nTAddressTwo,250'}/></label>
       <div className="trax-balance-note">Maximum 50 rows · Amounts use six token decimals.</div>
       <button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.mintingEnabled || snapshot?.paused || !feeCapSun || !batchInput.trim()} onClick={batchCredit}>Review &amp; batch-credit addresses</button>
@@ -455,7 +672,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <h3>Emergency transfer controls</h3>
       <div className={snapshot?.paused ? 'trax-state-banner warning' : 'trax-state-banner success'}><b>{snapshot ? snapshot.paused ? 'Transfers currently paused' : 'Transfers currently active' : 'Contract state not loaded'}</b><span>{snapshot ? snapshot.paused ? 'Token transfers and owner issuance are blocked until the owner unpauses.' : 'Transfers are available subject to normal TRC-20 balances and allowances.' : 'Refresh contract state before making an emergency change.'}</span></div>
       <div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !snapshot || snapshot.paused || !feeCapSun} onClick={pause}>Emergency pause transfers</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress || !snapshot?.paused || !feeCapSun} onClick={unpauseTransfers}>Unpause transfers</button></div>
-      <p className="fine-print">Only the current on-chain owner can change pause state. Both actions require a separate local Owner Wallet signature and network resources.</p>
+      <p className="fine-print">Only the current on-chain owner can change pause state. Both actions require separate backend Owner confirmation and sufficient Mainnet network resources.</p>
     </div>}
 
     {show('minting') && <div className="trax-actions">
@@ -473,9 +690,17 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <button type="button" className="primary-button" disabled={!walletReady || busy || !tokenAddress || !feeCapSun} onClick={transfer}><ArrowUpRight size={15}/> Review &amp; transfer existing balance</button>
     </div>}
 
-    {show('ownership') && <TRAXOwnershipControls wallet={wallet} connectedAddress={connectedAddress} tokenAddress={tokenAddress} feeCapSun={feeCapSun} busy={busy} getToken={getToken} assertOwner={assertOwner} run={run} refresh={refresh} setLastTx={setLastTx} setNotice={setNotice}/>}
+    {show('ownership') && <TRAXOwnershipControls wallet={panelWallet} tokenAddress={tokenAddress} feeCapSun={feeCapSun} busy={busy} getToken={getToken} run={run} onPrepareOperation={prepareOwnerOperation}/>}
 
-    {show('history') && <TRAXCreditHistory wallet={wallet} tokenAddress={tokenAddress} run={run} busy={busy}/>}
+    {show('history') && <div className="trax-actions">
+      <div className="trax-section-title"><h3>Durable Owner operation journal</h3><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshOwnerOperations}><RefreshCw size={14}/> Refresh journal</button></div>
+      <p className="fine-print">Owner-identity-scoped Mainnet operation records, recoverable from any authenticated Owner password session. Signed and broadcast-unknown transactions are reconciled by transaction ID; they are never automatically re-signed or rebroadcast.</p>
+      {recentOperations.length === 0 ? <p className="fine-print">No Owner operations loaded. Refresh the durable journal to recover prepared intents and transaction receipts.</p> : <div className="trax-history-list">{recentOperations.map(operation => <article className="trax-history-item" key={operation.operationId}>
+        <div><b>{operation.operationType} · {operation.state}</b><small>{operation.method || 'Contract operation'} · {operation.createdAt ? new Date(operation.createdAt).toLocaleString() : 'Time unavailable'}</small><small>Operation: {operation.operationId}</small>{operation.transactionId && <small>Transaction: {operation.transactionId}</small>}{operation.failureCode && <small>Result: {operation.failureCode}</small>}</div>
+        <button type="button" className="outline-button" disabled={busy} onClick={() => checkOwnerOperation(operation.operationId)}>Recover / check receipt</button>
+      </article>)}</div>}
+    </div>}
+    {show('history') && <TRAXCreditHistory wallet={panelWallet} tokenAddress={tokenAddress} run={run} busy={busy}/>}
 
     {show('balance') && <div className="trax-actions">
       <h3>External wallet balance lookup</h3>
@@ -485,8 +710,39 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       {lookupBalance !== '' && <div className="trax-recipient-result"><b>{formatTokenUnits(lookupBalance)} TRӾ</b><span>{lookupAddress}</span><p>Native TRX: {formatTokenUnits(lookupNativeBalance)} · Official USDT: {formatTokenUnits(lookupUsdtBalance)}</p><b>Combined estimated portfolio value: {lookupPortfolioValue ? formatUsd(lookupPortfolioValue.totalUsd) : 'Unavailable — live quote missing or stale'}</b><small>TRӾ valuation is an owner-defined reference only, not a verified market trading price.</small></div>}
     </div>}
 
+    {pendingOperation && <div className="trax-actions" role="region" aria-label="Review Owner Mainnet operation">
+      <h3>{pendingOperation.operationType === 'usdt-transfer' ? 'Review official USDT Mainnet withdrawal' : 'Review guarded TRӾ Mainnet operation'}</h3>
+      <p><b>{pendingOperation.summary || pendingOperation.operationType}</b></p>
+      <p className="fine-print">Operation ID: {pendingOperation.operationId}</p>
+      <p className="fine-print">Exact intent SHA-256: {pendingOperation.intentSha256}</p>
+      {pendingOperation.operationType === 'usdt-transfer' && <p><b>{formatTokenUnits(pendingOperation.args?.[1] || '0')} USDT</b> to {pendingOperation.args?.[0]}</p>}
+      <details><summary>Inspect exact contract method and arguments</summary>
+        {pendingOperation.operationType === 'batch-credit' && Array.isArray(pendingOperation.args?.[0]) && <ol>{pendingOperation.args[0].map((address, index) => <li key={address + ':' + index}>{address} · {formatTokenUnits(pendingOperation.args?.[1]?.[index] || '0')} TRӾ · reference {pendingOperation.args?.[2]?.[index]}</li>)}</ol>}
+        <pre>{JSON.stringify({ method: pendingOperation.method, args: pendingOperation.args, feeLimitSun: pendingOperation.feeLimitSun || pendingOperation.preflight?.feeLimitSun }, null, 2)}</pre>
+      </details>
+      <p className="fine-print">TRON Mainnet · Owner / fee payer: {pendingOperation.ownerAddress} · Contract: {pendingOperation.contractAddress}</p>
+      {pendingOperation.preflight && <div className="trax-checks">
+        <span>Energy required: {pendingOperation.preflight.requiredEnergyWithSafetyMargin || pendingOperation.preflight.estimatedEnergy}</span>
+        <span>Energy available: {pendingOperation.preflight.availableEnergy}</span>
+        <span>Bandwidth bytes: {pendingOperation.preflight.transactionBytes}</span>
+        <span>Bandwidth available: {pendingOperation.preflight.availableBandwidth}</span>
+        <span>Estimated TRX fallback: {pendingOperation.preflight.estimatedTrxFallbackSun} SUN</span>
+      </div>}
+      <div className={pendingOperation.executionEnabled ? 'trax-state-banner success' : 'trax-state-banner warning'}>
+        <b>{pendingOperation.executionEnabled ? 'Execution gates enabled' : 'Execution remains disabled'}</b>
+        <span>{pendingOperation.executionEnabled ? 'The backend will repeat contract, permission and resource checks immediately before signing.' : 'This prepared intent is review-only until verified database durability and the separate Mainnet execution acknowledgement are configured.'}</span>
+      </div>
+      {pendingOperation.state === 'awaiting-confirmation' && pendingOperation.executionEnabled && <label>Type the exact confirmation phrase: {pendingOperation.confirmationPhrase}<input value={confirmationPhrase} onChange={event => setConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false"/></label>}
+      {pendingOperation.transactionId && <p className="fine-print">Transaction ID: {pendingOperation.transactionId} · State: {pendingOperation.state}</p>}
+      <div className="button-row">
+        <button type="button" className="primary-button" disabled={busy || !pendingOperation.executionEnabled || pendingOperation.state !== 'awaiting-confirmation' || confirmationPhrase !== pendingOperation.confirmationPhrase} onClick={confirmOwnerOperation}>Confirm exact operation &amp; submit</button>
+        {pendingOperation.transactionId && <button type="button" className="outline-button" disabled={busy} onClick={refreshPendingOperation}>Refresh receipt status</button>}
+        <button type="button" className="outline-button" disabled={busy || pendingOperation.state !== 'awaiting-confirmation'} onClick={cancelOwnerOperation}>Cancel prepared operation</button>
+      </div>
+      <p className="fine-print">A signed or broadcast-unknown transaction is never automatically re-signed or rebroadcast. Its transaction ID must be reconciled against a solidified Mainnet receipt.</p>
+    </div>}
     {lastTx && <div className="notice notice-success trax-last-tx"><CheckCircle2 size={16}/><div><b>Solidified Mainnet transaction verified</b><p>{lastTx}</p><a href={'https://tronscan.org/#/transaction/' + lastTx} target="_blank" rel="noreferrer">Open transaction on TRONSCAN <ExternalLink size={12}/></a></div></div>}
-    {tokenAddress && <div className="notice trax-contract-explorer"><div><b>Saved TRӾ Mainnet contract</b><p>{tokenAddress}</p><a href={'https://tronscan.org/#/contract/' + tokenAddress} target="_blank" rel="noreferrer">Open contract on TRONSCAN <ExternalLink size={12}/></a><small>Explorer visibility is not the same as source-code verification. Confirm the deployed address and submit source verification using the exact compiler settings and constructor data.</small></div></div>}
+    {tokenAddress && !show('withdraw') && <div className="notice trax-contract-explorer"><div><b>Saved TRӾ Mainnet contract</b><p>{tokenAddress}</p><a href={'https://tronscan.org/#/contract/' + tokenAddress} target="_blank" rel="noreferrer">Open contract on TRONSCAN <ExternalLink size={12}/></a><small>Explorer visibility is not the same as source-code verification. Confirm the deployed address and submit source verification using the exact compiler settings and constructor data.</small></div></div>}
     <div className="trax-footer-links"><a href="https://developers.tron.network/docs/trc20-protocol-interface" target="_blank" rel="noreferrer">TRON TRC-20 standard <ExternalLink size={12}/></a><a href="https://tronscan.org/#/token20" target="_blank" rel="noreferrer">TRONSCAN token directory <ExternalLink size={12}/></a></div>
   </section>
 }

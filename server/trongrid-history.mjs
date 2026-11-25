@@ -1,9 +1,5 @@
-import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
-
 const NETWORK_ORIGINS = Object.freeze({
   mainnet: 'https://api.trongrid.io',
-  nile: 'https://nile.trongrid.io',
-  shasta: 'https://api.shasta.trongrid.io',
 })
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_RE = /^[0-9a-f]{64}$/i
@@ -119,7 +115,7 @@ async function requestHistory({ network, address, tokenContract, tokenHistory = 
 }
 
 export async function readTronGridIncomingHistory({
-  network, address, tokenContract = '', apiKey = '', fetchImpl = tatumProviderFetch,
+  network, address, tokenContract = '', apiKey = '', fetchImpl = fetch,
   decodeAddress, timeoutMs = 12000,
 }) {
   if (!NETWORK_ORIGINS[network]) throw new TypeError('Unsupported TRON history network.')

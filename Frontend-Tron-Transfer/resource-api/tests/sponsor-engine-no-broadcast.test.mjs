@@ -36,80 +36,44 @@ function createHarness(overrides = {}) {
   return { engine, calls }
 }
 
-test('Sponsor transaction engine remains disabled unless both execution switches are explicitly enabled', async () => {
+test('Sponsor transaction engine blocks local preparation while Mainnet execution flags are disabled', async () => {
   const { engine, calls } = createHarness()
   const readiness = engine.readiness()
   assert.equal(readiness.configured, true)
   assert.equal(readiness.enabled, false)
-  assert.equal(readiness.broadcastAvailable, false)
-
-  const result = await engine.execute({
-    operation: 'topup',
-    resource: 'TRX',
-    amountSun: '1000000',
-    ownerAddress: OWNER,
-    onSigned: async () => { throw new Error('must not persist a signature') },
-  })
-  assert.deepEqual(result, {
-    success: false,
-    status: 'sponsor-engine-disabled-or-unconfigured',
-    signed: false,
-    broadcast: false,
-  })
+  assert.equal(readiness.clientSigningAvailable, false)
+  assert.equal(typeof engine.execute, 'undefined')
+  const result = await engine.prepare({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
+  assert.deepEqual(result, { success: false, status: 'client-local-signer-not-enabled' })
   assert.equal(calls.balance, 0)
   assert.equal(calls.sign, 0)
   assert.equal(calls.broadcast, 0)
   assert.equal(calls.fetch, 0)
 })
 
-test('Sponsor engine does not broadcast when execution is enabled but broadcast remains disabled', async () => {
+test('Sponsor transaction engine blocks when the Mainnet broadcast flag is disabled', async () => {
   const { engine, calls } = createHarness({
     SPONSOR_TRANSACTION_ENGINE_ENABLED: 'true',
     SPONSOR_MAINNET_BROADCAST_ENABLED: 'false',
   })
   assert.equal(engine.readiness().enabled, false)
-  assert.equal(engine.readiness().broadcastAvailable, false)
-  const result = await engine.execute({
-    operation: 'delegate',
-    resource: 'ENERGY',
-    amountSun: '1000000',
-    ownerAddress: OWNER,
-    onSigned: async () => {},
-  })
-  assert.equal(result.broadcast, false)
-  assert.equal(result.signed, false)
+  assert.equal(engine.readiness().clientSigningAvailable, false)
+  const result = await engine.prepare({ operation: 'delegate', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
+  assert.equal(result.status, 'client-local-signer-not-enabled')
   assert.equal(calls.balance, 0)
   assert.equal(calls.sign, 0)
   assert.equal(calls.broadcast, 0)
   assert.equal(calls.fetch, 0)
 })
 
-test('Sponsor engine fails closed when signer address does not match configured Sponsor address', async () => {
-  const env = {
-    TRON_OWNER_ADDRESS: OWNER,
-    SPONSOR_MAINNET_ADDRESS: SPONSOR,
-    SPONSOR_MAINNET_PRIVATE_KEY: PRIVATE_KEY,
-    SPONSOR_TRANSACTION_ENGINE_ENABLED: 'true',
-    SPONSOR_MAINNET_BROADCAST_ENABLED: 'true',
-    SPONSOR_MAX_TX_FEE_SUN: '0',
-    SPONSOR_LIQUID_RESERVE_TRX: '2',
-  }
-  let networkCalls = 0
-  const engine = createSponsorTransactionEngine({
-    env,
-    fetchImpl: async () => { networkCalls++; throw new Error('unexpected network call') },
-    tronWebFactory: () => ({ address: { fromPrivateKey: () => OWNER } }),
-  })
-  assert.equal(engine.readiness().configured, false)
-  assert.equal(engine.readiness().broadcastAvailable, false)
-  const result = await engine.execute({
-    operation: 'topup',
-    resource: 'TRX',
-    amountSun: '1000000',
-    ownerAddress: OWNER,
-    onSigned: async () => {},
-  })
-  assert.equal(result.signed, false)
-  assert.equal(result.broadcast, false)
-  assert.equal(networkCalls, 0)
+test('Sponsor engine fails closed without an explicit, separate Owner identity', async () => {
+  const { engine, calls } = createHarness({ TRON_OWNER_ADDRESS: '' })
+  assert.equal(engine.readiness().ownerAddressValid, false)
+  assert.equal(engine.readiness().clientSigningAvailable, false)
+  const result = await engine.prepare({ operation: 'topup', resource: 'TRX', amountSun: '1000000', ownerAddress: OWNER })
+  assert.equal(result.status, 'client-local-signer-not-enabled')
+  assert.equal(calls.balance, 0)
+  assert.equal(calls.sign, 0)
+  assert.equal(calls.broadcast, 0)
+  assert.equal(calls.fetch, 0)
 })

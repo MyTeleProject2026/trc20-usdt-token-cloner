@@ -38,15 +38,83 @@ test('Sponsor workspace render errors are contained by an application error boun
   assert.match(app, /This Sponsor page could not be displayed/)
 })
 
-test('Sponsor Admin bootstrap authorization is cleared on wallet lock and workspace exit', () => {
-  assert.match(source, /if \(!wallet \|\| !workspaceActive\) setAdminToken\(''\)/)
+test('Owner Admin re-authentication state is cleared on Sponsor wallet lock and workspace exit', () => {
+  assert.match(source, /if \(!wallet \|\| !workspaceActive\) \{\s*setOwnerAdminPassword\(''\)\s*setOwnerAdminReady\(false\)/)
   assert.match(source, /\[wallet, workspaceActive\]/)
+  assert.match(source, /setOwnerAdminReady\(false\)/)
 })
 
 test('Sponsor TronWeb instance is initialized before any effect dependency reads it', () => {
-  const declaration = source.indexOf("const tronWeb = useMemo(() => wallet ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])")
+  const declaration = source.indexOf("const tronWeb = useMemo(() => wallet?.privateKey ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])")
   const firstEffectRead = source.indexOf("if (!workspaceActive || !wallet?.address || !tronWeb)")
   assert.notEqual(declaration, -1, 'Sponsor TronWeb memo must exist')
   assert.notEqual(firstEffectRead, -1, 'resource history effect must exist')
   assert.ok(declaration < firstEffectRead, 'tronWeb must be initialized before effect callbacks and dependency arrays reference it')
+})
+
+
+test('Sponsor password recovery and account session controls stay inside the existing workspace',()=>{
+  assert.ok(source.includes('sponsorAuth.recoverPassword(authRecoveryToken.trim(), authPassword)'))
+  assert.ok(source.includes('sponsorAuth.changePassword(currentSponsorPassword, newSponsorPassword)'))
+  assert.ok(source.includes('sponsorAuth.sessions()'))
+  assert.ok(source.includes('sponsorAuth.revokeSession(sessionId)'))
+  assert.ok(source.includes('sponsorAuth.revokeOtherSessions()'))
+  assert.ok(source.includes('Sponsor account security and active sessions'))
+  assert.ok(source.includes('Recover Sponsor password'))
+  assert.ok(source.includes('Change Sponsor password'))
+  assert.ok(source.includes("activePage === \"sponsor\" && wallet"))
+})
+
+test('Sponsor local signer is locked immediately when leaving the Sponsor workspace', () => {
+  const lockOnExit = source.indexOf("if (workspaceActive) return\n    if (wallet?.address) lockWallet('manual')")
+  const idleEffect = source.indexOf("if (!wallet?.address || !workspaceActive) return undefined")
+  const lockCallback = source.indexOf("setWallet(null)")
+  assert.notEqual(lockOnExit, -1, 'switching to Owner workspace must revoke Sponsor access')
+  assert.notEqual(idleEffect, -1, 'idle timer must not remain active outside Sponsor workspace')
+  assert.notEqual(lockCallback, -1, 'locking must clear the in-memory Sponsor signer')
+  assert.ok(lockOnExit < idleEffect, 'workspace-exit lock must be registered before idle monitoring')
+})
+
+test('Sponsor lock clears local key-import, keystore and password inputs', () => {
+  const lockStart = source.indexOf('const lockWallet = useCallback')
+  const lockEnd = source.indexOf('}, [wallet?.address, recordSecurityEvent', lockStart)
+  const lockSource = source.slice(lockStart, lockEnd)
+  for (const setter of ['setCredential(\'\')','setKeystorePassword(\'\')','setVaultPassword(\'\')','setUnlockPassword(\'\')','setAuthPassword(\'\')','setCurrentSponsorPassword(\'\')','setNewSponsorPassword(\'\')','setConfirmSponsorPassword(\'\')']) {
+    assert.ok(lockSource.includes(setter), 'lock must clear ' + setter)
+  }
+  assert.ok(source.includes('// Clear pending import/unlock credentials even when no vault has been unlocked yet.'))
+  assert.ok(source.includes('setCredential(\'\')'))
+})
+
+
+test('Sponsor transaction execution is independent of Owner Admin authentication', () => {
+  const transactionStart = source.indexOf('async function submitResourceTransaction(')
+  const transactionEnd = source.indexOf('async function runResourceAutomation(', transactionStart)
+  const transaction = source.slice(transactionStart, transactionEnd)
+  const automationEnd = source.indexOf('async function cancelLastPreparedOperation(', transactionEnd)
+  const automation = source.slice(transactionEnd, automationEnd)
+  assert.notEqual(transactionStart, -1)
+  assert.notEqual(transactionEnd, -1)
+  assert.doesNotMatch(transaction, /ensureOwnerAdmin|ownerCsrfToken|ownerAdminCsrfToken/)
+  assert.doesNotMatch(automation, /ensureOwnerAdmin|ownerCsrfToken|ownerAdminCsrfToken/)
+  assert.match(transaction, /csrfToken: authCsrfToken/)
+  assert.match(automation, /submitResourceTransaction\(plan\.action, \{ amount: amountTrx, resource \}\)/)
+  assert.match(source, /Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof/)
+  assert.match(source, /Owner authentication is checked independently/)
+  assert.match(source, /Sponsor password session did not return the enrolled Mainnet address/)
+  assert.doesNotMatch(source.slice(source.indexOf('async function loginSponsorWallet()'), source.indexOf('async function recoverSponsorPassword()')), /Authenticate the configured Owner account first/)
+  assert.match(source, /sponsorApiRequest\('\/api\/sponsor\/status'\)/)
+})
+
+test('Owner Admin authentication is retained for guarded Sponsor ledger bootstrap', () => {
+  const bootstrapStart = source.indexOf('async function bootstrapSponsorLedger()')
+  const bootstrapEnd = source.indexOf('async function loginSponsorWallet()', bootstrapStart)
+  assert.match(source.slice(bootstrapStart, bootstrapEnd), /ensureOwnerAdmin\(\)/)
+})
+
+test('Owner Admin panel explains its guarded bootstrap and write-control boundary', () => {
+  assert.match(source, /Owner Admin authorization/)
+  assert.match(source, /only for ledger bootstrap and explicit Sponsor write-control actions/)
+  assert.match(source, /Sponsor transactions require only the independent Sponsor session/)
+  assert.match(source, /Owner authentication boundary: \{sponsorApiStatus\?\.ownerAdminSessionConfiguredForLedgerRelease \? 'guarded bootstrap and pause\/release actions only'/)
 })

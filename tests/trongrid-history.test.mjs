@@ -20,9 +20,8 @@ const decodeAddress = (hex) => {
   throw new Error('unexpected test address')
 }
 
-test('TRON network history adapter uses the correct network-specific origins', () => {
-  assert.equal(TRONGRID_HISTORY_ORIGINS.nile, 'https://nile.trongrid.io')
-  assert.equal(TRONGRID_HISTORY_ORIGINS.shasta, 'https://api.shasta.trongrid.io')
+test('TRON history adapter exposes only the configured Mainnet RPC origin', () => {
+  assert.deepEqual(Object.keys(TRONGRID_HISTORY_ORIGINS), ['mainnet'])
   assert.equal(TRONGRID_HISTORY_ORIGINS.mainnet, 'https://api.trongrid.io')
 })
 
@@ -90,7 +89,7 @@ test('TRC20 incoming history normalizes exact token contract, amount and recipie
   assert.equal(rows[0].confirmed, true)
 })
 
-test('recipient history requests confirmed incoming native and TRC20 data from the selected testnet', async () => {
+test('recipient history requests confirmed incoming native and TRC20 data from Mainnet', async () => {
   const calls = []
   const fetchImpl = async (url, init) => {
     const parsed = new URL(url)
@@ -109,7 +108,7 @@ test('recipient history requests confirmed incoming native and TRC20 data from t
     return new Response(JSON.stringify({ data }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
   const result = await readTronGridIncomingHistory({
-    network: 'nile', address: recipient, tokenContract: contract,
+    network: 'mainnet', address: recipient, tokenContract: contract,
     apiKey: 'server-only-test-key', fetchImpl, decodeAddress,
   })
   assert.equal(result.historyStatus, 'complete')
@@ -118,7 +117,7 @@ test('recipient history requests confirmed incoming native and TRC20 data from t
   assert.deepEqual(result.history.map((row) => row.txid).sort(), [txNative, txToken].sort())
   assert.equal(calls.length, 2)
   for (const call of calls) {
-    assert.equal(call.parsed.origin, 'https://nile.trongrid.io')
+    assert.equal(call.parsed.origin, 'https://api.trongrid.io')
     assert.equal(call.parsed.searchParams.get('only_confirmed'), 'true')
     assert.equal(call.parsed.searchParams.get('only_to'), 'true')
     assert.equal(call.parsed.searchParams.get('limit'), '50')
@@ -150,7 +149,7 @@ test('recipient history reports partial provider failure without fabricating a c
     return new Response(JSON.stringify({ data: [] }), { status: 200 })
   }
   const result = await readTronGridIncomingHistory({
-    network: 'shasta', address: recipient, fetchImpl, decodeAddress,
+    network: 'mainnet', address: recipient, fetchImpl, decodeAddress,
   })
   assert.equal(result.historyStatus, 'partial')
   assert.equal(result.nativeHistoryRead, true)

@@ -1,64 +1,42 @@
 import { useState } from 'react'
-import { ArrowRightLeft, ShieldCheck } from 'lucide-react'
-import { addressesEqual, callMainnetView, sendAndVerifyContractCall } from './trax-mainnet.mjs'
+import { ArrowRightLeft, RefreshCw } from 'lucide-react'
+import { callMainnetView } from './trax-mainnet.mjs'
+import PendingOwnerAcceptance from './PendingOwnerAcceptance.jsx'
 
 export default function TRAXOwnershipControls({
-  wallet, connectedAddress, tokenAddress, feeCapSun, busy = false,
-  getToken, assertOwner, run, refresh, setLastTx, setNotice,
+  wallet, tokenAddress, feeCapSun, busy = false,
+  getToken, run, onPrepareOperation,
 }) {
   const [nextOwner, setNextOwner] = useState('')
   const [pendingOwner, setPendingOwner] = useState('')
 
   const readPendingOwner = () => run('Reading pending TRӾ ownership transfer', async () => {
-    const { tronWeb, token } = await getToken()
+    const { token } = await getToken()
     const pending = await callMainnetView(token.pendingOwner())
     setPendingOwner(String(pending || ''))
     return pending
   })
 
-  const startTransfer = () => run('Starting two-step TRӾ ownership transfer · TronLink approval required', async () => {
-    const { tronWeb, token } = await getToken()
-    await assertOwner(token, tronWeb)
+  const startTransfer = () => {
     const candidate = nextOwner.trim()
-    if (!tronWeb.isAddress(candidate)) throw new Error('Enter a valid TRON Mainnet address for the new owner.')
-    if (addressesEqual(tronWeb, candidate, connectedAddress)) throw new Error('The new owner must be a different address.')
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee cap.')
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'transferOwnership', [candidate], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setPendingOwner(candidate)
-    setNotice('Ownership transfer has been proposed. The new owner must connect their own TronLink wallet and separately accept it on-chain.')
-    await refresh()
-  })
-
-  const acceptTransfer = () => run('Accepting TRӾ ownership · pending owner TronLink approval required', async () => {
-    const { tronWeb, token } = await getToken()
-    const pending = String(await callMainnetView(token.pendingOwner()) || '')
-    if (!pending || !addressesEqual(tronWeb, pending, connectedAddress)) {
-      throw new Error('The connected wallet is not the contract’s pending owner. Connect the exact pending-owner address.')
-    }
-    if (!feeCapSun) throw new Error('Enter a valid transaction fee cap.')
-    const result = await sendAndVerifyContractCall(tronWeb, token, 'acceptOwnership', [], feeCapSun, connectedAddress)
-    setLastTx(result.txID)
-    setPendingOwner('')
-    setNotice('Ownership acceptance was confirmed. Refreshing the contract under the new owner.')
-    await refresh()
-  })
-
-  const isPendingOwner = (() => {
-    try { return Boolean(pendingOwner && wallet?.tronWeb && addressesEqual(wallet.tronWeb, pendingOwner, connectedAddress)) }
-    catch { return false }
-  })()
+    if (!candidate) return
+    return onPrepareOperation({
+      operationType: 'ownership-transfer',
+      nextOwner: candidate,
+      summary: 'Propose two-step TRӾ ownership transfer to ' + candidate,
+    })
+  }
 
   return <div className="trax-actions">
     <h3>Two-step ownership transfer</h3>
-    <p className="fine-print">The current owner proposes a new address. Only that exact address can accept ownership in a separate Mainnet transaction. Never enter an address unless its owner controls the corresponding wallet.</p>
+    <p className="fine-print">The current on-chain owner proposes a new address. The proposal is prepared through the authenticated Owner API and requires the same explicit operation review, fresh Mainnet preflight and backend confirmation as other writes.</p>
     <label>New owner TRON Mainnet address<input value={nextOwner} onChange={event => setNextOwner(event.target.value)} autoComplete="off" spellCheck="false" placeholder="T..."/></label>
     <div className="button-row">
-      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.tronWeb || !feeCapSun || busy} onClick={startTransfer}><ArrowRightLeft size={15}/> Propose ownership transfer</button>
-      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.tronWeb || busy} onClick={readPendingOwner}>Read pending owner</button>
+      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.managedSession || !feeCapSun || busy || !nextOwner.trim()} onClick={startTransfer}><ArrowRightLeft size={15}/> Review ownership proposal</button>
+      <button type="button" className="outline-button" disabled={!tokenAddress || !wallet?.managedSession || busy} onClick={readPendingOwner}><RefreshCw size={15}/> Read pending owner</button>
     </div>
-    {pendingOwner && <div className="trax-balance-note"><b>Pending owner:</b> {pendingOwner}</div>}
-    <button type="button" className="primary-button" disabled={!tokenAddress || !wallet?.tronWeb || !isPendingOwner || !feeCapSun || busy} onClick={acceptTransfer}><ShieldCheck size={15}/> Accept ownership from this wallet</button>
-    <p className="fine-print">If the new owner is a different wallet, reconnect TronLink to that address before accepting. This dashboard's configured-owner restriction remains in force for issuance and emergency controls; acceptance is available only to the exact on-chain pending owner.</p>
+    {pendingOwner && <div className="trax-balance-note"><b>On-chain pending owner:</b> {pendingOwner}</div>}
+    <p className="fine-print">The new owner must accept from the exact pending-owner address. The configured Owner signer cannot impersonate or accept for that different wallet. Use the acceptance panel below; it verifies the pending-owner address with a one-time TronLink message signature and never reuses this Owner session.</p>
+    <details className="pending-owner-inline"><summary>Accept a pending ownership proposal</summary><PendingOwnerAcceptance/></details>
   </div>
 }

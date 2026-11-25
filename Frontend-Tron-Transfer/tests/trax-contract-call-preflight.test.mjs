@@ -107,7 +107,7 @@ function makeHarness({ snapshots = [resourceSnapshot(), resourceSnapshot()], est
 
 const args = ['TOwner', '1000000', '0x' + '11'.repeat(32)]
 
-test('every contract write preflights exact Energy and Bandwidth before TronLink signature', async () => {
+test('every contract write preflights exact Energy and Bandwidth before local Owner vault signature', async () => {
   const h = makeHarness()
   const result = await sendAndVerifyContractCall(h.tronWeb, h.tokenContract, 'credit', args, 150000000, 'TOwner', h.dependencies)
   assert.equal(result.txID, TX_ID)
@@ -116,7 +116,7 @@ test('every contract write preflights exact Energy and Bandwidth before TronLink
   assert.deepEqual(h.counts(), { resourceReads: 2, signCalls: 1, broadcastCalls: 1, estimateCalls: 1, buildCalls: 1 })
 })
 
-test('Energy shortfall blocks before asking TronLink to sign', async () => {
+test('Energy shortfall blocks before asking the local Owner vault to sign', async () => {
   const h = makeHarness({ snapshots: [resourceSnapshot({ energy: '0' })] })
   await assert.rejects(
     sendAndVerifyContractCall(h.tronWeb, h.tokenContract, 'credit', args, 150000000, 'TOwner', h.dependencies),
@@ -136,7 +136,7 @@ test('Bandwidth shortfall blocks even when Energy is sufficient', async () => {
   assert.equal(h.counts().broadcastCalls, 0)
 })
 
-test('resource loss while TronLink is open discards the signed transaction before broadcast', async () => {
+test('resource loss during local signing discards the signed transaction before broadcast', async () => {
   const h = makeHarness({
     snapshots: [
       resourceSnapshot(),
@@ -217,19 +217,22 @@ test('exact encoded-call estimator falls back to queued triggerconstantcontract 
   assert.equal(requests[1].body.data, encodedData)
 })
 
-test('all TRӾ owner writes use the zero-burn preflight helper, never method.send', async () => {
+test('existing TRӾ Owner writes use the guarded backend operation API and shared zero-burn preflight', async () => {
   const { readFile } = await import('node:fs/promises')
   const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
   const ownership = await readFile(new URL('../src/TRAXOwnershipControls.jsx', import.meta.url), 'utf8')
-  const helper = await readFile(new URL('../src/trax-mainnet.mjs', import.meta.url), 'utf8')
+  const api = await readFile(new URL('../resource-api/owner-operation-api.mjs', import.meta.url), 'utf8')
+  const shared = await readFile(new URL('../src/tron-mainnet-preflight.mjs', import.meta.url), 'utf8')
   const allWrites = panel + '\n' + ownership
-  const calls = allWrites.split('\n').filter(line => line.includes('sendAndVerifyContractCall('))
-  assert.equal(calls.length, 12)
-  assert.doesNotMatch(allWrites, /sendAndVerifyContractCall\(tronWeb,\s*token\.[A-Za-z0-9_]+\(/)
-  assert.match(helper, /requestNode\(tronWeb, '\/wallet\/estimateenergy', request\)/)
-  assert.match(helper, /requestNode\(tronWeb, '\/wallet\/triggerconstantcontract', request\)/)
-  assert.match(helper, /assertZeroTrxBurnBudget\(initialBudget\)/)
-  assert.match(helper, /assertZeroTrxBurnBudget\(finalBudget\)/)
-  const writeHelper = helper.slice(helper.indexOf('export async function sendAndVerifyContractCall'), helper.indexOf('export async function sendNativeTrxFromTronLink'))
-  assert.doesNotMatch(writeHelper, /getBalance\(|\/wallet\/getaccount['"]|method\.send\(/)
+  assert.match(panel, /apiRequest\('\/api\/owner\/operations\/prepare'/)
+  assert.match(panel, /apiRequest\('\/api\/owner\/operations\/'/)
+  assert.match(panel, /confirmationPhrase/)
+  assert.match(panel, /pendingOperation\.executionEnabled/)
+  assert.doesNotMatch(allWrites, /sendAndVerifyContractCall|method\.send\(|sendRawTransaction|tronWeb\.trx\.sign/)
+  assert.match(api, /calculateDeploymentResourceBudget\(/)
+  assert.match(api, /verifyTransactionSigner\(/)
+  assert.match(api, /assertTransactionPermission\(/)
+  assert.match(api, /OWNER_ZERO_TRX_BURN_PREFLIGHT_BLOCKED/)
+  assert.match(shared, /assertZeroTrxBurnBudget/)
+  assert.match(shared, /Bandwidth requires one complete/)
 })

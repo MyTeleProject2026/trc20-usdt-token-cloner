@@ -12,8 +12,11 @@ test('TRӾ Mainnet manager remains integrated into the production frontend', asy
   assert.ok(app.includes('TRAXSidebar'))
   assert.ok(app.includes('MobileNavBar'))
   assert.ok(app.includes('trax-admin-shell'))
-  assert.ok(panel.includes('Preflight & deploy TRӾ'))
+  assert.ok(panel.includes('Prepare deployment'))
   assert.ok(panel.includes('verifyTRAXTokenContract'))
+  assert.ok(panel.includes("/api/owner/deployment/readiness"))
+  assert.ok(panel.includes("/api/owner/deployment/prepare"))
+  assert.ok(panel.includes("/api/owner/deployment/confirm"))
 })
 
 test('TRӾ interface keeps wallet and transaction status accessible', async () => {

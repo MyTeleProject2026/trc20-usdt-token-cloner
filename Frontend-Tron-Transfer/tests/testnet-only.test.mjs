@@ -8,22 +8,31 @@ const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 test('TRӾ workspace exposes dedicated owner-admin pages and one Mainnet deployment flow', async () => {
   const app = await read('../src/App.jsx')
   const panel = await read('../src/TRXMainnetPanel.jsx')
+  const contract = await read('../../contracts/Restricted1TRAX.sol')
   const mobile = await read('../src/MobileNavBar.jsx')
   const sidebar = await read('../src/TRAXSidebar.jsx')
   assert.ok(panel.includes("const DEFAULT_FEE_CAP = '150'"))
   assert.ok(panel.includes('const deployToken'))
-  assert.ok(panel.includes('deployContractWithOwnerSigner(wallet, TRAX_TOKEN_ARTIFACT'))
-  assert.ok(panel.includes('Restricted1TRAX'))
-  assert.ok(panel.includes('Preflight & deploy TRӾ'))
+  assert.ok(contract.includes('contract Restricted1TRAX'))
+  assert.ok(panel.includes('Prepare deployment'))
   assert.ok(panel.includes('Check deployment readiness'))
-  assert.ok(panel.includes('disabled={!walletReady || busy || Boolean(tokenAddress) || !feeCapSun}'))
-  assert.ok(panel.includes('preflightContractDeployments(wallet, [{'))
-  assert.ok(panel.includes('expiresAt: Date.now() + 60000'))
+  assert.ok(panel.includes('disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}'))
+  assert.ok(panel.includes("apiRequest('/api/owner/deployment/readiness')"))
+  assert.ok(panel.includes("'/api/owner/deployment/prepare'"))
+  assert.ok(panel.includes("'/api/owner/deployment/confirm'"))
+  assert.ok(panel.includes('local Owner vault must approve the exact prepared transaction'))
+  assert.ok(panel.includes('signer.trx.sign(deploymentOperation.unsignedTransaction)'))
+  assert.ok(panel.includes('signer.trx.sign(pendingOperation.unsignedTransaction)'))
+  assert.doesNotMatch(panel, /deployContractWithOwnerSigner|sendAndVerifyContractCall|tronWeb\.trx\.sign|sendRawTransaction/)
   assert.ok(panel.includes('verifyTRAXTokenContract'))
   assert.ok(panel.includes("activePage = 'home'"))
   for (const page of ['home','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
     assert.ok(app.includes("id: '" + page + "'"), 'missing navigation page: ' + page)
   }
+  assert.ok(!app.includes("id: 'accept-ownership'"), 'pending-owner acceptance must not add a navigation page')
+  assert.ok(!app.includes("id: 'account-security'"), 'account security must not add a navigation page')
+  const ownershipControls = await read('../src/TRAXOwnershipControls.jsx')
+  assert.ok(ownershipControls.includes('<PendingOwnerAcceptance/>'), 'pending-owner acceptance must live inside existing Ownership transfer controls')
   for (const action of ['issueOwnerSupply','issueCredit','batchCredit','pause','unpauseTransfers','enableMinting','disableMinting','transfer']) {
     assert.ok(panel.includes('const ' + action + ' ='), 'missing contract action: ' + action)
   }
@@ -75,26 +84,25 @@ test('Mainnet deployment signs a canonical FullNode transaction, not a locally e
     < deployment.indexOf('walletTronWeb.trx.sendRawTransaction(signedTransaction)'))
 })
 
-test('wallet discovery supports injected TRON providers without importing private keys', async () => {
-  const provider = await read('../src/tronlink-provider.mjs')
-  for (const value of [
-    'TIP6963:announceProvider',
-    'windowObject?.tron',
-    'windowObject?.okxwallet',
-    'windowObject?.bitkeep',
-    'windowObject?.tokenpocket',
-    'windowObject?.trustwallet',
-    'tron_requestAccounts',
-  ]) assert.ok(provider.includes(value), 'missing provider discovery path: ' + value)
-  assert.doesNotMatch(provider, /privateKey\s*[:=]/i)
+test('Owner and Sponsor workspaces do not depend on injected TRON wallet providers', async () => {
+  const app = await read('../src/App.jsx')
+  const ownerAccess = await read('../src/OwnerWalletAccess.jsx')
+  const sponsor = await read('../src/SponsorWalletManager.jsx')
+  assert.ok(app.includes('OwnerWalletAccess'))
+  assert.ok(app.includes('SponsorWalletManager'))
+  assert.ok(ownerAccess.includes('encrypted-local-owner-vault'))
+  assert.ok(ownerAccess.includes('no TronLink connection required'))
+  for (const source of [app, ownerAccess, sponsor]) {
+    assert.doesNotMatch(source, /tronlink-provider|requestTronLinkConnection|discoverTronLinkProvider/)
+  }
 })
 
 test('contract administration checks the configured owner against the on-chain token owner', async () => {
   const panel = await read('../src/TRXMainnetPanel.jsx')
-  for (const value of ['callMainnetView(token.owner())', 'EXPECTED_OWNER_ADDRESS', 'connectedAddress']) {
+  for (const value of ['callMainnetView(token.owner())', 'connectedAddress', 'addressesEqual(wallet.tronWeb, wallet.tronWeb.defaultAddress?.base58, connectedAddress)']) {
     assert.ok(panel.includes(value), 'missing on-chain owner check: ' + value)
   }
-  assert.doesNotMatch(panel, /vaultAddress|vaultOwner|TRAX_VAULT_ARTIFACT/)
+  assert.doesNotMatch(panel, /EXPECTED_OWNER_ADDRESS|TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp|vaultAddress|vaultOwner|TRAX_VAULT_ARTIFACT/)
 })
 
 test('production build runs the complete frontend regression suite', async () => {
@@ -105,7 +113,7 @@ test('production build runs the complete frontend regression suite', async () =>
   assert.equal(pkg.overrides.tmp, '0.2.7')
 })
 
-test('TronLink receives the exact canonical node-issued CreateSmartContract transaction', () => {
+test('the local Owner signer receives the exact canonical node-issued CreateSmartContract transaction', () => {
   const transaction = {
     visible: false,
     txID: 'a'.repeat(64),

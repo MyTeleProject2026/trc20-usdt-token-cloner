@@ -137,3 +137,61 @@ export function removeSavedSponsorWallet() {
 export function clearSponsorSecretFields() {
   // Callers should also clear controlled input state; JavaScript strings cannot be zeroized reliably.
 }
+
+
+// Sign only the exact unsigned transaction returned by the Resource API.
+// This function never broadcasts and never returns the private key.
+export async function signSponsorTransaction(account, unsignedTransaction, { tronWebFactory = createSponsorTronWeb, now = () => Date.now() } = {}) {
+  const privateKey = normalizePrivateKey(account?.privateKey)
+  const tronWeb = tronWebFactory(privateKey)
+  const derivedAddress = tronWeb.address.fromPrivateKey(privateKey)
+  if (!derivedAddress || derivedAddress !== account?.address || !tronWeb.isAddress(derivedAddress)) {
+    throw new Error('Sponsor signer does not match the unlocked local vault.')
+  }
+
+  const contracts = unsignedTransaction?.raw_data?.contract
+  const ownerHex = contracts?.[0]?.parameter?.value?.owner_address
+  const expiration = Number(unsignedTransaction?.raw_data?.expiration)
+  if (!Array.isArray(contracts) || contracts.length !== 1
+    || !['FreezeBalanceV2Contract', 'DelegateResourceContract', 'UnDelegateResourceContract', 'UnfreezeBalanceV2Contract', 'WithdrawExpireUnfreezeContract', 'TransferContract'].includes(contracts[0]?.type)
+    || typeof ownerHex !== 'string' || !/^(?:41)?[0-9a-f]{40,42}$/i.test(ownerHex)
+    || !tronWeb.isAddress(tronWeb.address.fromHex(ownerHex.length === 40 ? '41' + ownerHex : ownerHex))
+    || tronWeb.address.fromHex(ownerHex.length === 40 ? '41' + ownerHex : ownerHex) !== derivedAddress) {
+    throw new Error('Unsigned Sponsor transaction is not bound to the unlocked Sponsor address.')
+  }
+  if (!Number.isSafeInteger(expiration) || expiration <= now() + 5_000 || expiration > now() + 10 * 60_000
+    || !/^[0-9a-f]{64}$/i.test(String(unsignedTransaction?.txID || ''))
+    || !/^(?:[0-9a-f]{2})+$/i.test(String(unsignedTransaction?.raw_data_hex || ''))
+    || (unsignedTransaction?.signature != null && (!Array.isArray(unsignedTransaction.signature) || unsignedTransaction.signature.length !== 0))) {
+    throw new Error('Unsigned Sponsor transaction is malformed, expired, or already signed.')
+  }
+  if (typeof tronWeb.utils?.transaction?.txCheck !== 'function'
+    || tronWeb.utils.transaction.txCheck(unsignedTransaction) !== true) {
+    throw new Error('Unsigned Sponsor transaction failed protobuf integrity validation.')
+  }
+  if (typeof tronWeb.trx?.sign !== 'function' || typeof tronWeb.utils?.crypto?.ecRecover !== 'function') {
+    throw new Error('Local Sponsor transaction signing or signature recovery is unavailable.')
+  }
+
+  const signed = await tronWeb.trx.sign(structuredClone(unsignedTransaction), privateKey)
+  if (!signed || signed.txID !== unsignedTransaction.txID
+    || signed.raw_data_hex !== unsignedTransaction.raw_data_hex
+    || JSON.stringify(signed.raw_data) !== JSON.stringify(unsignedTransaction.raw_data)
+    || !Array.isArray(signed.signature) || signed.signature.length !== 1
+    || !/^[0-9a-f]{130}$/i.test(String(signed.signature[0] || ''))
+    || tronWeb.utils.transaction.txCheck(signed) !== true) {
+    throw new Error('Local Sponsor signature changed the prepared transaction or failed integrity validation.')
+  }
+
+  let recovered
+  try {
+    const value = tronWeb.utils.crypto.ecRecover(signed.txID, signed.signature[0])
+    recovered = typeof value === 'string' && /^41[0-9a-f]{40}$/i.test(value)
+      ? tronWeb.address.fromHex(value)
+      : value
+  } catch {
+    throw new Error('Unable to recover the Sponsor signer from the local transaction signature.')
+  }
+  if (recovered !== derivedAddress) throw new Error('Local Sponsor transaction signature does not match the unlocked Sponsor address.')
+  return signed
+}

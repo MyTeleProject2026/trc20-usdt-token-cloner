@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assessMigrationPreflight } from '../scripts/check-sponsor-ledger-migration.mjs'
+import { assessMigrationPreflight, assessSponsorLedgerSchema } from '../scripts/check-sponsor-ledger-migration.mjs'
 import { databaseIdentity } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const ready = {
@@ -60,6 +60,18 @@ test('missing source schema or required columns blocks migration', () => {
   assert.ok(result.blockers.includes('source-ledger-schema-incomplete'))
 })
 
+test('source and existing target require persisted prepared and signed transaction payload columns', () => {
+  const result = assessMigrationPreflight({
+    ...ready,
+    sourceColumnsComplete: false,
+    targetOperationsTable: true,
+    targetRowCount: '0',
+    targetColumnsComplete: false,
+  })
+  assert.ok(result.blockers.includes('source-ledger-schema-incomplete'))
+  assert.ok(result.blockers.includes('target-ledger-schema-incomplete'))
+})
+
 test('any in-flight or ambiguous operation blocks migration', () => {
   for (const count of ['1', '2', '-1']) {
     const result = assessMigrationPreflight({ ...ready, sourceInFlightCount: count })
@@ -101,4 +113,18 @@ test('source and target must be distinct even when URLs differ only in query par
     === databaseIdentity('postgresql://user:secret@db.example.test/ledger?sslmode=disable')
   const result = assessMigrationPreflight({ ...ready, sourceTargetDistinct: !sameDatabase })
   assert.ok(result.blockers.includes('source-and-target-must-be-distinct'))
+})
+
+test('legacy Sponsor schema is accepted only for an empty source and never for non-empty or target ledgers', () => {
+  const core = [
+    'id', 'idempotency_key_hash', 'request_hash', 'operation', 'resource',
+    'amount_sun', 'sponsor_address', 'owner_address', 'status', 'transaction_id',
+    'result_code', 'confirmation_block', 'created_at', 'updated_at',
+  ]
+  const legacyEmpty = assessSponsorLedgerSchema(core, { role: 'source', rowCount: '0' })
+  assert.equal(legacyEmpty.compatible, true)
+  assert.equal(legacyEmpty.legacyEmptySource, true)
+  assert.equal(assessSponsorLedgerSchema(core, { role: 'source', rowCount: '4' }).compatible, false)
+  assert.equal(assessSponsorLedgerSchema(core, { role: 'target', rowCount: '0' }).compatible, false)
+  assert.equal(assessSponsorLedgerSchema(['id'], { role: 'source', rowCount: '0' }).compatible, false)
 })

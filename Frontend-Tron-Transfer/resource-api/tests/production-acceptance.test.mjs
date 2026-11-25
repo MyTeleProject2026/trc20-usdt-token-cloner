@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { createSponsorResourceApi } from '../sponsor-api.mjs'
+import { REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS } from '../production-acceptance-assessment.mjs'
 
 test('production acceptance endpoint is read-only, secret-free, and keeps execution disabled', async () => {
   let databaseCalls = 0
@@ -42,7 +44,7 @@ test('production acceptance endpoint is read-only, secret-free, and keeps execut
   assert.equal(response.status, 200)
   assert.equal(response.body.acceptance.executionEnabled, false)
   assert.equal(response.body.acceptance.state, 'blocked')
-  assert.equal(response.body.acceptance.checks.some(item => item.id === 'sponsor-signer-address-match' && item.state === 'blocked'), true)
+  assert.equal(response.body.acceptance.checks.some(item => item.id === 'sponsor-local-transaction-signer' && item.state === 'blocked'), true)
   assert.equal(response.body.acceptance.checks.some(item => item.id === 'writes-remain-paused-until-release' && item.state === 'passed'), true)
   assert.equal(response.body.transactionExecutionAvailable, false)
   assert.equal(databaseCalls, 0)
@@ -65,4 +67,20 @@ test('unknown acceptance paths are not claimed by the Sponsor API', async () => 
     null,
   )
   assert.equal(handled, false)
+})
+
+
+test('production smoke requires every acceptance gate emitted by the Sponsor API', async () => {
+  const source = await readFile(new URL('../scripts/production-acceptance-smoke.mjs', import.meta.url), 'utf8')
+  const assessment = await readFile(new URL('../production-acceptance-assessment.mjs', import.meta.url), 'utf8')
+  const sponsorApi = await readFile(new URL('../sponsor-api.mjs', import.meta.url), 'utf8')
+  for (const id of REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS) {
+    assert.ok(sponsorApi.includes("id: '" + id + "'"), 'Sponsor API does not emit required acceptance check: ' + id)
+  }
+  assert.match(source, /evaluateProductionAcceptance/)
+  assert.ok(source.includes('if (!result.passed) process.exitCode = 1'))
+  assert.ok(assessment.includes('missingChecks.length === 0'))
+  assert.ok(assessment.includes('blockedChecks.length === 0'))
+  assert.ok(assessment.includes('ready-for-independent-review'))
+  assert.doesNotMatch(assessment, /admin-second-factor-configured/)
 })

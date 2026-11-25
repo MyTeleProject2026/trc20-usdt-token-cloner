@@ -130,3 +130,13 @@
     transition-duration: .01ms !important;
   }
 }
+
+.sponsor-account-security details>summary{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:700;color:var(--sponsor-text,#e5edf8);list-style:none}.sponsor-account-security details>summary::-webkit-details-marker{display:none}.sponsor-security-password-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end;margin-top:18px}.sponsor-session-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:20px}.sponsor-session-heading p{margin:5px 0}.sponsor-session-list{display:grid;gap:8px;margin:12px 0}.sponsor-session-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--sponsor-border,#273449);border-radius:10px}.sponsor-session-row div{display:grid;gap:4px}.sponsor-session-row small{color:var(--sponsor-muted,#94a3b8)}@media(max-width:760px){.sponsor-security-password-form{grid-template-columns:1fr}.sponsor-session-heading,.sponsor-session-row{align-items:flex-start;flex-direction:column}.sponsor-session-row button{width:100%}}
+.sponsor-ledger-release{margin-top:14px;padding:15px;border:1px solid rgba(143,201,164,.2);border-radius:13px;background:rgba(5,19,11,.42)}
+.sponsor-release-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:12px 0}
+.sponsor-release-checks>div{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid rgba(143,201,164,.12);border-radius:8px;background:rgba(5,19,11,.45);font-size:10px;text-transform:capitalize}
+.sponsor-release-checks b.passed{color:#8ee2ae}
+.sponsor-release-checks b.blocked{color:#e6c27e}
+.sponsor-danger{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:11px 15px;border:1px solid rgba(236,126,126,.45);border-radius:10px;background:rgba(91,28,28,.35);color:#ffc0c0;font-size:11px;font-weight:800}
+.sponsor-danger:disabled,.sponsor-primary:disabled,.sponsor-secondary:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:700px){.sponsor-release-checks{grid-template-columns:1fr}}

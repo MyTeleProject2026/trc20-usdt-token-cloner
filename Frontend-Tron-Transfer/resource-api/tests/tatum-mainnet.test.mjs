@@ -18,6 +18,15 @@ function resourceResponse(url) {
   throw new Error('unexpected RPC URL: ' + url)
 }
 
+async function listen(t, server) {
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  return 'http://127.0.0.1:' + server.address().port
+}
+
 test('Tatum Mainnet RPC is preferred and its API key stays server-side', async t => {
   const secret = 'test-tatum-mainnet-key'
   const calls = []
@@ -30,13 +39,9 @@ test('Tatum Mainnet RPC is preferred and its API key stays server-side', async t
       })
     },
   })
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
-  const base = 'http://127.0.0.1:' + server.address().port
-
-  const health = await fetch(base + '/health')
-  const healthBody = await health.json()
-  assert.equal(healthBody.rpcProviderPriority[0], 'tatum')
+  const base = await listen(t, server)
+  const healthBody = await (await fetch(base + '/health')).json()
+  assert.deepEqual(healthBody.rpcProviderPriority, ['tatum', 'trongrid'])
   assert.equal(JSON.stringify(healthBody).includes(secret), false)
 
   const response = await fetch(base + '/v1/resources/' + address)
@@ -52,9 +57,7 @@ test('Tatum Mainnet RPC is preferred and its API key stays server-side', async t
   assert.equal(JSON.stringify(body).includes(secret), false)
 })
 
-test('Tatum RPC failures fall back to TronGrid without changing resource semantics', async t => {
-  // Use a distinct address so the service's process-level resource cache cannot
-  // let the preceding preferred-provider test satisfy this request.
+test('Tatum Mainnet RPC failures fall back to TronGrid without changing resource semantics', async t => {
   const fallbackAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
   const calls = []
   const server = createServer({
@@ -71,15 +74,35 @@ test('Tatum RPC failures fall back to TronGrid without changing resource semanti
       })
     },
   })
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
-  const response = await fetch('http://127.0.0.1:' + server.address().port + '/v1/resources/' + fallbackAddress)
+  const base = await listen(t, server)
+  const response = await fetch(base + '/v1/resources/' + fallbackAddress)
   assert.equal(response.status, 200)
   const body = await response.json()
   assert.equal(body.energy.available, 100000)
+  assert.deepEqual(body.rpc.preferredProviderOrder, ['tatum', 'trongrid'])
   assert.deepEqual(body.rpc.providersUsed, { accountResources: 'trongrid', account: 'trongrid', chainParameters: 'trongrid' })
   assert.equal(calls.filter(call => call.url.startsWith(TATUM_MAINNET_RPC)).length, 3)
   const tronGridCalls = calls.filter(call => call.url.startsWith('https://api.trongrid.io/'))
   assert.equal(tronGridCalls.length, 3)
   assert.ok(tronGridCalls.every(call => call.options.headers['TRON-PRO-API-KEY'] === 'test-trongrid-key'))
+})
+
+test('Tatum is never selected for a non-Mainnet network setting', async t => {
+  const calls = []
+  const server = createServer({
+    env: { TATUM_API_KEY: 'test-tatum-key', TATUM_TRON_NETWORK: 'nile', TRONGRID_API_KEY: 'test-trongrid-key' },
+    fetchImpl: async (url, options = {}) => {
+      calls.push({ url, options })
+      return new Response(JSON.stringify(resourceResponse(url)), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })
+    },
+  })
+  const base = await listen(t, server)
+  const healthBody = await (await fetch(base + '/health')).json()
+  assert.deepEqual(healthBody.rpcProviderPriority, ['trongrid'])
+  const response = await fetch(base + '/v1/resources/' + address)
+  assert.equal(response.status, 200)
+  assert.ok(calls.every(call => call.url.startsWith('https://api.trongrid.io/')))
+  assert.ok(calls.every(call => !call.options.headers['x-api-key']))
 })

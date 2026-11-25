@@ -18,8 +18,11 @@ test('portfolio preserves separate asset quantities and never invents a TRӾ mar
   assert.match(pricing, /if \(quantities\[1\] > 0\) return null/)
 })
 
-test('TRӾ UI uses the requested official-style TRON SVG mark', async () => {
+test('TRӾ UI uses the supplied local token mark without a third-party icon dependency', async () => {
   const panel = await readFile(panelUrl, 'utf8')
-  assert.ok(panel.includes('https://thesvg.org/icons/tron/default.svg'))
+  const mark = await readFile(new URL('../public/trax-token-mark.svg', import.meta.url), 'utf8')
+  assert.ok(panel.includes('src="/trax-token-mark.svg"'))
+  assert.ok(!panel.includes('thesvg.org'))
+  assert.ok(mark.includes('TRӾ custom token icon supplied by the user'))
   assert.ok(panel.includes('alt="TRӾ token icon"'))
 })

@@ -1,12 +1,11 @@
-name: Public API smoke and readiness check
+name: Tron Transfer production smoke check
 
 on:
   workflow_dispatch:
-  # Run live API contract checks after the authoritative CI workflow passes on main.
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [main]
+    branches: [ui/modern-crypto-dashboard-theme]
   schedule:
     - cron: "17 */6 * * *"
 
@@ -14,486 +13,46 @@ permissions:
   contents: read
 
 concurrency:
-  group: public-api-smoke
+  group: tron-transfer-production-smoke
   cancel-in-progress: true
 
 jobs:
   smoke:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-22.04
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
-      - name: Check public API health
-        id: health
+      - name: Check existing Tron Transfer frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --connect-timeout 10 --max-time 30 --silent --show-error --output /dev/null --write-out '%{http_code}' https://tron-transfer.onrender.com/)"
+          if [[ "$code" != "200" ]]; then
+            echo "Tron Transfer frontend returned HTTP $code; expected 200." >&2
+            exit 1
+          fi
+          echo "Existing Tron Transfer frontend is reachable (HTTP 200)."
+
+      - name: Check existing Tron Transfer Resource API
         shell: bash
         run: |
           set -euo pipefail
           response=""
-          for attempt in {1..12}; do
-            if response="$(curl --connect-timeout 5 --max-time 10 --silent --show-error --fail https://trc20-usdt-token-cloner-api.onrender.com/health 2>/dev/null)"; then
+          for attempt in {1..6}; do
+            if response="$(curl --connect-timeout 10 --max-time 20 --silent --show-error --fail https://tron-transfer-resource-api.onrender.com/health)"; then
               break
             fi
-            echo "Public API not ready yet (attempt $attempt/12); retrying in 10 seconds."
+            echo "Resource API not ready (attempt $attempt/6); retrying in 10 seconds."
             sleep 10
           done
           if [[ -z "$response" ]]; then
-            echo "Public API health endpoint did not become ready within 2 minutes." >&2
+            echo "Existing Tron Transfer Resource API health endpoint did not become ready." >&2
             exit 1
           fi
-          echo "$response" | node --input-type=module -e '
+          printf '%s' "$response" | node --input-type=module -e '
             let body = "";
             for await (const chunk of process.stdin) body += chunk;
             const data = JSON.parse(body);
-            if (data.status !== "ok") throw new Error("Unexpected health response");
-            console.log("Public health endpoint returned ok.");
+            if (data.status !== "ok") throw new Error("Resource API health response is not ok");
+            console.log("Existing Tron Transfer Resource API is healthy.");
           '
-
-      - name: Verify signed TRON wallet login challenge is live and identity-only
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f tron-wallet-challenge.json tron-wallet-verify.json' EXIT
-          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output tron-wallet-challenge.json --write-out '%{http_code}' --request POST --header 'Origin: https://trc20-usdt-token-cloner.onrender.com' --header 'Content-Type: application/json' --data '{"address":"TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2","network":"nile"}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/auth/tron/challenge')"
-          if [[ "$http_code" != "200" ]]; then
-            echo "Wallet login challenge returned HTTP $http_code." >&2
-            exit 1
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('tron-wallet-challenge.json', 'utf8'))
-          if (data.success !== true || data.scope !== 'wallet-identity-only'
-            || data.network !== 'nile'
-            || data.address !== 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
-            || typeof data.nonce !== 'string' || typeof data.message !== 'string'
-            || !data.message.includes('no transfer is authorized')
-            || typeof data.expiresAt !== 'number'
-            || 'sessionToken' in data || data.canSubmitSponsoredTransfer === true) {
-            throw new Error('Wallet login challenge violated the identity-only response contract')
-          }
-          console.log('TRON wallet login challenge is live; it authorizes identity only and sends no transaction.')
-          NODE
-
-          # A forged signature must be rejected even when the challenge is valid.
-          verify_payload="$(node --input-type=module -e '
-            import fs from "node:fs";
-            const challenge = JSON.parse(fs.readFileSync("tron-wallet-challenge.json", "utf8"));
-            console.log(JSON.stringify({
-              address: challenge.address,
-              network: challenge.network,
-              nonce: challenge.nonce,
-              signature: "0x" + "00".repeat(65)
-            }));
-          ')"
-          verify_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output tron-wallet-verify.json --write-out '%{http_code}' --request POST --header 'Origin: https://trc20-usdt-token-cloner.onrender.com' --header 'Content-Type: application/json' --data "$verify_payload" 'https://trc20-usdt-token-cloner-api.onrender.com/api/auth/tron/verify')"
-          if [[ "$verify_code" != "401" ]]; then
-            echo "Invalid wallet signature returned unexpected HTTP $verify_code; expected 401." >&2
-            exit 1
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('tron-wallet-verify.json', 'utf8'))
-          if (data.success !== false
-            || !['signature-verification-failed', 'signature-address-mismatch'].includes(data.error)
-            || data.authenticated === true
-            || 'sessionToken' in data
-            || data.canSubmitSponsoredTransfer === true) {
-            throw new Error('Invalid wallet signature did not fail closed without a session')
-          }
-          console.log('Live TRON login rejects an invalid signature and issues no session.')
-          NODE
-
-      - name: Verify packaged Android origin can request an identity-only challenge
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f packaged-wallet-challenge.json' EXIT
-          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output packaged-wallet-challenge.json --write-out '%{http_code}' --request POST --header 'Origin: https://localhost' --header 'Content-Type: application/json' --data '{"address":"TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2","network":"nile"}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/auth/tron/challenge')"
-          if [[ "$http_code" != "200" ]]; then
-            echo "Packaged Android origin https://localhost returned HTTP $http_code. Configure PACKAGED_APP_ORIGINS on the Render API service." >&2
-            exit 1
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('packaged-wallet-challenge.json', 'utf8'))
-          if (data.success !== true || data.scope !== 'wallet-identity-only'
-            || data.network !== 'nile'
-            || data.address !== 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
-            || typeof data.nonce !== 'string'
-            || typeof data.message !== 'string'
-            || 'sessionToken' in data
-            || data.canSubmitSponsoredTransfer === true) {
-            throw new Error('Packaged Android origin did not receive the identity-only wallet challenge contract')
-          }
-          console.log('Capacitor https://localhost origin is allowed for identity-only wallet authentication.')
-          NODE
-
-      - name: Verify token evidence never fabricates source trust or exchange credits
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f token-authenticity.json' EXIT
-          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output token-authenticity.json --write-out '%{http_code}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/token-authenticity?network=mainnet&contract=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t')"
-          if [[ "$http_code" != "200" ]]; then
-            echo "Token evidence endpoint returned HTTP $http_code." >&2
-            exit 1
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('token-authenticity.json', 'utf8'))
-          if (data.success !== true
-            || data.network !== 'mainnet'
-            || data.contractAddress !== 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-            || data.officialMainnetUsdtAddressMatch !== true
-            || typeof data.sourceVerificationStatus !== 'string'
-            || typeof data.explorerStatus !== 'string'
-            || !String(data.evidenceScope || '').includes('not an audit')
-            || 'balance' in data || 'exchangeCredit' in data || 'credited' in data) {
-            throw new Error('Token evidence response violated the read-only, evidence-only contract')
-          }
-          console.log('Token evidence endpoint reports the official contract reference but does not invent token balance or exchange credit.')
-          NODE
-
-      - name: Inspect sanitized provider status
-        shell: bash
-        run: |
-          set -euo pipefail
-          response="$(curl --retry 1 --connect-timeout 10 --max-time 25 --silent --show-error --fail https://trc20-usdt-token-cloner-api.onrender.com/api/status)"
-          echo "$response" | node --input-type=module -e '
-            let body = "";
-            for await (const chunk of process.stdin) body += chunk;
-            const data = JSON.parse(body);
-            const allowed = new Set(["connected", "no-api-key", "provider-response", "egress-failed"]);
-            if (!allowed.has(data.status)) throw new Error("Unexpected sanitized provider status");
-            if ("apiKey" in data || "token" in data || "authorization" in data || "headers" in data) {
-              throw new Error("Provider status unexpectedly exposes sensitive fields");
-            }
-            console.log("Provider status category:", data.status);
-            if (Number.isInteger(data.providerStatus)) console.log("Provider HTTP status:", data.providerStatus);
-          '
-
-      - name: Require healthy read-only dependencies without leaking provider data
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f readiness.json' EXIT
-          http_code="000"
-          for attempt in {1..12}; do
-            http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output readiness.json --write-out '%{http_code}' https://trc20-usdt-token-cloner-api.onrender.com/api/readiness)" || http_code="000"
-            if [[ "$http_code" == "200" ]]; then
-              break
-            fi
-            echo "Readiness returned HTTP $http_code (attempt $attempt/12); retrying in 10 seconds."
-            sleep 10
-          done
-          echo "Readiness HTTP status after retry window: $http_code"
-          READINESS_HTTP_STATUS="$http_code" node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('readiness.json', 'utf8'))
-          if (!['read-only-dependencies-healthy', 'dependency-check-failed'].includes(data.status)) {
-            throw new Error('Unexpected readiness status')
-          }
-          if (typeof data.success !== 'boolean' || !data.database || !data.providers?.tatum) {
-            throw new Error('Readiness response is missing required diagnostic fields')
-          }
-          const tatum = data.providers.tatum
-          if (typeof tatum.configured !== 'boolean' || typeof tatum.reachable !== 'boolean' || typeof tatum.status !== 'string') {
-            throw new Error('Readiness provider fields have unexpected shape')
-          }
-          const serialized = JSON.stringify(data)
-          if (/TATUM_API_KEY|TRONGRID_API_KEY|Bearer\s+[A-Za-z0-9._-]{12,}|api[_-]?key\s*[:=]\s*["'][^"']+/i.test(serialized)) {
-            throw new Error('Readiness response may expose sensitive material')
-          }
-          const summary = {
-            success: data.success,
-            status: data.status,
-            database: { configured: data.database.configured, ready: data.database.ready },
-            providers: {
-              tatum: { configured: tatum.configured, reachable: tatum.reachable, status: tatum.status, httpStatus: tatum.httpStatus ?? null },
-              tronGridApiKey: { configured: data.providers.tronGridApiKey?.configured ?? false },
-              frontendOrigin: { configured: data.providers.frontendOrigin?.configured ?? false }
-            }
-          }
-          console.log(JSON.stringify(summary, null, 2))
-          if (process.env.READINESS_HTTP_STATUS !== '200'
-            || data.success !== true
-            || data.status !== 'read-only-dependencies-healthy'
-            || data.database.ready !== true
-            || tatum.reachable !== true
-            || data.providers.frontendOrigin?.configured !== true) {
-            throw new Error('Production read-only dependency readiness is not healthy')
-          }
-          NODE
-      - name: Audit owner-console environment readiness without exposing credentials
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f owner-config.json' EXIT
-          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output owner-config.json --write-out '%{http_code}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/auth/owner/config')"
-          if [[ "$http_code" != "200" ]]; then
-            echo "Sanitized owner configuration endpoint returned HTTP $http_code." >&2
-            exit 1
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('owner-config.json', 'utf8'))
-          if (data.success !== true
-            || typeof data.ownerConsole?.configured !== 'boolean'
-            || !Array.isArray(data.ownerConsole?.requiredEnvironment)
-            || typeof data.ownerConsole?.hostedUiOriginAllowed !== 'boolean'
-            || typeof data.ownerConsole?.packagedUiOriginAllowed !== 'boolean') {
-            throw new Error('Sanitized owner configuration response has an unexpected shape')
-          }
-          const serialized = JSON.stringify(data)
-          if (/"(?:ownerAddress|treasuryAddress|privateKey|passwordHash|databaseUrl|apiKey|sessionToken|treasuryPayout|ownerTreasuryFunding)"\s*:/i.test(serialized)) {
-            throw new Error('Owner configuration diagnostic attempted to return a secret or restricted state')
-          }
-          const summary = {
-            ownerConsole: {
-              configured: data.ownerConsole.configured,
-              ownerAddressConfigured: data.ownerConsole.ownerAddressConfigured,
-              passwordHashConfigured: data.ownerConsole.passwordHashConfigured,
-              databaseConfigured: data.ownerConsole.databaseConfigured,
-              allowedOriginConfigured: data.ownerConsole.allowedOriginConfigured,
-              hostedUiOriginAllowed: data.ownerConsole.hostedUiOriginAllowed,
-              packagedUiOriginAllowed: data.ownerConsole.packagedUiOriginAllowed,
-              registrationEnabled: data.ownerConsole.registrationEnabled,
-              requiredEnvironment: data.ownerConsole.requiredEnvironment
-            }
-          }
-          console.log(JSON.stringify(summary, null, 2))
-          if (!data.ownerConsole.configured
-            || !data.ownerConsole.hostedUiOriginAllowed
-            || !data.ownerConsole.packagedUiOriginAllowed) {
-            throw new Error('Owner login or frontend origin configuration is incomplete; review missing variable names above.')
-          }
-          NODE
-      - name: Report sponsor integration prerequisites without exposing addresses
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f sponsor-readiness.json' EXIT
-          curl --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 --silent --show-error --fail --output sponsor-readiness.json https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/integration-readiness
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('sponsor-readiness.json', 'utf8'))
-          if (data.success !== true || data.status !== 'preflight-only-not-production-ready'
-            || !data.backendConfiguration || !data.networks || !data.submission) {
-            throw new Error('Sponsor integration readiness returned an unexpected contract')
-          }
-          if (data.submission.enabled !== false
-            || data.submission.canSubmitSponsoredTransfer !== false
-            || data.submission.userFundedFallbackAllowed !== false) {
-            throw new Error('Sponsor submission or user-funded fallback was unexpectedly enabled')
-          }
-          const booleanFields = [
-            'tatumApiKeyConfigured', 'databaseUrlConfigured', 'frontendOriginConfigured',
-            'sponsorAdminTokenConfigured', 'testnetSignedBroadcastExplicitlyEnabled',
-            'agreementReferenceVariablePresent'
-          ]
-          for (const field of booleanFields) {
-            if (typeof data.backendConfiguration[field] !== 'boolean') {
-              throw new Error('Sponsor readiness is missing a boolean deployment diagnostic')
-            }
-          }
-          const networks = {}
-          for (const network of ['mainnet', 'shasta', 'nile']) {
-            const value = data.networks[network]
-            if (!value?.addressMonitoring || !value?.tokenContractAllowlist || !value?.gasFree) {
-              throw new Error('Sponsor readiness is missing a network diagnostic')
-            }
-            networks[network] = {
-              feeSponsorAddressConfigured: value.addressMonitoring.feeSponsorAddressConfigured,
-              assetPrincipalSponsorAddressConfigured: value.addressMonitoring.assetPrincipalSponsorAddressConfigured,
-              roleAddressesDistinct: value.addressMonitoring.roleAddressesDistinct,
-              usdtContractAllowlisted: value.tokenContractAllowlist.usdt,
-              vtrcContractAllowlisted: value.tokenContractAllowlist.vtrc,
-              gasFreeCredentialsConfigured: value.gasFree.credentialsConfigured,
-              gasFreeDiscoveryReachabilityVerified: value.gasFree.discoveryReachabilityVerified
-            }
-          }
-          console.log(JSON.stringify({
-            status: data.status,
-            backendConfiguration: Object.fromEntries(booleanFields.map(key => [key, data.backendConfiguration[key]])),
-            networks,
-            submissionEnabled: data.submission.enabled,
-            blockerCount: data.submission.blockerCount,
-            blockers: data.submission.blockers
-          }, null, 2))
-          NODE
-      - name: Verify live Nile and Shasta pilot preflight remains read-only
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f testnet-pilot-readiness.json' EXIT
-          http_code="000"
-          for attempt in {1..24}; do
-            http_code="$(curl --connect-timeout 5 --max-time 25 --silent --show-error --output testnet-pilot-readiness.json --write-out '%{http_code}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/testnet-pilot-readiness?network=both' 2>/dev/null)" || http_code="000"
-            if [[ "$http_code" == "200" ]]; then
-              break
-            fi
-            echo "Dual-testnet pilot endpoint returned HTTP $http_code (attempt $attempt/24); waiting for live deployment."
-            sleep 10
-          done
-          if [[ "$http_code" != "200" ]]; then
-            echo "Dual-testnet pilot preflight did not return HTTP 200 after deployment retries." >&2
-            exit 1
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('testnet-pilot-readiness.json', 'utf8'))
-          if (data.success !== true || !data.networks?.nile || !data.networks?.shasta || !data.submission) {
-            throw new Error('Dual-testnet preflight response is missing the expected network contract')
-          }
-          if (data.submission.enabled !== false
-            || data.submission.canSubmitSponsoredTransfer !== false
-            || data.submission.userFundedFallbackAllowed !== false) {
-            throw new Error('Pilot diagnostics unexpectedly enabled transfer submission or user-funded fallback')
-          }
-          for (const network of ['nile', 'shasta']) {
-            const item = data.networks[network]
-            if (typeof item.networkNode?.reachable !== 'boolean'
-              || !item.roleConfiguration
-              || !item.sponsors?.networkFeeSponsor
-              || !item.sponsors?.assetPrincipalSponsor
-              || !item.feeSponsorResources
-              || !Array.isArray(item.blockers)
-              || item.canSubmitSponsoredTransfer !== false
-              || item.submissionEnabled !== false
-              || item.userFundedFallbackAllowed !== false) {
-              throw new Error('Pilot preflight is missing required fail-closed fields for ' + network)
-            }
-          }
-          const serialized = JSON.stringify(data)
-          if (/TATUM_API_KEY|TRONGRID_API_KEY|postgres(ql)?:\/\/|Bearer\s+[A-Za-z0-9._~-]{12,}/i.test(serialized)
-            || /"address"\s*:\s*"T[1-9A-HJ-NP-Za-km-z]{33}"/i.test(serialized)) {
-            throw new Error('Pilot preflight exposed a provider secret, database URL, bearer token or sponsor address')
-          }
-          const summary = Object.fromEntries(['nile', 'shasta'].map((network) => {
-            const item = data.networks[network]
-            return [network, {
-              preflightStatus: item.preflightStatus,
-              solidifiedNodeReachable: item.networkNode.reachable,
-              providerHttpStatus: item.networkNode.providerStatus ?? null,
-              feeSponsorAddressConfigured: item.roleConfiguration.feeSponsorAddressConfigured,
-              assetPrincipalSponsorAddressConfigured: item.roleConfiguration.assetPrincipalSponsorAddressConfigured,
-              sponsorRolesDistinct: item.roleConfiguration.rolesDistinct,
-              feeSponsorBalanceRead: item.roleConfiguration.feeSponsorOnChainBalanceRead,
-              assetPrincipalBalanceRead: item.roleConfiguration.assetPrincipalSponsorOnChainBalanceRead,
-              feeResourcesRead: item.feeSponsorResources.read,
-              feeResourceStatus: item.feeSponsorResources.status,
-              feeResourceProviderHttpStatus: item.feeSponsorResources.providerHttpStatus ?? null,
-              feeResourceFailureStage: item.feeSponsorResources.failureStage ?? null,
-              feeResourceProviderResponseCategory: item.feeSponsorResources.providerResponseCategory ?? null,
-              feeResourceProviderResponseFields: item.feeSponsorResources.providerResponseFields ?? [],
-              activeDelegationObserved: item.feeSponsorResources.delegation.activeDelegationObserved,
-              blockerCount: item.blockers.length,
-              blockers: item.blockers
-            }]
-          }))
-          console.log(JSON.stringify({
-            status: data.status,
-            networks: summary,
-            submissionEnabled: data.submission.enabled,
-            userFundedFallbackAllowed: data.submission.userFundedFallbackAllowed
-          }, null, 2))
-          NODE
-
-      - name: Verify sponsor settlement route stays admin-gated and read-only without credentials
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f sponsor-settlement-guard.json' EXIT
-          http_code="$(curl --connect-timeout 5 --max-time 20 --silent --show-error --output sponsor-settlement-guard.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/transfers/ci-read-only-settlement-route-smoke-0001/confirm')"
-          if [[ "$http_code" != "401" && "$http_code" != "503" ]]; then
-            echo "Unauthenticated sponsor settlement route returned unexpected HTTP $http_code." >&2
-            exit 1
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('sponsor-settlement-guard.json', 'utf8'))
-          if (data.success !== false
-            || !['unauthorized', 'sponsor-admin-not-configured'].includes(data.error)
-            || data.submissionEnabled !== false) {
-            throw new Error('Sponsor settlement route is not fail-closed for unauthenticated requests')
-          }
-          if (data.status === 'confirmed' || data.transactionBroadcast === true || data.principalSpendRecorded === true) {
-            throw new Error('Unauthenticated settlement route attempted to report a transfer as settled')
-          }
-          console.log(JSON.stringify({
-            route: 'sponsor-transfer-confirmation',
-            httpStatus: Number(process.env.HTTP_CODE || 0) || undefined,
-            guard: data.error,
-            submissionEnabled: data.submissionEnabled
-          }))
-          NODE
-
-      - name: Verify sponsor chain-cost observation route is mounted and fail-closed
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f chain-cost-observation-guard.json' EXIT
-          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output chain-cost-observation-guard.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/transfers/ci-chain-cost-observation-guard-0000000001/observe-chain-costs')"
-          if [[ "$http_code" != "401" && "$http_code" != "503" ]]; then
-            echo "Unauthenticated chain-cost observation route returned unexpected HTTP $http_code." >&2
-            exit 1
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('chain-cost-observation-guard.json', 'utf8'))
-          if (data.success !== false
-            || !['unauthorized', 'sponsor-admin-not-configured'].includes(data.error)
-            || data.canSubmitSponsoredTransfer !== false
-            || data.feeSponsorBudgetSettled !== false) {
-            throw new Error('Chain-cost observation endpoint is not fail-closed without operator authorization')
-          }
-          if (data.transactionBroadcast === true || data.sponsorFeeBudgetSettled === true) {
-            throw new Error('Read-only cost observation endpoint reported a spend/settlement side effect')
-          }
-          console.log(JSON.stringify({
-            route: 'sponsor-chain-cost-observation',
-            guard: data.error,
-            canSubmitSponsoredTransfer: data.canSubmitSponsoredTransfer,
-            feeSponsorBudgetSettled: data.feeSponsorBudgetSettled
-          }))
-          NODE
-
-      - name: Verify automated solidified sponsor reconciliation route is mounted and fail-closed
-        shell: bash
-        run: |
-          set -euo pipefail
-          trap 'rm -f sponsor-solidified-reconciliation-guard.json' EXIT
-          http_code="$(curl --retry 4 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 20 --silent --show-error --output sponsor-solidified-reconciliation-guard.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/transfers/ci-solidified-reconciliation-guard-0000000001/reconcile-solidified')"
-          if [[ "$http_code" != "401" && "$http_code" != "503" ]]; then
-            echo "Unauthenticated solidified reconciliation route returned unexpected HTTP $http_code." >&2
-            exit 1
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs'
-          const data = JSON.parse(fs.readFileSync('sponsor-solidified-reconciliation-guard.json', 'utf8'))
-          if (data.success !== false
-            || !['unauthorized', 'sponsor-admin-not-configured'].includes(data.error)
-            || data.canSubmitSponsoredTransfer !== false
-            || data.feeSponsorBudgetSettled !== false
-            || data.userFundedFallbackAllowed !== false) {
-            throw new Error('Automated solidified reconciliation is not fail-closed without operator authorization')
-          }
-          console.log(JSON.stringify({
-            route: 'sponsor-solidified-reconciliation',
-            guard: data.error,
-            canSubmitSponsoredTransfer: data.canSubmitSponsoredTransfer,
-            feeSponsorBudgetSettled: data.feeSponsorBudgetSettled
-          }))
-          NODE
-
-      - name: Check out source for gate-contract validation
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      - name: Set up Node.js for gate-contract validation
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 22
-
-      - name: Verify sponsor and provider submission gates remain fail-closed
-        env:
-          PUBLIC_API_BASE_URL: https://trc20-usdt-token-cloner-api.onrender.com
-        run: node scripts/verify-sponsor-gates.mjs

@@ -6,6 +6,10 @@ import MobileNavBar from './MobileNavBar.jsx'
 import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
 import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
+import OwnerAccountSecurity from './OwnerAccountSecurity.jsx'
+import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
+
+const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
 
 class SponsorWorkspaceErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, message: '' } }
@@ -32,6 +36,7 @@ const NAV_ITEMS = [
   { id: 'pause', label: 'Emergency pause', description: 'Pause or resume token transfers', icon: PauseCircle },
   { id: 'minting', label: 'Minting authorization', description: 'Enable or disable owner issuance', icon: ShieldCheck },
   { id: 'transfers', label: 'Token transfers', shortLabel: 'Transfer', description: 'Transfer existing owner-held TRӾ', icon: ArrowLeftRight },
+  { id: 'withdraw', label: 'Withdraw', shortLabel: 'Withdraw', description: 'Send official USDT from the Owner wallet', icon: ArrowDownToLine },
   { id: 'ownership', label: 'Ownership transfer', description: 'Two-step owner handoff', icon: Wallet },
   { id: 'history', label: 'Credit history', description: 'Confirmed on-chain OwnerCredit events', icon: History },
   { id: 'balance', label: 'External balance lookup', description: 'Read any address token balance', icon: Blocks },
@@ -49,6 +54,19 @@ export default function App() {
   const [walletError, setWalletError] = useState('')
   const [walletNotice, setWalletNotice] = useState('')
   const [ownerAccessOpen, setOwnerAccessOpen] = useState(false)
+  const [ownerSecurityOpen, setOwnerSecurityOpen] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    const restoreOwnerSession = () => ownerAuthClient.session().then(session => {
+      if (active && session?.success && session.role === 'owner' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(String(session.address || ''))) {
+        setOwnerAccessOpen(true)
+      }
+    }).catch(() => {})
+    void restoreOwnerSession()
+    window.addEventListener('tron-transfer:owner-session-refreshed', restoreOwnerSession)
+    return () => { active = false; window.removeEventListener('tron-transfer:owner-session-refreshed', restoreOwnerSession) }
+  }, [])
 
   // Keep each workspace/page addressable and make browser Back/Forward work.
   useEffect(() => {
@@ -76,14 +94,16 @@ export default function App() {
     setWallet(ownerWallet)
     setOwnerAccessOpen(false)
     setWalletError('')
-    setWalletNotice('Owner Wallet unlocked. Transactions are signed locally by your encrypted Owner vault; each write still requires explicit application confirmation.')
+    setWalletNotice('Owner application session authenticated and the encrypted local Owner Wallet is unlocked. Every transaction still requires explicit confirmation.')
   }
 
   function lockWallet() {
+    setOwnerSecurityOpen(false)
+    ownerAuthClient.logout().catch(() => {})
     setWallet(null)
     setOwnerAccessOpen(true)
     setActivePage('home')
-    setWalletNotice('Owner Wallet locked. Its encrypted local backup remains available for unlock or logout.')
+    setWalletNotice('Owner password session signed out and the local signing key has been cleared from memory.')
   }
 
 
@@ -92,10 +112,11 @@ export default function App() {
     let idleTimer
     let backgroundTimer
     const lock = () => {
+      ownerAuthClient.logout().catch(() => {})
       setWallet(null)
       setActivePage('home')
       setOwnerAccessOpen(true)
-      setWalletNotice('Owner Wallet automatically locked. Unlock it with your local vault password to continue.')
+      setWalletNotice('Owner session automatically signed out and the local signing key was cleared. Sign in and unlock again to continue.')
     }
     const resetIdle = () => {
       window.clearTimeout(idleTimer)
@@ -135,7 +156,7 @@ export default function App() {
             <button type="button" className={sponsorWorkspace ? 'active sponsor' : ''} aria-current={sponsorWorkspace ? 'page' : undefined} aria-pressed={sponsorWorkspace} onClick={() => setActivePage('sponsor')}>Sponsor workspace</button>
           </div>
           <span className="trax-mainnet-badge"><i/> TRON MAINNET <b>·</b> {sponsorWorkspace ? "SPONSOR" : "OWNER"}</span>
-          {!sponsorWorkspace && (wallet ? <button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Unlock Owner Wallet</button>)}
+          {!sponsorWorkspace && (wallet ? <><button type="button" className="trax-topbar-security" onClick={() => setOwnerSecurityOpen(true)}>Account security</button><button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button></> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Unlock Owner Wallet</button>)}
         </div>
       </header>
       <main id="trax-workspace-main" className="trax-admin-content" tabIndex={-1}>
@@ -148,6 +169,7 @@ export default function App() {
         </div>
       </main>
       {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
+      {ownerSecurityOpen && wallet && <div className="owner-security-modal-backdrop" role="dialog" aria-modal="true" aria-label="Owner account security" onMouseDown={event => { if (event.target === event.currentTarget) setOwnerSecurityOpen(false) }}><div className="owner-security-modal"><button type="button" className="owner-security-modal-close" onClick={() => setOwnerSecurityOpen(false)}>Close</button><OwnerAccountSecurity wallet={wallet} onConnect={connectWallet}/></div></div>}
     <footer className="trax-admin-footer">TRON TRANSFER · INDEPENDENT OWNER SIGNING · TRON MAINNET</footer>
     </div>
     <MobileNavBar items={visibleNavItems} activePage={activePage} onNavigate={setActivePage} workspace={sponsorWorkspace ? "sponsor" : "owner"}/>

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { assertZeroTrxBurnBudget, calculateDeploymentResourceBudget, buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatOwnerWalletError, isMainnetEnergyEstimateUnavailable, claimTenergyPromoForDeployment, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
+import { assertZeroTrxBurnBudget, calculateDeploymentResourceBudget, buildDeploymentOptions, createMainnetDeploymentTransaction, estimateMainnetDeploymentEnergy, formatOwnerWalletError, isMainnetEnergyEstimateUnavailable, predictMainnetContractAddress } from '../src/trax-mainnet.mjs'
 
 const generated = await fs.readFile(new URL('../src/generated/trax-contract-artifacts.js', import.meta.url), 'utf8')
 const artifact = JSON.parse(generated.slice('export default '.length).trim().replace(/;$/, ''))
@@ -303,13 +303,12 @@ test('predicted TRON contract address matches TronWeb genContractAddress algorit
   assert.deepEqual(inputs, [txID + ownerHex])
 })
 
-test('structured provider errors are rendered as useful diagnostics, not [object Object]', () => {
-  const error = new Error('provider request failed')
-  Object.assign(error, { code: 3038, slug: 'promo_not_eligible', message: 'This address did not receive the promo token from us', field: null, retryable: false })
-  const rendered = formatOwnerWalletError(error, 'Energy claim')
-  assert.match(rendered, /3038/)
-  assert.match(rendered, /promo_not_eligible/)
-  assert.match(rendered, /did not receive the promo token/)
+test('structured Mainnet RPC errors are rendered as useful diagnostics, not [object Object]', () => {
+  const error = new Error('TronGrid request failed')
+  Object.assign(error, { code: 429, status: 429, message: 'TronGrid request rate exceeded' })
+  const rendered = formatOwnerWalletError(error, 'Mainnet resource preflight')
+  assert.match(rendered, /429/)
+  assert.match(rendered, /rate exceeded/)
   assert.doesNotMatch(rendered, /\\[object Object\\]/)
 })
 
@@ -321,185 +320,3 @@ test('nested HTTP errors preserve provider response details', () => {
   assert.match(rendered, /429/)
 })
 
-
-const PROMO_OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const PROMO_OWNER_HEX = '41' + '11'.repeat(20)
-
-function promoWallet(signMessageV2 = async () => 'ab'.repeat(65)) {
-  return {
-    address: PROMO_OWNER,
-    provider: null,
-    signerType: 'encrypted-local-owner-vault',
-    tronWeb: {
-      fullNode: { host: 'https://api.trongrid.io' },
-      defaultAddress: { base58: PROMO_OWNER },
-      isAddress: address => address === PROMO_OWNER,
-      address: { toHex: address => address === PROMO_OWNER ? PROMO_OWNER_HEX : '' },
-      trx: {
-        signMessageV2,
-        sign: async transaction => transaction,
-        sendRawTransaction: async () => { throw new Error('broadcast not expected in promo tests') },
-      },
-    },
-  }
-}
-
-function promoFetchResponse(payload, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: async () => payload }
-}
-
-test('eligible TEnergy promo is claimed with an off-chain wallet message and verified by Mainnet delegation reads', async () => {
-  const calls = []
-  let statusReads = 0
-  let resourceReads = 0
-  const fetchImpl = async (url, init = {}) => {
-    calls.push({ url, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : null })
-    if (url.includes('/api/tron/resources/free-delegation/status')) {
-      return promoFetchResponse({
-        success: true,
-        inboundDelegations: {
-          records: [{ energyStakeSun: '5000000', energyExpireTime: 0 }],
-        },
-      })
-    }
-    if (url.includes('/api/tron/tenergy/promo/status')) {
-      statusReads += 1
-      return promoFetchResponse({
-        success: true,
-        promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } },
-        redemption: statusReads === 1 ? null : {
-          status: 'delegated', energy: 65000, expiresAt: new Date(Date.now() + 3600000).toISOString(),
-        },
-      })
-    }
-    if (url.endsWith('/api/tron/tenergy/promo/challenge')) {
-      return promoFetchResponse({
-        success: true, address: PROMO_OWNER, nonce: 'nonce-12345678',
-        message: 'Sign this exact TEnergy promo challenge.',
-      })
-    }
-    if (url.endsWith('/api/tron/tenergy/promo/redeem')) {
-      return promoFetchResponse({
-        success: true, redemption: { status: 'granting', energy: 65000 },
-      })
-    }
-    throw new Error('unexpected promo request: ' + url)
-  }
-  const result = await claimTenergyPromoForDeployment(promoWallet(), PROMO_OWNER, {
-    fetchImpl,
-    pollAttempts: 3,
-    pollIntervalMs: 0,
-    readResources: async () => {
-      resourceReads += 1
-      return resourceReads === 1
-        ? { energyLimit: '100', energyAvailable: '100' }
-        : { energyLimit: '65100', energyAvailable: '65100' }
-    },
-  })
-  assert.equal(result.status, 'delegated-and-chain-verified')
-  assert.equal(result.energyVerified, true)
-  assert.equal(result.bandwidthCovered, false)
-  const redeem = calls.find(call => call.url.endsWith('/api/tron/tenergy/promo/redeem'))
-  assert.deepEqual(redeem.body, { address: PROMO_OWNER, nonce: 'nonce-12345678', signature: 'ab'.repeat(65) })
-  assert.ok(statusReads >= 2)
-})
-
-test('actual TEnergy 3038 promo_not_eligible response is normalized and never prompts or retries', async () => {
-  let signatureCalls = 0
-  let providerCalls = 0
-  const fetchImpl = async (url) => {
-    providerCalls += 1
-    if (url.includes('/api/tron/tenergy/promo/status')) {
-      return promoFetchResponse({ success: true, promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } }, redemption: null })
-    }
-    if (url.endsWith('/api/tron/tenergy/promo/challenge')) {
-      return promoFetchResponse({
-        success: false,
-        provider: 'TEnergy',
-        network: 'mainnet',
-        error: 3038,
-        message: 'This address did not receive the promo token from us',
-        retryable: false,
-      }, 403)
-    }
-    throw new Error('No resource query, signature, or redemption should follow a permanent provider rejection')
-  }
-  const wallet = promoWallet(async () => { signatureCalls += 1; return 'ab'.repeat(65) })
-  const readResources = async () => ({ energyLimit: '0', energyAvailable: '0' })
-  const first = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, { fetchImpl, readResources })
-  assert.equal(first.status, 'promo-not-eligible')
-  assert.equal(first.providerCode, '3038')
-  assert.equal(first.retryable, false)
-  assert.match(first.message, /not included in the one-time promotional distribution/)
-  assert.equal(signatureCalls, 0)
-  assert.equal(providerCalls, 2)
-
-  const second = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
-    fetchImpl,
-    readResources: async () => { throw new Error('Permanent ineligibility cache should return before Mainnet reads') },
-  })
-  assert.equal(second.status, 'promo-not-eligible')
-  assert.equal(second.providerCode, '3038')
-  assert.equal(second.retryable, false)
-  assert.equal(signatureCalls, 0)
-  assert.equal(providerCalls, 2)
-})
-
-test('declining the off-chain promo message does not submit a claim or a TRON transaction', async () => {
-  let redeemCalls = 0
-  const fetchImpl = async (url) => {
-    if (url.includes('/api/tron/resources/free-delegation/status')) return promoFetchResponse({ success: true, inboundDelegations: { records: [] } })
-    if (url.includes('/api/tron/tenergy/promo/status')) return promoFetchResponse({
-      success: true, promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } }, redemption: null,
-    })
-    if (url.endsWith('/api/tron/tenergy/promo/challenge')) return promoFetchResponse({
-      success: true, nonce: 'nonce-12345678', address: PROMO_OWNER, message: 'Exact challenge',
-    })
-    if (url.endsWith('/api/tron/tenergy/promo/redeem')) { redeemCalls += 1; return promoFetchResponse({}) }
-    throw new Error('unexpected request')
-  }
-  const wallet = promoWallet(async () => { throw Object.assign(new Error('User rejected the request'), { code: 4001 }) })
-  const result = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
-    fetchImpl,
-    readResources: async () => ({ energyLimit: '0', energyAvailable: '0' }),
-  })
-  assert.equal(result.status, 'claim-signature-declined')
-  assert.equal(redeemCalls, 0)
-})
-
-
-test('a previously accepted but pending promo claim resumes polling without requesting a second signature', async () => {
-  let statusReads = 0
-  let signatureCalls = 0
-  let resourceReads = 0
-  const fetchImpl = async (url) => {
-    if (url.includes('/api/tron/resources/free-delegation/status')) {
-      return promoFetchResponse({ success: true, inboundDelegations: { records: [{ energyStakeSun: '5000000', energyExpireTime: 0 }] } })
-    }
-    if (url.includes('/api/tron/tenergy/promo/status')) {
-      statusReads += 1
-      return promoFetchResponse({
-        success: true,
-        promo: { state: 'active', grant: { resource: 'energy', amount: 65000 } },
-        redemption: { status: statusReads === 1 ? 'granting' : 'delegated', energy: 65000 },
-      })
-    }
-    throw new Error('a pending claim must not request another challenge or redeem operation')
-  }
-  const wallet = promoWallet(async () => { signatureCalls += 1; return 'ab'.repeat(65) })
-  const result = await claimTenergyPromoForDeployment(wallet, PROMO_OWNER, {
-    fetchImpl,
-    pollAttempts: 2,
-    pollIntervalMs: 0,
-    readResources: async () => {
-      resourceReads += 1
-      return resourceReads === 1
-        ? { energyLimit: '100', energyAvailable: '100' }
-        : { energyLimit: '65100', energyAvailable: '65100' }
-    },
-  })
-  assert.equal(result.status, 'delegated-and-chain-verified')
-  assert.equal(result.energyVerified, true)
-  assert.equal(signatureCalls, 0)
-  assert.ok(statusReads >= 2)
-})
