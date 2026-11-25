@@ -954,10 +954,10 @@ test('Sponsor readiness coalesces simultaneous status refreshes into one databas
   assert.equal(first.payload.writesReleaseAvailable, false)
   assert.ok(first.payload.writesReleaseChecks.some(check => check.id === 'explicit-release-flag' && check.state === 'blocked'))
   assert.equal(second.payload.sponsorWritesPaused, true)
-  assert.equal(queryCount, 2)
+  assert.equal(queryCount, 3)
   const cached = await call(api, 'GET', '/api/sponsor/status')
   assert.equal(cached.status, 200)
-  assert.equal(queryCount, 2)
+  assert.equal(queryCount, 3)
 })
 
 test('Sponsor intents are authorized by the Sponsor session, not the Owner Admin session', async () => {
@@ -1150,6 +1150,7 @@ function sponsorControlDatabase(initialPaused) {
         signed_transaction_column: true,
       }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
+      if (sql.includes('FROM public.tron_transfer_wallet_accounts')) return { rowCount: 1, rows: [{ wallet_address: SPONSOR, enabled: true }] }
       throw new Error('unexpected Sponsor control pool query: ' + sql)
     },
     async connect() {
