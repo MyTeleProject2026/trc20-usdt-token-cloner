@@ -1,4 +1,5 @@
 import process from 'node:process'
+import { evaluateProductionAcceptance } from '../production-acceptance-assessment.mjs'
 
 const baseUrl = String(process.env.TRON_TRANSFER_API_BASE_URL || '').replace(/\/$/, '')
 if (!baseUrl) {
@@ -32,38 +33,10 @@ try {
     get('/health'),
     get('/api/acceptance/production'),
   ])
-  const required = [
-    'owner-address',
-    'sponsor-address-format-and-separation',
-    'sponsor-mainnet-address-configured-and-independent',
-    'ledger-database-configured',
-    'database-target-identity',
-    'ledger-schema-and-control-row',
-    'ledger-durability-and-restore-attestation',
-    'writes-remain-paused-until-release',
-    'owner-admin-second-factor-configured',
-    'session-authentication-configured',
-    'sponsor-local-transaction-signer',
-    'mainnet-execution-explicitly-disabled',
-  ]
-  const checks = Array.isArray(report.acceptance?.checks) ? report.acceptance.checks : []
-  const byId = new Map(checks.map(item => [item.id, item]))
-  const missing = required.filter(id => !byId.has(id))
-  const blocked = checks.filter(item => item.state !== 'passed')
-  const safe = report.acceptance?.executionEnabled === false
-    && report.transactionExecutionAvailable !== true
-  const result = {
-    health: health.ok === true ? 'passed' : 'failed',
-    network: health.network || 'unknown',
-    acceptanceState: report.acceptance?.state || 'missing',
-    checks: checks.map(({ id, state, detail }) => ({ id, state, ...(detail ? { detail } : {}) })),
-    missingChecks: missing,
-    blockedChecks: blocked.map(({ id, state, detail }) => ({ id, state, ...(detail ? { detail } : {}) })),
-    mainnetExecutionRemainsDisabled: safe,
-  }
+  const result = evaluateProductionAcceptance(health, report)
   process.stdout.write(JSON.stringify(result, null, 2) + '\n')
-  if (health.ok !== true || missing.length || blocked.length || result.acceptanceState !== 'ready-for-independent-review' || !safe) process.exitCode = 1
+  if (!result.passed) process.exitCode = 1
 } catch (error) {
-  process.stderr.write('Production acceptance smoke test failed: ' + String(error?.message || 'unknown-error') + '\n')
+  process.stderr.write('Production acceptance smoke test failed: ' + String(error?.message || 'unknown error') + '\n')
   process.exitCode = 1
 }
