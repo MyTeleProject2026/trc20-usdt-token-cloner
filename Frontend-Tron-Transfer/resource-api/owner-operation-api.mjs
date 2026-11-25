@@ -244,7 +244,7 @@ async function readReservedUsdtBaseUnits(database, ownerAddress, excludeOperatio
     "    OR (state='awaiting-confirmation' AND COALESCE((receipt->'unsignedTransaction'->'raw_data'->>'expiration')::numeric, 0) > (extract(epoch FROM now()) * 1000))",
     "    OR state IN ('confirming','signed','broadcast-unknown','broadcast')",
     "  )",
-  ].join('\\n')
+  ].join('\n')
   const result = await database.query(sql, [ownerAddress, excludeOperationId])
   const reserved = String(result.rows?.[0]?.reserved_base_units ?? '0')
   if (!/^(?:0|[1-9][0-9]*)$/.test(reserved)) fail('OWNER_USDT_RESERVED_BALANCE_INVALID', 503)
