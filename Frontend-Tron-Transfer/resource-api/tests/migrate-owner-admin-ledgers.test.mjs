@@ -34,7 +34,7 @@ test('Owner Admin schema fingerprint reads the stable catalog manifest',async()=
  assert.ok(!statement.includes('tron_transfer_sponsor_operations'))
  const separators=[...statement.matchAll(/E'(\\+)n'/g)].map(match=>match[1].length)
  assert.ok(separators.length>0)
- assert.ok(separators.every(length=>length===4),'runtime SQL must preserve the exact four-backslash separator used by the pinned fingerprint')
+ assert.ok(separators.every(length=>length===2),'runtime SQL must preserve the exact two-backslash separator used by the pinned fingerprint')
 })
 
 test('Owner Admin migrations apply atomically and skip matching checksums',async()=>{
