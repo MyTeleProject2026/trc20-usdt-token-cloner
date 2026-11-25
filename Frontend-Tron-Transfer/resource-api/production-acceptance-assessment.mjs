@@ -3,6 +3,7 @@ export const REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS = Object.freeze([
   'sponsor-address-format-and-separation',
   'sponsor-engine-address-matches-configuration',
   'sponsor-mainnet-address-configured-and-independent',
+  'owner-wallet-enrolled',
   'sponsor-wallet-enrolled',
   'ledger-database-configured',
   'database-target-identity',
