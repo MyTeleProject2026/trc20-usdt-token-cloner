@@ -12,6 +12,7 @@ test('Render Blueprint preserves Neon and does not provision a Render database o
     'OWNER_OPERATION_EXECUTION_ENABLED', 'TRAX_DEPLOYMENT_EXECUTION_ENABLED',
     'TRAX_DEPLOYMENT_ARTIFACT_SHA256', 'SPONSOR_TRANSACTION_ENGINE_ENABLED',
     'SPONSOR_MAINNET_BROADCAST_ENABLED', 'SPONSOR_WRITES_RELEASE_ENABLED',
+    'RENDER_API_KEY', 'RENDER_FRONTEND_SERVICE_ID', 'RENDER_RESOURCE_API_SERVICE_ID',
   ]) assert.match(blueprint, new RegExp('- key: ' + key + '\\n\\s+sync: false'), 'missing operator-managed Render variable: ' + key)
   assert.doesNotMatch(blueprint, /^databases:/m)
   assert.doesNotMatch(blueprint, /fromDatabase:/)
@@ -28,6 +29,8 @@ test('server environment example documents existing production gates without emb
     'OWNER_OPERATION_EXECUTION_ENABLED=false', 'SPONSOR_TRANSACTION_ENGINE_ENABLED=false',
     'SPONSOR_MAINNET_BROADCAST_ENABLED=false', 'SPONSOR_WRITES_RELEASE_ENABLED=false',
     'TRAX_SOURCE_SHA256=', 'TRAX_RUNTIME_BYTECODE_SHA256=',
+    'RENDER_API_KEY=', 'RENDER_FRONTEND_SERVICE_ID=srv-dblmrad6e07s739cs2lg',
+    'RENDER_RESOURCE_API_SERVICE_ID=srv-dbrjpq56e07s73bueevg',
   ]) assert.ok(example.includes(key), 'missing server configuration entry: ' + key)
   assert.doesNotMatch(example, /(?:PRIVATE_KEY|MNEMONIC|SEED_PHRASE|PASSWORD_HASH)=/i)
   assert.match(example, /Never expose any value below through Vite\/VITE_\* frontend variables/)
