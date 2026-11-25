@@ -117,6 +117,93 @@ test('Owner operation preparation rejects arbitrary operations before building a
   assert.equal(replies[0].payload.error, 'OWNER_OPERATION_NOT_ALLOWLISTED')
 })
 
+test('Official USDT withdrawal preparation is pinned to the canonical Mainnet contract and shared Owner ledger', async () => {
+  const usdtContract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  const recipient = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
+  const replies = []
+  const transitions = []
+  const calls = { verifyUsdt: 0, verifyTrax: 0, prepared: null }
+  const ledger = {
+    async prepare(input) {
+      calls.ledgerInput = input
+      return { operation_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', state: 'created', intent_sha256: 'a'.repeat(64), replay: false }
+    },
+    async transition(input) { transitions.push(input); return { state: input.nextState } },
+    async get() { return null },
+  }
+  const api = createOwnerOperationApi({
+    env: {
+      DATABASE_URL: testDatabaseUrl,
+      OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: testDatabaseIdentity,
+      TRON_OWNER_ADDRESS: owner,
+      TRAX_CONTRACT_ADDRESS: contract,
+      OWNER_OPERATION_LEDGER_DURABLE: 'true',
+      OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true',
+      OWNER_OPERATION_LEDGER_RESTORE_TESTED: 'true',
+    },
+    database: { async query() { return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } } },
+    send: (_res, status, payload) => replies.push({ status, payload }),
+    authenticateManagedSession: async () => ({ address: owner, sessionId: 9 }),
+    ledgerFactory: () => ledger,
+    tronWebFactory: () => ({}),
+    verifyUsdtContractState: async (_tronWeb, address) => { calls.verifyUsdt++; assert.equal(address, usdtContract) },
+    verifyContractState: async () => { calls.verifyTrax++; throw new Error('TRAX verification must not be used for USDT') },
+    prepareTransaction: async (_tronWeb, address, ownerAddress, normalized) => {
+      calls.prepared = { address, ownerAddress, normalized }
+      return { txID: 'b'.repeat(64), raw_data_hex: 'ab'.repeat(32), raw_data: { expiration: Date.now() + 60_000 } }
+    },
+    preflightTransaction: async () => ({ estimatedTrxFallbackSun: '0', requiredEnergyWithSafetyMargin: 12000 }),
+  })
+  await api.handle(request('POST', {
+    operationType: 'usdt-transfer',
+    contractAddress: usdtContract,
+    recipient,
+    amount: '1250000',
+    feeLimitSun: '1000000',
+    idempotencyKey: 'owner-usdt-withdrawal-0001',
+  }), response(), new URL('https://api.test/api/owner/operations/prepare'), 'https://tron-transfer.onrender.com')
+  assert.equal(replies[0].status, 201)
+  assert.equal(replies[0].payload.operationType, 'usdt-transfer')
+  assert.equal(replies[0].payload.contractAddress, usdtContract)
+  assert.equal(calls.verifyUsdt, 1)
+  assert.equal(calls.verifyTrax, 0)
+  assert.equal(calls.prepared.address, usdtContract)
+  assert.equal(calls.prepared.normalized.method, 'transfer')
+  assert.deepEqual(calls.prepared.normalized.args, [recipient, '1250000'])
+  assert.equal(calls.ledgerInput.operationType, 'usdt-transfer')
+  assert.deepEqual(transitions.map(item => item.nextState), ['preflight-passed', 'awaiting-confirmation'])
+})
+
+test('Official USDT withdrawal refuses a non-canonical token contract before transaction preparation', async () => {
+  const replies = []
+  const api = createOwnerOperationApi({
+    env: {
+      DATABASE_URL: testDatabaseUrl,
+      OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: testDatabaseIdentity,
+      TRON_OWNER_ADDRESS: owner,
+      TRAX_CONTRACT_ADDRESS: contract,
+      OWNER_OPERATION_LEDGER_DURABLE: 'true',
+      OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true',
+      OWNER_OPERATION_LEDGER_RESTORE_TESTED: 'true',
+    },
+    database: { async query() { return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } } },
+    send: (_res, status, payload) => replies.push({ status, payload }),
+    authenticateManagedSession: async () => ({ address: owner, sessionId: 9 }),
+    tronWebFactory: () => { throw new Error('must not construct TronWeb for an invalid token address') },
+    prepareTransaction: async () => { throw new Error('must not prepare an invalid token address') },
+  })
+  await api.handle(request('POST', {
+    operationType: 'usdt-transfer',
+    contractAddress: contract,
+    recipient: 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR',
+    amount: '1000000',
+    feeLimitSun: '1000000',
+    idempotencyKey: 'owner-usdt-withdrawal-0002',
+  }), response(), new URL('https://api.test/api/owner/operations/prepare'), 'https://tron-transfer.onrender.com')
+  assert.equal(replies[0].status, 409)
+  assert.equal(replies[0].payload.error, 'OWNER_USDT_CONTRACT_ADDRESS_NOT_OFFICIAL')
+})
+
 test('Owner operation API exposes signing only behind guarded explicit confirmation', async () => {
   const source = await readFile(new URL('../owner-operation-api.mjs', import.meta.url), 'utf8')
   assert.match(source, /executionGateEnabled\(env\)/)
