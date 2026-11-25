@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope, LEGACY_MIGRATION_CHECKSUMS, OWNER_ADMIN_SCHEMA_FINGERPRINT, getOwnerAdminSchemaFingerprint, ownerAdminDatabaseIdentityFingerprint, assertOwnerAdminDatabaseIdentity } from '../scripts/migrate-owner-admin-ledgers.mjs'
+import { applyOwnerAdminMigrations, stripOuterTransactionEnvelope, LEGACY_MIGRATION_CHECKSUMS, OWNER_ADMIN_SCHEMA_FINGERPRINT, getOwnerAdminSchemaFingerprint, ownerAdminDatabaseIdentityFingerprint, assertOwnerAdminDatabaseIdentity, assertOwnerAdminMigrationSafety } from '../scripts/migrate-owner-admin-ledgers.mjs'
 import { readFile } from 'node:fs/promises'
 
 test('Owner Admin migration target fingerprint pins host, database, port and role without exposing credentials',()=>{
@@ -164,4 +164,16 @@ test('restore-branch legacy migration checksums are accepted only behind the ver
  })
  assert.equal(result.legacyChecksumsReconciled,true)
  assert.equal(applied.get(version).length,64)
+})
+
+test('Owner Admin migration requires explicit backup and restore attestations as well as the exact acknowledgement',()=>{
+ const base={
+  OWNER_ADMIN_MIGRATIONS_ACK:'APPLY_TRON_TRANSFER_OWNER_ADMIN_MIGRATIONS',
+  OWNER_OPERATION_LEDGER_BACKUP_VERIFIED:'true',
+  OWNER_OPERATION_LEDGER_RESTORE_TESTED:'true',
+ }
+ assert.doesNotThrow(()=>assertOwnerAdminMigrationSafety(base))
+ assert.throws(()=>assertOwnerAdminMigrationSafety({...base,OWNER_ADMIN_MIGRATIONS_ACK:''}),/OWNER_ADMIN_MIGRATIONS_ACK/)
+ assert.throws(()=>assertOwnerAdminMigrationSafety({...base,OWNER_OPERATION_LEDGER_BACKUP_VERIFIED:'false'}),/backup/)
+ assert.throws(()=>assertOwnerAdminMigrationSafety({...base,OWNER_OPERATION_LEDGER_RESTORE_TESTED:'false'}),/restore drill/)
 })
