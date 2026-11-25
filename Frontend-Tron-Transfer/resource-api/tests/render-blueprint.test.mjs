@@ -13,6 +13,8 @@ test('Render Blueprint preserves Neon and does not provision a Render database o
     'OWNER_OPERATION_EXECUTION_ENABLED', 'TRAX_DEPLOYMENT_EXECUTION_ENABLED',
     'TRAX_DEPLOYMENT_ARTIFACT_SHA256', 'SPONSOR_TRANSACTION_ENGINE_ENABLED',
     'SPONSOR_MAINNET_BROADCAST_ENABLED', 'SPONSOR_WRITES_RELEASE_ENABLED',
+    'SPONSOR_LIQUID_RESERVE_TRX', 'SPONSOR_STAKING_ENABLED',
+    'SPONSOR_MAX_AUTOMATIC_STAKE_TRX', 'SPONSOR_MAX_OWNER_TOPUP_TRX', 'SPONSOR_MAX_TX_FEE_SUN',
     'RENDER_API_KEY', 'RENDER_FRONTEND_SERVICE_ID', 'RENDER_RESOURCE_API_SERVICE_ID',
   ]) assert.match(blueprint, new RegExp('- key: ' + key + '\\n\\s+sync: false'), 'missing operator-managed Render variable: ' + key)
   assert.doesNotMatch(blueprint, /^databases:/m)
