@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-test('Sponsor workspace exposes only an Owner-Admin-authorized paused ledger bootstrap', async () => {
+test('Sponsor workspace exposes guarded bootstrap and Owner-authorized write controls without Sponsor unlock', async () => {
   const source = await readFile(new URL('../src/SponsorWalletManager.jsx', import.meta.url), 'utf8')
   const api = await readFile(new URL('../resource-api/sponsor-api.mjs', import.meta.url), 'utf8')
   assert.ok(source.includes('/api/sponsor/ledger/bootstrap'))
@@ -24,6 +24,15 @@ test('Sponsor workspace exposes only an Owner-Admin-authorized paused ledger boo
   assert.ok(api.includes("req.method === 'POST' && path === '/api/sponsor/ledger/bootstrap'"))
   assert.ok(api.includes('verifyAdminAuthorization(req)'))
   assert.ok(api.includes('authenticateOwnerAdminSession'))
+  assert.ok(api.includes("path === '/api/sponsor/ledger/release' || path === '/api/sponsor/ledger/pause'"))
+  assert.ok(api.includes("env.SPONSOR_WRITES_RELEASE_ENABLED === 'true'"))
+  assert.ok(source.includes("ownerAuth.apiRequest(paused ? '/api/sponsor/ledger/pause' : '/api/sponsor/ledger/release'"))
+  assert.ok(source.includes('ENABLE_SPONSOR_MAINNET_WRITES'))
+  assert.ok(source.includes('PAUSE_SPONSOR_MAINNET_WRITES'))
+  assert.ok(source.includes('writesReleaseAvailable'))
+  assert.ok(source.includes('Sponsor Mainnet write control'))
+  assert.ok(source.includes("{activePage === 'sponsor' && <section className=\"sponsor-card sponsor-admin-authorization\">"))
+  assert.ok(!source.includes("{wallet && <section className=\"sponsor-card sponsor-admin-authorization\">"))
   assert.ok(source.includes('Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof.'))
   assert.ok(source.includes('Owner authentication is checked independently'))
   assert.match(source, /the explicitly guarded, one-time Sponsor ledger bootstrap/)
