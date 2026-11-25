@@ -14,7 +14,8 @@ export const REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS = Object.freeze([
 ])
 
 export function evaluateProductionAcceptance(health, report) {
-  const checks = Array.isArray(report?.acceptance?.checks) ? report.acceptance.checks : []
+  const rawChecks = Array.isArray(report?.acceptance?.checks) ? report.acceptance.checks : []
+  const checks = rawChecks.filter(item => item && typeof item === 'object' && !Array.isArray(item))
   const byId = new Map(checks.map(item => [item.id, item]))
   const missingChecks = REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS.filter(id => !byId.has(id))
   const blockedChecks = checks.filter(item => item?.state !== 'passed')
