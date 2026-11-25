@@ -433,8 +433,10 @@ export function createOwnerOperationApi({
         const requestedLimit = Number(url.searchParams.get('limit') || 20)
         const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(50, requestedLimit) : 20
         const rows = await ledger.list(String(env.TRON_OWNER_ADDRESS || ''), limit)
+        const reservedUsdtBaseUnits = await readReservedUsdtBaseUnits(db, String(env.TRON_OWNER_ADDRESS || ''))
         return reply(res, 200, {
           success: true, network: 'TRON Mainnet', executionEnabled: executionGateEnabled(env),
+          reservedUsdtBaseUnits,
           operations: rows.map(row => ({
             operationId: row.operation_id, operationType: row.operation_type,
             contractAddress: row.contract_address, state: row.state,
@@ -465,10 +467,35 @@ export function createOwnerOperationApi({
         const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
         if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
         const intent = { ownerAddress, contractAddress, method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun }
-        const record = await ledger.prepare({
-          sessionId: session.sessionId, ownerAddress, idempotencyKey: normalized.idempotencyKey,
-          operationType: normalized.operationType, contractAddress, intent,
-        })
+        let record
+        let reservedUsdtBaseUnits = '0'
+        if (operationType === 'usdt-transfer') {
+          if (typeof db.connect !== 'function') fail('OWNER_USDT_RESERVATION_LOCK_UNAVAILABLE', 503)
+          const client = await db.connect()
+          let transactionOpen = false
+          try {
+            await client.query('BEGIN')
+            transactionOpen = true
+            await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [ownerAddress, 'owner-official-usdt-withdrawal'])
+            reservedUsdtBaseUnits = await readReservedUsdtBaseUnits(client, ownerAddress)
+            record = await ledgerFactory({ database: client }).prepare({
+              sessionId: session.sessionId, ownerAddress, idempotencyKey: normalized.idempotencyKey,
+              operationType: normalized.operationType, contractAddress, intent,
+            })
+            await client.query('COMMIT')
+            transactionOpen = false
+          } catch (error) {
+            if (transactionOpen) await client.query('ROLLBACK').catch(() => {})
+            throw error
+          } finally {
+            client.release?.()
+          }
+        } else {
+          record = await ledger.prepare({
+            sessionId: session.sessionId, ownerAddress, idempotencyKey: normalized.idempotencyKey,
+            operationType: normalized.operationType, contractAddress, intent,
+          })
+        }
         if (record.replay) {
           const existing = await ledger.get(record.operation_id, ownerAddress)
           return reply(res, 200, {
@@ -487,7 +514,7 @@ export function createOwnerOperationApi({
           if (operationType === 'usdt-transfer') await verifyUsdtContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           else await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
-          result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env })
+          result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits })
         } catch (error) {
           await ledger.transition({
             operationId: record.operation_id, ownerAddress,
@@ -595,7 +622,10 @@ export function createOwnerOperationApi({
           if (normalized.operationType === 'usdt-transfer') await verifyUsdtContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
           else await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
           const unsigned = preparedUnsigned
-          const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env })
+          const reservedUsdtBaseUnits = normalized.operationType === 'usdt-transfer'
+            ? await readReservedUsdtBaseUnits(db, ownerAddress, operationId)
+            : '0'
+          const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits })
           const expiration = Number(unsigned?.raw_data?.expiration)
           if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
