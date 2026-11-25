@@ -112,9 +112,9 @@ test('Owner Admin authentication is retained for guarded Sponsor ledger bootstra
   assert.match(source.slice(bootstrapStart, bootstrapEnd), /ensureOwnerAdmin\(\)/)
 })
 
-test('Owner Admin panel explains its bootstrap-only authorization boundary', () => {
-  assert.match(source, /Sponsor ledger bootstrap authorization/)
-  assert.match(source, /only to initialize the paused Sponsor ledger schema/)
+test('Owner Admin panel explains its guarded bootstrap and write-control boundary', () => {
+  assert.match(source, /Owner Admin authorization/)
+  assert.match(source, /only for ledger bootstrap and explicit Sponsor write-control actions/)
   assert.match(source, /Sponsor transactions require only the independent Sponsor session/)
   assert.match(source, /Owner authentication boundary: \{sponsorApiStatus\?\.ownerAdminSessionConfiguredForLedgerRelease \? 'guarded bootstrap and pause\/release actions only'/)
 })
