@@ -69,7 +69,7 @@ test('Official USDT withdrawal stays inside the existing Owner workspace and use
   assert.ok(panel.includes("wallet.authClient.apiRequest('/api/owner/operations/prepare'"))
   assert.ok(panel.includes("signer.trx.sign(pendingOperation.unsignedTransaction)"))
   assert.ok(panel.includes('getMainnetUSDTBalance(readOnlyTronWeb, connectedAddress)'))
-  assert.ok(panel.includes('The requested withdrawal exceeds the current official USDT balance.'))
+  assert.ok(panel.includes('The requested withdrawal exceeds the available official USDT balance after active withdrawal reservations.'))
   assert.ok(panel.includes("wallet.authClient.apiRequest('/api/owner/operations?limit=50')"))
   assert.ok(panel.includes('reservedUsdtBaseUnits'))
   assert.ok(panel.includes('available official USDT balance after active withdrawal reservations'))
