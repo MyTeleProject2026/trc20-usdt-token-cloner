@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { createOwnerOperationApi } from '../owner-operation-api.mjs'
+import { TronWeb } from 'tronweb'
+import { createOwnerOperationApi, verifyOwnerUsdtTransferIntent, verifyOwnerUsdtTransferReceipt } from '../owner-operation-api.mjs'
 import { sponsorDatabaseTargetIdentityInfo } from '../sponsor-api.mjs'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -43,6 +44,83 @@ function makeApi({ env = {}, session = null, database = null, authenticateManage
   })
   return { api, replies, authCalls }
 }
+
+const usdtContract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const transferTopic = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+function usdtTransferFixture() {
+  const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' })
+  const recipient = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
+  const amount = '1250000'
+  const ownerHex = tronWeb.address.toHex(owner)
+  const contractHex = tronWeb.address.toHex(usdtContract)
+  const recipientHex = tronWeb.address.toHex(recipient).replace(/^41/i, '').toLowerCase()
+  const amountHex = BigInt(amount).toString(16).padStart(64, '0')
+  const data = 'a9059cbb' + recipientHex.padStart(64, '0') + amountHex
+  const txID = 'b'.repeat(64)
+  const transaction = {
+    txID,
+    ret: [{ contractRet: 'SUCCESS' }],
+    raw_data: { contract: [{ type: 'TriggerSmartContract', parameter: { value: {
+      owner_address: ownerHex, contract_address: contractHex, call_value: 0, data,
+    } } }] },
+  }
+  const receipt = {
+    id: txID,
+    receipt: { result: 'SUCCESS' },
+    log: [{
+      address: contractHex,
+      topics: [
+        transferTopic,
+        '0x' + ownerHex.replace(/^41/i, '').padStart(64, '0'),
+        '0x' + recipientHex.padStart(64, '0'),
+      ],
+      data: '0x' + amountHex,
+    }],
+  }
+  return { tronWeb, recipient, amount, transaction, receipt }
+}
+
+test('official USDT unsigned intent must match exact Owner, contract, recipient and six-decimal amount', () => {
+  const item = usdtTransferFixture()
+  assert.equal(verifyOwnerUsdtTransferIntent({
+    tronWeb: item.tronWeb, transaction: item.transaction, ownerAddress: owner,
+    contractAddress: usdtContract, recipientAddress: item.recipient, amountBaseUnits: item.amount,
+  }), true)
+  assert.throws(() => verifyOwnerUsdtTransferIntent({
+    tronWeb: item.tronWeb, transaction: item.transaction, ownerAddress: owner,
+    contractAddress: usdtContract, recipientAddress: owner, amountBaseUnits: item.amount,
+  }), error => error.code === 'OWNER_USDT_TRANSFER_INTENT_MISMATCH')
+  assert.throws(() => verifyOwnerUsdtTransferIntent({
+    tronWeb: item.tronWeb, transaction: item.transaction, ownerAddress: owner,
+    contractAddress: usdtContract, recipientAddress: item.recipient, amountBaseUnits: '1250001',
+  }), error => error.code === 'OWNER_USDT_TRANSFER_INTENT_MISMATCH')
+})
+
+test('official USDT confirmation requires one exact Transfer event in the solidified receipt', () => {
+  const item = usdtTransferFixture()
+  const verified = verifyOwnerUsdtTransferReceipt({
+    tronWeb: item.tronWeb, transaction: item.transaction, receipt: item.receipt,
+    ownerAddress: owner, contractAddress: usdtContract,
+  })
+  assert.equal(verified.verified, true)
+  assert.equal(verified.status, 'solidified-trc20-transfer-verified')
+  assert.equal(verified.amountBaseUnits, item.amount)
+  assert.equal(verified.logIndex, 0)
+
+  const wrongAmount = structuredClone(item.receipt)
+  wrongAmount.log[0].data = '0x' + (BigInt(item.amount) + 1n).toString(16).padStart(64, '0')
+  assert.equal(verifyOwnerUsdtTransferReceipt({
+    tronWeb: item.tronWeb, transaction: item.transaction, receipt: wrongAmount,
+    ownerAddress: owner, contractAddress: usdtContract,
+  }).verified, false)
+
+  const duplicate = structuredClone(item.receipt)
+  duplicate.log.push(structuredClone(duplicate.log[0]))
+  assert.equal(verifyOwnerUsdtTransferReceipt({
+    tronWeb: item.tronWeb, transaction: item.transaction, receipt: duplicate,
+    ownerAddress: owner, contractAddress: usdtContract,
+  }).status, 'ambiguous-transfer-event')
+})
 
 test('Owner operation API ignores unrelated paths without authenticating', async () => {
   const { api, authCalls } = makeApi()
