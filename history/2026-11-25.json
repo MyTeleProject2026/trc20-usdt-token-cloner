@@ -224,6 +224,86 @@
           "checkedAt": "2026-11-25T17:02:25.416Z"
         }
       ]
+    },
+    {
+      "id": 45661695601,
+      "runNumber": 87,
+      "checkedAt": "2026-11-25T17:09:25.531Z",
+      "status": "failure",
+      "conclusion": "failure",
+      "commit": "b7c9fe3d7f2208f5967f1e92122c2acd06e3b5b7",
+      "event": "push",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/45661695601",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 679,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-25T17:09:25.531Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 536,
+          "detail": "healthy · TRON Mainnet",
+          "metrics": null,
+          "checkedAt": "2026-11-25T17:09:25.612Z"
+        },
+        {
+          "name": "sponsor-readiness",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 2530,
+          "detail": "Sponsor readiness=blocked · db=schema-missing · dbReady=false · durable=false · paused=true · owner=true · independent=true · session=true · admin=true · engine=true/false · execute=false",
+          "metrics": null,
+          "checkedAt": "2026-11-25T17:09:27.607Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 876,
+          "detail": "valid JSON health payload",
+          "metrics": {
+            "sampledAt": "2026-11-25T17:09:25.832Z",
+            "uptimeSeconds": 437,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 104050688,
+            "heapUsedBytes": 23094536,
+            "heapTotalBytes": 25739264,
+            "eventLoopP95Ms": 20.152319,
+            "requestCount": 16,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 24,
+            "p95LatencyMs": 386
+          },
+          "checkedAt": "2026-11-25T17:09:25.954Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 830,
+          "detail": "Git-backed history served · 5 archived runs",
+          "metrics": null,
+          "checkedAt": "2026-11-25T17:09:25.909Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": false,
+          "status": 200,
+          "latencyMs": 1061,
+          "detail": "Render metrics payload missing authenticated CPU/memory samples",
+          "metrics": null,
+          "checkedAt": "2026-11-25T17:09:26.140Z"
+        }
+      ]
     }
   ]
 }
