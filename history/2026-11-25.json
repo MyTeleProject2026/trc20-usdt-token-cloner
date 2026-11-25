@@ -455,6 +455,86 @@
           "checkedAt": "2026-11-25T20:11:43.392Z"
         }
       ]
+    },
+    {
+      "id": 45696920397,
+      "runNumber": 90,
+      "checkedAt": "2026-11-25T20:38:45.083Z",
+      "status": "failure",
+      "conclusion": "failure",
+      "commit": "aace4c1bee35106780fee6682434d957ed4e10f9",
+      "event": "push",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/45696920397",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 271,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:38:45.083Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 786,
+          "detail": "healthy · TRON Mainnet",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:38:45.659Z"
+        },
+        {
+          "name": "sponsor-readiness",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1628,
+          "detail": "Sponsor readiness=blocked · db=query-failed · dbReady=false · durable=false · paused=true · owner=true · independent=true · session=true · admin=false · engine=true/true · execute=false",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:38:46.502Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 790,
+          "detail": "valid JSON health payload",
+          "metrics": {
+            "sampledAt": "2026-11-25T20:38:45.539Z",
+            "uptimeSeconds": 1600,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 114458624,
+            "heapUsedBytes": 33092384,
+            "heapTotalBytes": 37109760,
+            "eventLoopP95Ms": 20.217855,
+            "requestCount": 16,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 0,
+            "p95LatencyMs": 0
+          },
+          "checkedAt": "2026-11-25T20:38:45.665Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1132,
+          "detail": "Git-backed history served · 8 archived runs",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:38:46.008Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": false,
+          "status": 200,
+          "latencyMs": 777,
+          "detail": "RENDER_API_KEY is not configured on the resource API",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:38:45.654Z"
+        }
+      ]
     }
   ]
 }
