@@ -59,3 +59,18 @@ test('Owner account security exposes one-time role-scoped password recovery with
   assert.ok(ui.includes('all previous Owner sessions were revoked'))
   assert.doesNotMatch(ui, /sessionToken|privateKey|mnemonic/i)
 })
+
+test('Official USDT withdrawal stays inside the existing Owner workspace and uses the shared local-signing ledger', async () => {
+  const panel = await readFile(new URL('TRXMainnetPanel.jsx', root), 'utf8')
+  const app = await readFile(new URL('App.jsx', root), 'utf8')
+  assert.ok(app.includes("id: 'withdraw', label: 'Withdraw'"))
+  assert.ok(panel.includes("const OFFICIAL_USDT_MAINNET_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
+  assert.ok(panel.includes("operationType: 'usdt-transfer'"))
+  assert.ok(panel.includes("wallet.authClient.apiRequest('/api/owner/operations/prepare'"))
+  assert.ok(panel.includes("signer.trx.sign(pendingOperation.unsignedTransaction)"))
+  assert.ok(panel.includes('getMainnetUSDTBalance(readOnlyTronWeb, connectedAddress)'))
+  assert.ok(panel.includes('The requested withdrawal exceeds the current official USDT balance.'))
+  assert.ok(panel.includes("pendingOperation.operationType === 'usdt-transfer'"))
+  assert.ok(panel.includes('Review official USDT Mainnet withdrawal'))
+  assert.doesNotMatch(panel, /trc20-usdt-token-cloner-api|\/api\/owner\/withdrawals|tronlink-provider|tron_requestAccounts/)
+})
