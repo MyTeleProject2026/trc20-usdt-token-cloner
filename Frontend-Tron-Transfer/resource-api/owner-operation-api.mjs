@@ -43,7 +43,7 @@ const METHODS = Object.freeze({
     return [recipients, amounts, references]
   } },
   transfer: { method: 'transfer', args: input => [address(input.recipient), uint(input.amount)] },
-  'usdt-transfer': { method: 'transfer', args: input => [address(input.recipient), uint(input.amount)] },
+  'usdt-transfer': { method: 'transfer', args: input => { const recipient = address(input.recipient); if (recipient === input.ownerAddress) fail('OWNER_USDT_RECIPIENT_MUST_DIFFER'); return [recipient, uint(input.amount)] } },
   pause: { method: 'setPaused', args: () => [true] },
   unpause: { method: 'setPaused', args: () => [false] },
   'minting-enable': { method: 'setMintingEnabled', args: () => [true] },
