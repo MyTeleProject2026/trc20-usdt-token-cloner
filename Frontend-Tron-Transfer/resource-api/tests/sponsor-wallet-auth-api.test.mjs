@@ -205,3 +205,18 @@ test('Sponsor session revocation cannot revoke the current session and can revok
  assert.equal(db.state.sessions.find(x=>x.session_id===1).revoked_at,null)
  assert.ok(db.state.sessions.find(x=>x.session_id===100).revoked_at)
 })
+
+test('Sponsor status returns a safe database diagnostic code when its query fails', async () => {
+  const database = { async query() { throw Object.assign(new Error('private connection details must not escape'), { code: '42P01' }) } }
+  const replies = []
+  const api = createSponsorWalletAuthApi({
+    env: { TRON_SPONSOR_ADDRESS: 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR' },
+    database,
+    send: (_res, status, payload) => replies.push({ status, payload }),
+  })
+  await api.handle(request('GET'), response(), new URL('https://api.test/api/wallet-auth/sponsor/status'), null)
+  assert.equal(replies[0].status, 503)
+  assert.equal(replies[0].payload.error, 'WALLET_AUTH_UNAVAILABLE')
+  assert.equal(replies[0].payload.diagnosticCode, '42P01')
+  assert.equal(JSON.stringify(replies[0].payload).includes('private connection details'), false)
+})
