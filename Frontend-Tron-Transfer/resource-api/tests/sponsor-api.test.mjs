@@ -1134,3 +1134,110 @@ test('Sponsor ledger bootstrap refuses a mismatched database identity before iss
   assert.equal(result.payload.error, 'sponsor-ledger-database-identity-not-accepted')
   assert.deepEqual(queries, [])
 })
+
+function sponsorControlDatabase(initialPaused) {
+  let writesPaused = initialPaused
+  let updateCount = 0
+  let connectCount = 0
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{
+        operations_table: 'tron_transfer_sponsor_operations',
+        control_table: 'tron_transfer_sponsor_control',
+        prepared_transaction_column: true,
+        signed_transaction_column: true,
+      }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
+      throw new Error('unexpected Sponsor control pool query: ' + sql)
+    },
+    async connect() {
+      connectCount += 1
+      return {
+        async query(sql, params = []) {
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: 0, rows: [] }
+          if (sql.includes('FOR UPDATE')) return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
+          if (sql.includes('UPDATE public.tron_transfer_sponsor_control')) {
+            writesPaused = params[0]
+            updateCount += 1
+            return { rowCount: 1, rows: [{ writes_paused }] }
+          }
+          throw new Error('unexpected Sponsor control transaction query: ' + sql)
+        },
+        release() {},
+      }
+    },
+  }
+  return { database, state: () => ({ writesPaused, updateCount, connectCount }) }
+}
+function releaseReadySponsorEngine() {
+  return {
+    readiness: () => ({
+      configured: true, enabled: true, broadcastAvailable: true, clientSigningAvailable: true,
+      ownerAddress: OWNER, sponsorAddressValid: true, feePolicy: {},
+      stakingPolicy: { enabled: true }, ownerTopupPolicy: { enabled: true },
+    }),
+    prepare: async () => ({ success: true }),
+    submitSigned: async () => ({ success: true }),
+    execute: async () => assert.fail('release control must not execute Sponsor transactions'),
+    reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
+  }
+}
+
+test('Sponsor ledger release requires Owner Admin, explicit release flag and every Mainnet gate', async () => {
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const blockedDb = sponsorControlDatabase(true)
+  const blocked = setup({ database: blockedDb.database, databaseUrl, expectedDatabaseIdentitySha256, engine: releaseReadySponsorEngine() })
+  const blockedResult = await call(blocked.api, 'POST', '/api/sponsor/ledger/release', {
+    confirm: 'ENABLE_SPONSOR_MAINNET_WRITES',
+  })
+  assert.equal(blockedResult.status, 423)
+  assert.equal(blockedResult.payload.error, 'sponsor-writes-release-gates-blocked')
+  assert.equal(blockedDb.state().updateCount, 0)
+  assert.ok(blockedResult.payload.writesReleaseChecks.some(check => check.id === 'explicit-release-flag' && check.state === 'blocked'))
+
+  const db = sponsorControlDatabase(true)
+  const ready = setup({ database: db.database, databaseUrl, expectedDatabaseIdentitySha256, engine: releaseReadySponsorEngine() })
+  ready.env.SPONSOR_WRITES_RELEASE_ENABLED = 'true'
+  const result = await call(ready.api, 'POST', '/api/sponsor/ledger/release', {
+    confirm: 'ENABLE_SPONSOR_MAINNET_WRITES',
+  })
+  assert.equal(result.status, 200, JSON.stringify(result.payload))
+  assert.equal(result.payload.sponsorWritesPaused, false)
+  assert.equal(result.payload.transactionExecutionAvailable, true)
+  assert.equal(db.state().writesPaused, false)
+  assert.equal(db.state().updateCount, 1)
+})
+
+test('Sponsor emergency pause requires Owner Admin but not Sponsor engine or release configuration', async () => {
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const db = sponsorControlDatabase(false)
+  const { api } = setup({ database: db.database, databaseUrl, expectedDatabaseIdentitySha256 })
+  const result = await call(api, 'POST', '/api/sponsor/ledger/pause', {
+    confirm: 'PAUSE_SPONSOR_MAINNET_WRITES',
+  })
+  assert.equal(result.status, 200, JSON.stringify(result.payload))
+  assert.equal(result.payload.sponsorWritesPaused, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
+  assert.equal(db.state().writesPaused, true)
+  assert.equal(db.state().updateCount, 1)
+})
+
+test('Sponsor write release cannot be invoked without an authenticated Owner Admin session', async () => {
+  let databaseQueries = 0
+  const database = { async query() { databaseQueries += 1; throw new Error('database must not be touched without Owner Admin authorization') } }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({
+    database, databaseUrl, expectedDatabaseIdentitySha256,
+    authenticateOwnerAdminSession: async () => null,
+  })
+  const result = await call(api, 'POST', '/api/sponsor/ledger/release', {
+    confirm: 'ENABLE_SPONSOR_MAINNET_WRITES',
+  }, null, null)
+  assert.equal(result.status, 401)
+  assert.equal(result.payload.error, 'admin-authorization-required')
+  assert.equal(databaseQueries, 0)
+})
+
