@@ -70,6 +70,21 @@ test('Owner ledger enforces Owner-identity lifecycle and recovery across session
  assert.equal(await ledger.get(row.operation_id,otherOwner),null)
 })
 
+test('Owner ledger accepts the explicit official USDT transfer operation type', async () => {
+ const ledger=createOwnerOperationLedger({database:fakeDb()})
+ const usdt='TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+ const row=await ledger.prepare({
+  ...base,
+  idempotencyKey:'owner-operation-usdt-0001',
+  operationType:'usdt-transfer',
+  contractAddress:usdt,
+  intent:{ownerAddress:owner,contractAddress:usdt,method:'transfer',args:['TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR','1000000'],feeLimitSun:'1000000'},
+ })
+ assert.equal(row.replay,false)
+ assert.equal(row.operation_type,'usdt-transfer')
+ assert.equal(row.contract_address,usdt)
+})
+
 test('Owner ledger rejects invalid session, key and operation type',async()=>{
  const ledger=createOwnerOperationLedger({database:fakeDb()})
  await assert.rejects(ledger.prepare({...base,sessionId:0}),/OWNER_LEDGER_SESSION_REQUIRED/)
