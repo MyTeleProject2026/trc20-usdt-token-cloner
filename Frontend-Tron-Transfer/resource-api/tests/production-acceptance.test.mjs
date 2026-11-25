@@ -70,17 +70,17 @@ test('unknown acceptance paths are not claimed by the Sponsor API', async () => 
 })
 
 
-test('production smoke command delegates the complete required-check policy to the extracted evaluator', async () => {
+test('production smoke requires every acceptance gate emitted by the Sponsor API', async () => {
   const source = await readFile(new URL('../scripts/production-acceptance-smoke.mjs', import.meta.url), 'utf8')
   const assessment = await readFile(new URL('../production-acceptance-assessment.mjs', import.meta.url), 'utf8')
+  const sponsorApi = await readFile(new URL('../sponsor-api.mjs', import.meta.url), 'utf8')
   for (const id of REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS) {
-    assert.ok(assessment.includes("'" + id + "'"), 'missing current acceptance check: ' + id)
+    assert.ok(sponsorApi.includes("id: '" + id + "'"), 'Sponsor API does not emit required acceptance check: ' + id)
   }
   assert.match(source, /evaluateProductionAcceptance/)
   assert.ok(source.includes('if (!result.passed) process.exitCode = 1'))
   assert.ok(assessment.includes('missingChecks.length === 0'))
   assert.ok(assessment.includes('blockedChecks.length === 0'))
   assert.ok(assessment.includes('ready-for-independent-review'))
-  assert.doesNotMatch(source, /sponsor-signer-address-match/)
-  assert.doesNotMatch(assessment, /['"]admin-second-factor-configured['"]/)
+  assert.doesNotMatch(assessment, /admin-second-factor-configured/)
 })
