@@ -125,7 +125,7 @@ async function readResourceSnapshot(address, tronWeb) {
   }
 }
 
-async function sponsorApiRequest(path, { method = 'GET', body, csrfToken = '', ownerCsrfToken = '' } = {}) {
+async function sponsorApiRequest(path, { method = 'GET', body, csrfToken = '' } = {}) {
   const csrf = csrfToken || String(document.cookie || '').match(/(?:^|;\s*)tron_sponsor_csrf=([^;]+)/)?.[1]
   const response = await fetch(RESOURCE_API + path, {
     method, cache: 'no-store', credentials: 'include',
@@ -133,7 +133,7 @@ async function sponsorApiRequest(path, { method = 'GET', body, csrfToken = '', o
       accept: 'application/json',
       ...(body ? { 'content-type': 'application/json' } : {}),
       ...(method !== 'GET' && csrf ? { 'x-csrf-token': decodeURIComponent(csrf) } : {}),
-      ...(method !== 'GET' && ownerCsrfToken ? { 'x-owner-csrf-token': ownerCsrfToken } : {}),
+
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
@@ -181,7 +181,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const ownerAuth = useMemo(() => createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: RESOURCE_API }), [])
   const [saved, setSaved] = useState(false)
   const [ownerAdminPassword, setOwnerAdminPassword] = useState('')
-  const [ownerAdminCsrfToken, setOwnerAdminCsrfToken] = useState('')
   const [ownerAdminReady, setOwnerAdminReady] = useState(false)
   const [amount, setAmount] = useState('10')
   const [energyTarget, setEnergyTarget] = useState(() => readSavedTarget('energy', '1278524'))
@@ -222,7 +221,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     if (!wallet || !workspaceActive) {
       setOwnerAdminPassword('')
       setOwnerAdminReady(false)
-      setOwnerAdminCsrfToken('')
     }
   }, [wallet, workspaceActive])
 
@@ -261,7 +259,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       const session = await ownerAuth.session()
       if (session?.address !== result.address) throw new Error('Owner Admin session could not be verified.')
       setOwnerAddress(session.address)
-      setOwnerAdminCsrfToken(session.csrfToken || '')
       setOwnerAdminReady(true)
       setOwnerAdminPassword('')
       window.dispatchEvent(new Event('tron-transfer:owner-session-refreshed'))
@@ -276,10 +273,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     const session = await ownerAuth.session()
     if (!ownerAddress || session?.address !== ownerAddress) {
       setOwnerAdminReady(false)
-      setOwnerAdminCsrfToken('')
       throw new Error('OWNER_ADMIN_SESSION_REQUIRED')
     }
-    setOwnerAdminCsrfToken(session.csrfToken || '')
     setOwnerAdminReady(true)
     return true
   }
@@ -756,7 +751,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   async function submitResourceTransaction(action, options = {}) {
     if (!wallet || !tronWeb || busy) return
     if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The local signing protocol is implemented, but the production database, durability, fresh resource preflight, paused-write and explicit Mainnet release gates must all pass. No transaction was sent.'); return }
-    try { await ensureOwnerAdmin() } catch { notify('error', 'Owner Admin authorization required', 'Authenticate the independent Owner account before preparing a Sponsor operation. No transaction was sent.'); return }
     const selectedAmount = options.amount || (action === 'withdraw' ? formatSunAsTrx(snapshot?.withdrawableSun || '0') : amount)
     const selectedResource = options.resource || resourceType
     let amountSun
@@ -794,13 +788,13 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
     try {
       const idempotencyKey = createIdempotencyKey()
       const intent = await sponsorApiRequest('/api/sponsor/intent', {
-        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken,
         body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
       if (!window.confirm('Confirm this exact Sponsor operation?\\n\\n' + intent.message + '\\n\\nThe Resource API will prepare and persist one unsigned transaction. The imported Sponsor Wallet will sign locally; the API will verify the signer and persist the transaction ID before broadcasting.')) return
       const prepared = await sponsorApiRequest('/api/sponsor/operations/prepare', {
-        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken,
         body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
       })
       const unsignedTransaction = prepared?.unsignedTransaction
@@ -831,7 +825,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         + '\\n\\nOnly the imported local Sponsor Wallet signs this transaction. The Resource API will verify the signature and recheck balance and Bandwidth before broadcast.')) {
         try {
           await sponsorApiRequest('/api/sponsor/operations/cancel', {
-            method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken, body: { operationReference: idempotencyKey },
+            method: 'POST', csrfToken: authCsrfToken, body: { operationReference: idempotencyKey },
           })
           recordActivity({ ...preparedActivity, status: 'cancelled-before-signing' })
           setLastOperationReference('')
@@ -853,7 +847,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       } catch (error) {
         try {
           await sponsorApiRequest('/api/sponsor/operations/cancel', {
-            method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken, body: { operationReference: idempotencyKey },
+            method: 'POST', csrfToken: authCsrfToken, body: { operationReference: idempotencyKey },
           })
           recordActivity({ ...preparedActivity, status: 'cancelled-before-signing' })
           setLastOperationReference('')
@@ -863,7 +857,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         throw error
       }
       const result = await sponsorApiRequest('/api/sponsor/operations/submit', {
-        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken,
         body: { operationReference: idempotencyKey, signedTransaction },
       })
       const transactionId = typeof result.transactionId === 'string' ? result.transactionId : ''
@@ -920,7 +914,6 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       notify('error', 'Sponsor execution is not ready', 'Local Sponsor-vault signing is implemented. Production database acceptance, durability, fresh resource preflight and explicit Mainnet release gates are still required. No transaction was sent.')
       return
     }
-    try { await ensureOwnerAdmin() } catch { notify('error', 'Owner Admin authorization required', 'Authenticate the independent Owner account before provisioning. No transaction was sent.'); return }
     try {
       const protectedReserveSun = parseTrx(String(sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'))
       const maxStakeSun = sponsorApiStatus?.stakingPolicy?.enabled === true ? parseTrx(String(sponsorApiStatus.stakingPolicy.maxStakeTrx)) : 0
@@ -974,7 +967,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
     setBusy(true)
     try {
       await sponsorApiRequest('/api/sponsor/operations/cancel', {
-        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken, body: { operationReference: lastOperationReference },
+        method: 'POST', csrfToken: authCsrfToken, body: { operationReference: lastOperationReference },
       })
       recordActivity({ ...local, status: 'cancelled-before-signing' })
       setLastOperationReference('')
@@ -1036,7 +1029,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
     setBusy(true)
     try {
       const payload = await sponsorApiRequest('/api/tron/sponsorship/resource-delegations/verify-wallet', {
-        method: 'POST', csrfToken: authCsrfToken, ownerCsrfToken: ownerAdminCsrfToken,
+        method: 'POST', csrfToken: authCsrfToken,
         body: {
           network: 'mainnet', transactionId: lastDelegation.transactionId,
           sponsorAddress: lastDelegation.sponsorAddress, receiverAddress: lastDelegation.receiverAddress,
@@ -1175,7 +1168,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Independent Owner Admin authorization</h3><p>{ownerAdminReady ? 'Owner account session verified.' : 'Authenticate the separate Owner account to authorize Sponsor administration.'}</p></div></div>
         {!ownerAdminReady && <label className="sponsor-field">Owner account password<input type="password" value={ownerAdminPassword} onChange={event => setOwnerAdminPassword(event.target.value)} autoComplete="current-password" minLength={12}/></label>}
         <div className="sponsor-actions"><button type="button" className="sponsor-secondary" disabled={busy || ownerAdminPassword.length < 12 || ownerAdminReady} onClick={() => void loginOwnerAdmin()}>{ownerAdminReady ? 'Owner Admin session active' : 'Authenticate Owner Admin'}</button></div>
-        <p className="sponsor-muted">Sponsor write and ledger-bootstrap requests require both the Sponsor session and the independent Owner session. No static Sponsor Admin token is sent from the browser.</p>
+        <p className="sponsor-muted">Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof. The separate Owner session is used only for the one-time Sponsor ledger schema bootstrap. No static Sponsor Admin token is sent from the browser.</p>
       </section>}
 
       {activePage === "sponsor-resources" && <section id="sponsor-resources" className="sponsor-card">
@@ -1197,7 +1190,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       {activePage === "sponsor-automation" && <section id="sponsor-automation" className="sponsor-card">
         <div className="sponsor-card-heading"><Activity/><div><h3>Guided Resource Provisioning</h3><p>Live Owner resource targets with guarded Sponsor stake-or-delegate planning.</p></div></div>
         <div className="sponsor-resource-controls"><label className="sponsor-field">Owner Energy target (units)<input inputMode="numeric" value={energyTarget} onChange={event => setEnergyTarget(event.target.value.replace(/[^0-9]/g, '').slice(0, 15))}/><small>Default planning target only. Set this to the current deployment estimate from Owner Admin preflight.</small></label><label className="sponsor-field">Owner Bandwidth target (bytes)<input inputMode="numeric" value={bandwidthTarget} onChange={event => setBandwidthTarget(event.target.value.replace(/[^0-9]/g, '').slice(0, 15))}/></label></div><div className="sponsor-engine-grid"><div><small>OWNER TARGET</small><strong>{ownerAddress}</strong></div><div><small>SPONSOR ENERGY STAKED</small><strong>{snapshot?.delegationReadAvailable ? formatAmount(snapshot.delegatedEnergySun) + ' TRX eq.' : 'Unavailable'}</strong></div><div><small>SPONSOR BANDWIDTH STAKED</small><strong>{snapshot?.delegationReadAvailable ? formatAmount(snapshot.delegatedBandwidthSun) + ' TRX eq.' : 'Unavailable'}</strong></div><div><small>OWNER ENERGY AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerEnergyAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>OWNER BANDWIDTH AVAILABLE</small><strong>{snapshot ? Number(snapshot.ownerBandwidthAvailable || 0).toLocaleString() : '—'}</strong></div><div><small>ENERGY TARGET DEFICIT</small><strong>{snapshot ? ownerEnergyDeficit.toLocaleString() : '—'}</strong></div><div><small>BANDWIDTH TARGET DEFICIT</small><strong>{snapshot ? ownerBandwidthDeficit.toLocaleString() : '—'}</strong></div><div><small>RESOURCE PRECHECK</small><strong>{!energyTargetValid || !bandwidthTargetValid ? 'Invalid targets' : snapshot ? (ownerEnergyDeficit === 0 && ownerBandwidthDeficit === 0 ? 'Targets met' : 'Resource shortfall') : 'Awaiting live read'}</strong></div></div>
-        <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !wallet || !snapshot || !energyTargetValid || !sponsorApiStatus?.transactionExecutionAvailable} onClick={() => void runResourceAutomation('ENERGY')}>Provision Owner Energy target</button><button className="sponsor-primary" disabled={busy || !wallet || !snapshot || !bandwidthTargetValid || !sponsorApiStatus?.transactionExecutionAvailable} onClick={() => void runResourceAutomation('BANDWIDTH')}>Provision Owner Bandwidth target</button><button className="sponsor-secondary" disabled={busy || !wallet} onClick={() => void refresh()}>Run Resource Preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('deploy')}>Open Owner Admin deployment preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('portfolio')}>Open Owner portfolio</button></div><p className="sponsor-warning">Sponsor and Owner resource snapshots refresh automatically every 60 seconds while the Sponsor wallet is unlocked. The planner chooses only the next safe stake or delegation action from a fresh Mainnet snapshot. Every action requires both the Sponsor password session and independent Owner Admin session, followed by exact on-screen confirmation; after staking, it requires a new live resource read before delegation. A provider rental or free-grant adapter is not configured by this wallet import.</p>
+        <div className="sponsor-actions"><button className="sponsor-primary" disabled={busy || !wallet || !snapshot || !energyTargetValid || !sponsorApiStatus?.transactionExecutionAvailable} onClick={() => void runResourceAutomation('ENERGY')}>Provision Owner Energy target</button><button className="sponsor-primary" disabled={busy || !wallet || !snapshot || !bandwidthTargetValid || !sponsorApiStatus?.transactionExecutionAvailable} onClick={() => void runResourceAutomation('BANDWIDTH')}>Provision Owner Bandwidth target</button><button className="sponsor-secondary" disabled={busy || !wallet} onClick={() => void refresh()}>Run Resource Preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('deploy')}>Open Owner Admin deployment preflight</button><button className="sponsor-secondary" onClick={() => onNavigate('portfolio')}>Open Owner portfolio</button></div><p className="sponsor-warning">Sponsor and Owner resource snapshots refresh automatically every 60 seconds while the Sponsor wallet is unlocked. The planner chooses only the next safe stake or delegation action from a fresh Mainnet snapshot. Every action requires the Sponsor password session and exact on-screen confirmation; after staking, it requires a new live resource read before delegation. Owner authentication is not required to operate the Sponsor wallet. A provider rental or free-grant adapter is not configured by this wallet import.</p>
       </section>}
 
       {activePage === "sponsor-activity" && <section id="sponsor-activity" className="sponsor-card">
