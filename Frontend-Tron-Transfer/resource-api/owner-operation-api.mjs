@@ -743,7 +743,7 @@ export function createOwnerOperationApi({
           if (normalized.operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction: unsigned, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
           const signed = signedCandidate
           await verifySignedTransaction(tronWeb, signed, ownerAddress)
-          if (normalized.operationType === 'usdt-transfer') verifyOwnerUsdtTransferIntent({ tronWeb, transaction: signed, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
+          if (normalized.operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction: signed, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
           transactionId = String(signed?.txID || '').toLowerCase()
           if (!TXID.test(transactionId) || transactionId !== String(unsigned.txID).toLowerCase()) {
             fail('OWNER_SIGNED_TRANSACTION_ID_MISMATCH', 409)
