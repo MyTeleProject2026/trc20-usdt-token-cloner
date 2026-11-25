@@ -390,7 +390,8 @@ export function createSponsorResourceApi({
           && databaseTargetIdentity.identityFingerprint === expectedDatabaseIdentity
           && databaseTargetIdentityMatches(env)
         const ownerAddressMatches = validAddress(ownerAddress) && readiness.ownerAddress === ownerAddress
-        const sponsorIndependent = validAddress(env.SPONSOR_MAINNET_ADDRESS) && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
+        const sponsorAddressMatches = validAddress(env.SPONSOR_MAINNET_ADDRESS) && readiness.sponsorAddress === env.SPONSOR_MAINNET_ADDRESS
+        const sponsorIndependent = sponsorAddressMatches && env.SPONSOR_MAINNET_ADDRESS !== ownerAddress
         const adminConfigured = ownerAdminAuthConfigured
         const ledgerDurabilityVerified = sponsorLedgerDurabilityVerified(env)
         let databaseReady = false
@@ -437,6 +438,7 @@ export function createSponsorResourceApi({
         const acceptanceChecks = [
           { id: 'owner-address', state: ownerAddressMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
+          { id: 'sponsor-engine-address-matches-configuration', state: sponsorAddressMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-mainnet-address-configured-and-independent', state: readiness.sponsorAddressValid === true && sponsorIndependent ? 'passed' : 'blocked' },
           { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
@@ -453,7 +455,7 @@ export function createSponsorResourceApi({
           { id: 'explicit-release-flag', state: env.SPONSOR_WRITES_RELEASE_ENABLED === 'true' ? 'passed' : 'blocked' },
           { id: 'owner-admin-session', state: adminConfigured ? 'passed' : 'blocked' },
           { id: 'owner-mainnet-identity', state: ownerAddressMatches ? 'passed' : 'blocked' },
-          { id: 'independent-sponsor-mainnet-identity', state: sponsorIndependent && readiness.sponsorAddressValid === true ? 'passed' : 'blocked' },
+          { id: 'independent-sponsor-mainnet-identity', state: sponsorIndependent && sponsorAddressMatches && readiness.sponsorAddressValid === true ? 'passed' : 'blocked' },
           { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'approved-database-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked' },
@@ -489,6 +491,7 @@ export function createSponsorResourceApi({
           ledgerDurabilityVerified,
           ownerAddressMatches,
           sponsorIndependent,
+          sponsorAddressMatches,
           sponsorWalletEnrolled,
           engineConfigured: readiness.configured === true,
           engineEnabled: readiness.enabled === true,
