@@ -109,17 +109,31 @@ test('official USDT confirmation requires one exact Transfer event in the solidi
 
   const wrongAmount = structuredClone(item.receipt)
   wrongAmount.log[0].data = '0x' + (BigInt(item.amount) + 1n).toString(16).padStart(64, '0')
-  assert.equal(verifyOwnerUsdtTransferReceipt({
+  const mismatch = verifyOwnerUsdtTransferReceipt({
     tronWeb: item.tronWeb, transaction: item.transaction, receipt: wrongAmount,
     ownerAddress: owner, contractAddress: usdtContract,
-  }).verified, false)
+  })
+  assert.equal(mismatch.verified, false)
+  assert.equal(mismatch.solidified, false, 'missing exact event proof must retain the reservation for manual reconciliation')
 
   const duplicate = structuredClone(item.receipt)
   duplicate.log.push(structuredClone(duplicate.log[0]))
-  assert.equal(verifyOwnerUsdtTransferReceipt({
+  const ambiguous = verifyOwnerUsdtTransferReceipt({
     tronWeb: item.tronWeb, transaction: item.transaction, receipt: duplicate,
     ownerAddress: owner, contractAddress: usdtContract,
-  }).status, 'ambiguous-transfer-event')
+  })
+  assert.equal(ambiguous.status, 'ambiguous-transfer-event')
+  assert.equal(ambiguous.solidified, false)
+
+  const failedReceipt = structuredClone(item.receipt)
+  failedReceipt.receipt.result = 'FAILED'
+  item.transaction.ret = [{ contractRet: 'REVERT' }]
+  const failed = verifyOwnerUsdtTransferReceipt({
+    tronWeb: item.tronWeb, transaction: item.transaction, receipt: failedReceipt,
+    ownerAddress: owner, contractAddress: usdtContract,
+  })
+  assert.equal(failed.status, 'solidified-transaction-failed')
+  assert.equal(failed.solidified, true)
 })
 
 test('Owner operation API ignores unrelated paths without authenticating', async () => {
