@@ -1254,3 +1254,42 @@ test('Sponsor write release cannot be invoked without an authenticated Owner Adm
   assert.equal(databaseQueries, 0)
 })
 
+
+
+test('production acceptance verifies Owner and Sponsor enrollment before Sponsor ledger bootstrap', async () => {
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const database = {
+    async query(sql) {
+      if (sql.includes('SELECT wallet_role, wallet_address, enabled')) {
+        return {
+          rowCount: 2,
+          rows: [
+            { wallet_role: 'owner', wallet_address: OWNER, enabled: true },
+            { wallet_role: 'sponsor', wallet_address: SPONSOR, enabled: true },
+          ],
+        }
+      }
+      if (sql.includes('to_regclass')) {
+        return {
+          rowCount: 1,
+          rows: [{
+            operations_table: null,
+            control_table: null,
+            prepared_transaction_column: false,
+            signed_transaction_column: false,
+          }],
+        }
+      }
+      throw new Error('pre-bootstrap acceptance must remain read-only')
+    },
+  }
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
+  const result = await call(api, 'GET', '/api/acceptance/production')
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'owner-wallet-enrolled').state, 'passed')
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'sponsor-wallet-enrolled').state, 'passed')
+  assert.equal(result.payload.acceptance.checks.find(check => check.id === 'ledger-schema-and-control-row').state, 'blocked')
+  assert.equal(result.payload.sponsorWritesPaused, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
+})
