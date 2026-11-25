@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual, randomBytes } from 'node:crypto'
 import { isIP } from 'node:net'
 import pg from 'pg'
-import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
+import { walletAuthDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 import { createManagedWalletIdentityReport } from './managed-wallet-identities.mjs'
 import {
@@ -77,7 +77,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
   let pool = database || null
   function getPool() {
     if (pool) return pool
-    const connection = sponsorDatabaseConnectionString(env)
+    const connection = walletAuthDatabaseConnectionString(env)
     if (!connection) return null
     pool = new Pool({ connectionString: normalizePostgresTlsMode(connection), connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, max: 3 })
     pool.on('error', error => process.stderr.write('Sponsor wallet auth database error: ' + String(error?.code || 'unknown') + '\\n'))
