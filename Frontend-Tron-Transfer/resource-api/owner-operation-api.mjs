@@ -420,6 +420,7 @@ export function createOwnerOperationApi({
   prepareTransaction = buildUnsigned, preflightTransaction = preflight,
   verifyContractState = verifyContract,
   verifyUsdtContractState = verifyOfficialUsdtContract,
+  verifyUsdtTransferIntent = verifyOwnerUsdtTransferIntent,
   verifyUnsignedTransaction = (tronWeb, unsigned) => assertTransactionIntegrity(tronWeb, unsigned, 'Unsigned TRӾ Owner operation'),
   verifySignedTransaction = async (tronWeb, signed, ownerAddress) => {
     assertTransactionIntegrity(tronWeb, signed, 'Signed TRӾ Owner operation')
@@ -621,7 +622,7 @@ export function createOwnerOperationApi({
           if (operationType === 'usdt-transfer') await verifyUsdtContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           else await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
-          if (operationType === 'usdt-transfer') verifyOwnerUsdtTransferIntent({ tronWeb, transaction, ownerAddress, contractAddress, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
+          if (operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction, ownerAddress, contractAddress, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
           result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits })
         } catch (error) {
           await ledger.transition({
@@ -739,7 +740,7 @@ export function createOwnerOperationApi({
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
           }
           verifyUnsignedTransaction(tronWeb, unsigned)
-          if (normalized.operationType === 'usdt-transfer') verifyOwnerUsdtTransferIntent({ tronWeb, transaction: unsigned, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
+          if (normalized.operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction: unsigned, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
           const signed = signedCandidate
           await verifySignedTransaction(tronWeb, signed, ownerAddress)
           if (normalized.operationType === 'usdt-transfer') verifyOwnerUsdtTransferIntent({ tronWeb, transaction: signed, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
