@@ -19,6 +19,7 @@ const ABI = [
   { type: 'function', name: 'name', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
   { type: 'function', name: 'symbol', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
   { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+  { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', name: 'mint', stateMutability: 'nonpayable', inputs: [{ name: 'recipient', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [] },
   { type: 'function', name: 'credit', stateMutability: 'nonpayable', inputs: [{ name: 'recipient', type: 'address' }, { name: 'amount', type: 'uint256' }, { name: 'referenceId', type: 'bytes32' }], outputs: [] },
@@ -229,6 +230,17 @@ async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { 
   const value = transaction?.raw_data?.contract?.[0]?.parameter?.value
   const data = String(value?.data || '').replace(/^0x/i, '')
   if (!/^(?:[0-9a-f]{2}){4,}$/i.test(data)) fail('OWNER_OPERATION_CALL_DATA_INVALID', 409)
+  if (contractAddress === OFFICIAL_USDT_MAINNET_CONTRACT) {
+    const transferSelector = String(tronWeb.sha3('transfer(address,uint256)')).replace(/^0x/i, '').slice(0, 8).toLowerCase()
+    if (data.length !== 136 || data.slice(0, 8).toLowerCase() !== transferSelector) {
+      fail('OWNER_USDT_TRANSFER_CALLDATA_INVALID', 409)
+    }
+    const amount = BigInt('0x' + data.slice(72, 136))
+    if (amount <= 0n) fail('OWNER_USDT_TRANSFER_AMOUNT_INVALID', 409)
+    const token = await tronWeb.contract(ABI).at(contractAddress)
+    const balance = BigInt(String(await token.balanceOf(ownerAddress).call()))
+    if (balance < amount) fail('OWNER_USDT_BALANCE_INSUFFICIENT', 409)
+  }
   const resourceResponse = await rpcPost('/wallet/getaccountresource', { address: ownerAddress, visible: true }, { fetchImpl, env })
   const account = await rpcPost('/wallet/getaccount', { address: ownerAddress, visible: true }, { fetchImpl, env })
   const chainParameters = await rpcPost('/wallet/getchainparameters', {}, { fetchImpl, env })
