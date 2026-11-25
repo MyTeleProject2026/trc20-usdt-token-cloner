@@ -484,7 +484,7 @@ export function createSponsorResourceApi({
           engineConfigured: readiness.configured === true,
           engineEnabled: readiness.enabled === true,
           localSignerReady,
-          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && ledgerDurabilityVerified,
+          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && ledgerDurabilityVerified && env.SPONSOR_WRITES_RELEASE_ENABLED === 'true',
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
