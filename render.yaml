@@ -36,3 +36,15 @@ services:
         sync: false
       - key: SPONSOR_SESSION_SECRET
         sync: false
+      - key: SPONSOR_TRANSACTION_ENGINE_ENABLED
+        sync: false
+      - key: SPONSOR_MAINNET_BROADCAST_ENABLED
+        sync: false
+      - key: SPONSOR_WRITES_RELEASE_ENABLED
+        sync: false
+      - key: SPONSOR_LEDGER_DURABLE
+        sync: false
+      - key: SPONSOR_LEDGER_BACKUP_VERIFIED
+        sync: false
+      - key: SPONSOR_LEDGER_RESTORE_TESTED
+        sync: false
