@@ -61,3 +61,11 @@ test('server environment example documents existing production gates without emb
     'TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED', 'TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED',
   ]) assert.equal(values[key], 'false', key + ' must default to fail-closed')
 })
+
+test('Resource API build installs parent frontend runtime dependencies before importing shared TRON modules', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.match(manifest.scripts.pretest, /npm install --prefix \.\./)
+  assert.match(manifest.scripts.pretest, /npm install --prefix \.\. --no-audit --no-fund && npm install --no-audit --no-fund/)
+  const frontendManifest = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))
+  assert.equal(frontendManifest.dependencies.tronweb, '6.5.2')
+})
