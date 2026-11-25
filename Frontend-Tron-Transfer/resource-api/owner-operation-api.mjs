@@ -9,6 +9,7 @@ import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-iden
 const { Pool } = pg
 const MAINNET = 'https://api.trongrid.io'
 const OFFICIAL_USDT_MAINNET_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const USDT_TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 function mainnetHost() { return MAINNET }
 const CONFIRMATION_PHRASE = 'CONFIRM TRON MAINNET OWNER OPERATION'
 const TXID = /^[0-9a-f]{64}$/i
@@ -153,6 +154,80 @@ async function rpcPost(path, payload, { fetchImpl, env }) {
 }
 function asAddress(tronWeb, value) {
   try { return value && (String(value).startsWith('T') ? value : tronWeb.address.fromHex(value)) } catch { return '' }
+}
+function canonicalHexAddressValue(value) {
+  if (typeof value !== 'string') return null
+  let hex = value.trim().replace(/^0x/i, '').toLowerCase()
+  if (hex.length === 42 && hex.startsWith('41')) hex = hex.slice(2)
+  return /^[0-9a-f]{40}$/.test(hex) ? hex : null
+}
+function canonicalAddressBytes(tronWeb, value) {
+  try {
+    const address = typeof value === 'string' && value.startsWith('T') ? value : tronWeb.address.fromHex(value)
+    if (!tronWeb.isAddress(address)) return null
+    return canonicalHexAddressValue(tronWeb.address.toHex(address))
+  } catch { return canonicalHexAddressValue(value) }
+}
+function canonicalTopicAddress(value) {
+  if (typeof value !== 'string') return null
+  const topic = value.replace(/^0x/i, '').toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(topic) || !topic.startsWith('000000000000000000000000')) return null
+  return topic.slice(24)
+}
+function readSolidifiedUsdtTransferEvent(log, contractBytes) {
+  if (!log || typeof log !== 'object' || !Array.isArray(log.topics) || log.topics.length < 3) return null
+  if (canonicalHexAddressValue(log.address) !== contractBytes) return null
+  if (typeof log.topics[0] !== 'string' || log.topics[0].replace(/^0x/i, '').toLowerCase() !== USDT_TRANSFER_EVENT_TOPIC) return null
+  const fromBytes = canonicalTopicAddress(log.topics[1])
+  const toBytes = canonicalTopicAddress(log.topics[2])
+  const data = typeof log.data === 'string' ? log.data.replace(/^0x/i, '') : ''
+  if (!fromBytes || !toBytes || !/^[0-9a-f]{64}$/i.test(data)) return null
+  try { return { fromBytes, toBytes, amountBaseUnits: BigInt('0x' + data).toString() } } catch { return null }
+}
+export function verifyOwnerUsdtTransferReceipt({ tronWeb, transaction, receipt, ownerAddress, contractAddress }) {
+  const contracts = Array.isArray(transaction?.raw_data?.contract) ? transaction.raw_data.contract : []
+  const trigger = contracts.length === 1 && contracts[0]?.type === 'TriggerSmartContract' ? contracts[0] : null
+  const value = trigger?.parameter?.value || {}
+  const calldata = typeof value.data === 'string' ? value.data.replace(/^0x/i, '').toLowerCase() : ''
+  const calldataMatch = /^a9059cbb([0-9a-f]{128})$/.exec(calldata)
+  const encodedRecipient = calldataMatch ? calldataMatch[1].slice(24, 64) : null
+  let encodedAmount = null
+  if (calldataMatch) { try { encodedAmount = BigInt('0x' + calldataMatch[1].slice(64, 128)).toString() } catch {} }
+  const fromBytes = canonicalAddressBytes(tronWeb, ownerAddress)
+  const toBytes = encodedRecipient
+  const contractBytes = canonicalAddressBytes(tronWeb, contractAddress)
+  const actualSender = canonicalHexAddressValue(value.owner_address)
+  const actualContract = canonicalHexAddressValue(value.contract_address)
+  const transactionSucceeded = transaction?.ret?.some(item => item?.contractRet === 'SUCCESS') === true
+  const receiptSucceeded = receipt?.receipt?.result === 'SUCCESS'
+  const receiptMatches = typeof receipt?.id === 'string'
+    && receipt.id.toLowerCase() === String(transaction?.txID || '').toLowerCase()
+  const logs = Array.isArray(receipt?.log) ? receipt.log : []
+  const matches = []
+  for (let index = 0; index < logs.length; index += 1) {
+    const event = readSolidifiedUsdtTransferEvent(logs[index], contractBytes)
+    if (event && event.fromBytes === fromBytes && event.toBytes === toBytes
+      && event.amountBaseUnits === encodedAmount) matches.push({ logIndex: index, ...event })
+  }
+  const verified = Boolean(fromBytes && toBytes && contractBytes && receiptMatches
+    && transactionSucceeded && receiptSucceeded && trigger
+    && actualSender === fromBytes && actualContract === contractBytes
+    && calldataMatch && encodedAmount && matches.length === 1)
+  if (!verified) {
+    return {
+      verified: false,
+      status: !transactionSucceeded || !receiptSucceeded ? 'solidified-transaction-failed'
+        : matches.length > 1 ? 'ambiguous-transfer-event' : 'solidified-transfer-mismatch',
+      transactionSucceeded, receiptSucceeded, transferEventMatches: matches.length,
+    }
+  }
+  return {
+    verified: true, status: 'solidified-trc20-transfer-verified',
+    logIndex: matches[0].logIndex,
+    amountBaseUnits: encodedAmount,
+    recipientAddressBytes: toBytes,
+    transactionHash: String(transaction.txID).toLowerCase(),
+  }
 }
 async function verifyContract(tronWeb, contractAddress, ownerAddress, { fetchImpl, env }) {
   const expectedRuntimeHash = String(env.TRAX_RUNTIME_BYTECODE_SHA256 || '').trim().toLowerCase()
@@ -350,6 +425,16 @@ export function createOwnerOperationApi({
     assertTransactionIntegrity(tronWeb, transaction, 'Solidified TRON Mainnet transaction')
     verifyTransactionSigner(tronWeb, transaction, ownerAddress)
     if (!Number.isSafeInteger(blockNumber) || blockNumber <= 0) return { solidified: false, status: 'not-solidified' }
+    if (contractAddress === OFFICIAL_USDT_MAINNET_CONTRACT) {
+      const verification = verifyOwnerUsdtTransferReceipt({ tronWeb, transaction, receipt: info, ownerAddress, contractAddress })
+      return {
+        solidified: true, success: verification.verified === true,
+        status: verification.status, blockNumber,
+        transferEventMatches: verification.transferEventMatches ?? 1,
+        logIndex: verification.logIndex ?? null,
+        amountBaseUnits: verification.amountBaseUnits ?? null,
+      }
+    }
     const result = String(info?.receipt?.result || info?.result || '').toUpperCase()
     if (!result) return { solidified: false, status: 'solidified-receipt-result-unavailable', blockNumber }
     return { solidified: true, success: result === 'SUCCESS', status: result, blockNumber }
