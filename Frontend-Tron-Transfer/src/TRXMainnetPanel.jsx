@@ -347,6 +347,9 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         if (recovered.operation.transactionId) {
           setNotice('The server recorded transaction ' + recovered.operation.transactionId + ' in state ' + recovered.operation.state + '. Do not retry or rebroadcast it.')
         }
+        if (pendingOperation.operationType === 'usdt-transfer' && ['confirmed', 'failed'].includes(recovered.operation.state)) {
+          await readUsdtWithdrawalSnapshot().catch(() => {})
+        }
       }
       throw requestError
     }
@@ -364,6 +367,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     }
     if (result.transactionId) {
       setNotice('The signed transaction is recorded as ' + String(result.state || 'pending') + '. Do not retry or create a replacement operation. Refresh this operation status to reconcile the solidified receipt.')
+      if (pendingOperation.operationType === 'usdt-transfer') await readUsdtWithdrawalSnapshot().catch(() => {})
       return result
     }
     throw new Error(result.error || 'OWNER_OPERATION_CONFIRMATION_FAILED')
@@ -389,6 +393,9 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       confirmationPhrase: operation.confirmationPhrase || current.confirmationPhrase,
       executionEnabled: result.executionEnabled,
     } : current)
+    if (operation.operationType === 'usdt-transfer' && ['confirmed', 'failed'].includes(operation.state)) {
+      await readUsdtWithdrawalSnapshot().catch(() => {})
+    }
     if (operation.state === 'confirmed' && operation.transactionId) {
       setLastTx(operation.transactionId)
       const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
