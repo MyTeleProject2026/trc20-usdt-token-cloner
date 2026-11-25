@@ -442,6 +442,20 @@ export function createSponsorResourceApi({
           { id: 'sponsor-local-transaction-signer', state: localSignerReady ? 'passed' : 'blocked' },
           { id: 'mainnet-execution-explicitly-disabled', state: readiness.enabled !== true ? 'passed' : 'review-required' },
         ]
+        const writesReleaseChecks = [
+          { id: 'explicit-release-flag', state: env.SPONSOR_WRITES_RELEASE_ENABLED === 'true' ? 'passed' : 'blocked' },
+          { id: 'owner-admin-session', state: adminConfigured ? 'passed' : 'blocked' },
+          { id: 'owner-mainnet-identity', state: ownerAddressMatches ? 'passed' : 'blocked' },
+          { id: 'independent-sponsor-mainnet-identity', state: sponsorIndependent && readiness.sponsorAddressValid === true ? 'passed' : 'blocked' },
+          { id: 'approved-database-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
+          { id: 'sponsor-ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked' },
+          { id: 'backup-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
+          { id: 'sponsor-local-signer', state: localSignerReady && readiness.clientSigningAvailable === true ? 'passed' : 'blocked' },
+          { id: 'mainnet-transaction-engine', state: readiness.enabled === true && readiness.broadcastAvailable === true ? 'passed' : 'blocked' },
+          { id: 'sponsor-session-authentication', state: Boolean(sessionSecret(env)) ? 'passed' : 'blocked' },
+          { id: 'writes-currently-paused', state: sponsorWritesPaused ? 'passed' : 'blocked' },
+        ]
+        const writesReleaseAvailable = writesReleaseChecks.every(check => check.state === 'passed')
         const acceptancePassed = acceptanceChecks.every(check => check.state === 'passed')
         const acceptance = {
           version: 1,
@@ -476,6 +490,11 @@ export function createSponsorResourceApi({
           ownerTopupPolicy: readiness.ownerTopupPolicy,
           ownerAdminSessionRequired: false,
           ownerAdminSessionConfiguredForLedgerBootstrap: ownerAdminAuthConfigured,
+          ownerAdminSessionConfiguredForLedgerRelease: ownerAdminAuthConfigured,
+          ownerAdminSessionConfiguredForLedgerPause: ownerAdminAuthConfigured,
+          writesReleaseConfigured: env.SPONSOR_WRITES_RELEASE_ENABLED === 'true',
+          writesReleaseAvailable,
+          writesReleaseChecks,
           ownerAdminSessionConfigured: adminConfigured,
           checkedAt: new Date(now()).toISOString(),
         }
@@ -486,6 +505,8 @@ export function createSponsorResourceApi({
     const isRoute = path === '/api/sponsor/status'
       || path === '/api/acceptance/production'
       || path === '/api/sponsor/ledger/bootstrap'
+      || path === '/api/sponsor/ledger/release'
+      || path === '/api/sponsor/ledger/pause'
       || path === '/api/sponsor/session/challenge'
       || path === '/api/sponsor/session/verify'
       || path === '/api/sponsor/intent'
@@ -558,6 +579,86 @@ export function createSponsorResourceApi({
         }, origin)
       } catch (error) {
         return reply(res, 503, { success: false, error: classifySponsorDatabaseError(error), sponsorWritesPaused: true }, origin)
+      }
+    }
+
+    if (req.method === 'POST' && (path === '/api/sponsor/ledger/release' || path === '/api/sponsor/ledger/pause')) {
+      const paused = path.endsWith('/pause')
+      const action = paused ? 'pause' : 'release'
+      if (!rateLimit(req, 'ledger-' + action, 3)) return reply(res, 429, { success: false, error: 'rate-limited' }, origin)
+      if (!(await verifyAdminAuthorization(req))) return reply(res, 401, { success: false, error: 'admin-authorization-required' }, origin)
+      if (!databaseTargetIdentityMatches(env)) return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted' }, origin)
+      let body
+      try { body = await readBody(req) } catch (error) {
+        return reply(res, Number(error?.status) || 400, { success: false, error: 'invalid-ledger-control-request' }, origin)
+      }
+      const confirmation = paused ? 'PAUSE_SPONSOR_MAINNET_WRITES' : 'ENABLE_SPONSOR_MAINNET_WRITES'
+      if (body.confirm !== confirmation) {
+        return reply(res, 400, { success: false, error: 'explicit-sponsor-write-control-confirmation-required' }, origin)
+      }
+      if (!paused) {
+        const status = await buildStatusPayload()
+        if (status.writesReleaseAvailable !== true) {
+          return reply(res, 423, {
+            success: false, error: 'sponsor-writes-release-gates-blocked',
+            writesReleaseChecks: status.writesReleaseChecks,
+            sponsorWritesPaused: status.sponsorWritesPaused,
+            transactionExecutionAvailable: false,
+          }, origin)
+        }
+      }
+      const db = getDatabase()
+      if (!db || !sponsorDatabaseConnectionInfo(env).configured) {
+        return reply(res, 503, { success: false, error: 'sponsor-ledger-database-unavailable' }, origin)
+      }
+      if (typeof db.connect !== 'function') {
+        return reply(res, 503, { success: false, error: 'sponsor-ledger-control-transaction-unavailable' }, origin)
+      }
+      let client
+      let transactionOpen = false
+      try {
+        await assertSchema(db)
+        client = await db.connect()
+        await client.query('BEGIN')
+        transactionOpen = true
+        const current = await client.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1 FOR UPDATE')
+        if (!current.rows?.length) {
+          await client.query('ROLLBACK')
+          transactionOpen = false
+          return reply(res, 503, { success: false, error: 'sponsor-ledger-control-row-missing', sponsorWritesPaused: true }, origin)
+        }
+        const currentlyPaused = current.rows[0].writes_paused === true
+        if (currentlyPaused === paused) {
+          await client.query('COMMIT')
+          transactionOpen = false
+          return reply(res, 200, {
+            success: true, unchanged: true, sponsorWritesPaused: paused,
+            transactionExecutionAvailable: !paused,
+            message: paused ? 'Sponsor Mainnet writes were already paused.' : 'Sponsor Mainnet writes were already released.',
+          }, origin)
+        }
+        const updated = await client.query(
+          'UPDATE public.tron_transfer_sponsor_control SET writes_paused=$1, pause_reason=$2, updated_at=now() WHERE id=1 AND writes_paused=$3 RETURNING writes_paused',
+          [paused, paused ? 'explicit-owner-admin-pause' : null, currentlyPaused],
+        )
+        if (updated.rowCount !== 1 || updated.rows?.[0]?.writes_paused !== paused) {
+          throw new Error('sponsor-ledger-control-state-transition-conflict')
+        }
+        await client.query('COMMIT')
+        transactionOpen = false
+        sponsorStatusCache = { at: 0, value: null }
+        return reply(res, 200, {
+          success: true, sponsorWritesPaused: paused,
+          transactionExecutionAvailable: !paused,
+          message: paused
+            ? 'Sponsor Mainnet writes are paused. In-flight operations completed under the control-row lock; no new Sponsor operation can pass the write gate.'
+            : 'Sponsor Mainnet writes are released. No transaction was signed or broadcast by this control action; normal Sponsor authentication, local signing, resource preflight and receipt verification still apply.',
+        }, origin)
+      } catch (error) {
+        if (transactionOpen && client) await client.query('ROLLBACK').catch(() => {})
+        return reply(res, 503, { success: false, error: classifySponsorDatabaseError(error), sponsorWritesPaused: true }, origin)
+      } finally {
+        client?.release?.()
       }
     }
 
