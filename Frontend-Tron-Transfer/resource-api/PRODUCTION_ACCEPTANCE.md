@@ -74,6 +74,19 @@ During browser acceptance, verify separately for Owner and Sponsor:
 
 A deposit is received directly by the selected wallet on TRON Mainnet. Never use an address from the other workspace or send assets over another network. Do not use a real-value transfer merely to satisfy the software acceptance checklist.
 
+## Production acceptance evaluator coverage
+
+The read-only production acceptance report must expose and pass every required check before it can report `ready-for-independent-review`. The required set is matched to the checks emitted by the Sponsor API and includes:
+
+- Configured Owner Mainnet address and enrolled Owner wallet binding.
+- Configured, distinct Sponsor Mainnet address, Sponsor engine address match, and enrolled Sponsor wallet binding.
+- Exact approved Neon database identity, complete Sponsor operations/control schema, and verified backup/restore attestations.
+- Sponsor writes remain paused during acceptance.
+- Owner authenticator for guarded ledger administration, Sponsor session authentication, and local Sponsor transaction-signing capability.
+- Mainnet transaction execution remains explicitly disabled.
+
+A missing check identifier, a blocked or malformed check, a non-Mainnet health response, an unapproved acceptance state, or an enabled execution flag fails the smoke test. This evaluator is a release-readiness report, not proof of browser wallet unlock/signing and not permission to broadcast. Owner and Sponsor enrollment must be verified independently before the Sponsor ledger bootstrap and later write-release action.
+
 ## Release gates not automated by this layer
 
 - A real Neon database snapshot/backup and restoration drill must be evidenced independently; environment flags are operator attestations, not proof.
