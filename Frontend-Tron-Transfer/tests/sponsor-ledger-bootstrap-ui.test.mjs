@@ -26,6 +26,6 @@ test('Sponsor workspace exposes only an Owner-Admin-authorized paused ledger boo
   assert.ok(api.includes('authenticateOwnerAdminSession'))
   assert.ok(source.includes('Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof.'))
   assert.ok(source.includes('Owner authentication is checked independently'))
-  assert.ok(source.includes('only for the\\n    // the explicitly guarded, one-time Sponsor ledger bootstrap'))
+  assert.match(source, /the explicitly guarded, one-time Sponsor ledger bootstrap/)
   assert.ok(!source.includes('x-sponsor-admin-token'))
 })
