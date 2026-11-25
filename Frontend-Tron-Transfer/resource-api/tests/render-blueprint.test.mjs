@@ -19,7 +19,7 @@ test('Render Blueprint preserves Neon and does not provision a Render database o
   ]) assert.match(blueprint, new RegExp('- key: ' + key + '\\n\\s+sync: false'), 'missing operator-managed Render variable: ' + key)
   assert.equal((blueprint.match(/^  - type: web$/gm) || []).length, 1, 'Blueprint must keep exactly the existing Resource API service')
   assert.match(blueprint, /name: tron-transfer-resource-api/)
-  assert.match(blueprint, /branch: ui\\/modern-crypto-dashboard-theme/)
+  assert.ok(blueprint.includes('branch: ui/modern-crypto-dashboard-theme'))
   assert.doesNotMatch(blueprint, /^databases:/m)
   assert.doesNotMatch(blueprint, /fromDatabase:/)
   assert.doesNotMatch(blueprint, /PRIVATE_KEY|MNEMONIC|SEED_PHRASE/i)
