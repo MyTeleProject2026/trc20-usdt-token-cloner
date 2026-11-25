@@ -549,6 +549,7 @@ test('Owner journal endpoint returns only Owner-identity-scoped intent and prefl
   assert.equal(replies[0].status, 200)
   assert.equal(replies[0].payload.operations[0].method, 'setPaused')
   assert.equal(replies[0].payload.operations[0].preflight.estimatedTrxFallbackSun, '0')
+  assert.equal(replies[0].payload.reservedUsdtBaseUnits, '0')
   assert.equal(JSON.stringify(replies[0].payload).includes('signedTransaction'), false)
 })
 
