@@ -62,6 +62,16 @@ services:
         sync: false
       - key: SPONSOR_LEDGER_RESTORE_TESTED
         sync: false
+      - key: SPONSOR_LIQUID_RESERVE_TRX
+        sync: false
+      - key: SPONSOR_STAKING_ENABLED
+        sync: false
+      - key: SPONSOR_MAX_AUTOMATIC_STAKE_TRX
+        sync: false
+      - key: SPONSOR_MAX_OWNER_TOPUP_TRX
+        sync: false
+      - key: SPONSOR_MAX_TX_FEE_SUN
+        sync: false
       - key: OWNER_ADMIN_DATABASE_URL
         sync: false
       - key: OWNER_OPERATION_LEDGER_DURABLE
