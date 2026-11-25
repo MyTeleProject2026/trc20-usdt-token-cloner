@@ -56,7 +56,7 @@ export const LEGACY_MIGRATION_CHECKSUMS = Object.freeze({
 
 export const OWNER_ADMIN_SCHEMA_FINGERPRINT = '0eb0424ecbab1e18a0ab5db74ea2bfe0251956faba02b3cbcfc3e0146ce804df'
 
-const OWNER_ADMIN_SCHEMA_FINGERPRINT_SQL = `WITH target(table_name) AS (VALUES
+const OWNER_ADMIN_SCHEMA_FINGERPRINT_SQL = String.raw`WITH target(table_name) AS (VALUES
  ('tron_transfer_wallet_accounts'),('tron_transfer_wallet_sessions'),('tron_transfer_wallet_auth_audit'),
  ('tron_transfer_owner_operations'),('tron_transfer_deployments'),('tron_transfer_wallet_recovery_tokens'),
  ('tron_transfer_pending_owner_challenges'),('tron_transfer_pending_owner_sessions'),
