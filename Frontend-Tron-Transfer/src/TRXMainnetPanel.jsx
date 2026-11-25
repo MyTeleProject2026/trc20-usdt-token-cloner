@@ -34,7 +34,7 @@ function makeReference() {
   return '0x' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
 }
 
-function TraxTokenMark() { return <img className="trax-token-mark" src="https://thesvg.org/icons/tron/default.svg" alt="TRӾ token icon" width="22" height="22" loading="lazy"/> }
+function TraxTokenMark() { return <img className="trax-token-mark" src="/trax-token-mark.svg" alt="TRӾ token icon" width="22" height="22" loading="lazy"/> }
 
 function formatUsd(value) {
   return Number.isFinite(Number(value))
