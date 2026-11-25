@@ -231,20 +231,24 @@ export function verifyOwnerUsdtTransferReceipt({ tronWeb, transaction, receipt, 
     if (event && event.fromBytes === fromBytes && event.toBytes === toBytes
       && event.amountBaseUnits === encodedAmount) matches.push({ logIndex: index, ...event })
   }
-  const verified = Boolean(fromBytes && toBytes && contractBytes && receiptMatches
-    && transactionSucceeded && receiptSucceeded && trigger
+  if (!receiptMatches) {
+    return { verified: false, solidified: false, status: 'solidified-receipt-id-unavailable', transactionSucceeded, receiptSucceeded, transferEventMatches: matches.length }
+  }
+  if (!transactionSucceeded || !receiptSucceeded) {
+    return { verified: false, solidified: true, status: 'solidified-transaction-failed', transactionSucceeded, receiptSucceeded, transferEventMatches: matches.length }
+  }
+  const verified = Boolean(fromBytes && toBytes && contractBytes && trigger
     && actualSender === fromBytes && actualContract === contractBytes
     && calldataMatch && encodedAmount && matches.length === 1)
   if (!verified) {
     return {
-      verified: false,
-      status: !transactionSucceeded || !receiptSucceeded ? 'solidified-transaction-failed'
-        : matches.length > 1 ? 'ambiguous-transfer-event' : 'solidified-transfer-mismatch',
+      verified: false, solidified: false,
+      status: matches.length > 1 ? 'ambiguous-transfer-event' : 'solidified-transfer-mismatch',
       transactionSucceeded, receiptSucceeded, transferEventMatches: matches.length,
     }
   }
   return {
-    verified: true, status: 'solidified-trc20-transfer-verified',
+    verified: true, solidified: true, status: 'solidified-trc20-transfer-verified',
     logIndex: matches[0].logIndex,
     amountBaseUnits: encodedAmount,
     recipientAddressBytes: toBytes,
@@ -451,7 +455,8 @@ export function createOwnerOperationApi({
     if (contractAddress === OFFICIAL_USDT_MAINNET_CONTRACT) {
       const verification = verifyOwnerUsdtTransferReceipt({ tronWeb, transaction, receipt: info, ownerAddress, contractAddress })
       return {
-        solidified: true, success: verification.verified === true,
+        solidified: verification.solidified === true,
+        success: verification.verified === true,
         status: verification.status, blockNumber,
         transferEventMatches: verification.transferEventMatches ?? 1,
         logIndex: verification.logIndex ?? null,
