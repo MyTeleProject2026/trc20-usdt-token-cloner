@@ -113,6 +113,8 @@ There is no protocol free Energy quota. This code does not claim or automate fre
 
 Owner Admin continues to use the existing TRӾ pages and existing contract. The backend binds typed intent fields to the configured `TRAX_CONTRACT_ADDRESS`, prepares canonical Mainnet transactions, verifies the local Owner signature and live permission, persists the signed transaction before broadcast, and reconciles the original txID against solidified state.
 
+The existing Owner `Withdraw` page also supports official TRC-20 USDT transfers. It is pinned to Mainnet contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`, verifies the `Tether USD` / `USDT` / 6-decimal metadata, rechecks the Owner USDT balance during fresh preflight, and uses the same Owner local vault, durable operation ledger, explicit confirmation, signature verification and solidified receipt recovery. It does not use the legacy Token Studio withdrawal API or TronLink.
+
 Owner operation/deployment APIs remain guarded by the existing Owner session, exact intent, fee/resource preflight and durable ledger. Deployment artifacts are pinned by source, creation bytecode, runtime bytecode and manifest hashes. Contract deployment and token issuance are separate actions and each requires explicit confirmation and independent readiness.
 
 Required Owner/deployment configuration includes:
