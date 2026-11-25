@@ -597,7 +597,10 @@ export function createSponsorResourceApi({
         return reply(res, 400, { success: false, error: 'explicit-sponsor-write-control-confirmation-required' }, origin)
       }
       if (!paused) {
-        const status = await buildStatusPayload()
+        let status
+        try { status = await buildStatusPayload() } catch {
+          return reply(res, 503, { success: false, error: 'sponsor-status-unavailable', sponsorWritesPaused: true }, origin)
+        }
         if (status.writesReleaseAvailable !== true) {
           return reply(res, 423, {
             success: false, error: 'sponsor-writes-release-gates-blocked',
