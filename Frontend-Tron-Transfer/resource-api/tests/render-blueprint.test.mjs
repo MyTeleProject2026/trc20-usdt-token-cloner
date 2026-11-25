@@ -7,6 +7,12 @@ test('Render Blueprint preserves Neon and does not provision a Render database o
   assert.match(blueprint, /- key: DATABASE_URL\n\s+sync: false/)
   assert.match(blueprint, /- key: TATUM_API_KEY\n\s+sync: false/)
   assert.match(blueprint, /- key: TRONGRID_API_KEY\n\s+sync: false/)
+  for (const key of [
+    'OWNER_ADMIN_DATABASE_URL', 'OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256',
+    'OWNER_OPERATION_EXECUTION_ENABLED', 'TRAX_DEPLOYMENT_EXECUTION_ENABLED',
+    'TRAX_DEPLOYMENT_ARTIFACT_SHA256', 'SPONSOR_TRANSACTION_ENGINE_ENABLED',
+    'SPONSOR_MAINNET_BROADCAST_ENABLED', 'SPONSOR_WRITES_RELEASE_ENABLED',
+  ]) assert.match(blueprint, new RegExp('- key: ' + key + '\\n\\s+sync: false'), 'missing operator-managed Render variable: ' + key)
   assert.doesNotMatch(blueprint, /^databases:/m)
   assert.doesNotMatch(blueprint, /fromDatabase:/)
   assert.doesNotMatch(blueprint, /PRIVATE_KEY|MNEMONIC|SEED_PHRASE/i)
