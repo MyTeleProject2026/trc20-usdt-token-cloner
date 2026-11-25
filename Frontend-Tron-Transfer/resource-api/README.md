@@ -63,9 +63,11 @@ Supported Sponsor operations are `stake`, `delegate`, `undelegate`, `unstake`, `
 - `GET /api/sponsor/operations` — read the Sponsor operation ledger.
 - `GET /api/sponsor/operations/:idempotencyKey` — read and reconcile one operation without automatically rebroadcasting it.
 - `POST /api/sponsor/ledger/bootstrap` — Owner-authenticated, one-time guarded schema bootstrap. It creates/extends the Sponsor ledger and leaves writes paused; it does not migrate historical data or enable execution. Ordinary Sponsor wallet operations remain independent of Owner authentication.
+- `POST /api/sponsor/ledger/release` — Owner-authenticated and CSRF-protected explicit release. Requires the exact phrase `ENABLE_SPONSOR_MAINNET_WRITES`, `SPONSOR_WRITES_RELEASE_ENABLED=true`, verified database identity, ready schema/control row, backup/restore attestation, independent Owner/Sponsor identities, local Sponsor signer, session secret, and enabled Mainnet transaction engine/broadcast gate. It only unpauses the ledger control row; it does not sign or broadcast a transaction.
+- `POST /api/sponsor/ledger/pause` — Owner-authenticated and CSRF-protected emergency pause using exact phrase `PAUSE_SPONSOR_MAINNET_WRITES`. It takes an exclusive control-row lock so new Sponsor writes cannot pass the pause gate. Ordinary Sponsor operations continue to use only Sponsor authentication after release.
 - `POST /api/tron/sponsorship/resource-delegations/verify-wallet` — independently verify a recorded delegation against solidified Mainnet state.
 
-Every Sponsor write requires the authenticated Sponsor identity and Sponsor CSRF proof, the durable ledger, an unpaused control row, and explicit Mainnet execution gates. Ordinary Sponsor operations do not require an Owner login. Owner authentication is used only for the separately guarded, one-time Sponsor ledger bootstrap; the bootstrap leaves writes paused. Missing or unreadable control state is treated as paused.
+Every Sponsor write requires the authenticated Sponsor identity and Sponsor CSRF proof, the durable ledger, an unpaused control row, and explicit Mainnet execution gates. Ordinary Sponsor operations do not require an Owner login. Owner authentication is used only for the separately guarded Sponsor ledger bootstrap and explicit write-control pause/release actions; ordinary Sponsor operations remain Owner-independent. Missing or unreadable control state is treated as paused.
 
 ## Sponsor ledger schema and cutover
 
@@ -91,6 +93,7 @@ Configure these only on the existing Resource API service in Render. Never put s
 - `OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256` — expected one-way fingerprint for the approved production database endpoint, database name and role. A missing or mismatched fingerprint blocks production acceptance.
 - `SPONSOR_LEDGER_DURABLE=true`, `SPONSOR_LEDGER_BACKUP_VERIFIED=true`, `SPONSOR_LEDGER_RESTORE_TESTED=true` — operator attestations; set only after a non-expiring production database, recoverable backup and tested restore are independently verified.
 - `SPONSOR_TRANSACTION_ENGINE_ENABLED=true` and `SPONSOR_MAINNET_BROADCAST_ENABLED=true` — both must be explicitly enabled before local-signing operations can execute. Keep both false until release approval.
+- `SPONSOR_WRITES_RELEASE_ENABLED=true` — separate explicit Owner-admin release gate. Keep false until the approved production database, backup/restore, local signer and Mainnet acceptance checks pass; keep it true while Sponsor writes are enabled.
 - `SPONSOR_LIQUID_RESERVE_TRX` — protected liquid reserve; defaults to 2 TRX.
 - `SPONSOR_STAKING_ENABLED=true` — explicit Stake 2.0 enablement.
 - `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` — maximum single stake amount; defaults to zero (disabled).
