@@ -275,8 +275,10 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
   assert.equal(result.payload.databaseStatus, 'schema-missing')
   assert.equal(result.payload.sponsorWritesPaused, true)
   assert.equal(result.payload.transactionExecutionAvailable, false)
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0].trimStart().startsWith('CREATE'), false)
+  assert.equal(calls.length, 2)
+  assert.match(calls[0], /SELECT wallet_role, wallet_address, enabled/)
+  assert.match(calls[1], /to_regclass/)
+  assert.equal(calls.some(sql => /^\\s*(CREATE|ALTER|DROP|INSERT|UPDATE)\\b/im.test(sql)), false)
 })
 
 test('Sponsor ledger bootstrap requires admin authorization and explicit confirmation and leaves writes paused', async () => {
@@ -1150,7 +1152,7 @@ function sponsorControlDatabase(initialPaused, sponsorEnrolled = true) {
         signed_transaction_column: true,
       }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
-      if (sql.includes('FROM public.tron_transfer_wallet_accounts')) return { rowCount: 1, rows: [{ wallet_address: sponsorEnrolled ? SPONSOR : OWNER, enabled: sponsorEnrolled }] }
+      if (sql.includes('SELECT wallet_role, wallet_address, enabled')) return { rowCount: 2, rows: [{ wallet_role: 'owner', wallet_address: OWNER, enabled: true }, { wallet_role: 'sponsor', wallet_address: sponsorEnrolled ? SPONSOR : OWNER, enabled: sponsorEnrolled }] }
       throw new Error('unexpected Sponsor control pool query: ' + sql)
     },
     async connect() {
