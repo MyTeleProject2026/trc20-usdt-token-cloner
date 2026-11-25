@@ -62,10 +62,10 @@ Supported Sponsor operations are `stake`, `delegate`, `undelegate`, `unstake`, `
 - `POST /api/sponsor/operations/submit` — verify and persist a locally signed transaction before the one broadcast attempt.
 - `GET /api/sponsor/operations` — read the Sponsor operation ledger.
 - `GET /api/sponsor/operations/:idempotencyKey` — read and reconcile one operation without automatically rebroadcasting it.
-- `POST /api/sponsor/ledger/bootstrap` — guarded schema bootstrap. It creates/extends the Sponsor ledger and leaves writes paused; it does not migrate historical data or enable execution.
+- `POST /api/sponsor/ledger/bootstrap` — Owner-authenticated, one-time guarded schema bootstrap. It creates/extends the Sponsor ledger and leaves writes paused; it does not migrate historical data or enable execution. Ordinary Sponsor wallet operations remain independent of Owner authentication.
 - `POST /api/tron/sponsorship/resource-delegations/verify-wallet` — independently verify a recorded delegation against solidified Mainnet state.
 
-Every Sponsor write requires the authenticated Sponsor identity, the independent Owner Admin authorization/CSRF check, the durable ledger, an unpaused control row, and explicit Mainnet execution gates. Missing or unreadable control state is treated as paused.
+Every Sponsor write requires the authenticated Sponsor identity and Sponsor CSRF proof, the durable ledger, an unpaused control row, and explicit Mainnet execution gates. Ordinary Sponsor operations do not require an Owner login. Owner authentication is used only for the separately guarded, one-time Sponsor ledger bootstrap; the bootstrap leaves writes paused. Missing or unreadable control state is treated as paused.
 
 ## Sponsor ledger schema and cutover
 
