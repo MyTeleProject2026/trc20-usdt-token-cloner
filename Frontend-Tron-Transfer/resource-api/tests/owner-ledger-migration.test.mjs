@@ -49,3 +49,10 @@ test('Official USDT withdrawal migration adds only the explicit transfer operati
   assert.match(sql, /'transfer', 'usdt-transfer'/)
   assert.doesNotMatch(sql, /CREATE TABLE|DROP TABLE|OWNER_OPERATION_EXECUTION_ENABLED|sendRawTransaction/)
 })
+
+test('Owner Admin migration postflight requires the official USDT operation constraint', async () => {
+  const script = await readFile(new URL('../scripts/migrate-owner-admin-ledgers.mjs', import.meta.url), 'utf8')
+  assert.match(script, /official_usdt_withdrawal_operation/)
+  assert.match(script, /tron_transfer_owner_operations_operation_type_check/)
+  assert.match(script, /LIKE '%usdt-transfer%'/)
+})
