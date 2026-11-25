@@ -1058,6 +1058,7 @@ test('Sponsor local-signing API commits the signed transaction before a single b
       let transactionState = 'initial'
       return {
         async query(sql, params = []) {
+          lastQuery = 'TX: ' + sql
           if (sql === 'BEGIN') { timeline.push('begin'); return { rowCount: 0, rows: [] } }
           if (sql === 'COMMIT') { timeline.push(transactionState === 'signed' ? 'commit-signed' : 'commit-final'); return { rowCount: 0, rows: [] } }
           if (sql === 'ROLLBACK') { timeline.push('rollback'); return { rowCount: 0, rows: [] } }
@@ -1141,8 +1142,10 @@ function sponsorControlDatabase(initialPaused, sponsorEnrolled = true) {
   let writesPaused = initialPaused
   let updateCount = 0
   let connectCount = 0
+  let lastQuery = ''
   const database = {
     async query(sql) {
+      lastQuery = sql
       if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{
         operations_table: 'tron_transfer_sponsor_operations',
         control_table: 'tron_transfer_sponsor_control',
@@ -1215,7 +1218,7 @@ test('Sponsor ledger release requires Owner Admin, explicit release flag and eve
   const result = await call(ready.api, 'POST', '/api/sponsor/ledger/release', {
     confirm: 'ENABLE_SPONSOR_MAINNET_WRITES',
   })
-  assert.equal(result.status, 200, JSON.stringify(result.payload))
+  assert.equal(result.status, 200, JSON.stringify({ payload: result.payload, database: db.state() }))
   assert.equal(result.payload.sponsorWritesPaused, false)
   assert.equal(result.payload.transactionExecutionAvailable, true)
   assert.equal(db.state().writesPaused, false)
