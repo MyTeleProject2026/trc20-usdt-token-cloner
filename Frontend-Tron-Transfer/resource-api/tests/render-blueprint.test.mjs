@@ -37,4 +37,24 @@ test('server environment example documents existing production gates without emb
   ]) assert.ok(example.includes(key), 'missing server configuration entry: ' + key)
   assert.doesNotMatch(example, /(?:PRIVATE_KEY|MNEMONIC|SEED_PHRASE|PASSWORD_HASH)=/i)
   assert.match(example, /Never expose any value below through Vite\/VITE_\* frontend variables/)
+  const values = Object.fromEntries(example.split(/\r?\n/).filter(line => /^[A-Z][A-Z0-9_]*=/.test(line)).map(line => {
+    const separator = line.indexOf('=')
+    return [line.slice(0, separator), line.slice(separator + 1)]
+  }))
+  for (const key of [
+    'DATABASE_URL', 'DATABASE_URL_POOLED', 'OWNER_ADMIN_DATABASE_URL',
+    'SPONSOR_DATABASE_URL', 'SPONSOR_DATABASE_URL_POOLED', 'TATUM_API_KEY',
+    'TRONGRID_API_KEY', 'RENDER_API_KEY', 'TRON_OWNER_ENROLLMENT_TOKEN',
+    'TRON_SPONSOR_ENROLLMENT_TOKEN', 'OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256',
+    'SPONSOR_SESSION_SECRET',
+  ]) assert.equal(values[key], '', key + ' must never contain a committed credential or production identity pin')
+  for (const key of [
+    'OWNER_OPERATION_LEDGER_DURABLE', 'OWNER_OPERATION_LEDGER_BACKUP_VERIFIED',
+    'OWNER_OPERATION_LEDGER_RESTORE_TESTED', 'OWNER_OPERATION_EXECUTION_ENABLED',
+    'SPONSOR_LEDGER_DURABLE', 'SPONSOR_LEDGER_BACKUP_VERIFIED',
+    'SPONSOR_LEDGER_RESTORE_TESTED', 'SPONSOR_TRANSACTION_ENGINE_ENABLED',
+    'SPONSOR_MAINNET_BROADCAST_ENABLED', 'SPONSOR_WRITES_RELEASE_ENABLED',
+    'TRAX_DEPLOYMENT_EXECUTION_ENABLED', 'TRAX_DEPLOYMENT_LEDGER_DURABLE',
+    'TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED', 'TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED',
+  ]) assert.equal(values[key], 'false', key + ' must default to fail-closed')
 })
