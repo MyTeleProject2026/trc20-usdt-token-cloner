@@ -199,6 +199,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [activity, setActivity] = useState([])
   const [securityEvents, setSecurityEvents] = useState([])
   const [sponsorApiStatus, setSponsorApiStatus] = useState(null)
+  const [sponsorControlPhrase, setSponsorControlPhrase] = useState('')
   const [ownerAddress, setOwnerAddress] = useState('')
   const [durableOperations, setDurableOperations] = useState([])
   const [durableLedgerState, setDurableLedgerState] = useState('idle')
@@ -341,6 +342,30 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     } finally {
       setBusy(false)
     }
+  }
+
+  async function changeSponsorWriteControl(paused) {
+    if (busy) return
+    const confirmation = paused ? 'PAUSE_SPONSOR_MAINNET_WRITES' : 'ENABLE_SPONSOR_MAINNET_WRITES'
+    if (sponsorControlPhrase !== confirmation) return
+    setBusy(true)
+    try {
+      await ensureOwnerAdmin()
+      const result = await ownerAuth.apiRequest(paused ? '/api/sponsor/ledger/pause' : '/api/sponsor/ledger/release', {
+        method: 'POST',
+        csrf: true,
+        body: { confirm: confirmation },
+      })
+      const status = await sponsorApiRequest('/api/sponsor/status')
+      setSponsorApiStatus(status)
+      setSponsorControlPhrase('')
+      notify(result.success ? 'success' : 'error',
+        paused ? 'Sponsor Mainnet writes paused' : 'Sponsor Mainnet writes released',
+        result.message || 'The Resource API control state was refreshed. No transaction was signed or broadcast by this action.')
+    } catch (error) {
+      notify('error', paused ? 'Sponsor write pause failed' : 'Sponsor write release blocked',
+        error instanceof Error ? error.message : 'The Owner-authorized Resource API control request failed.')
+    } finally { setBusy(false) }
   }
 
   async function loginSponsorWallet() {
@@ -1136,6 +1161,26 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         <button type="button" className="sponsor-secondary" disabled={busy || !ownerAdminReady} onClick={() => void bootstrapSponsorLedger()}>{busy ? 'Checking database…' : 'Initialize paused Sponsor ledger schema'}</button>
         <p className="sponsor-warning">This creates the missing ledger tables only. It does not migrate historical records, enable writes, sign transactions or broadcast to Mainnet.</p>
       </div>}
+      {activePage === 'sponsor' && sponsorApiStatus?.databaseStatus === 'ready' && <div className="sponsor-ledger-release">
+        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Mainnet write control</h3><p>{sponsorApiStatus.sponsorWritesPaused ? 'Sponsor ledger writes are paused.' : 'Sponsor ledger writes are currently enabled.'}</p></div></div>
+        {sponsorApiStatus.sponsorWritesPaused ? <>
+          <p className="sponsor-warning">Release is a separate Owner-authorized administrative action. It requires the explicit Render release flag, approved database identity, verified backup and restore, independent wallet identities, local Sponsor signer and enabled Mainnet transaction engine. This action only changes the ledger write-control row; it does not sign or broadcast a transaction.</p>
+          <div className="sponsor-release-checks">{(sponsorApiStatus.writesReleaseChecks || []).map(check => <div key={check.id}><span>{check.id.replaceAll('-', ' ')}</span><b className={check.state === 'passed' ? 'passed' : 'blocked'}>{check.state}</b></div>)}</div>
+          <label className="sponsor-field">Type ENABLE_SPONSOR_MAINNET_WRITES to release Sponsor writes<input value={sponsorControlPhrase} onChange={event => setSponsorControlPhrase(event.target.value)} autoComplete="off" spellCheck="false"/></label>
+          <button type="button" className="sponsor-primary" disabled={busy || !ownerAdminReady || sponsorApiStatus.writesReleaseAvailable !== true || sponsorControlPhrase !== 'ENABLE_SPONSOR_MAINNET_WRITES'} onClick={() => void changeSponsorWriteControl(false)}>Enable Sponsor Mainnet writes</button>
+        </> : <>
+          <p className="sponsor-warning">Sponsor operations are enabled subject to their normal Sponsor session, local signing, resource preflight and receipt checks. Pause writes immediately if the ledger, wallet identity or Mainnet execution state needs review.</p>
+          <label className="sponsor-field">Type PAUSE_SPONSOR_MAINNET_WRITES to pause Sponsor writes<input value={sponsorControlPhrase} onChange={event => setSponsorControlPhrase(event.target.value)} autoComplete="off" spellCheck="false"/></label>
+          <button type="button" className="sponsor-danger" disabled={busy || !ownerAdminReady || sponsorControlPhrase !== 'PAUSE_SPONSOR_MAINNET_WRITES'} onClick={() => void changeSponsorWriteControl(true)}>Pause Sponsor Mainnet writes</button>
+        </>}
+        {!ownerAdminReady && <p className="sponsor-muted">Authenticate the separate Owner Admin session below to use this control. Sponsor login and ordinary Sponsor operations do not require Owner authentication.</p>}
+      </div>}
+      {activePage === 'sponsor' && <section className="sponsor-card sponsor-admin-authorization">
+        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Owner Admin authorization</h3><p>{ownerAdminReady ? 'Owner account session verified for guarded Sponsor administration.' : 'Authenticate the separate Owner account only for ledger bootstrap and explicit Sponsor write-control actions.'}</p></div></div>
+        {!ownerAdminReady && <label className="sponsor-field">Owner account password<input type="password" value={ownerAdminPassword} onChange={event => setOwnerAdminPassword(event.target.value)} autoComplete="current-password" minLength={12}/></label>}
+        <div className="sponsor-actions"><button type="button" className="sponsor-secondary" disabled={busy || ownerAdminPassword.length < 12 || ownerAdminReady} onClick={() => void loginOwnerAdmin()}>{ownerAdminReady ? 'Owner Admin session active' : 'Authenticate Owner for guarded Sponsor administration'}</button></div>
+        <p className="sponsor-muted">Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof. The Owner session is used only for the separately guarded ledger bootstrap and explicit pause/release controls. No static Sponsor Admin token is sent from the browser.</p>
+      </section>}
     </section>}
 
     {activePage === 'sponsor' && !wallet && !managedSponsorAddress && <section className="sponsor-card sponsor-unlock-card">
@@ -1202,12 +1247,6 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
           </div>
           <button type="button" className="sponsor-secondary" disabled={busy||sponsorSessions.filter(session=>!session.current).length===0} onClick={()=>void revokeOtherSponsorSessions()}>Revoke all other Sponsor sessions</button>
         </details>
-      </section>}
-      {wallet && <section className="sponsor-card sponsor-admin-authorization">
-        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor ledger bootstrap authorization</h3><p>{ownerAdminReady ? 'Owner account session verified.' : 'Authenticate the separate Owner account only to initialize the paused Sponsor ledger schema.'}</p></div></div>
-        {!ownerAdminReady && <label className="sponsor-field">Owner account password<input type="password" value={ownerAdminPassword} onChange={event => setOwnerAdminPassword(event.target.value)} autoComplete="current-password" minLength={12}/></label>}
-        <div className="sponsor-actions"><button type="button" className="sponsor-secondary" disabled={busy || ownerAdminPassword.length < 12 || ownerAdminReady} onClick={() => void loginOwnerAdmin()}>{ownerAdminReady ? 'Owner Admin session active' : 'Authenticate Owner for ledger bootstrap'}</button></div>
-        <p className="sponsor-muted">Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof. The separate Owner session is used only for the one-time Sponsor ledger schema bootstrap. No static Sponsor Admin token is sent from the browser.</p>
       </section>}
 
       {activePage === "sponsor-resources" && <section id="sponsor-resources" className="sponsor-card">
