@@ -15,6 +15,8 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
   const [expectedOwnerAddress, setExpectedOwnerAddress] = useState('')
   const [authenticated, setAuthenticated] = useState(false)
   const [authPassword, setAuthPassword] = useState('')
+  const [initialAuthPassword, setInitialAuthPassword] = useState('')
+  const [confirmAuthPassword, setConfirmAuthPassword] = useState('')
   const [enrollmentToken, setEnrollmentToken] = useState('')
   const [recoveryToken, setRecoveryToken] = useState('')
   const [confirmRecoveryPassword, setConfirmRecoveryPassword] = useState('')
@@ -52,7 +54,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       } else {
         setMessage(status.enrolled
           ? 'Sign in to the configured Owner application account, then unlock the independent local Owner Wallet.'
-          : 'First-time setup requires the one-time Owner enrollment token, then import the configured Owner Wallet.')
+          : 'First-time setup requires the existing Owner initial password configured on the Resource API, then a new Owner account password.')
       }
     }).catch(cause => {
       if (!active) return
@@ -71,7 +73,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         ? await ownerAuth.recoverPassword(recoveryToken.trim(), authPassword)
         : enrolled
           ? await ownerAuth.login(authPassword)
-          : await ownerAuth.enroll(authPassword, enrollmentToken.trim())
+          : await ownerAuth.enroll(authPassword, enrollmentToken.trim(), initialAuthPassword)
       if (recoveryMode) {
         setRecoveryMode(false); setRecoveryToken(''); setConfirmRecoveryPassword('')
         setEnrolled(true); setMessage('Owner password recovered. Sign in with the new password.')
@@ -84,7 +86,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       }
       setAuthenticated(true)
       setEnrolled(true)
-      setAuthPassword(''); setEnrollmentToken('')
+      setAuthPassword(''); setInitialAuthPassword(''); setConfirmAuthPassword(''); setEnrollmentToken('')
       setMessage('Owner application session authenticated. Unlock or import the independent local Owner Wallet.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Owner account authentication failed.')
@@ -139,11 +141,12 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         <div className="owner-vault-warning">The managed Owner password authenticates application access only. The separate encrypted local Owner vault holds the transaction-signing key. Never send wallet credentials to the Resource API.</div>
         <p className="owner-vault-address">{message}</p>
         <form onSubmit={authenticate}>
-          {!enrolled && !recoveryMode && <label>One-time Owner enrollment token<input type="password" autoComplete="off" value={enrollmentToken} onChange={event => setEnrollmentToken(event.target.value)} required/></label>}
+          {!enrolled && !recoveryMode && <label>Existing Owner password<input type="password" autoComplete="current-password" value={initialAuthPassword} onChange={event => setInitialAuthPassword(event.target.value)} required/></label>}
           {recoveryMode && <label>One-time Owner recovery token<input type="password" autoComplete="off" value={recoveryToken} onChange={event => setRecoveryToken(event.target.value)} required/></label>}
-          <label>{recoveryMode ? 'New Owner account password' : 'Owner account password'}<input type="password" minLength={12} autoComplete={recoveryMode || !enrolled ? 'new-password' : 'current-password'} value={authPassword} onChange={event => setAuthPassword(event.target.value)} required/></label>
+          <label>{recoveryMode || !enrolled ? 'New Owner account password' : 'Owner account password'}<input type="password" minLength={12} autoComplete={recoveryMode || !enrolled ? 'new-password' : 'current-password'} value={authPassword} onChange={event => setAuthPassword(event.target.value)} required/></label>
+          {!enrolled && !recoveryMode && <label>Confirm new Owner password<input type="password" minLength={12} autoComplete="new-password" value={confirmAuthPassword} onChange={event => setConfirmAuthPassword(event.target.value)} required/></label>}
           {recoveryMode && <label>Confirm new Owner password<input type="password" minLength={12} autoComplete="new-password" value={confirmRecoveryPassword} onChange={event => setConfirmRecoveryPassword(event.target.value)} required/></label>}
-          <button className="owner-vault-primary" disabled={busy || authPassword.length < 12 || enrolled === null || (recoveryMode ? recoveryToken.length < 32 || confirmRecoveryPassword !== authPassword : !enrolled && enrollmentToken.length < 32)}><LockKeyhole size={16}/>{busy ? 'Working…' : recoveryMode ? 'Recover Owner password' : enrolled ? 'Sign in to Owner workspace' : 'Enroll Owner password'}</button>
+          <button className="owner-vault-primary" disabled={busy || authPassword.length < 12 || enrolled === null || (recoveryMode ? recoveryToken.length < 32 || confirmRecoveryPassword !== authPassword : !enrolled && (initialAuthPassword.length < 12 || confirmAuthPassword !== authPassword))}><LockKeyhole size={16}/>{busy ? 'Working…' : recoveryMode ? 'Recover Owner password' : enrolled ? 'Sign in to Owner workspace' : 'Create Owner account'}</button>
           <div className="owner-vault-actions">{enrolled && <button type="button" onClick={() => {setRecoveryMode(value => !value);setAuthPassword('');setRecoveryToken('');setConfirmRecoveryPassword('')}}>{recoveryMode ? 'Back to Owner login' : 'Recover Owner password'}</button>}<button type="button" onClick={onClose}>Close</button></div>
         </form>
       </> : saved && !replace ? <form onSubmit={unlockWallet}>
