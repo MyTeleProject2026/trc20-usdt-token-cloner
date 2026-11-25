@@ -951,6 +951,8 @@ test('Sponsor readiness coalesces simultaneous status refreshes into one databas
   assert.equal(first.status, 200)
   assert.equal(second.status, 200)
   assert.equal(first.payload.sponsorWritesPaused, true)
+  assert.equal(first.payload.writesReleaseAvailable, false)
+  assert.ok(first.payload.writesReleaseChecks.some(check => check.id === 'explicit-release-flag' && check.state === 'blocked'))
   assert.equal(second.payload.sponsorWritesPaused, true)
   assert.equal(queryCount, 2)
   const cached = await call(api, 'GET', '/api/sponsor/status')
