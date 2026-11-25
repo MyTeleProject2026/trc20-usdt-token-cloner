@@ -108,3 +108,9 @@ test('Owner Admin authentication is retained for guarded Sponsor ledger bootstra
   const bootstrapEnd = source.indexOf('async function loginSponsorWallet()', bootstrapStart)
   assert.match(source.slice(bootstrapStart, bootstrapEnd), /ensureOwnerAdmin\(\)/)
 })
+
+test('Owner Admin panel explains its bootstrap-only authorization boundary', () => {
+  assert.match(source, /Sponsor ledger bootstrap authorization/)
+  assert.match(source, /only to initialize the paused Sponsor ledger schema/)
+  assert.match(source, /Sponsor transactions require only the independent Sponsor session/)
+})
