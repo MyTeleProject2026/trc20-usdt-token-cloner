@@ -137,7 +137,7 @@ The contract source `contracts/Restricted1TRAX.sol` is not changed by this walle
 
 ## Database migrations and verification
 
-Use the direct PostgreSQL URL and the documented explicit migration acknowledgements only after a verified snapshot and restore drill. The migration runner applies ordered SQL transactionally, stores SHA-256 checksums, refuses changed applied migrations and verifies required tables. Do not use transaction-pooler URLs for migration execution.
+Use the direct PostgreSQL URL only after a verified recoverable backup and successful restore drill. The Owner Admin migration runner requires all three safeguards: `OWNER_ADMIN_MIGRATIONS_ACK=APPLY_TRON_TRANSFER_OWNER_ADMIN_MIGRATIONS`, `OWNER_OPERATION_LEDGER_BACKUP_VERIFIED=true`, and `OWNER_OPERATION_LEDGER_RESTORE_TESTED=true`. The two boolean values are operator attestations and must be set only after the corresponding evidence has been independently checked; they do not create or verify a backup themselves. The runner also requires the pinned `OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256`, rejects Neon transaction-pooler URLs, applies ordered SQL transactionally, stores SHA-256 checksums, refuses unknown changed applied migrations, and verifies required tables and constraints before commit.
 
 Useful commands from this directory:
 
