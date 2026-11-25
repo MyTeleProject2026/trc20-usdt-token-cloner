@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 const migrationUrl = new URL('../migrations/20261122_backend_wallet_auth.sql', import.meta.url)
 const operationMigrationUrl = new URL('../migrations/20261123_owner_operation_ledger.sql', import.meta.url)
+const usdtWithdrawalMigrationUrl = new URL('../migrations/20261127_owner_usdt_withdrawal.sql', import.meta.url)
 
 test('Owner operation ledger migration has complete bounded validation constraints', async () => {
   const sql = await readFile(migrationUrl, 'utf8')
@@ -36,4 +37,15 @@ test('Owner operation lifecycle migration adds atomic confirmation and session-i
   assert.match(sql, /WHERE state IN \('confirming', 'signed', 'broadcast-unknown', 'broadcast'\)/)
   assert.match(sql, /intent->>'ownerAddress'/)
   assert.doesNotMatch(sql, /OWNER_OPERATION_EXECUTION_ENABLED|sendRawTransaction|TRON_OWNER_PRIVATE_KEY/)
+})
+
+test('Official USDT withdrawal migration adds only the explicit transfer operation type', async () => {
+  const sql = await readFile(usdtWithdrawalMigrationUrl, 'utf8')
+  const executableSql = sql.replace(/^\s*(?:--[^\n]*\n\s*)*/, '')
+  assert.match(executableSql, /^BEGIN;/)
+  assert.match(executableSql.trimEnd(), /COMMIT;$/)
+  assert.match(sql, /DROP CONSTRAINT IF EXISTS tron_transfer_owner_operations_operation_type_check/)
+  assert.match(sql, /ADD CONSTRAINT tron_transfer_owner_operations_operation_type_check CHECK/)
+  assert.match(sql, /'transfer', 'usdt-transfer'/)
+  assert.doesNotMatch(sql, /CREATE TABLE|DROP TABLE|OWNER_OPERATION_EXECUTION_ENABLED|sendRawTransaction/)
 })
