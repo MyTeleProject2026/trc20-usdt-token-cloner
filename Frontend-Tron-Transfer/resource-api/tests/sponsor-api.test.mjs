@@ -1173,7 +1173,7 @@ function releaseReadySponsorEngine() {
   return {
     readiness: () => ({
       configured: true, enabled: true, broadcastAvailable: true, clientSigningAvailable: true,
-      ownerAddress: OWNER, sponsorAddressValid: true, feePolicy: {},
+      ownerAddress: OWNER, sponsorAddress: SPONSOR, sponsorAddressValid: true, feePolicy: {},
       stakingPolicy: { enabled: true }, ownerTopupPolicy: { enabled: true },
     }),
     prepare: async () => ({ success: true }),
