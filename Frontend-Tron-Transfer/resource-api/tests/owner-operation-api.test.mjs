@@ -214,6 +214,9 @@ test('Owner operation API exposes signing only behind guarded explicit confirmat
   assert.doesNotMatch(source, /signerFactory|signContractTransaction|createOwnerManagedSigner/)
   assert.match(source, /broadcastTransaction/)
   assert.match(source, /walletsolidity\/gettransactioninfobyid/)
+  assert.match(source, /OWNER_USDT_BALANCE_INSUFFICIENT/)
+  assert.match(source, /OFFICIAL_USDT_MAINNET_CONTRACT/)
+  assert.match(source, /OWNER_USDT_CONTRACT_METADATA_MISMATCH/)
 })
 
 function canonical(value) {
