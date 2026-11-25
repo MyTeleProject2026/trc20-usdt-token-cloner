@@ -66,6 +66,12 @@ services:
         sync: false
       - key: TRAX_RUNTIME_BYTECODE_SHA256
         sync: false
+      - key: TRAX_SOURCE_SHA256
+        sync: false
+      - key: TRAX_CREATION_BYTECODE_SHA256
+        sync: false
+      - key: TRAX_DEPLOYMENT_ARTIFACT_SHA256
+        sync: false
       - key: TRAX_DEPLOYMENT_EXECUTION_ENABLED
         sync: false
       - key: TRAX_DEPLOYMENT_MAINNET_ACK
