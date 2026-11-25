@@ -98,9 +98,12 @@ test('Sponsor transaction execution is independent of Owner Admin authentication
   assert.doesNotMatch(transaction, /ensureOwnerAdmin|ownerCsrfToken|ownerAdminCsrfToken/)
   assert.doesNotMatch(automation, /ensureOwnerAdmin|ownerCsrfToken|ownerAdminCsrfToken/)
   assert.match(transaction, /csrfToken: authCsrfToken/)
-  assert.match(automation, /csrfToken: authCsrfToken/)
+  assert.match(automation, /submitResourceTransaction\(plan\.action, \{ amount: amountTrx, resource \}\)/)
   assert.match(source, /Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof/)
-  assert.match(source, /Owner authentication is not required to operate the Sponsor wallet/)
+  assert.match(source, /Owner authentication is checked independently/)
+  assert.match(source, /Sponsor password session did not return the enrolled Mainnet address/)
+  assert.doesNotMatch(source.slice(source.indexOf('async function loginSponsorWallet()'), source.indexOf('async function recoverSponsorPassword()')), /Authenticate the configured Owner account first/)
+  assert.match(source, /sponsorApiRequest\('\/api\/sponsor\/status'\)/)
 })
 
 test('Owner Admin authentication is retained for guarded Sponsor ledger bootstrap', () => {
