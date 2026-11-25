@@ -118,3 +118,21 @@ test('Owner Admin panel explains its guarded bootstrap and write-control boundar
   assert.match(source, /Sponsor transactions require only the independent Sponsor session/)
   assert.match(source, /Owner authentication boundary: \{sponsorApiStatus\?\.ownerAdminSessionConfiguredForLedgerRelease \? 'guarded bootstrap and pause\/release actions only'/)
 })
+
+
+test('Sponsor first-time enrollment is independent, address-bound, and browser-only', () => {
+  const start = source.indexOf('async function enrollSponsorWallet()')
+  const end = source.indexOf('async function loginSponsorWallet()', start)
+  assert.notEqual(start, -1, 'first-time Sponsor enrollment handler must exist')
+  assert.notEqual(end, -1, 'Sponsor login handler must follow enrollment handler')
+  const enrollment = source.slice(start, end)
+  assert.match(enrollment, /sponsorApiRequest\('\/api\/sponsor\/status'\)/)
+  assert.match(enrollment, /configuredSponsor === configuredOwner/)
+  assert.match(enrollment, /sponsorAuth\.enroll\(authPassword, token\)/)
+  assert.match(enrollment, /session\?\.address !== configuredSponsor/)
+  assert.match(enrollment, /setAuthEnrollmentToken\(''\)/)
+  assert.doesNotMatch(enrollment, /ensureOwnerAdmin|ownerAuth\.login|ownerAdminPassword/)
+  assert.match(source, /saved === false \? <>[\s\S]*One-time Sponsor enrollment token/)
+  assert.match(source, /onClick=\{\(\) => void enrollSponsorWallet\(\)\}/)
+  assert.match(source, /setSaved\(null\)/, 'status lookup failure must not be treated as proof that no account exists')
+});
