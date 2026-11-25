@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createSponsorResourceApi } from '../sponsor-api.mjs'
+import { REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS } from '../production-acceptance-assessment.mjs'
 
 test('production acceptance endpoint is read-only, secret-free, and keeps execution disabled', async () => {
   let databaseCalls = 0
@@ -69,24 +70,17 @@ test('unknown acceptance paths are not claimed by the Sponsor API', async () => 
 })
 
 
-test('production smoke command requires the current local-wallet acceptance checks and fails on blocked gates', async () => {
+test('production smoke command delegates the complete required-check policy to the extracted evaluator', async () => {
   const source = await readFile(new URL('../scripts/production-acceptance-smoke.mjs', import.meta.url), 'utf8')
-  for (const id of [
-    'owner-address',
-    'sponsor-address-format-and-separation',
-    'sponsor-mainnet-address-configured-and-independent',
-    'ledger-database-configured',
-    'database-target-identity',
-    'ledger-schema-and-control-row',
-    'ledger-durability-and-restore-attestation',
-    'writes-remain-paused-until-release',
-    'owner-admin-second-factor-configured',
-    'session-authentication-configured',
-    'sponsor-local-transaction-signer',
-    'mainnet-execution-explicitly-disabled',
-  ]) assert.ok(source.includes("'" + id + "'"), 'missing current acceptance check: ' + id)
-  assert.match(source, /blocked\.length/)
-  assert.match(source, /ready-for-independent-review/)
+  const assessment = await readFile(new URL('../production-acceptance-assessment.mjs', import.meta.url), 'utf8')
+  for (const id of REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS) {
+    assert.ok(assessment.includes("'" + id + "'"), 'missing current acceptance check: ' + id)
+  }
+  assert.match(source, /evaluateProductionAcceptance/)
+  assert.ok(source.includes('if (!result.passed) process.exitCode = 1'))
+  assert.ok(assessment.includes('missingChecks.length === 0'))
+  assert.ok(assessment.includes('blockedChecks.length === 0'))
+  assert.ok(assessment.includes('ready-for-independent-review'))
   assert.doesNotMatch(source, /sponsor-signer-address-match/)
-  assert.doesNotMatch(source, /['\"]admin-second-factor-configured['\"]/)
+  assert.doesNotMatch(assessment, /['"]admin-second-factor-configured['"]/)
 })
