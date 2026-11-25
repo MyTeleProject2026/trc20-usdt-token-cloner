@@ -444,7 +444,7 @@ export function createSponsorResourceApi({
           { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
           { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
           { id: 'writes-remain-paused-until-release', state: sponsorWritesPaused ? 'passed' : 'blocked' },
-          { id: 'owner-session-for-ledger-bootstrap', state: adminConfigured ? 'passed' : 'blocked' },
+          { id: 'owner-session-for-guarded-administration', state: adminConfigured ? 'passed' : 'blocked' },
           { id: 'session-authentication-configured', state: sessionSecret(env) ? 'passed' : 'blocked' },
           { id: 'sponsor-local-transaction-signer', state: localSignerReady ? 'passed' : 'blocked' },
           { id: 'mainnet-execution-explicitly-disabled', state: readiness.enabled !== true ? 'passed' : 'review-required' },
