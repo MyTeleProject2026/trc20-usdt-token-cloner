@@ -466,6 +466,7 @@ export function createSponsorResourceApi({
         ]
         const writesReleaseChecks = [
           { id: 'explicit-release-flag', state: env.SPONSOR_WRITES_RELEASE_ENABLED === 'true' ? 'passed' : 'blocked' },
+          { id: 'owner-wallet-enrolled', state: ownerWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'owner-admin-session', state: adminConfigured ? 'passed' : 'blocked' },
           { id: 'owner-mainnet-identity', state: ownerAddressMatches ? 'passed' : 'blocked' },
           { id: 'independent-sponsor-mainnet-identity', state: sponsorIndependent && sponsorAddressMatches && readiness.sponsorAddressValid === true ? 'passed' : 'blocked' },
