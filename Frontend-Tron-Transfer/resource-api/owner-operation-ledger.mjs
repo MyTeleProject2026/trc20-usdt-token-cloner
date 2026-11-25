@@ -10,7 +10,7 @@ const TRANSITIONS = Object.freeze({
   broadcast: new Set(['confirmed','failed','broadcast-unknown']),
   confirmed: new Set(), failed: new Set(), cancelled: new Set(),
 })
-const OPERATION_TYPES = new Set(['deploy','owner-issue','credit','batch-credit','transfer','pause','unpause','minting-enable','minting-disable','ownership-transfer','ownership-accept'])
+const OPERATION_TYPES = new Set(['deploy','owner-issue','credit','batch-credit','transfer','usdt-transfer','pause','unpause','minting-enable','minting-disable','ownership-transfer','ownership-accept'])
 function canonical(value) {
   if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
   if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + canonical(value[k])).join(',') + '}'
