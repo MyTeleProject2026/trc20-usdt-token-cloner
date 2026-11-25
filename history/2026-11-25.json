@@ -375,6 +375,86 @@
           "checkedAt": "2026-11-25T19:29:25.978Z"
         }
       ]
+    },
+    {
+      "id": 45692429849,
+      "runNumber": 89,
+      "checkedAt": "2026-11-25T20:10:55.338Z",
+      "status": "failure",
+      "conclusion": "failure",
+      "commit": "dc838c87a883fbc6340f4fe1e19401449912b935",
+      "event": "push",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/45692429849",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 419,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:10:55.338Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 214,
+          "detail": "healthy · TRON Mainnet · recovered after 47520 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:11:42.686Z"
+        },
+        {
+          "name": "sponsor-readiness",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1936,
+          "detail": "Sponsor readiness=blocked · db=query-failed · dbReady=false · durable=false · paused=true · owner=true · independent=true · session=true · admin=false · engine=true/true · execute=false · recovered after 48832 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:11:43.999Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 206,
+          "detail": "valid JSON health payload · recovered after 48285 ms (4 attempts)",
+          "metrics": {
+            "sampledAt": "2026-11-25T20:11:43.359Z",
+            "uptimeSeconds": 10,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 111067136,
+            "heapUsedBytes": 30853920,
+            "heapTotalBytes": 33816576,
+            "eventLoopP95Ms": 20.119551,
+            "requestCount": 7,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 107,
+            "p95LatencyMs": 739
+          },
+          "checkedAt": "2026-11-25T20:11:43.453Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 974,
+          "detail": "Git-backed history served · 7 archived runs · recovered after 48032 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:11:43.201Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": false,
+          "status": 200,
+          "latencyMs": 232,
+          "detail": "RENDER_API_KEY is not configured on the resource API · recovered after 48223 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-25T20:11:43.392Z"
+        }
+      ]
     }
   ]
 }
