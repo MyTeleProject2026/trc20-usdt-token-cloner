@@ -78,6 +78,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [usdtWithdrawalRecipient, setUsdtWithdrawalRecipient] = useState('')
   const [usdtWithdrawalAmount, setUsdtWithdrawalAmount] = useState('')
   const [usdtWithdrawalBalance, setUsdtWithdrawalBalance] = useState(null)
+  const [usdtWithdrawalTrxBalanceSun, setUsdtWithdrawalTrxBalanceSun] = useState(null)
   const [usdtWithdrawalReservedBalance, setUsdtWithdrawalReservedBalance] = useState('0')
   const [usdtWithdrawalAvailableBalance, setUsdtWithdrawalAvailableBalance] = useState(null)
   const [usdtWithdrawalHistory, setUsdtWithdrawalHistory] = useState([])
@@ -121,6 +122,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setPendingOperation(null)
     setConfirmationPhrase('')
     setUsdtWithdrawalBalance(null)
+    setUsdtWithdrawalTrxBalanceSun(null)
     setUsdtWithdrawalReservedBalance('0')
     setUsdtWithdrawalAvailableBalance(null)
     setUsdtWithdrawalHistory([])
@@ -505,8 +507,9 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
   const readUsdtWithdrawalSnapshot = async () => {
     if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Unlock the configured encrypted local Owner Wallet first.')
-    const [balance, journal] = await Promise.all([
+    const [balance, trxBalanceSun, journal] = await Promise.all([
       getMainnetUSDTBalance(readOnlyTronWeb, connectedAddress),
+      getMainnetNativeBalance(readOnlyTronWeb, connectedAddress),
       wallet.authClient.apiRequest('/api/owner/operations?limit=50'),
     ])
     if (!journal?.success) throw new Error(journal?.error || 'OWNER_WITHDRAWAL_LEDGER_UNAVAILABLE')
@@ -517,6 +520,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       ? (BigInt(String(balance)) - BigInt(reserved)).toString()
       : '0'
     setUsdtWithdrawalBalance(String(balance))
+    setUsdtWithdrawalTrxBalanceSun(String(trxBalanceSun))
     setUsdtWithdrawalReservedBalance(reserved)
     setUsdtWithdrawalAvailableBalance(available)
     setUsdtWithdrawalHistory((journal.operations || []).filter(item => item.operationType === 'usdt-transfer'))
@@ -614,6 +618,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <article><span>Owner official USDT balance</span><b>{usdtWithdrawalBalance === null ? 'Not refreshed' : formatTokenUnits(usdtWithdrawalBalance) + ' USDT'}</b><small>{usdtWithdrawalBalanceAt ? 'Read at ' + new Date(usdtWithdrawalBalanceAt).toLocaleString() : 'Live Mainnet balance required before preparation'}</small></article>
         <article><span>Reserved for prepared / unresolved transfers</span><b>{formatTokenUnits(usdtWithdrawalReservedBalance)} USDT</b><small>Active reservations are deducted before new withdrawals</small></article>
         <article><span>Available for a new withdrawal</span><b>{usdtWithdrawalAvailableBalance === null ? 'Not calculated' : formatTokenUnits(usdtWithdrawalAvailableBalance) + ' USDT'}</b><small>Balance minus active reservations</small></article>
+        <article><span>Native TRX for network fees</span><b>{usdtWithdrawalTrxBalanceSun === null ? 'Not refreshed' : formatTokenUnits(usdtWithdrawalTrxBalanceSun) + ' TRX'}</b><small>Energy and Bandwidth are checked separately during preflight</small></article>
         <article><span>Network</span><b>TRON Mainnet</b><small>No testnet or alternate token contract</small></article>
       </div>
       <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refreshUsdtWithdrawalBalance}><RefreshCw size={14}/> Refresh USDT balance</button></div>
