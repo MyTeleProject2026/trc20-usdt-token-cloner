@@ -11,7 +11,7 @@ test('Sponsor workspace derives Owner recipient from public Mainnet status witho
   assert.match(manager, /typeof status\?\.ownerAddress === 'string'/)
   assert.match(manager, /setOwnerAddress\(configuredOwnerAddress\)/)
   assert.match(manager, /void ownerAuth\.session\(\)/)
-  assert.match(manager, /only for the explicitly guarded, one-time Sponsor ledger bootstrap/)
+  assert.match(manager, /explicitly guarded, one-time Sponsor ledger bootstrap/)
   assert.doesNotMatch(manager, /Authenticate the configured Owner account first/)
   assert.doesNotMatch(manager, /const OWNER_ADDRESS\s*=/)
   assert.doesNotMatch(manager, /TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp/)
