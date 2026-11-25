@@ -169,6 +169,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [vaultPassword, setVaultPassword] = useState('')
   const [unlockPassword, setUnlockPassword] = useState('')
   const [authPassword, setAuthPassword] = useState('')
+  const [authEnrollmentToken, setAuthEnrollmentToken] = useState('')
   const [authRecoveryMode, setAuthRecoveryMode] = useState(false)
   const [authRecoveryToken, setAuthRecoveryToken] = useState('')
   const [authRecoveryConfirmPassword, setAuthRecoveryConfirmPassword] = useState('')
@@ -179,7 +180,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [authCsrfToken, setAuthCsrfToken] = useState('')
   const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
   const ownerAuth = useMemo(() => createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: RESOURCE_API }), [])
-  const [saved, setSaved] = useState(false)
+  const [saved, setSaved] = useState(null)
   const [ownerAdminPassword, setOwnerAdminPassword] = useState('')
   const [ownerAdminReady, setOwnerAdminReady] = useState(false)
   const [amount, setAmount] = useState('10')
@@ -230,7 +231,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     let active = true
     void sponsorAuth.status().then(status => {
       if (active) setSaved(status.enrolled === true)
-    }).catch(() => { if (active) setSaved(false) })
+    }).catch(() => { if (active) setSaved(null) })
 
     // The configured Owner address is public Mainnet routing data, not an
     // Owner-authentication session. Sponsor must be able to sign in and
@@ -365,6 +366,41 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     } catch (error) {
       notify('error', paused ? 'Sponsor write pause failed' : 'Sponsor write release blocked',
         error instanceof Error ? error.message : 'The Owner-authorized Resource API control request failed.')
+    } finally { setBusy(false) }
+  }
+
+  async function enrollSponsorWallet() {
+    const token = authEnrollmentToken.trim()
+    if (busy || authPassword.length < 12 || token.length < 32) return
+    setBusy(true)
+    try {
+      // Refresh public identity immediately before one-time enrollment. The
+      // enrollment token and password are sent only to the role-specific API;
+      // the Sponsor private key is imported later into the local vault.
+      const status = await sponsorApiRequest('/api/sponsor/status')
+      const configuredSponsor = typeof status?.sponsorAddress === 'string' ? status.sponsorAddress : ''
+      const configuredOwner = typeof status?.ownerAddress === 'string' ? status.ownerAddress : ''
+      if (!ADDRESS_PATTERN.test(configuredSponsor) || !ADDRESS_PATTERN.test(configuredOwner) || configuredSponsor === configuredOwner) {
+        throw new Error('OWNER_SPONSOR_IDENTITY_SEPARATION_REQUIRED')
+      }
+      const result = await sponsorAuth.enroll(authPassword, token)
+      const session = await sponsorAuth.session()
+      if (result?.address !== configuredSponsor || session?.address !== configuredSponsor) {
+        await sponsorAuth.logout().catch(() => {})
+        throw new Error('SPONSOR_ENROLLED_ADDRESS_MISMATCH')
+      }
+      setSaved(true)
+      setManagedSponsorAddress(session.address)
+      setVaultSaved(hasSavedSponsorWallet())
+      setReplacing(false)
+      setWallet(null)
+      setAuthCsrfToken(session.csrfToken || '')
+      setAuthPassword('')
+      setAuthEnrollmentToken('')
+      setSnapshot(null)
+      notify('success', 'Sponsor account enrolled', 'The independent Sponsor account is enrolled. Import the matching existing Sponsor wallet into its encrypted local vault.')
+    } catch (error) {
+      notify('error', 'Sponsor enrollment failed', error instanceof Error ? error.message : 'Could not enroll the Sponsor account.')
     } finally { setBusy(false) }
   }
 
@@ -1185,14 +1221,19 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
 
     {activePage === 'sponsor' && !wallet && !managedSponsorAddress && <section className="sponsor-card sponsor-unlock-card">
       <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Workspace Login</h3><p>Authenticate the independent Sponsor account first. Then unlock or import its separate encrypted local wallet vault.</p></div></div>
-      {authRecoveryMode && <label className="sponsor-field">One-time Sponsor recovery token<input type="password" value={authRecoveryToken} onChange={event => setAuthRecoveryToken(event.target.value)} autoComplete="off"/></label>}
-      <label className="sponsor-field">{authRecoveryMode ? 'New Sponsor password' : 'Sponsor account password'}<input type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} autoComplete={authRecoveryMode ? 'new-password' : 'current-password'} minLength={12}/><small>{authRecoveryMode ? 'Use the new password you want to set. Recovery tokens are single-use and expire after 30 minutes.' : 'The managed password authenticates the Sponsor workspace only; it does not replace the independent local wallet key.'}</small></label>
-      {authRecoveryMode && <label className="sponsor-field">Confirm new Sponsor password<input type="password" value={authRecoveryConfirmPassword} onChange={event => setAuthRecoveryConfirmPassword(event.target.value)} autoComplete="new-password" minLength={12}/></label>}
-      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || authPassword.length < 12 || (authRecoveryMode && (authRecoveryToken.length < 32 || authRecoveryConfirmPassword !== authPassword))} onClick={() => void (authRecoveryMode ? recoverSponsorPassword() : loginSponsorWallet())}>{busy ? 'Working…' : authRecoveryMode ? 'Recover Sponsor password' : 'Login to Sponsor Workspace'}</button>{saved === true && <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => {setAuthRecoveryMode(value => !value);setAuthPassword('');setAuthRecoveryToken('');setAuthRecoveryConfirmPassword('')}}>{authRecoveryMode ? 'Back to Sponsor login' : 'Recover password'}</button>}</div>
-      {saved === false && <p className="sponsor-warning">No Sponsor password account is enrolled yet. Complete the guarded Sponsor enrollment process before login.</p>}
+      {saved === null ? <p className="sponsor-warning">Sponsor enrollment status could not be verified. Refresh the Sponsor workspace before entering credentials.</p> : saved === false ? <>
+        <label className="sponsor-field">One-time Sponsor enrollment token<input type="password" value={authEnrollmentToken} onChange={event => setAuthEnrollmentToken(event.target.value)} autoComplete="off" minLength={32}/><small>Used once to create the Sponsor application account. It is sent only to the Sponsor enrollment endpoint and is not stored in browser storage.</small></label>
+        <label className="sponsor-field">New Sponsor account password<input type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} autoComplete="new-password" minLength={12}/><small>Minimum 12 characters. This password protects application access; it is separate from the local wallet-vault password.</small></label>
+        <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || authPassword.length < 12 || authEnrollmentToken.trim().length < 32} onClick={() => void enrollSponsorWallet()}>{busy ? 'Enrolling…' : 'Enroll Sponsor account'}</button></div>
+      </> : <>
+        {authRecoveryMode && <label className="sponsor-field">One-time Sponsor recovery token<input type="password" value={authRecoveryToken} onChange={event => setAuthRecoveryToken(event.target.value)} autoComplete="off"/></label>}
+        <label className="sponsor-field">{authRecoveryMode ? 'New Sponsor password' : 'Sponsor account password'}<input type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} autoComplete={authRecoveryMode ? 'new-password' : 'current-password'} minLength={12}/><small>{authRecoveryMode ? 'Use the new password you want to set. Recovery tokens are single-use and expire after 30 minutes.' : 'The managed password authenticates the Sponsor workspace only; it does not replace the independent local wallet key.'}</small></label>
+        {authRecoveryMode && <label className="sponsor-field">Confirm new Sponsor password<input type="password" value={authRecoveryConfirmPassword} onChange={event => setAuthRecoveryConfirmPassword(event.target.value)} autoComplete="new-password" minLength={12}/></label>}
+        <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || authPassword.length < 12 || (authRecoveryMode && (authRecoveryToken.length < 32 || authRecoveryConfirmPassword !== authPassword))} onClick={() => void (authRecoveryMode ? recoverSponsorPassword() : loginSponsorWallet())}>{busy ? 'Working…' : authRecoveryMode ? 'Recover Sponsor password' : 'Login to Sponsor Workspace'}</button>{!authRecoveryMode && <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => {setAuthRecoveryMode(true);setAuthPassword('');setAuthRecoveryToken('');setAuthRecoveryConfirmPassword('')}}>Recover password</button>}{authRecoveryMode && <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => {setAuthRecoveryMode(false);setAuthPassword('');setAuthRecoveryToken('');setAuthRecoveryConfirmPassword('')}}>Back to Sponsor login</button>}</div>
+      </>}
       <p className="sponsor-security-note"><ShieldCheck/> Sponsor and Owner passwords are separate. The local wallet key is imported only after Sponsor session authentication and is never sent to the Resource API.</p>
     </section>}
-
+    
     {activePage === 'sponsor' && managedSponsorAddress && !wallet && (!vaultSaved || replacing) && <section className="sponsor-card">
       <div className="sponsor-card-heading"><Wallet/><div><h3>Import existing Sponsor Wallet</h3><p>Import only the existing Sponsor account that matches the authenticated Sponsor address. No Create Wallet flow.</p></div></div>
       <p className="sponsor-muted">Authenticated Sponsor address: <b>{managedSponsorAddress}</b></p>
