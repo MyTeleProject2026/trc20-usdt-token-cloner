@@ -1165,9 +1165,9 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         </details>
       </section>}
       {wallet && <section className="sponsor-card sponsor-admin-authorization">
-        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Independent Owner Admin authorization</h3><p>{ownerAdminReady ? 'Owner account session verified.' : 'Authenticate the separate Owner account to authorize Sponsor administration.'}</p></div></div>
+        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor ledger bootstrap authorization</h3><p>{ownerAdminReady ? 'Owner account session verified.' : 'Authenticate the separate Owner account only to initialize the paused Sponsor ledger schema.'}</p></div></div>
         {!ownerAdminReady && <label className="sponsor-field">Owner account password<input type="password" value={ownerAdminPassword} onChange={event => setOwnerAdminPassword(event.target.value)} autoComplete="current-password" minLength={12}/></label>}
-        <div className="sponsor-actions"><button type="button" className="sponsor-secondary" disabled={busy || ownerAdminPassword.length < 12 || ownerAdminReady} onClick={() => void loginOwnerAdmin()}>{ownerAdminReady ? 'Owner Admin session active' : 'Authenticate Owner Admin'}</button></div>
+        <div className="sponsor-actions"><button type="button" className="sponsor-secondary" disabled={busy || ownerAdminPassword.length < 12 || ownerAdminReady} onClick={() => void loginOwnerAdmin()}>{ownerAdminReady ? 'Owner Admin session active' : 'Authenticate Owner for ledger bootstrap'}</button></div>
         <p className="sponsor-muted">Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof. The separate Owner session is used only for the one-time Sponsor ledger schema bootstrap. No static Sponsor Admin token is sent from the browser.</p>
       </section>}
 
