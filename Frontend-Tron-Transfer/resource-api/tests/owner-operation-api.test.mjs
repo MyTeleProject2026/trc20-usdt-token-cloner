@@ -141,7 +141,19 @@ test('Official USDT withdrawal preparation is pinned to the canonical Mainnet co
       OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true',
       OWNER_OPERATION_LEDGER_RESTORE_TESTED: 'true',
     },
-    database: { async query() { return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } } },
+    database: {
+      async query() { return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } },
+      async connect() {
+        return {
+          async query(sql) {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.includes('pg_advisory_xact_lock')) return { rows: [] }
+            if (sql.includes('reserved_base_units')) return { rows: [{ reserved_base_units: '500000' }] }
+            throw new Error('unexpected Owner USDT reservation query: ' + sql)
+          },
+          release() {},
+        }
+      },
+    },
     send: (_res, status, payload) => replies.push({ status, payload }),
     authenticateManagedSession: async () => ({ address: owner, sessionId: 9 }),
     ledgerFactory: () => ledger,
@@ -152,7 +164,7 @@ test('Official USDT withdrawal preparation is pinned to the canonical Mainnet co
       calls.prepared = { address, ownerAddress, normalized }
       return { txID: 'b'.repeat(64), raw_data_hex: 'ab'.repeat(32), raw_data: { expiration: Date.now() + 60_000 } }
     },
-    preflightTransaction: async () => ({ estimatedTrxFallbackSun: '0', requiredEnergyWithSafetyMargin: 12000 }),
+    preflightTransaction: async (_tronWeb, _transaction, _owner, _contract, options) => { calls.preflightOptions = options; return { estimatedTrxFallbackSun: '0', requiredEnergyWithSafetyMargin: 12000 } },
   })
   await api.handle(request('POST', {
     operationType: 'usdt-transfer',
@@ -171,6 +183,7 @@ test('Official USDT withdrawal preparation is pinned to the canonical Mainnet co
   assert.equal(calls.prepared.normalized.method, 'transfer')
   assert.deepEqual(calls.prepared.normalized.args, [recipient, '1250000'])
   assert.equal(calls.ledgerInput.operationType, 'usdt-transfer')
+  assert.equal(calls.preflightOptions.reservedUsdtBaseUnits, '500000', 'fresh preflight must include other active withdrawal reservations')
   assert.deepEqual(transitions.map(item => item.nextState), ['preflight-passed', 'awaiting-confirmation'])
 })
 
