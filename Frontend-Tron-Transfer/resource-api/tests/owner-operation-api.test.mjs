@@ -187,6 +187,32 @@ test('Official USDT withdrawal preparation is pinned to the canonical Mainnet co
   assert.deepEqual(transitions.map(item => item.nextState), ['preflight-passed', 'awaiting-confirmation'])
 })
 
+test('Official USDT withdrawal refuses sending back to the configured Owner wallet', async () => {
+  const replies = []
+  const api = createOwnerOperationApi({
+    env: {
+      DATABASE_URL: testDatabaseUrl,
+      OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: testDatabaseIdentity,
+      TRON_OWNER_ADDRESS: owner,
+      TRAX_CONTRACT_ADDRESS: contract,
+    },
+    database: { async query() { return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } } },
+    send: (_res, status, payload) => replies.push({ status, payload }),
+    authenticateManagedSession: async () => ({ address: owner, sessionId: 9 }),
+    tronWebFactory: () => { throw new Error('must not construct TronWeb for a self-directed withdrawal') },
+  })
+  await api.handle(request('POST', {
+    operationType: 'usdt-transfer',
+    contractAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    recipient: owner,
+    amount: '1000000',
+    feeLimitSun: '1000000',
+    idempotencyKey: 'owner-usdt-self-send-0001',
+  }), response(), new URL('https://api.test/api/owner/operations/prepare'), 'https://tron-transfer.onrender.com')
+  assert.equal(replies[0].status, 400)
+  assert.equal(replies[0].payload.error, 'OWNER_USDT_RECIPIENT_MUST_DIFFER')
+})
+
 test('Official USDT withdrawal refuses a non-canonical token contract before transaction preparation', async () => {
   const replies = []
   const api = createOwnerOperationApi({
