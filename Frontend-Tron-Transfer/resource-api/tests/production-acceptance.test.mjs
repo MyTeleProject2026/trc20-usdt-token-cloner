@@ -74,6 +74,7 @@ test('production smoke requires every acceptance gate emitted by the Sponsor API
   const source = await readFile(new URL('../scripts/production-acceptance-smoke.mjs', import.meta.url), 'utf8')
   const assessment = await readFile(new URL('../production-acceptance-assessment.mjs', import.meta.url), 'utf8')
   const sponsorApi = await readFile(new URL('../sponsor-api.mjs', import.meta.url), 'utf8')
+  const sponsorApi = await readFile(new URL('../sponsor-api.mjs', import.meta.url), 'utf8')
   for (const id of REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS) {
     assert.ok(sponsorApi.includes("id: '" + id + "'"), 'Sponsor API does not emit required acceptance check: ' + id)
   }
