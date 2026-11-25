@@ -16,6 +16,12 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
+      - key: DATABASE_URL_POOLED
+        sync: false
+      - key: SPONSOR_DATABASE_URL
+        sync: false
+      - key: SPONSOR_DATABASE_URL_POOLED
+        sync: false
       - key: FRONTEND_ORIGIN
         value: https://tron-transfer.onrender.com
       - key: TATUM_API_KEY
@@ -39,6 +45,8 @@ services:
       - key: OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256
         sync: false
       - key: TRON_OWNER_ENROLLMENT_TOKEN
+        sync: false
+      - key: TRON_SPONSOR_ENROLLMENT_TOKEN
         sync: false
       - key: SPONSOR_SESSION_SECRET
         sync: false
