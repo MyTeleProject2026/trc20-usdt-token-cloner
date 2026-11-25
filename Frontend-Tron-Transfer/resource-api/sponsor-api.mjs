@@ -137,6 +137,18 @@ export function sponsorDatabaseConnectionString(env = process.env) {
   return info.configured ? env[info.sourceVariable] : null
 }
 
+// Wallet enrollment/session tables belong to the pinned Owner Admin database.
+ // Prefer that explicit direct Neon target over generic Render/shared DATABASE_URL
+ // variables, which may point to an unrelated application database. Sponsor
+ // operation storage keeps its own existing precedence through
+ // sponsorDatabaseConnectionString().
+export function walletAuthDatabaseConnectionString(env = process.env) {
+  const ownerAdmin = typeof env.OWNER_ADMIN_DATABASE_URL === 'string'
+    ? env.OWNER_ADMIN_DATABASE_URL.trim()
+    : ''
+  return ownerAdmin || sponsorDatabaseConnectionString(env)
+}
+
 export function sponsorDatabaseTargetIdentityInfo(env = process.env) {
   // Sponsor runtime queries may use the Neon pooler; migrations and deployment
   // ledgers use the direct endpoint. Fingerprint the approved logical target.
