@@ -11,3 +11,18 @@ test('Render Blueprint preserves Neon and does not provision a Render database o
   assert.doesNotMatch(blueprint, /fromDatabase:/)
   assert.doesNotMatch(blueprint, /PRIVATE_KEY|MNEMONIC|SEED_PHRASE/i)
 })
+
+test('server environment example documents existing production gates without embedding credentials', async () => {
+  const example = await readFile(new URL('../../../.env.example', import.meta.url), 'utf8')
+  for (const key of [
+    'DATABASE_URL=', 'OWNER_ADMIN_DATABASE_URL=', 'SPONSOR_DATABASE_URL=',
+    'TATUM_API_KEY=', 'TRONGRID_API_KEY=', 'TRON_OWNER_ADDRESS=',
+    'SPONSOR_MAINNET_ADDRESS=', 'TRON_OWNER_ENROLLMENT_TOKEN=',
+    'TRON_SPONSOR_ENROLLMENT_TOKEN=', 'OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256=',
+    'OWNER_OPERATION_EXECUTION_ENABLED=false', 'SPONSOR_TRANSACTION_ENGINE_ENABLED=false',
+    'SPONSOR_MAINNET_BROADCAST_ENABLED=false', 'SPONSOR_WRITES_RELEASE_ENABLED=false',
+    'TRAX_SOURCE_SHA256=', 'TRAX_RUNTIME_BYTECODE_SHA256=',
+  ]) assert.ok(example.includes(key), 'missing server configuration entry: ' + key)
+  assert.doesNotMatch(example, /(?:PRIVATE_KEY|MNEMONIC|SEED_PHRASE|PASSWORD_HASH)=/i)
+  assert.match(example, /Never expose any value below through Vite\/VITE_\* frontend variables/)
+})
