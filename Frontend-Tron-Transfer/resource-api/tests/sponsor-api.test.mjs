@@ -1059,6 +1059,7 @@ test('Sponsor local-signing API commits the signed transaction before a single b
       return {
         async query(sql, params = []) {
           lastQuery = 'TX: ' + sql
+          queryLog.push(lastQuery)
           if (sql === 'BEGIN') { timeline.push('begin'); return { rowCount: 0, rows: [] } }
           if (sql === 'COMMIT') { timeline.push(transactionState === 'signed' ? 'commit-signed' : 'commit-final'); return { rowCount: 0, rows: [] } }
           if (sql === 'ROLLBACK') { timeline.push('rollback'); return { rowCount: 0, rows: [] } }
@@ -1143,9 +1144,11 @@ function sponsorControlDatabase(initialPaused, sponsorEnrolled = true) {
   let updateCount = 0
   let connectCount = 0
   let lastQuery = ''
+  const queryLog = []
   const database = {
     async query(sql) {
       lastQuery = sql
+      queryLog.push('DB: ' + sql)
       if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{
         operations_table: 'tron_transfer_sponsor_operations',
         control_table: 'tron_transfer_sponsor_control',
