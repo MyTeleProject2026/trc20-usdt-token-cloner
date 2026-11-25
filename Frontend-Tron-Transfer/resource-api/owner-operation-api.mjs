@@ -168,6 +168,28 @@ function canonicalAddressBytes(tronWeb, value) {
     return canonicalHexAddressValue(tronWeb.address.toHex(address))
   } catch { return canonicalHexAddressValue(value) }
 }
+export function verifyOwnerUsdtTransferIntent({ tronWeb, transaction, ownerAddress, contractAddress, recipientAddress, amountBaseUnits }) {
+  const contracts = Array.isArray(transaction?.raw_data?.contract) ? transaction.raw_data.contract : []
+  const trigger = contracts.length === 1 && contracts[0]?.type === 'TriggerSmartContract' ? contracts[0] : null
+  const value = trigger?.parameter?.value || {}
+  const calldata = typeof value.data === 'string' ? value.data.replace(/^0x/i, '').toLowerCase() : ''
+  const match = /^a9059cbb([0-9a-f]{128})$/.exec(calldata)
+  const encodedRecipient = match ? match[1].slice(24, 64) : null
+  let encodedAmount = null
+  if (match) { try { encodedAmount = BigInt('0x' + match[1].slice(64, 128)).toString() } catch {} }
+  const expectedOwner = canonicalAddressBytes(tronWeb, ownerAddress)
+  const expectedContract = canonicalAddressBytes(tronWeb, contractAddress)
+  const expectedRecipient = canonicalAddressBytes(tronWeb, recipientAddress)
+  const actualOwner = canonicalHexAddressValue(value.owner_address)
+  const actualContract = canonicalHexAddressValue(value.contract_address)
+  const callValue = Number(value.call_value || 0)
+  const valid = Boolean(trigger && expectedOwner && expectedContract && expectedRecipient
+    && actualOwner === expectedOwner && actualContract === expectedContract
+    && callValue === 0 && encodedRecipient === expectedRecipient
+    && encodedAmount === String(amountBaseUnits))
+  if (!valid) fail('OWNER_USDT_TRANSFER_INTENT_MISMATCH', 409)
+  return true
+}
 function canonicalTopicAddress(value) {
   if (typeof value !== 'string') return null
   const topic = value.replace(/^0x/i, '').toLowerCase()
@@ -599,6 +621,7 @@ export function createOwnerOperationApi({
           if (operationType === 'usdt-transfer') await verifyUsdtContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           else await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
+          if (operationType === 'usdt-transfer') verifyOwnerUsdtTransferIntent({ tronWeb, transaction, ownerAddress, contractAddress, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
           result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits })
         } catch (error) {
           await ledger.transition({
@@ -716,8 +739,10 @@ export function createOwnerOperationApi({
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
           }
           verifyUnsignedTransaction(tronWeb, unsigned)
+          if (normalized.operationType === 'usdt-transfer') verifyOwnerUsdtTransferIntent({ tronWeb, transaction: unsigned, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
           const signed = signedCandidate
           await verifySignedTransaction(tronWeb, signed, ownerAddress)
+          if (normalized.operationType === 'usdt-transfer') verifyOwnerUsdtTransferIntent({ tronWeb, transaction: signed, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
           transactionId = String(signed?.txID || '').toLowerCase()
           if (!TXID.test(transactionId) || transactionId !== String(unsigned.txID).toLowerCase()) {
             fail('OWNER_SIGNED_TRANSACTION_ID_MISMATCH', 409)
