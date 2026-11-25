@@ -1168,7 +1168,7 @@ function sponsorControlDatabase(initialPaused, sponsorEnrolled = true) {
           if (sql.includes('UPDATE public.tron_transfer_sponsor_control')) {
             writesPaused = params[0]
             updateCount += 1
-            return { rowCount: 1, rows: [{ writes_paused }] }
+            return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
           }
           throw new Error('unexpected Sponsor control transaction query: ' + sql)
         },
