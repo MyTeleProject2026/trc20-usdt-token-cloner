@@ -13,6 +13,7 @@ import './trax-mainnet.css'
 
 const DEFAULT_RECIPIENT = ''
 const DEFAULT_FEE_CAP = '150'
+const OFFICIAL_USDT_MAINNET_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const RESOURCE_API_BASE = String(import.meta.env?.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 
 const SPONSOR_TARGETS_KEY = 'tron-transfer.sponsor-resource-targets.v1'
@@ -74,6 +75,10 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [recentOperations, setRecentOperations] = useState([])
   const [ownerDepositHistory, setOwnerDepositHistory] = useState({ transactions: [], tokenTransfers: [], transactionsAvailable: false, tokenTransfersAvailable: false })
   const [ownerDepositLoading, setOwnerDepositLoading] = useState(false)
+  const [usdtWithdrawalRecipient, setUsdtWithdrawalRecipient] = useState('')
+  const [usdtWithdrawalAmount, setUsdtWithdrawalAmount] = useState('')
+  const [usdtWithdrawalBalance, setUsdtWithdrawalBalance] = useState(null)
+  const [usdtWithdrawalBalanceAt, setUsdtWithdrawalBalanceAt] = useState('')
   const prepareInFlightRef = useRef(null)
   const preparationKeyRef = useRef('')
 
@@ -264,7 +269,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     if (prepareInFlightRef.current) return prepareInFlightRef.current
     const task = run('Preparing guarded TRON Mainnet Owner operation', async () => {
       if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured backend Owner session before preparing a write.')
-      if (!tokenAddress || tokenAddress.trim() === '') throw new Error('Enter the existing verified TRӾ Mainnet contract address.')
+      const operationContractAddress = operationType === 'usdt-transfer' ? OFFICIAL_USDT_MAINNET_CONTRACT : tokenAddress.trim()
+      if (operationType !== 'usdt-transfer' && !operationContractAddress) throw new Error('Enter the existing verified TRӾ Mainnet contract address.')
       if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
       const idempotencyKey = preparationKeyRef.current || (preparationKeyRef.current = makeIdempotencyKey())
       let result
@@ -272,7 +278,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         result = await wallet.authClient.apiRequest('/api/owner/operations/prepare', {
           method: 'POST', csrf: true,
           body: {
-            operationType, contractAddress: tokenAddress.trim(),
+            operationType, contractAddress: operationContractAddress,
             feeLimitSun: String(feeCapSun), idempotencyKey, ...intent,
           },
         })
@@ -480,6 +486,35 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     } catch (error) { setError(error.message); return null }
   }
 
+  const refreshUsdtWithdrawalBalance = () => run('Reading official USDT balance on TRON Mainnet', async () => {
+    if (!walletReady) throw new Error('Unlock the configured encrypted local Owner Wallet first.')
+    const balance = await getMainnetUSDTBalance(readOnlyTronWeb, connectedAddress)
+    setUsdtWithdrawalBalance(String(balance))
+    setUsdtWithdrawalBalanceAt(new Date().toISOString())
+    return balance
+  })
+
+  const prepareUsdtWithdrawal = async () => {
+    try {
+      if (!readOnlyTronWeb.isAddress(usdtWithdrawalRecipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
+      if (usdtWithdrawalRecipient.trim() === connectedAddress) throw new Error('The recipient must be different from the Owner wallet.')
+      const units = parseTokenUnits(usdtWithdrawalAmount)
+      const liveBalance = await getMainnetUSDTBalance(readOnlyTronWeb, connectedAddress)
+      setUsdtWithdrawalBalance(String(liveBalance))
+      setUsdtWithdrawalBalanceAt(new Date().toISOString())
+      if (BigInt(units) > BigInt(String(liveBalance))) throw new Error('The requested withdrawal exceeds the current official USDT balance.')
+      return await prepareOwnerOperation({
+        operationType: 'usdt-transfer',
+        recipient: usdtWithdrawalRecipient.trim(),
+        amount: units,
+        summary: 'Withdraw ' + usdtWithdrawalAmount + ' official USDT to ' + usdtWithdrawalRecipient.trim(),
+      })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      return null
+    }
+  }
+
   const pause = () => prepareOwnerOperation({
     operationType: 'pause', summary: 'Emergency pause TRӾ transfers and issuance',
   })
@@ -488,7 +523,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
   return <section className="trax-workspace">
     <div className="section-heading">
-      <div><span className="eyebrow">TRON TRANSFER · OWNER-ISSUED · MAINNET</span><h2>TRӾ token control center</h2><p>Manage the existing TRӾ TRC-20 contract. Writes require a backend-managed Owner session, exact-intent confirmation and a fresh Mainnet preflight.</p></div>
+      <div><span className="eyebrow">TRON TRANSFER · OWNER WORKSPACE · MAINNET</span><h2>{show('withdraw') ? 'Official USDT withdrawal' : 'TRӾ token control center'}</h2><p>{show('withdraw') ? 'Transfer official TRC-20 USDT from the existing Owner wallet using its encrypted local signer and the shared durable Owner operation ledger.' : 'Manage the existing TRӾ TRC-20 contract. Writes require a backend-managed Owner session, exact-intent confirmation and a fresh Mainnet preflight.'}</p></div>
       <div className="panel-icon" aria-label="TRӾ token"><TraxTokenMark/><small>TRӾ / TRӾ</small></div>
     </div>
 
@@ -501,8 +536,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     {step && <div className="trax-progress" role="status"><RefreshCw size={15} className="trax-spin"/>{step}</div>}
 
     <div className="trax-addresses">
-      <label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
-      <p id="trax-contract-address-note" className="fine-print">The contract address identifies the custom token on TRON Mainnet. Verify its on-chain bytecode and metadata before accepting deposits.</p>
+      {!show('withdraw') && <><label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
+      <p id="trax-contract-address-note" className="fine-print">The contract address identifies the custom token on TRON Mainnet. Verify its on-chain bytecode and metadata before accepting deposits.</p></>}
       <label>Maximum transaction fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
       <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Energy and Bandwidth are used first; any shortfall can still burn TRX. Zero-TRX-burn protection remains active, and the application will block signing when its resource preflight detects a shortfall.</p>
       {show('deploy') && <div className="trax-deploy-actions">
@@ -512,7 +547,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span><label>Type confirmation phrase<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Confirm with local Owner vault</button><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshDeploymentStatus}><RefreshCw size={15}/> Reconcile status</button></div>{!deploymentExecutionEnabled && <p className="fine-print">Signing and broadcast remain locked until database durability, backup/restore and independent production acceptance gates pass. local Owner vault must approve the exact prepared transaction before the Resource API can verify and broadcast it.</p>}</div>}
       </div>}
       {show('portfolio') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
-      {!show('portfolio', 'deploy') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
+      {!show('portfolio', 'deploy', 'withdraw') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
     </div>
 
     {show('portfolio') && <>
@@ -539,6 +574,22 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         {snapshot && <div className="trax-checks"><span className={snapshot.valid ? 'ok' : 'bad'}>{snapshot.valid ? '✓' : '!'} {snapshot.name} / {snapshot.symbol} / {snapshot.decimals} decimals</span><span className={snapshot.ownerValid ? 'ok' : 'bad'}>{snapshot.ownerValid ? '✓' : '!'} On-chain owner matches wallet</span><span className="bad">! No backing or redemption</span></div>}
       </div>
     </>}
+
+    {show('withdraw') && <div className="trax-actions" aria-label="Official USDT withdrawal">
+      <h3>Withdraw official USDT · TRC20</h3>
+      <p className="fine-print">Asset: USDT · Mainnet contract: {OFFICIAL_USDT_MAINNET_CONTRACT} · 6 decimals. The Owner wallet signs locally; the Resource API checks the exact transfer, resource budget, Owner permission and solidified receipt. Network fees are paid in native TRX from the Owner wallet and are never taken from the USDT amount.</p>
+      <div className="trax-stats">
+        <article><span>Owner official USDT balance</span><b>{usdtWithdrawalBalance === null ? 'Not refreshed' : formatTokenUnits(usdtWithdrawalBalance) + ' USDT'}</b><small>{usdtWithdrawalBalanceAt ? 'Read at ' + new Date(usdtWithdrawalBalanceAt).toLocaleString() : 'Live Mainnet balance required before preparation'}</small></article>
+        <article><span>Network</span><b>TRON Mainnet</b><small>No testnet or alternate token contract</small></article>
+      </div>
+      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refreshUsdtWithdrawalBalance}><RefreshCw size={14}/> Refresh USDT balance</button></div>
+      <label>Recipient TRON Mainnet address<input value={usdtWithdrawalRecipient} onChange={event => setUsdtWithdrawalRecipient(event.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
+      <label>Withdrawal amount (USDT)<input value={usdtWithdrawalAmount} onChange={event => setUsdtWithdrawalAmount(event.target.value)} inputMode="decimal" placeholder="0.00"/></label>
+      <div className="trax-balance-note">Six decimal places · Requested base units: {(() => { try { return parseTokenUnits(usdtWithdrawalAmount) } catch { return '—' } })()}</div>
+      <button type="button" className="primary-button" disabled={!walletReady || busy || !usdtWithdrawalRecipient.trim() || !usdtWithdrawalAmount.trim() || !feeCapSun} onClick={prepareUsdtWithdrawal}><ArrowUpRight size={15}/> Review official USDT withdrawal</button>
+      <p className="fine-print">Preparation is unsigned. The next screen displays the exact recipient, amount, fee ceiling and Mainnet resource estimate. A separate explicit confirmation is required. Insufficient Energy, Bandwidth, TRX fallback or database readiness blocks signing. An ambiguous broadcast is reconciled by transaction ID; it is never automatically retried.</p>
+      <a href={'https://tronscan.org/#/contract/' + OFFICIAL_USDT_MAINNET_CONTRACT} target="_blank" rel="noreferrer">Official USDT contract on TRONSCAN <ExternalLink size={12}/></a>
+    </div>}
 
     {show('issuance') && <div className="trax-actions">
       <h3>Owner issuance overview</h3>
@@ -610,10 +661,11 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     </div>}
 
     {pendingOperation && <div className="trax-actions" role="region" aria-label="Review Owner Mainnet operation">
-      <h3>Review guarded TRӾ Mainnet operation</h3>
+      <h3>{pendingOperation.operationType === 'usdt-transfer' ? 'Review official USDT Mainnet withdrawal' : 'Review guarded TRӾ Mainnet operation'}</h3>
       <p><b>{pendingOperation.summary || pendingOperation.operationType}</b></p>
       <p className="fine-print">Operation ID: {pendingOperation.operationId}</p>
       <p className="fine-print">Exact intent SHA-256: {pendingOperation.intentSha256}</p>
+      {pendingOperation.operationType === 'usdt-transfer' && <p><b>{formatTokenUnits(pendingOperation.args?.[1] || '0')} USDT</b> to {pendingOperation.args?.[0]}</p>}
       <details><summary>Inspect exact contract method and arguments</summary>
         {pendingOperation.operationType === 'batch-credit' && Array.isArray(pendingOperation.args?.[0]) && <ol>{pendingOperation.args[0].map((address, index) => <li key={address + ':' + index}>{address} · {formatTokenUnits(pendingOperation.args?.[1]?.[index] || '0')} TRӾ · reference {pendingOperation.args?.[2]?.[index]}</li>)}</ol>}
         <pre>{JSON.stringify({ method: pendingOperation.method, args: pendingOperation.args, feeLimitSun: pendingOperation.feeLimitSun || pendingOperation.preflight?.feeLimitSun }, null, 2)}</pre>
@@ -640,7 +692,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <p className="fine-print">A signed or broadcast-unknown transaction is never automatically re-signed or rebroadcast. Its transaction ID must be reconciled against a solidified Mainnet receipt.</p>
     </div>}
     {lastTx && <div className="notice notice-success trax-last-tx"><CheckCircle2 size={16}/><div><b>Solidified Mainnet transaction verified</b><p>{lastTx}</p><a href={'https://tronscan.org/#/transaction/' + lastTx} target="_blank" rel="noreferrer">Open transaction on TRONSCAN <ExternalLink size={12}/></a></div></div>}
-    {tokenAddress && <div className="notice trax-contract-explorer"><div><b>Saved TRӾ Mainnet contract</b><p>{tokenAddress}</p><a href={'https://tronscan.org/#/contract/' + tokenAddress} target="_blank" rel="noreferrer">Open contract on TRONSCAN <ExternalLink size={12}/></a><small>Explorer visibility is not the same as source-code verification. Confirm the deployed address and submit source verification using the exact compiler settings and constructor data.</small></div></div>}
+    {tokenAddress && !show('withdraw') && <div className="notice trax-contract-explorer"><div><b>Saved TRӾ Mainnet contract</b><p>{tokenAddress}</p><a href={'https://tronscan.org/#/contract/' + tokenAddress} target="_blank" rel="noreferrer">Open contract on TRONSCAN <ExternalLink size={12}/></a><small>Explorer visibility is not the same as source-code verification. Confirm the deployed address and submit source verification using the exact compiler settings and constructor data.</small></div></div>}
     <div className="trax-footer-links"><a href="https://developers.tron.network/docs/trc20-protocol-interface" target="_blank" rel="noreferrer">TRON TRC-20 standard <ExternalLink size={12}/></a><a href="https://tronscan.org/#/token20" target="_blank" rel="noreferrer">TRONSCAN token directory <ExternalLink size={12}/></a></div>
   </section>
 }
