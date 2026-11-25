@@ -77,6 +77,12 @@ const SPONSOR_DATABASE_URL_KEYS = [
   'SPONSOR_DATABASE_URL',
   'DATABASE_URL_POOLED',
   'DATABASE_URL',
+  // Owner Admin's pinned direct Neon URL is also a valid runtime fallback.
+  // This keeps wallet authentication reachable when the deployment has the
+  // dedicated OWNER_ADMIN_DATABASE_URL configured but no shared DATABASE_URL.
+  // When a pooled/runtime URL is present, it retains precedence and is still
+  // checked against the approved direct-target fingerprint below.
+  'OWNER_ADMIN_DATABASE_URL',
 ]
 
 export function sponsorDatabaseConnectionInfo(env = process.env) {
