@@ -159,6 +159,7 @@ test('Official USDT withdrawal preparation is pinned to the canonical Mainnet co
     ledgerFactory: () => ledger,
     tronWebFactory: () => ({}),
     verifyUsdtContractState: async (_tronWeb, address) => { calls.verifyUsdt++; assert.equal(address, usdtContract) },
+    verifyUsdtTransferIntent: async () => { calls.intentVerified = true },
     verifyContractState: async () => { calls.verifyTrax++; throw new Error('TRAX verification must not be used for USDT') },
     prepareTransaction: async (_tronWeb, address, ownerAddress, normalized) => {
       calls.prepared = { address, ownerAddress, normalized }
@@ -178,6 +179,7 @@ test('Official USDT withdrawal preparation is pinned to the canonical Mainnet co
   assert.equal(replies[0].payload.operationType, 'usdt-transfer')
   assert.equal(replies[0].payload.contractAddress, usdtContract)
   assert.equal(calls.verifyUsdt, 1)
+  assert.equal(calls.intentVerified, true)
   assert.equal(calls.verifyTrax, 0)
   assert.equal(calls.prepared.address, usdtContract)
   assert.equal(calls.prepared.normalized.method, 'transfer')
