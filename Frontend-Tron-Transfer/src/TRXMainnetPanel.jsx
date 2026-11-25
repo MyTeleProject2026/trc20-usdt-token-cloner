@@ -510,7 +510,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       wallet.authClient.apiRequest('/api/owner/operations?limit=50'),
     ])
     if (!journal?.success) throw new Error(journal?.error || 'OWNER_WITHDRAWAL_LEDGER_UNAVAILABLE')
-    const reserved = String(journal.reservedUsdtBaseUnits ?? '0')
+    if (!Object.hasOwn(journal, 'reservedUsdtBaseUnits')) throw new Error('OWNER_USDT_RESERVATION_SUMMARY_UNAVAILABLE')
+    const reserved = String(journal.reservedUsdtBaseUnits)
     if (!/^(?:0|[1-9][0-9]*)$/.test(reserved)) throw new Error('OWNER_USDT_RESERVED_BALANCE_INVALID')
     const available = BigInt(String(balance)) > BigInt(reserved)
       ? (BigInt(String(balance)) - BigInt(reserved)).toString()
@@ -555,7 +556,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   return <section className="trax-workspace">
     <div className="section-heading">
       <div><span className="eyebrow">TRON TRANSFER · OWNER WORKSPACE · MAINNET</span><h2>{show('withdraw') ? 'Official USDT withdrawal' : 'TRӾ token control center'}</h2><p>{show('withdraw') ? 'Transfer official TRC-20 USDT from the existing Owner wallet using its encrypted local signer and the shared durable Owner operation ledger.' : 'Manage the existing TRӾ TRC-20 contract. Writes require a backend-managed Owner session, exact-intent confirmation and a fresh Mainnet preflight.'}</p></div>
-      <div className="panel-icon" aria-label="TRӾ token"><TraxTokenMark/><small>TRӾ / TRӾ</small></div>
+      <div className="panel-icon" aria-label={show('withdraw') ? 'Official USDT' : 'TRӾ token'}>{show('withdraw') ? <Coins/> : <TraxTokenMark/>}<small>{show('withdraw') ? 'USDT / TRC20' : 'TRӾ / TRӾ'}</small></div>
     </div>
 
     {!show('withdraw') && <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>}
