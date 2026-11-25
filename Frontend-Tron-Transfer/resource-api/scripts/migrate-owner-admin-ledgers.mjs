@@ -96,6 +96,18 @@ export async function getOwnerAdminSchemaFingerprint(client) {
   return String(result.rows?.[0]?.fingerprint || '').trim()
 }
 
+export function assertOwnerAdminMigrationSafety(env = process.env) {
+  if (env.OWNER_ADMIN_MIGRATIONS_ACK !== ACK) {
+    throw new Error('Set OWNER_ADMIN_MIGRATIONS_ACK=' + ACK + ' only after a verified Neon backup and restore drill.')
+  }
+  if (env.OWNER_OPERATION_LEDGER_BACKUP_VERIFIED !== 'true') {
+    throw new Error('Owner Admin migration blocked: set OWNER_OPERATION_LEDGER_BACKUP_VERIFIED=true only after verifying a recoverable production backup.')
+  }
+  if (env.OWNER_OPERATION_LEDGER_RESTORE_TESTED !== 'true') {
+    throw new Error('Owner Admin migration blocked: set OWNER_OPERATION_LEDGER_RESTORE_TESTED=true only after completing and recording a successful restore drill.')
+  }
+}
+
 export async function applyOwnerAdminMigrations(client, migrations, validate = null, {
   legacyChecksums = LEGACY_MIGRATION_CHECKSUMS,
   expectedSchemaFingerprint = OWNER_ADMIN_SCHEMA_FINGERPRINT,
@@ -146,7 +158,7 @@ export async function applyOwnerAdminMigrations(client, migrations, validate = n
   }
 }
 async function main() {
-  if (process.env.OWNER_ADMIN_MIGRATIONS_ACK !== ACK) throw new Error('Set OWNER_ADMIN_MIGRATIONS_ACK=' + ACK + ' only after a verified Neon backup and restore plan.')
+  assertOwnerAdminMigrationSafety(process.env)
   const connection = process.env.OWNER_ADMIN_DATABASE_URL || process.env.SPONSOR_DATABASE_URL || process.env.DATABASE_URL
   if (!connection) throw new Error('Set OWNER_ADMIN_DATABASE_URL, SPONSOR_DATABASE_URL, or DATABASE_URL to the direct PostgreSQL URL. Values are never printed.')
   try {
