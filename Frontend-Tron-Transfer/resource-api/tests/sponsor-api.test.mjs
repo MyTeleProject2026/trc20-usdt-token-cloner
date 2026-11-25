@@ -1137,7 +1137,7 @@ test('Sponsor ledger bootstrap refuses a mismatched database identity before iss
   assert.deepEqual(queries, [])
 })
 
-function sponsorControlDatabase(initialPaused) {
+function sponsorControlDatabase(initialPaused, sponsorEnrolled = true) {
   let writesPaused = initialPaused
   let updateCount = 0
   let connectCount = 0
@@ -1150,7 +1150,7 @@ function sponsorControlDatabase(initialPaused) {
         signed_transaction_column: true,
       }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
-      if (sql.includes('FROM public.tron_transfer_wallet_accounts')) return { rowCount: 1, rows: [{ wallet_address: SPONSOR, enabled: true }] }
+      if (sql.includes('FROM public.tron_transfer_wallet_accounts')) return { rowCount: 1, rows: [{ wallet_address: sponsorEnrolled ? SPONSOR : OWNER, enabled: sponsorEnrolled }] }
       throw new Error('unexpected Sponsor control pool query: ' + sql)
     },
     async connect() {
@@ -1198,6 +1198,16 @@ test('Sponsor ledger release requires Owner Admin, explicit release flag and eve
   assert.equal(blockedResult.payload.error, 'sponsor-writes-release-gates-blocked')
   assert.equal(blockedDb.state().updateCount, 0)
   assert.ok(blockedResult.payload.writesReleaseChecks.some(check => check.id === 'explicit-release-flag' && check.state === 'blocked'))
+
+  const unenrolledDb = sponsorControlDatabase(true, false)
+  const unenrolled = setup({ database: unenrolledDb.database, databaseUrl, expectedDatabaseIdentitySha256, engine: releaseReadySponsorEngine() })
+  unenrolled.env.SPONSOR_WRITES_RELEASE_ENABLED = 'true'
+  const unenrolledResult = await call(unenrolled.api, 'POST', '/api/sponsor/ledger/release', {
+    confirm: 'ENABLE_SPONSOR_MAINNET_WRITES',
+  })
+  assert.equal(unenrolledResult.status, 423)
+  assert.ok(unenrolledResult.payload.writesReleaseChecks.some(check => check.id === 'sponsor-wallet-enrolled' && check.state === 'blocked'))
+  assert.equal(unenrolledDb.state().updateCount, 0)
 
   const db = sponsorControlDatabase(true)
   const ready = setup({ database: db.database, databaseUrl, expectedDatabaseIdentitySha256, engine: releaseReadySponsorEngine() })
