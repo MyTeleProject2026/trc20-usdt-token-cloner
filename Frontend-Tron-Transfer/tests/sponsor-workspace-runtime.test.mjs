@@ -85,3 +85,26 @@ test('Sponsor lock clears local key-import, keystore and password inputs', () =>
   assert.ok(source.includes('// Clear pending import/unlock credentials even when no vault has been unlocked yet.'))
   assert.ok(source.includes('setCredential(\'\')'))
 })
+
+
+test('Sponsor transaction execution is independent of Owner Admin authentication', () => {
+  const transactionStart = source.indexOf('async function submitResourceTransaction(')
+  const transactionEnd = source.indexOf('async function runResourceAutomation(', transactionStart)
+  const transaction = source.slice(transactionStart, transactionEnd)
+  const automationEnd = source.indexOf('async function cancelLastPreparedOperation(', transactionEnd)
+  const automation = source.slice(transactionEnd, automationEnd)
+  assert.notEqual(transactionStart, -1)
+  assert.notEqual(transactionEnd, -1)
+  assert.doesNotMatch(transaction, /ensureOwnerAdmin|ownerCsrfToken|ownerAdminCsrfToken/)
+  assert.doesNotMatch(automation, /ensureOwnerAdmin|ownerCsrfToken|ownerAdminCsrfToken/)
+  assert.match(transaction, /csrfToken: authCsrfToken/)
+  assert.match(automation, /csrfToken: authCsrfToken/)
+  assert.match(source, /Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof/)
+  assert.match(source, /Owner authentication is not required to operate the Sponsor wallet/)
+})
+
+test('Owner Admin authentication is retained for guarded Sponsor ledger bootstrap', () => {
+  const bootstrapStart = source.indexOf('async function bootstrapSponsorLedger()')
+  const bootstrapEnd = source.indexOf('async function loginSponsorWallet()', bootstrapStart)
+  assert.match(source.slice(bootstrapStart, bootstrapEnd), /ensureOwnerAdmin\(\)/)
+})
