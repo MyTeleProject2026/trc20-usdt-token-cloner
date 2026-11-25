@@ -69,3 +69,11 @@ test('an unhealthy API or unapproved acceptance state is rejected', () => {
   report.acceptance.state = 'production-approved'
   assert.equal(evaluateProductionAcceptance(health, report).passed, false)
 })
+
+test('malformed acceptance entries are ignored safely and required checks remain blocked when absent', () => {
+  const { health, report } = passingInputs()
+  report.acceptance.checks = [null, 'unexpected', ...report.acceptance.checks]
+  const result = evaluateProductionAcceptance(health, report)
+  assert.equal(result.passed, true)
+  assert.equal(result.checks.length, REQUIRED_PRODUCTION_ACCEPTANCE_CHECKS.length)
+})
