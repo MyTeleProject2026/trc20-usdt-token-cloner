@@ -48,3 +48,39 @@ services:
         sync: false
       - key: SPONSOR_LEDGER_RESTORE_TESTED
         sync: false
+      - key: OWNER_ADMIN_DATABASE_URL
+        sync: false
+      - key: OWNER_OPERATION_LEDGER_DURABLE
+        sync: false
+      - key: OWNER_OPERATION_LEDGER_BACKUP_VERIFIED
+        sync: false
+      - key: OWNER_OPERATION_LEDGER_RESTORE_TESTED
+        sync: false
+      - key: OWNER_OPERATION_EXECUTION_ENABLED
+        sync: false
+      - key: OWNER_OPERATION_MAINNET_ACK
+        sync: false
+      - key: OWNER_MAX_FEE_LIMIT_SUN
+        sync: false
+      - key: TRAX_CONTRACT_ADDRESS
+        sync: false
+      - key: TRAX_RUNTIME_BYTECODE_SHA256
+        sync: false
+      - key: TRAX_DEPLOYMENT_EXECUTION_ENABLED
+        sync: false
+      - key: TRAX_DEPLOYMENT_MAINNET_ACK
+        sync: false
+      - key: TRAX_DEPLOYMENT_LEDGER_DURABLE
+        sync: false
+      - key: TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED
+        sync: false
+      - key: TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED
+        sync: false
+      - key: TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN
+        sync: false
+      - key: TRAX_DEPLOYMENT_ORIGIN_ENERGY_LIMIT
+        sync: false
+      - key: TRAX_ACCEPT_OWNERSHIP_FEE_LIMIT_SUN
+        sync: false
+      - key: TRAX_ACCEPT_OWNERSHIP_MAX_FEE_LIMIT_SUN
+        sync: false
