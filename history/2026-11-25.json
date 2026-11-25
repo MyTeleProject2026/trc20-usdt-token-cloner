@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-25",
+  "source": "Tron Transfer scheduled production probes",
+  "records": [
+    {
+      "id": 45521682482,
+      "runNumber": 84,
+      "checkedAt": "2026-11-25T00:54:17.527Z",
+      "status": "failure",
+      "conclusion": "failure",
+      "commit": "29df92686e3709709a62e8d8abbb6229cf94c462",
+      "event": "schedule",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/45521682482",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 650,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-25T00:54:17.527Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 274,
+          "detail": "healthy · TRON Mainnet · recovered after 31160 ms (3 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-25T00:54:48.348Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 344,
+          "detail": "valid JSON health payload · recovered after 31605 ms (3 attempts)",
+          "metrics": {
+            "sampledAt": "2026-11-25T00:54:48.678Z",
+            "uptimeSeconds": 16,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 90341376,
+            "heapUsedBytes": 19740216,
+            "heapTotalBytes": 24281088,
+            "eventLoopP95Ms": 20.119551,
+            "requestCount": 5,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 1,
+            "p95LatencyMs": 2
+          },
+          "checkedAt": "2026-11-25T00:54:48.795Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1039,
+          "detail": "Git-backed history served · 2 archived runs · recovered after 32300 ms (3 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-25T00:54:49.491Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": false,
+          "status": 200,
+          "latencyMs": 1051,
+          "detail": "Render metrics payload missing authenticated CPU/memory samples · recovered after 32007 ms (3 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-25T00:54:49.199Z"
+        }
+      ]
+    }
+  ]
+}
