@@ -26,6 +26,12 @@ services:
         value: https://tron-mainnet.gateway.tatum.io
       - key: TRONGRID_API_KEY
         sync: false
+      - key: RENDER_API_KEY
+        sync: false
+      - key: RENDER_FRONTEND_SERVICE_ID
+        sync: false
+      - key: RENDER_RESOURCE_API_SERVICE_ID
+        sync: false
       - key: TRON_OWNER_ADDRESS
         sync: false
       - key: SPONSOR_MAINNET_ADDRESS
