@@ -397,6 +397,7 @@ export function createSponsorResourceApi({
         let databaseStatus = dbConfigured ? 'unchecked' : 'not-configured'
         // Unknown or unreadable write-control state must always be treated as paused.
         let sponsorWritesPaused = true
+        let sponsorWalletEnrolled = false
         if (dbConfigured) {
           try {
             const db = getDatabase()
@@ -421,6 +422,11 @@ export function createSponsorResourceApi({
                   databaseStatus = 'control-row-missing'
                 } else {
                   sponsorWritesPaused = control.rows[0].writes_paused === true
+                  try {
+                    const sponsorAccount = await db.query("SELECT wallet_address, enabled FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' LIMIT 1")
+                    sponsorWalletEnrolled = sponsorAccount.rows?.[0]?.enabled === true
+                      && sponsorAccount.rows[0].wallet_address === env.SPONSOR_MAINNET_ADDRESS
+                  } catch { sponsorWalletEnrolled = false }
                   databaseReady = true
                   databaseStatus = 'ready'
                 }
@@ -432,6 +438,7 @@ export function createSponsorResourceApi({
           { id: 'owner-address', state: ownerAddressMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
           { id: 'sponsor-mainnet-address-configured-and-independent', state: readiness.sponsorAddressValid === true && sponsorIndependent ? 'passed' : 'blocked' },
+          { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
           { id: 'database-target-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
@@ -447,6 +454,7 @@ export function createSponsorResourceApi({
           { id: 'owner-admin-session', state: adminConfigured ? 'passed' : 'blocked' },
           { id: 'owner-mainnet-identity', state: ownerAddressMatches ? 'passed' : 'blocked' },
           { id: 'independent-sponsor-mainnet-identity', state: sponsorIndependent && readiness.sponsorAddressValid === true ? 'passed' : 'blocked' },
+          { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'approved-database-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked' },
           { id: 'backup-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
@@ -481,10 +489,11 @@ export function createSponsorResourceApi({
           ledgerDurabilityVerified,
           ownerAddressMatches,
           sponsorIndependent,
+          sponsorWalletEnrolled,
           engineConfigured: readiness.configured === true,
           engineEnabled: readiness.enabled === true,
           localSignerReady,
-          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && readiness.enabled === true && readiness.broadcastAvailable === true && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && ledgerDurabilityVerified && env.SPONSOR_WRITES_RELEASE_ENABLED === 'true',
+          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && readiness.enabled === true && readiness.broadcastAvailable === true && sponsorWalletEnrolled && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && ledgerDurabilityVerified && env.SPONSOR_WRITES_RELEASE_ENABLED === 'true',
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
