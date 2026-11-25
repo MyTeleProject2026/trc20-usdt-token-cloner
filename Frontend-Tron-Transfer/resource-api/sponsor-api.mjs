@@ -398,6 +398,7 @@ export function createSponsorResourceApi({
         let databaseStatus = dbConfigured ? 'unchecked' : 'not-configured'
         // Unknown or unreadable write-control state must always be treated as paused.
         let sponsorWritesPaused = true
+        let ownerWalletEnrolled = false
         let sponsorWalletEnrolled = false
         if (dbConfigured) {
           try {
@@ -405,6 +406,22 @@ export function createSponsorResourceApi({
             if (!db) {
               databaseStatus = 'pool-unavailable'
             } else {
+              // Wallet enrollment is independent of Sponsor-ledger bootstrap.
+              // Read both role bindings even while the Sponsor operations table
+              // is absent so the Owner can verify enrollment before bootstrapping.
+              try {
+                const walletAccounts = await db.query(
+                  "SELECT wallet_role, wallet_address, enabled FROM public.tron_transfer_wallet_accounts WHERE wallet_role IN ('owner','sponsor')",
+                )
+                const accountsByRole = new Map((walletAccounts.rows || []).map(account => [account.wallet_role, account]))
+                const ownerAccount = accountsByRole.get('owner')
+                const sponsorAccount = accountsByRole.get('sponsor')
+                ownerWalletEnrolled = ownerAccount?.enabled === true && ownerAccount.wallet_address === ownerAddress
+                sponsorWalletEnrolled = sponsorAccount?.enabled === true && sponsorAccount.wallet_address === env.SPONSOR_MAINNET_ADDRESS
+              } catch {
+                ownerWalletEnrolled = false
+                sponsorWalletEnrolled = false
+              }
               // Status checks must never create or migrate production tables.
               // Confirm the expected schema and control row using read-only queries.
               const schema = await db.query(`
@@ -423,11 +440,6 @@ export function createSponsorResourceApi({
                   databaseStatus = 'control-row-missing'
                 } else {
                   sponsorWritesPaused = control.rows[0].writes_paused === true
-                  try {
-                    const sponsorAccount = await db.query("SELECT wallet_address, enabled FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' LIMIT 1")
-                    sponsorWalletEnrolled = sponsorAccount.rows?.[0]?.enabled === true
-                      && sponsorAccount.rows[0].wallet_address === env.SPONSOR_MAINNET_ADDRESS
-                  } catch { sponsorWalletEnrolled = false }
                   databaseReady = true
                   databaseStatus = 'ready'
                 }
@@ -440,6 +452,7 @@ export function createSponsorResourceApi({
           { id: 'sponsor-address-format-and-separation', state: sponsorIndependent ? 'passed' : 'blocked' },
           { id: 'sponsor-engine-address-matches-configuration', state: sponsorAddressMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-mainnet-address-configured-and-independent', state: readiness.sponsorAddressValid === true && sponsorIndependent ? 'passed' : 'blocked' },
+          { id: 'owner-wallet-enrolled', state: ownerWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
           { id: 'database-target-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
