@@ -192,6 +192,27 @@ test('Owner enrollment requires backend bootstrap token and only succeeds once',
   assert.equal(db.state.sessions.length, 1)
 })
 
+test('owner enrollment accepts the configured initial password once and stores only the new password verifier', async () => {
+  const db = fakeDatabase()
+  const initialPassword = 'render-initial-password-123'
+  const api = createOwnerWalletAuthApi({ env: { TRON_OWNER_INITIAL_PASSWORD: initialPassword }, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) }, identityReport })
+  const denied = response()
+  await api.handle(request('POST', {}, { currentPassword: 'wrong initial password', password: 'a sufficiently long new password 123' }), denied, new URL('https://api.test/api/wallet-auth/owner/enroll'), 'https://tron-transfer.onrender.com')
+  assert.equal(denied.status, 403)
+  assert.equal(db.state.account, null)
+
+  const enrolled = response()
+  await api.handle(request('POST', {}, { currentPassword: initialPassword, password: 'a sufficiently long new password 123' }), enrolled, new URL('https://api.test/api/wallet-auth/owner/enroll'), 'https://tron-transfer.onrender.com')
+  assert.equal(enrolled.status, 201)
+  assert.equal(db.state.account.wallet_address, address)
+  assert.notEqual(db.state.account.password_hash, initialPassword)
+  assert.equal(db.state.sessions.length, 1)
+
+  const repeated = response()
+  await api.handle(request('POST', {}, { currentPassword: initialPassword, password: 'another sufficiently long password 123' }), repeated, new URL('https://api.test/api/wallet-auth/owner/enroll'), 'https://tron-transfer.onrender.com')
+  assert.equal(repeated.status, 409)
+})
+ 
 test('Owner password login creates a new session and returns no private key material', async () => {
   const db = fakeDatabase()
   const verifier = await hashWalletPassword('correct owner password phrase 123')

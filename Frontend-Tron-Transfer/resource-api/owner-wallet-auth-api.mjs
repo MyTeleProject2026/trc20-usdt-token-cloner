@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual, randomBytes } from 'node:crypto'
 import { isIP } from 'node:net'
 import pg from 'pg'
-import { sponsorDatabaseConnectionString } from './sponsor-api.mjs'
+import { walletAuthDatabaseConnectionString } from './sponsor-api.mjs'
 import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-identity.mjs'
 import { createManagedWalletIdentityReport } from './managed-wallet-identities.mjs'
 import {
@@ -77,7 +77,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
   let pool = database || null
   function getPool() {
     if (pool) return pool
-    const connection = sponsorDatabaseConnectionString(env)
+    const connection = walletAuthDatabaseConnectionString(env)
     if (!connection) return null
     pool = new Pool({ connectionString: normalizePostgresTlsMode(connection), connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, max: 3 })
     pool.on('error', error => process.stderr.write('Owner wallet auth database error: ' + String(error?.code || 'unknown') + '\\n'))
@@ -143,15 +143,18 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/owner/enroll' && req.method === 'POST') {
+          const input = await body(req)
           const bootstrap = String(env.TRON_OWNER_ENROLLMENT_TOKEN || '')
           const presented = String(req.headers['x-owner-enrollment-token'] || '')
-          if (bootstrap.length < 32 || !safeEqual(bootstrap, presented)) {
+          const initialPassword = String(env.TRON_OWNER_INITIAL_PASSWORD || '')
+          const initialPasswordValid = initialPassword.length >= 12 && safeEqual(initialPassword, String(input.currentPassword || ''))
+          const tokenValid = bootstrap.length >= 32 && safeEqual(bootstrap, presented)
+          if (!initialPasswordValid && !tokenValid) {
             await audit(db, 'enrollment_rejected', 'denied')
             send(res, 403, { success: false, error: 'OWNER_ENROLLMENT_NOT_AUTHORIZED' }, origin); return true
           }
           const report = identity()
           if (!report.owner.ready || !report.sponsor.ready || !report.identitiesDistinct) { send(res, 503, { success: false, error: 'OWNER_SPONSOR_IDENTITY_SEPARATION_REQUIRED' }, origin); return true }
-          const input = await body(req)
           if (!validateWalletPassword(input.password)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 12 }, origin); return true }
           const verifier = await hashWalletPassword(input.password)
           const client = await db.connect()

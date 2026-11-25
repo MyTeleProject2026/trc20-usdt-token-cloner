@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
-import { createSponsorResourceApi, databaseTargetIdentityMatches, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString, sponsorDatabaseTargetIdentityInfo } from '../sponsor-api.mjs'
+import { createSponsorResourceApi, databaseTargetIdentityMatches, sponsorDatabaseConnectionInfo, sponsorDatabaseConnectionString, sponsorDatabaseTargetIdentityInfo, walletAuthDatabaseConnectionString } from '../sponsor-api.mjs'
 import { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-identity.mjs'
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
@@ -240,6 +240,21 @@ test('Sponsor-specific database URLs take precedence over shared application URL
     }),
     'postgres://shared-pooled',
   )
+})
+
+test('wallet authentication prioritizes the explicitly pinned Owner Admin database over generic runtime URLs', () => {
+  const ownerAdmin = 'postgres://owner_admin:secret@ep-curly-cherry-bej1ybw8.c-9.us-east-2.aws.neon.tech/Tron%20Transfer%20Resource%20Database%20?sslmode=require'
+  const unrelatedRuntime = 'postgres://render_app:secret@dpg-unrelated.render.com/appdb'
+  assert.equal(walletAuthDatabaseConnectionString({
+    OWNER_ADMIN_DATABASE_URL: ownerAdmin,
+    DATABASE_URL: unrelatedRuntime,
+    DATABASE_URL_POOLED: unrelatedRuntime,
+    SPONSOR_DATABASE_URL: unrelatedRuntime,
+  }), ownerAdmin)
+  assert.equal(walletAuthDatabaseConnectionString({
+    DATABASE_URL: unrelatedRuntime,
+  }), unrelatedRuntime)
+  assert.equal(walletAuthDatabaseConnectionString({}), null)
 })
 
 test('pinned Owner Admin direct Neon URL is the runtime fallback when shared database URLs are absent', () => {

@@ -75,8 +75,8 @@ export function createManagedWalletAuthClient({
   return Object.freeze({
     role: walletRole,
     status: () => request('/status'),
-    enroll: (password, enrollmentToken) => request('/enroll', {
-      method: 'POST', body: { password }, enrollmentToken,
+    enroll: (password, enrollmentToken, currentPassword) => request('/enroll', {
+      method: 'POST', body: { password, currentPassword }, enrollmentToken,
     }),
     login: password => request('/login', { method: 'POST', body: { password } }),
     session: () => request('/session'),
