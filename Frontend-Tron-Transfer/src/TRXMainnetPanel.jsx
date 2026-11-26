@@ -71,6 +71,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [lastTx, setLastTx] = useState('')
   const [step, setStep] = useState('')
   const [deploymentReadiness, setDeploymentReadiness] = useState(null)
+  const [deploymentResourcePreflight, setDeploymentResourcePreflight] = useState(null)
   const autoReadinessCheckKeyRef = useRef('')
   const [deploymentOperation, setDeploymentOperation] = useState(null)
   const [deploymentConfirmationPhrase, setDeploymentConfirmationPhrase] = useState('')
@@ -169,7 +170,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return () => window.clearTimeout(timeout)
   }, [deploymentReadiness])
 
-  useEffect(() => { setDeploymentReadiness(null) }, [connectedAddress, feeCapSun, tokenAddress])
+  useEffect(() => { setDeploymentReadiness(null); setDeploymentResourcePreflight(null) }, [connectedAddress, feeCapSun, tokenAddress])
 
   const run = useCallback(async (label, action) => {
     setBusy(true); setError(''); setNotice(''); setStep(label)
@@ -227,12 +228,41 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return next
   })
 
+  const requestReadOnlyDeploymentPreflight = async () => {
+    if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured Owner session before checking Mainnet resources.')
+    if (!deploymentReadiness?.readyForPreparation) throw new Error('Pass the artifact and database readiness gates before running the resource preflight.')
+    const result = await wallet.authClient.apiRequest('/api/owner/deployment/preflight?feeLimitSun=' + encodeURIComponent(String(feeCapSun)))
+    setDeploymentResourcePreflight({ ...result, owner: connectedAddress, feeCapSun, expiresAt: Date.now() + 60_000 })
+    return result
+  }
+
+  const refreshDeploymentResourcePreflight = () => run('Checking live Mainnet Energy, Bandwidth and zero-TRX budget', async () => {
+    const result = await requestReadOnlyDeploymentPreflight()
+    setNotice(result.zeroTrxBurnReady
+      ? 'Live Mainnet preflight passed: the current Owner resources cover the exact deployment estimate with zero TRX fallback. No transaction was persisted, signed or broadcast.'
+      : 'ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT. Estimated fallback: ' + (Number(BigInt(result.budget.requiredTrxSun)) / 1e6).toFixed(6) + ' TRX. No transaction was persisted, signed or broadcast.')
+    return result
+  })
+
   const checkDeploymentReadiness = () => run('Checking artifact-pinned TRӾ deployment readiness', async () => {
     if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured Owner session before checking deployment readiness.')
     const result = await wallet.authClient.apiRequest('/api/owner/deployment/readiness')
     setDeploymentExecutionEnabled(Boolean(result.executionEnabled))
     setDeploymentReadiness({ ...result, owner: connectedAddress, feeCapSun, tokenAddress, expiresAt: Date.now() + 60_000 })
-    setNotice(result.readyForPreparation ? 'Artifact pins and durable deployment ledger are ready. Preparation creates only an unsigned Mainnet transaction; execution remains ' + (result.executionEnabled ? 'enabled by configured gates.' : 'locked by production execution gates.') : 'Deployment preparation is blocked: ' + String(result.blocker || 'artifact, database, backup or restore gates are incomplete') + '. No transaction was signed or broadcast.')
+    setDeploymentResourcePreflight(null)
+    if (result.readyForPreparation) {
+      try {
+        const preflight = await requestReadOnlyDeploymentPreflight()
+        setNotice(preflight.zeroTrxBurnReady
+          ? 'Artifact pins, durable ledger and live zero-TRX Mainnet resource preflight passed. No transaction was persisted, signed or broadcast.'
+          : 'Artifact and database readiness passed, but ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT. Estimated fallback: ' + (Number(BigInt(preflight.budget.requiredTrxSun)) / 1e6).toFixed(6) + ' TRX. No transaction was persisted, signed or broadcast.')
+      } catch (preflightError) {
+        setDeploymentResourcePreflight({ success: false, error: String(preflightError?.message || preflightError), owner: connectedAddress, feeCapSun, checkedAt: new Date().toISOString() })
+        setNotice('Artifact and database readiness passed, but the live Mainnet resource preflight could not complete: ' + String(preflightError?.message || preflightError) + '. No transaction was persisted, signed or broadcast.')
+      }
+    } else {
+      setNotice('Deployment preparation is blocked: ' + String(result.blocker || 'artifact, database, backup or restore gates are incomplete') + '. No transaction was signed or broadcast.')
+    }
     return result
   })
 
@@ -654,7 +684,21 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
             {deploymentReadiness.artifact?.artifactSha256 && <span>Artifact fingerprint: {deploymentReadiness.artifact.artifactSha256.slice(0, 16)}…</span>}
           </div>
         </>}
-        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}><Rocket size={15}/> Prepare deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+        {deploymentResourcePreflight && <div className={'trax-step-card' + (deploymentResourcePreflight.zeroTrxBurnReady ? ' success' : '')}>
+          <b>{deploymentResourcePreflight.zeroTrxBurnReady ? 'Live Mainnet zero-TRX resource preflight passed' : 'Live Mainnet resource preflight blocked or unavailable'}</b>
+          {deploymentResourcePreflight.success === false
+            ? <span>{deploymentResourcePreflight.error}</span>
+            : <>
+              <span>Owner native balance: {(Number(BigInt(deploymentResourcePreflight.ownerBalanceSun || '0')) / 1e6).toFixed(6)} TRX</span>
+              <span>Energy required with 25% margin: {deploymentResourcePreflight.budget?.energyWithSafetyMargin} · Available: {deploymentResourcePreflight.budget?.availableEnergy}</span>
+              <span>Estimated transaction Bandwidth: {deploymentResourcePreflight.budget?.estimatedBandwidthBytes} bytes · Largest single available quota: {deploymentResourcePreflight.budget?.availableBandwidth}</span>
+              <span>Estimated TRX fallback: {(Number(BigInt(deploymentResourcePreflight.budget?.requiredTrxSun || '0')) / 1e6).toFixed(6)} TRX</span>
+              <span>Energy shortfall: {deploymentResourcePreflight.budget?.energyShortfall} · Bandwidth shortfall: {deploymentResourcePreflight.budget?.bandwidthShortfall}</span>
+            </>}
+          <span>Read-only check · transaction persisted: No · signature requested: No · broadcast attempted: No</span>
+          {deploymentResourcePreflight.checkedAt && <span>Checked at: {deploymentResourcePreflight.checkedAt}</span>}
+        </div>}
+        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={refreshDeploymentResourcePreflight}><RefreshCw size={15}/> Refresh resource preflight</button><button type="button" className="primary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}><Rocket size={15}/> Prepare deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
         {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.predictedContractAddress || deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span>
           {deploymentOperation.state === 'prepared' && <><label>Type exact signing confirmation phrase: {deploymentOperation.confirmationPhrase}<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Sign exact transaction with local Owner vault</button></>}
           {deploymentOperation.state === 'signed' && <><p className="fine-print">Owner signature verified and stored. No transaction has been broadcast. This second approval is bound to the exact transaction ID above.</p><label>Type transaction-specific broadcast phrase: {deploymentOperation.broadcastApproval?.confirmationPhrase}<input value={broadcastConfirmationPhrase} onChange={event => setBroadcastConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.broadcastApproval?.confirmationPhrase}/></label><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || !deploymentOperation.broadcastApproval || broadcastConfirmationPhrase !== deploymentOperation.broadcastApproval.confirmationPhrase} onClick={broadcastApprovedDeployment}>Broadcast this exact approved transaction</button></>}
