@@ -6,6 +6,7 @@ import {
 } from './sponsor-wallet-vault.mjs'
 import { planSponsorResourceProvisioning } from './sponsor-resource-planner.mjs'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
+import { runLocalSignerAcceptance } from './lib/local-signer-acceptance.mjs'
 import './sponsor-wallet.css'
 import WalletDepositPanel from './WalletDepositPanel.jsx'
 
@@ -210,6 +211,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [activity, setActivity] = useState([])
   const [securityEvents, setSecurityEvents] = useState([])
   const [sponsorApiStatus, setSponsorApiStatus] = useState(null)
+  const [sponsorSignerAcceptance, setSponsorSignerAcceptance] = useState(null)
   const [sponsorControlPhrase, setSponsorControlPhrase] = useState('')
   const [ownerAddress, setOwnerAddress] = useState('')
   const [durableOperations, setDurableOperations] = useState([])
@@ -226,6 +228,26 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setToast({ kind, title, message })
     toastTimer.current = window.setTimeout(() => setToast(null), 4800)
   }, [])
+
+  async function verifySponsorLocalSigner() {
+    if (busy || !wallet || !tronWeb) return
+    setBusy(true)
+    try {
+      const result = await runLocalSignerAcceptance({
+        authClient: sponsorAuth,
+        tronWeb,
+        address: wallet.address,
+        role: 'sponsor',
+      })
+      setSponsorSignerAcceptance(result)
+      notify('success', 'Sponsor local signer verified', 'The Resource API recovered the independent Sponsor address from a one-time local message signature. No transaction, fee or broadcast occurred.')
+    } catch (error) {
+      setSponsorSignerAcceptance(null)
+      notify('error', 'Sponsor sign-only acceptance failed', error instanceof Error ? error.message : 'The local Sponsor signer could not be verified.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
 
@@ -1189,6 +1211,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
   }, [wallet?.address, snapshot, energyTargetValid, bandwidthTargetValid, ownerEnergyDeficit, ownerBandwidthDeficit, notify, ownerAddress])
 
   useEffect(() => { resourceAlertState.current = 'unknown' }, [wallet?.address])
+  useEffect(() => { if (!wallet) setSponsorSignerAcceptance(null) }, [wallet?.address])
 
 
 
@@ -1198,6 +1221,15 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       <div><span className="sponsor-eyebrow">PRIVATE SPONSOR CONSOLE · TRON MAINNET</span><h2>TRON TRANSFER SPONSOR</h2><p>Independent treasury workspace for resource capacity, owner funding, delegation and transaction audit.</p></div>
       <span className="sponsor-network-pill"><i/> TRON MAINNET · LIVE DATA CHECK</span>
     </header>
+    {wallet && tronWeb && <section className="sponsor-signer-acceptance" aria-label="Sponsor local signer acceptance">
+      <div>
+        <span className="sponsor-eyebrow">LOCAL SIGNER · SIGN-ONLY</span>
+        <h3>Sponsor vault key-control check</h3>
+        <p>Signs a one-time challenge bound to the independent Sponsor session. The Resource API verifies the recovered Sponsor address; no transaction is created or broadcast.</p>
+        {sponsorSignerAcceptance && <small className="trax-signer-acceptance-result" role="status">Verified {new Date(sponsorSignerAcceptance.verifiedAt).toLocaleString()} · {sponsorSignerAcceptance.address}</small>}
+      </div>
+      <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => void verifySponsorLocalSigner()}>Run sign-only acceptance</button>
+    </section>}
     <nav className="sponsor-product-tabs" aria-label="Sponsor platform sections">
       {[['sponsor','Overview'],['sponsor-resources','Resources'],['sponsor-automation','Automation'],['sponsor-activity','Activity']].map(([id,label]) => <button key={id} type="button" className={activePage === id ? 'active' : ''} aria-current={activePage === id ? 'page' : undefined} onClick={() => onNavigate(id)}>{label}</button>)}
     </nav>
