@@ -105,6 +105,12 @@ jobs:
                       const flags = {
                         databaseConfigured: parsed?.databaseConfigured === true,
                         databaseReady: parsed?.databaseReady === true,
+                        databaseIdentityMatches: parsed?.databaseIdentityMatches === true,
+                        expectedDatabaseIdentityConfigured: parsed?.expectedDatabaseIdentityConfigured === true,
+                        sponsorAddressMatches: parsed?.sponsorAddressMatches === true,
+                        ownerWalletEnrolled: parsed?.ownerWalletEnrolled === true,
+                        ownerSignerAcceptanceVerified: parsed?.ownerSignerAcceptanceVerified === true,
+                        sponsorSignerAcceptanceVerified: parsed?.sponsorSignerAcceptanceVerified === true,
                         sponsorWritesPaused: parsed?.sponsorWritesPaused === true,
                         ledgerDurabilityVerified: parsed?.ledgerDurabilityVerified === true,
                         ownerAddressMatches: parsed?.ownerAddressMatches === true,
@@ -123,6 +129,9 @@ jobs:
                         transactionExecutionAvailable: parsed?.transactionExecutionAvailable === true,
                       };
                       const safetyFieldsPresent = [
+                        'databaseIdentityMatches', 'expectedDatabaseIdentityConfigured',
+                        'sponsorAddressMatches', 'ownerWalletEnrolled',
+                        'ownerSignerAcceptanceVerified', 'sponsorSignerAcceptanceVerified',
                         'sponsorWritesPaused', 'engineEnabled', 'broadcastAvailable',
                         'clientSigningAvailable', 'writesReleaseConfigured',
                         'writesReleaseAvailable', 'transactionExecutionAvailable',
@@ -137,12 +146,28 @@ jobs:
                       const acceptanceState = String(parsed?.acceptance?.state || 'unknown').slice(0, 40);
                       const acceptanceChecksPresent = parsed?.acceptance?.version === 1
                         && Array.isArray(parsed?.acceptance?.checks);
+                      const acceptanceBlockedChecks = (parsed?.acceptance?.checks || [])
+                        .filter(check => check && check.state !== 'passed')
+                        .map(check => String(check.id || 'unknown').slice(0, 80))
+                        .slice(0, 20);
+                      const writesReleaseBlockedChecks = (parsed?.writesReleaseChecks || [])
+                        .filter(check => check && check.state !== 'passed')
+                        .map(check => String(check.id || 'unknown').slice(0, 80))
+                        .slice(0, 20);
                       validPayload = response.ok && parsed?.success === true
                         && acceptanceChecksPresent && safetyFieldsPresent;
                       const databaseStatus = String(parsed?.databaseStatus || 'unknown').slice(0, 32);
                       metrics = {
                         databaseConfigured: flags.databaseConfigured,
                         databaseReady: flags.databaseReady,
+                        databaseIdentityMatches: flags.databaseIdentityMatches,
+                        expectedDatabaseIdentityConfigured: flags.expectedDatabaseIdentityConfigured,
+                        sponsorAddressMatches: flags.sponsorAddressMatches,
+                        ownerWalletEnrolled: flags.ownerWalletEnrolled,
+                        ownerSignerAcceptanceVerified: flags.ownerSignerAcceptanceVerified,
+                        sponsorSignerAcceptanceVerified: flags.sponsorSignerAcceptanceVerified,
+                        acceptanceBlockedChecks,
+                        writesReleaseBlockedChecks,
                         ownerAddressMatches: flags.ownerAddressMatches,
                         sponsorIndependent: flags.sponsorIndependent,
                         sponsorWalletEnrolled: flags.sponsorWalletEnrolled,
@@ -164,10 +189,17 @@ jobs:
                         ? 'Sponsor API schema valid · acceptance=' + acceptanceState
                           + ' · db=' + databaseStatus
                           + ' · dbReady=' + flags.databaseReady
+                          + ' · dbIdentity=' + flags.databaseIdentityMatches
+                          + ' · expectedPin=' + flags.expectedDatabaseIdentityConfigured
+                          + ' · sponsorAddress=' + flags.sponsorAddressMatches
                           + ' · sponsor=' + flags.sponsorWalletEnrolled
-                          + ' · owner=' + flags.ownerAddressMatches
+                          + ' · owner=' + flags.ownerWalletEnrolled
+                          + ' · ownerSigner=' + flags.ownerSignerAcceptanceVerified
+                          + ' · sponsorSigner=' + flags.sponsorSignerAcceptanceVerified
                           + ' · independent=' + flags.sponsorIndependent
                           + ' · durable=' + flags.ledgerDurabilityVerified
+                          + ' · blockedAcceptance=' + (acceptanceBlockedChecks.join(',') || 'none')
+                          + ' · blockedRelease=' + (writesReleaseBlockedChecks.join(',') || 'none')
                           + ' · adminSession=' + flags.ownerAdminSessionConfigured
                           + ' · paused=' + flags.sponsorWritesPaused
                           + ' · signer=' + flags.localSignerReady
