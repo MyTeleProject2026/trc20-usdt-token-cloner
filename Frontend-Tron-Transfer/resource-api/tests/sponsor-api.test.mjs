@@ -325,8 +325,16 @@ test('Owner-only Sponsor audit returns sanitized read-only ledger and signer acc
       throw new Error('unexpected audit query')
     },
   }
-  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
+  let auditAuthOptions = null
+  const { api } = setup({
+    database, databaseUrl, expectedDatabaseIdentitySha256,
+    authenticateOwnerAdminSession: async (req, options) => {
+      auditAuthOptions = options
+      return req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null
+    },
+  })
   const denied = await call(api, 'GET', '/api/sponsor/audit', undefined, undefined, '')
+  assert.deepEqual(auditAuthOptions, { requireCsrf: false })
   assert.equal(denied.status, 401)
   assert.equal(denied.payload.error, 'admin-authorization-required')
 
