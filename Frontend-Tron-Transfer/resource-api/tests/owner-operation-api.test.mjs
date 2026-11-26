@@ -226,6 +226,68 @@ test('Owner operation preparation rejects arbitrary operations before building a
   assert.equal(replies[0].payload.error, 'OWNER_OPERATION_NOT_ALLOWLISTED')
 })
 
+test('Owner native TRX withdrawal prepares a TransferContract through the guarded Owner ledger', async () => {
+  const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' })
+  const recipient = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
+  const transaction = {
+    txID: 'd'.repeat(64), raw_data_hex: 'ab'.repeat(40),
+    raw_data: { expiration: Date.now() + 60_000, contract: [{ type: 'TransferContract', parameter: { value: {
+      owner_address: tronWeb.address.toHex(owner), to_address: tronWeb.address.toHex(recipient), amount: '2500000',
+    } } }] },
+  }
+  const transitions = []
+  const ledgerInput = []
+  const ledger = {
+    async prepare(input) { ledgerInput.push(input); return { operation_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', state: 'created', intent_sha256: 'e'.repeat(64), replay: false } },
+    async transition(input) { transitions.push(input); return { state: input.nextState } },
+    async get() { return null },
+  }
+  const dbClient = {
+    async query(sql) {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.includes('pg_advisory_xact_lock')) return { rows: [] }
+      if (sql.includes('reserved_base_units')) return { rows: [{ reserved_base_units: '0' }] }
+      throw new Error('unexpected native TRX reservation query: ' + sql)
+    },
+    release() {},
+  }
+  const database = {
+    async query(sql) { assert.match(sql, /to_regclass/); return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } },
+    async connect() { return dbClient },
+  }
+  const replies = []
+  const api = createOwnerOperationApi({
+    env: {
+      DATABASE_URL: testDatabaseUrl, OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256: testDatabaseIdentity,
+      TRON_OWNER_ADDRESS: owner, TRAX_CONTRACT_ADDRESS: contract,
+      OWNER_OPERATION_LEDGER_DURABLE: 'true', OWNER_OPERATION_LEDGER_BACKUP_VERIFIED: 'true', OWNER_OPERATION_LEDGER_RESTORE_TESTED: 'true',
+    },
+    database, send: (_res, status, payload) => replies.push({ status, payload }),
+    authenticateManagedSession: async () => ({ address: owner, sessionId: 9 }),
+    tronWebFactory: () => tronWeb,
+    prepareTransaction: async (_tronWeb, asset, sender, normalized) => {
+      assert.equal(asset, 'TRX'); assert.equal(sender, owner); assert.equal(normalized.operationType, 'trx-transfer')
+      return transaction
+    },
+    preflightTransaction: async (_tronWeb, tx, sender, asset, options) => {
+      assert.equal(tx.txID, transaction.txID); assert.equal(sender, owner); assert.equal(asset, 'TRX')
+      assert.equal(options.operationType, 'trx-transfer'); assert.equal(options.feeBudgetSun, '150000000')
+      return { network: 'TRON Mainnet', estimatedTrxFallbackSun: '0', feeBudgetSun: options.feeBudgetSun }
+    },
+    ledgerFactory: () => ledger,
+  })
+  await api.handle(request('POST', {
+    operationType: 'trx-transfer', contractAddress: 'TRX', recipient, amount: '2500000',
+    feeLimitSun: '150000000', idempotencyKey: 'owner-native-trx-prepare-0001',
+  }), response(), new URL('https://api.test/api/owner/operations/prepare'), 'https://tron-transfer.onrender.com')
+  assert.equal(replies[0].status, 201)
+  assert.equal(replies[0].payload.operationType, 'trx-transfer')
+  assert.equal(replies[0].payload.contractAddress, 'TRX')
+  assert.equal(replies[0].payload.unsignedTransaction.txID, transaction.txID)
+  assert.equal(ledgerInput[0].contractAddress, 'TRX')
+  assert.deepEqual(ledgerInput[0].intent.args, [recipient, '2500000'])
+  assert.deepEqual(transitions.map(item => item.nextState), ['preflight-passed', 'awaiting-confirmation'])
+})
+
 test('Official USDT withdrawal preparation is pinned to the canonical Mainnet contract and shared Owner ledger', async () => {
   const usdtContract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
   const recipient = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
