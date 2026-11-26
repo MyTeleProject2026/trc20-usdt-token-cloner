@@ -3116,3 +3116,43 @@ body {
 /* Retain explicit breakpoint hooks for the navigation regression suite:
    @media(max-width:1100px), @media(max-width:900px) and (min-width:721px),
    @media(max-width:720px), @media(prefers-reduced-motion:reduce). */
+
+
+/* TRON TRANSFER Signature Edition — branded consistency marker for visual QA. */
+.sponsor-release-hint {
+  margin: 9px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(224,189,123,.25);
+  border-radius: 9px;
+  background: rgba(117,82,31,.12);
+  color: #e6c98f;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.sponsor-ledger-release .sponsor-release-checks {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 7px;
+  margin: 14px 0;
+}
+.sponsor-ledger-release .sponsor-release-checks > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--tt-border);
+  border-radius: 9px;
+  background: rgba(8,20,34,.68);
+  font-size: 10px;
+}
+.sponsor-ledger-release .sponsor-release-checks > div span {
+  color: #aabbd0;
+  text-transform: capitalize;
+}
+.sponsor-ledger-release .sponsor-release-checks .passed { color: #82dfc7; }
+.sponsor-ledger-release .sponsor-release-checks .blocked { color: #e9c98f; }
+@media (max-width: 560px) {
+  .sponsor-ledger-release .sponsor-release-checks { grid-template-columns: 1fr; }
+}
