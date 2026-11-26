@@ -77,6 +77,7 @@ test('production uptime probe verifies independent Mainnet RPCs and current Spon
   assert.match(source, /api\/mainnet\/explorer-health/)
   assert.match(source, /parsed\?\.apiKeyConfigured === true/)
   assert.match(source, /TRONSCAN_PRO_API_KEY/)
+  assert.match(source, /apiKeySource/)
   assert.match(source, /providerPriority\?\.\[0\] === 'tatum'/)
   assert.match(source, /provider\?\.id === 'tatum'/)
   assert.match(source, /provider\?\.id === 'trongrid'/)
