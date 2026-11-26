@@ -85,6 +85,19 @@ test('Owner ledger accepts the explicit official USDT transfer operation type', 
  assert.equal(row.contract_address,usdt)
 })
 
+test('Owner ledger accepts native TRX asset marker without treating it as a contract address', async () => {
+ const ledger=createOwnerOperationLedger({database:fakeDb()})
+ const row=await ledger.prepare({
+  ...base,
+  idempotencyKey:'owner-operation-trx-0001',
+  operationType:'trx-transfer',
+  contractAddress:'TRX',
+  intent:{ownerAddress:owner,contractAddress:'TRX',method:'sendTrx',args:[otherOwner,'2500000'],feeLimitSun:'150000000'},
+ })
+ assert.equal(row.operation_type,'trx-transfer')
+ assert.equal(row.replay,false)
+})
+
 test('Owner ledger rejects invalid session, key and operation type',async()=>{
  const ledger=createOwnerOperationLedger({database:fakeDb()})
  await assert.rejects(ledger.prepare({...base,sessionId:0}),/OWNER_LEDGER_SESSION_REQUIRED/)
