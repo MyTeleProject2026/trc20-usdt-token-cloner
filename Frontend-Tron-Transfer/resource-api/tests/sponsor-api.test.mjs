@@ -1234,9 +1234,11 @@ function sponsorControlDatabase(initialPaused, sponsorEnrolled = true) {
         control_table: 'tron_transfer_sponsor_control',
         prepared_transaction_column: true,
         signed_transaction_column: true,
+        recipient_address_column: true,
       }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: writesPaused }] }
       if (sql.includes('SELECT wallet_role, wallet_address, enabled')) return { rowCount: 2, rows: [{ wallet_role: 'owner', wallet_address: OWNER, enabled: true }, { wallet_role: 'sponsor', wallet_address: sponsorEnrolled ? SPONSOR : OWNER, enabled: sponsorEnrolled }] }
+      if (sql.includes('SELECT DISTINCT ON (wallet_role)')) return { rowCount: 2, rows: [{ wallet_role: 'owner', accepted_address: OWNER }, { wallet_role: 'sponsor', accepted_address: SPONSOR }] }
       throw new Error('unexpected Sponsor control pool query: ' + sql)
     },
     async connect() {
@@ -1356,6 +1358,7 @@ test('production acceptance verifies Owner and Sponsor enrollment before Sponsor
           ],
         }
       }
+      if (sql.includes('SELECT DISTINCT ON (wallet_role)')) return { rowCount: 2, rows: [{ wallet_role: 'owner', accepted_address: OWNER }, { wallet_role: 'sponsor', accepted_address: SPONSOR }] }
       if (sql.includes('to_regclass')) {
         return {
           rowCount: 1,
@@ -1364,6 +1367,7 @@ test('production acceptance verifies Owner and Sponsor enrollment before Sponsor
             control_table: null,
             prepared_transaction_column: false,
             signed_transaction_column: false,
+            recipient_address_column: false,
           }],
         }
       }
