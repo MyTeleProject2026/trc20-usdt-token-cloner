@@ -9,6 +9,8 @@ import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-iden
 const { Pool } = pg
 const MAINNET = 'https://api.trongrid.io'
 const OFFICIAL_USDT_MAINNET_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const OWNER_NATIVE_TRX_MIGRATION_VERSION = '20261128_owner_native_trx_withdrawal.sql'
+const OWNER_NATIVE_TRX_MIGRATION_SHA256 = 'fc3ff5c770cc069dbfb810968a1b41072f079beb3de1f22a2672f8a38d0b5663'
 const USDT_TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 function mainnetHost() { return MAINNET }
 const CONFIRMATION_PHRASE = 'CONFIRM TRON MAINNET OWNER OPERATION'
@@ -654,6 +656,8 @@ export function createOwnerOperationApi({
         let reservedUsdtBaseUnits = '0'
         let reservedTrxBaseUnits = '0'
         if (operationType === 'trx-transfer') {
+          const migration = await db.query('SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1', [OWNER_NATIVE_TRX_MIGRATION_VERSION])
+          if (migration.rows?.[0]?.checksum !== OWNER_NATIVE_TRX_MIGRATION_SHA256) fail('OWNER_NATIVE_TRX_MIGRATION_NOT_APPLIED', 503)
           if (typeof db.connect !== 'function') fail('OWNER_TRX_RESERVATION_LOCK_UNAVAILABLE', 503)
           const client = await db.connect()
           let transactionOpen = false
@@ -829,7 +833,11 @@ export function createOwnerOperationApi({
           }
           verifyUnsignedTransaction(tronWeb, unsigned)
           if (normalized.operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction: unsigned, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
-          if (normalized.operationType === 'trx-transfer') verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction: unsigned, ownerAddress, recipientAddress: normalized.args[0], amountSun: normalized.args[1] })
+          if (normalized.operationType === 'trx-transfer') {
+            const migration = await db.query('SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1', [OWNER_NATIVE_TRX_MIGRATION_VERSION])
+            if (migration.rows?.[0]?.checksum !== OWNER_NATIVE_TRX_MIGRATION_SHA256) fail('OWNER_NATIVE_TRX_MIGRATION_NOT_APPLIED', 503)
+            verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction: unsigned, ownerAddress, recipientAddress: normalized.args[0], amountSun: normalized.args[1] })
+          }
           const signed = signedCandidate
           await verifySignedTransaction(tronWeb, signed, ownerAddress)
           if (normalized.operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction: signed, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
