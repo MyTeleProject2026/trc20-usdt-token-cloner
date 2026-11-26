@@ -72,9 +72,10 @@ jobs:
                 let validPayload = true;
                 let detail = 'HTTP ' + response.status;
                 let metrics = null;
+                let parsed = null;
                 if (target.expectJson) {
                   try {
-                    const parsed = JSON.parse(body);
+                    parsed = JSON.parse(body);
                     if (target.name === 'runtime-observatory' && parsed?.process && parsed?.requests && parsed?.heartbeat) {
                       metrics = {
                         sampledAt: parsed.sampledAt || null,

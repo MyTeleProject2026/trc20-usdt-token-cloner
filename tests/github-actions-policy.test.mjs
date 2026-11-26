@@ -107,3 +107,10 @@ test('production probe treats only the expected unauthenticated signer response 
   assert.match(source, /parsed\?\.error === 'WALLET_SESSION_REQUIRED'/)
   assert.match(source, /\(response\.ok \|\| expectedUnauthorized\)/)
 })
+
+
+test('production probe keeps parsed response JSON in scope for expected auth status checks', async () => {
+  const source = await readFile(new URL('tron-transfer-production-uptime.yml', workflowsDirectory), 'utf8')
+  assert.match(source, /let parsed = null;\s+if \(target\.expectJson\)/)
+  assert.doesNotMatch(source, /if \(target\.expectJson\) \{\s+const parsed = JSON\.parse\(body\)/)
+})
