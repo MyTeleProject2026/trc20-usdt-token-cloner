@@ -72,7 +72,6 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [step, setStep] = useState('')
   const [deploymentReadiness, setDeploymentReadiness] = useState(null)
   const autoReadinessCheckKeyRef = useRef('')
-  const autoContractReadKeyRef = useRef('')
   const [deploymentOperation, setDeploymentOperation] = useState(null)
   const [deploymentConfirmationPhrase, setDeploymentConfirmationPhrase] = useState('')
   const [deploymentExecutionEnabled, setDeploymentExecutionEnabled] = useState(false)
@@ -134,6 +133,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setUsdtWithdrawalBalanceAt('')
     setRecentOperations([])
     setDeploymentReadiness(null)
+    autoReadinessCheckKeyRef.current = ''
     setDeploymentOperation(null)
     setDeploymentConfirmationPhrase('')
     setDeploymentExecutionEnabled(false)
@@ -235,25 +235,21 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return result
   })
 
-  // Entering the deployment page performs read-only checks only. It never
-  // prepares, signs, or broadcasts a transaction.
+  // Entering the deployment page performs sequential read-only checks only.
+  // It never prepares, signs, or broadcasts a transaction.
   useEffect(() => {
-    if (!walletReady || activePage !== 'deploy' || typeof wallet?.authClient?.apiRequest !== 'function') return
+    if (!walletReady || activePage !== 'deploy' || typeof wallet?.authClient?.apiRequest !== 'function') {
+      autoReadinessCheckKeyRef.current = ''
+      return
+    }
     const key = [connectedAddress, feeCapSun, tokenAddress].join(':')
     if (autoReadinessCheckKeyRef.current === key) return
     autoReadinessCheckKeyRef.current = key
-    void checkDeploymentReadiness()
+    void (async () => {
+      await checkDeploymentReadiness()
+      if (tokenAddress) await refresh()
+    })()
   }, [walletReady, activePage, connectedAddress, feeCapSun, tokenAddress, wallet?.authClient])
-
-  // If an address is already saved, verify its on-chain contract metadata and
-  // owner state automatically when the Owner opens the deployment page.
-  useEffect(() => {
-    if (!walletReady || activePage !== 'deploy' || !tokenAddress) return
-    const key = [connectedAddress, tokenAddress].join(':')
-    if (autoContractReadKeyRef.current === key) return
-    autoContractReadKeyRef.current = key
-    void refresh()
-  }, [walletReady, activePage, connectedAddress, tokenAddress])
 
   const deployToken = () => run('Preparing exact artifact-pinned TRӾ deployment transaction', async () => {
     if (!walletReady || !deploymentReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Run a successful, unexpired backend deployment readiness check first.')
