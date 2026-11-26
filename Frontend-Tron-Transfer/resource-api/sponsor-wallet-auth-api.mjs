@@ -116,6 +116,18 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
   }
 
   return {
+    // Persist only the public identity and session metadata for a successful
+    // sign-only check. Never store the message, signature, nonce, or key material.
+    async recordSignerAcceptance({ address, sessionId, verifiedAt }) {
+      const db = getPool()
+      if (!db || !address || sessionId == null) return false
+      await audit(db, 'signer_acceptance_verified', 'success', {
+        address: String(address),
+        sessionId: String(sessionId),
+        verifiedAt: String(verifiedAt || new Date().toISOString()),
+      })
+      return true
+    },
     // Used only by the in-process Sponsor API. It never exposes the session
     // token or private key; mutating routes require same-origin CSRF proof.
     async authenticateRequest(req, { requireCsrf = false } = {}) {
