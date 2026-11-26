@@ -252,7 +252,7 @@ async function assertSchema(db) {
   }
   if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
     || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true
-    || schema.rows[0].recipient_address_column !== true) {
+                || schema.rows[0].recipient_address_column !== true) {
     throw new Error('sponsor-ledger-schema-not-initialized')
   }
   const control = await db.query(
@@ -430,6 +430,8 @@ export function createSponsorResourceApi({
         let sponsorWritesPaused = true
         let ownerWalletEnrolled = false
         let sponsorWalletEnrolled = false
+        let ownerSignerAcceptanceVerified = false
+        let sponsorSignerAcceptanceVerified = false
         if (dbConfigured) {
           try {
             const db = getDatabase()
@@ -448,6 +450,12 @@ export function createSponsorResourceApi({
                 const sponsorAccount = accountsByRole.get('sponsor')
                 ownerWalletEnrolled = ownerAccount?.enabled === true && ownerAccount.wallet_address === ownerAddress
                 sponsorWalletEnrolled = sponsorAccount?.enabled === true && sponsorAccount.wallet_address === env.SPONSOR_MAINNET_ADDRESS
+                const signerAudit = await db.query(
+                  "SELECT DISTINCT ON (wallet_role) wallet_role, metadata->>'address' AS accepted_address FROM public.tron_transfer_wallet_auth_audit WHERE event_type='signer_acceptance_verified' AND outcome='success' AND wallet_role IN ('owner','sponsor') ORDER BY wallet_role, created_at DESC",
+                )
+                const acceptedByRole = new Map((signerAudit.rows || []).map(row => [row.wallet_role, row.accepted_address]))
+                ownerSignerAcceptanceVerified = acceptedByRole.get('owner') === ownerAddress
+                sponsorSignerAcceptanceVerified = acceptedByRole.get('sponsor') === env.SPONSOR_MAINNET_ADDRESS
               } catch {
                 ownerWalletEnrolled = false
                 sponsorWalletEnrolled = false
@@ -464,7 +472,7 @@ export function createSponsorResourceApi({
               `)
               if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
                 || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true
-    || schema.rows[0].recipient_address_column !== true) {
+                || schema.rows[0].recipient_address_column !== true) {
                 databaseStatus = 'schema-missing'
               } else {
                 const migration = await db.query(
@@ -494,6 +502,8 @@ export function createSponsorResourceApi({
           { id: 'sponsor-mainnet-address-configured-and-independent', state: readiness.sponsorAddressValid === true && sponsorIndependent ? 'passed' : 'blocked' },
           { id: 'owner-wallet-enrolled', state: ownerWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
+          { id: 'owner-signer-acceptance', state: ownerSignerAcceptanceVerified ? 'passed' : 'blocked' },
+          { id: 'sponsor-signer-acceptance', state: sponsorSignerAcceptanceVerified ? 'passed' : 'blocked' },
           { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
           { id: 'database-target-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
@@ -508,10 +518,14 @@ export function createSponsorResourceApi({
         const writesReleaseChecks = [
           { id: 'explicit-release-flag', state: env.SPONSOR_WRITES_RELEASE_ENABLED === 'true' ? 'passed' : 'blocked' },
           { id: 'owner-wallet-enrolled', state: ownerWalletEnrolled ? 'passed' : 'blocked' },
+          { id: 'owner-signer-acceptance', state: ownerSignerAcceptanceVerified ? 'passed' : 'blocked' },
+          { id: 'sponsor-signer-acceptance', state: sponsorSignerAcceptanceVerified ? 'passed' : 'blocked' },
           { id: 'owner-admin-session', state: adminConfigured ? 'passed' : 'blocked' },
           { id: 'owner-mainnet-identity', state: ownerAddressMatches ? 'passed' : 'blocked' },
           { id: 'independent-sponsor-mainnet-identity', state: sponsorIndependent && sponsorAddressMatches && readiness.sponsorAddressValid === true ? 'passed' : 'blocked' },
           { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
+          { id: 'owner-signer-acceptance', state: ownerSignerAcceptanceVerified ? 'passed' : 'blocked' },
+          { id: 'sponsor-signer-acceptance', state: sponsorSignerAcceptanceVerified ? 'passed' : 'blocked' },
           { id: 'approved-database-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked' },
           { id: 'sponsor-ledger-migration-checksum', state: databaseStatus === 'ready' ? 'passed' : 'blocked' },
@@ -547,6 +561,9 @@ export function createSponsorResourceApi({
           ledgerDurabilityVerified,
           ownerAddressMatches,
           ownerWalletEnrolled,
+          sponsorWalletEnrolled,
+          ownerSignerAcceptanceVerified,
+          sponsorSignerAcceptanceVerified,
           sponsorIndependent,
           sponsorAddressMatches,
           sponsorWalletEnrolled,
@@ -555,7 +572,7 @@ export function createSponsorResourceApi({
           broadcastAvailable: readiness.broadcastAvailable === true,
           clientSigningAvailable: readiness.clientSigningAvailable === true,
           localSignerReady,
-          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && readiness.enabled === true && readiness.broadcastAvailable === true && sponsorWalletEnrolled && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && ledgerDurabilityVerified && env.SPONSOR_WRITES_RELEASE_ENABLED === 'true',
+          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && readiness.enabled === true && readiness.broadcastAvailable === true && ownerWalletEnrolled && sponsorWalletEnrolled && ownerSignerAcceptanceVerified && sponsorSignerAcceptanceVerified && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && ledgerDurabilityVerified && env.SPONSOR_WRITES_RELEASE_ENABLED === 'true',
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
