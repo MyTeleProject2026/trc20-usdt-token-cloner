@@ -312,7 +312,8 @@ function intentMessage(value) {
     'TRON TRANSFER SPONSOR TRANSACTION AUTHORIZATION',
     'Network: TRON Mainnet',
     'Sponsor: ' + value.sponsorAddress,
-    'Owner recipient: ' + value.ownerAddress,
+    'Configured Owner: ' + value.ownerAddress,
+    'Recipient: ' + value.recipientAddress,
     'Operation: ' + value.operation,
     'Resource: ' + value.resource,
     'Amount (sun): ' + value.amountSun,
@@ -801,14 +802,15 @@ export function createSponsorResourceApi({
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
       const { operation, resource, amountSun, idempotencyKey } = body
-      const validOperation = ['stake', 'delegate', 'undelegate', 'unstake', 'withdraw', 'topup'].includes(operation)
-      const validResource = ['topup', 'withdraw'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
-      if (!validOperation || !validResource
+      const recipientAddress = operation === 'transfer' ? String(body.recipientAddress || '') : ownerAddress
+      const validOperation = ['stake', 'delegate', 'undelegate', 'unstake', 'withdraw', 'topup', 'transfer'].includes(operation)
+      const validResource = ['topup', 'withdraw', 'transfer'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
+      if (!validOperation || !validResource || !validAddress(recipientAddress) || recipientAddress === session.address
         || !positiveSun(amountSun) || !IDEMPOTENCY.test(String(idempotencyKey || ''))) {
         return reply(res, 400, { success: false, error: 'invalid-sponsor-operation-intent' }, origin)
       }
       const expiresAt = now() + INTENT_TTL_MS
-      const intent = { intentId: randomBytes(24).toString('base64url'), sponsorAddress: session.address, ownerAddress, operation, resource, amountSun, idempotencyKey, expiresAt }
+      const intent = { intentId: randomBytes(24).toString('base64url'), sponsorAddress: session.address, ownerAddress, recipientAddress, operation, resource, amountSun, idempotencyKey, expiresAt }
       const message = intentMessage(intent)
       intents.set(intent.intentId, { ...intent, message })
       return reply(res, 201, { success: true, intentId: intent.intentId, message, expiresAt: new Date(expiresAt).toISOString(), confirmationPhrase: CONFIRMATION }, origin)
@@ -830,7 +832,7 @@ export function createSponsorResourceApi({
       const db = getDatabase()
       if (!db) return reply(res, 503, { success: false, error: 'durable-idempotency-storage-required' }, origin)
       const keyHash = sha(intent.idempotencyKey)
-      const requestHash = sha(JSON.stringify({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: session.address, ownerAddress }))
+      const requestHash = sha(JSON.stringify({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: session.address, ownerAddress, recipientAddress: intent.recipientAddress }))
       let client
       let open = false
       try {
@@ -844,19 +846,19 @@ export function createSponsorResourceApi({
           return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
         }
         const reserved = await client.query(
-          "INSERT INTO public.tron_transfer_sponsor_operations (idempotency_key_hash,request_hash,operation,resource,amount_sun,sponsor_address,owner_address,status) VALUES ($1,$2,$3,$4,$5,$6,$7,'reserved') ON CONFLICT (idempotency_key_hash) DO NOTHING RETURNING id",
-          [keyHash, requestHash, intent.operation, intent.resource, intent.amountSun, session.address, ownerAddress],
+          "INSERT INTO public.tron_transfer_sponsor_operations (idempotency_key_hash,request_hash,operation,resource,amount_sun,sponsor_address,owner_address,recipient_address,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'reserved') ON CONFLICT (idempotency_key_hash) DO NOTHING RETURNING id",
+          [keyHash, requestHash, intent.operation, intent.resource, intent.amountSun, session.address, ownerAddress, intent.recipientAddress],
         )
         if (!reserved.rowCount) {
           await client.query('ROLLBACK'); open = false
           return reply(res, 409, { success: false, error: 'operation-already-recorded', retryAllowed: false }, origin)
         }
-        const prepared = await engine.prepare({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, ownerAddress })
+        const prepared = await engine.prepare({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, ownerAddress: intent.recipientAddress })
         if (!prepared?.success || !prepared.transaction?.txID) {
           await client.query('ROLLBACK'); open = false
           return reply(res, 422, { success: false, error: prepared?.status || 'sponsor-transaction-preparation-failed', retryAllowed: false }, origin)
         }
-        if (prepared.sponsorAddress !== session.address || prepared.ownerAddress !== ownerAddress
+        if (prepared.sponsorAddress !== session.address || prepared.ownerAddress !== intent.recipientAddress
           || prepared.operation !== intent.operation || prepared.resource !== intent.resource
           || String(prepared.amountSun) !== String(intent.amountSun)) {
           await client.query('ROLLBACK'); open = false
@@ -872,7 +874,7 @@ export function createSponsorResourceApi({
         return reply(res, 201, {
           success: true, operationReference: intent.idempotencyKey, operation: intent.operation,
           resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: prepared.sponsorAddress,
-          ownerAddress: prepared.ownerAddress, unsignedTransaction: prepared.transaction, feePolicy: prepared.feePolicy,
+          ownerAddress, recipientAddress: prepared.ownerAddress, unsignedTransaction: prepared.transaction, feePolicy: prepared.feePolicy,
           expiresAt: new Date(Number(prepared.transaction.raw_data.expiration)).toISOString(),
           note: 'Unsigned Mainnet transaction only. Sign locally in the imported Sponsor vault; do not alter transaction bytes.',
         }, origin)
@@ -936,7 +938,7 @@ export function createSponsorResourceApi({
           return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
         }
         const found = await client.query(
-          "SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2 FOR UPDATE",
+          "SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,recipient_address,status,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2 FOR UPDATE",
           [keyHash, session.address],
         )
         const row = found.rows?.[0]
@@ -951,7 +953,7 @@ export function createSponsorResourceApi({
         const result = await engine.submitSigned({
           signedTransaction: body.signedTransaction,
           preparedTransaction: row.prepared_transaction,
-          operation: row.operation, resource: row.resource, amountSun: row.amount_sun, ownerAddress: row.owner_address,
+          operation: row.operation, resource: row.resource, amountSun: row.amount_sun, ownerAddress: row.recipient_address,
           onSigned: async transactionId => {
             if (!TXID.test(transactionId || '') || transactionId !== row.prepared_transaction.txID) throw new Error('signed-transaction-id-mismatch')
             const saved = await client.query(
@@ -1021,7 +1023,7 @@ export function createSponsorResourceApi({
       try {
         await assertSchema(db)
         const result = await db.query(
-          'SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,transaction_id,result_code,confirmation_block,created_at,updated_at FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 ORDER BY created_at DESC LIMIT $2',
+          'SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,recipient_address,status,transaction_id,result_code,confirmation_block,created_at,updated_at FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 ORDER BY created_at DESC LIMIT $2',
           [session.address, limit],
         )
         return reply(res, 200, { success: true, network: 'TRON Mainnet', operations: result.rows || [], checkedAt: new Date(now()).toISOString() }, origin)
@@ -1071,7 +1073,7 @@ export function createSponsorResourceApi({
       try {
         await assertSchema(db)
         const result = await db.query(
-          'SELECT idempotency_key_hash,operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,transaction_id,result_code,confirmation_block,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2',
+          'SELECT idempotency_key_hash,operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,recipient_address,status,transaction_id,result_code,confirmation_block,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2',
           [sha(key), session.address],
         )
         const row = result.rows?.[0]
@@ -1091,7 +1093,7 @@ export function createSponsorResourceApi({
         if (row.transaction_id && ['signed-not-broadcast', 'broadcast-unknown'].includes(row.status)) {
           reconciliation = await engine.reconcile({
             transactionId: row.transaction_id, operation: row.operation, resource: row.resource,
-            amountSun: row.amount_sun, sponsorAddress: row.sponsor_address, ownerAddress: row.owner_address,
+            amountSun: row.amount_sun, sponsorAddress: row.sponsor_address, ownerAddress: row.recipient_address,
           })
           const confirmed = reconciliation.confirmed === true
           const solidifiedFailure = reconciliation.status === 'solidified-execution-failed'
