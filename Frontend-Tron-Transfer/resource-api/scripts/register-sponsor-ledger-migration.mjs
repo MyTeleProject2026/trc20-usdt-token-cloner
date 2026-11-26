@@ -7,6 +7,21 @@ import { normalizePostgresTlsMode } from './sponsor-ledger-database-identity.mjs
 
 const { Pool } = pg
 const VERSION = '20261126_sponsor_operations_ledger.sql'
+export function ownerAdminDatabaseIdentityFingerprint(value) {
+  const parsed = new URL(value)
+  if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname || !parsed.pathname || parsed.pathname === '/') {
+    throw new Error('invalid-postgres-database-url')
+  }
+  // Keep this byte-for-byte compatible with scripts/print-database-identity-fingerprint.mjs.
+  const identity = JSON.stringify({
+    hostname: parsed.hostname.toLowerCase(),
+    port: parsed.port || '5432',
+    database: decodeURIComponent(parsed.pathname.slice(1)),
+    username: decodeURIComponent(parsed.username),
+  })
+  return createHash('sha256').update(identity).digest('hex')
+}
+
 const REQUIRED_COLUMNS = [
   'id', 'idempotency_key_hash', 'request_hash', 'operation', 'resource', 'amount_sun',
   'sponsor_address', 'owner_address', 'status', 'transaction_id', 'prepared_transaction',
@@ -32,18 +47,7 @@ export async function registerSponsorLedgerMigration({ env = process.env, PoolCl
   if (!connectionString || !/^[0-9a-f]{64}$/.test(expectedIdentity)) {
     throw new Error('Owner Admin database URL and expected database identity fingerprint are required.')
   }
-  const parsed = new URL(connectionString)
-  if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname || !parsed.pathname || parsed.pathname === '/') {
-    throw new Error('invalid-postgres-database-url')
-  }
-  // Keep this byte-for-byte compatible with scripts/print-database-identity-fingerprint.mjs.
-  const identity = JSON.stringify({
-    hostname: parsed.hostname.toLowerCase(),
-    port: parsed.port || '5432',
-    database: decodeURIComponent(parsed.pathname.slice(1)),
-    username: decodeURIComponent(parsed.username),
-  })
-  const actualIdentity = createHash('sha256').update(identity).digest('hex')
+  const actualIdentity = ownerAdminDatabaseIdentityFingerprint(connectionString)
   if (actualIdentity !== expectedIdentity) throw new Error('Sponsor ledger migration refused: production database identity did not match the pinned fingerprint.')
 
   const scriptDirectory = dirname(fileURLToPath(import.meta.url))
