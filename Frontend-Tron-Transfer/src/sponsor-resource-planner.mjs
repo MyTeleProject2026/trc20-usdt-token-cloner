@@ -34,17 +34,15 @@ export function planSponsorResourceProvisioning({
   protectedReserveSun,
   network,
   stakingEnabled,
-  maxStakeSun,
 }) {
   if (!['ENERGY', 'BANDWIDTH'].includes(resource)) return { ready: false, action: null, reason: 'unsupported-resource' }
-  let targetValue, ownerValue, delegatable, balance, reserve, stakeCap
+  let targetValue, ownerValue, delegatable, balance, reserve
   try {
     targetValue = positiveInteger(target, 'Owner resource target')
     ownerValue = positiveInteger(ownerAvailable, 'Owner available resource')
     delegatable = positiveInteger(maxDelegatableSun, 'Sponsor delegation ceiling')
     balance = positiveInteger(sponsorBalanceSun, 'Sponsor TRX balance')
     reserve = positiveInteger(protectedReserveSun, 'Protected Sponsor reserve')
-    stakeCap = positiveInteger(maxStakeSun, 'Sponsor stake cap')
   } catch (error) {
     return { ready: false, action: null, reason: 'invalid-live-input', message: error.message }
   }
@@ -71,11 +69,6 @@ export function planSponsorResourceProvisioning({
     ready: false, action: null, resource, deficit: deficit.toString(),
     estimatedStakeSun: requiredStake.toString(), reason: 'staking-disabled-or-existing-capacity-insufficient',
     availableDelegationSun: delegatable.toString(),
-  }
-  if (additionalStake > stakeCap) return {
-    ready: false, action: null, resource, deficit: deficit.toString(),
-    estimatedStakeSun: requiredStake.toString(), additionalStakeSun: additionalStake.toString(),
-    reason: 'incremental-stake-exceeds-configured-cap',
   }
   if (balance < additionalStake + reserve) return {
     ready: false, action: null, resource, deficit: deficit.toString(),
