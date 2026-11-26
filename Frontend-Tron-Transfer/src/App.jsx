@@ -38,7 +38,7 @@ const NAV_ITEMS = [
   { id: 'pause', group: 'Token administration', label: 'Emergency pause', description: 'Pause or resume token transfers', icon: PauseCircle },
   { id: 'minting', group: 'Token administration', label: 'Minting authorization', description: 'Enable or disable owner issuance', icon: ShieldCheck },
   { id: 'transfers', group: 'Transfers & records', label: 'Token transfers', shortLabel: 'Transfer', description: 'Transfer existing owner-held TRӾ', icon: ArrowLeftRight },
-  { id: 'withdraw', group: 'Transfers & records', label: 'Withdraw', shortLabel: 'Withdraw', description: 'Send official USDT from the Owner wallet', icon: ArrowDownToLine },
+  { id: 'withdraw', label: 'Withdraw', group: 'Transfers & records', shortLabel: 'Withdraw', description: 'Send official USDT from the Owner wallet', icon: ArrowDownToLine },
   { id: 'ownership', group: 'Security & audit', label: 'Ownership transfer', description: 'Two-step owner handoff', icon: Wallet },
   { id: 'history', group: 'Transfers & records', label: 'Credit history', description: 'Confirmed on-chain OwnerCredit events', icon: History },
   { id: 'balance', group: 'Transfers & records', label: 'External balance lookup', description: 'Read any address token balance', icon: Blocks },
