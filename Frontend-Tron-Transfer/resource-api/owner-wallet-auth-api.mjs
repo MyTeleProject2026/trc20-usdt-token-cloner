@@ -116,6 +116,18 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
   }
 
   return {
+    // Persist only the public identity and session metadata for a successful
+    // sign-only check. Never store the message, signature, nonce, or key material.
+    async recordSignerAcceptance({ address, sessionId, verifiedAt }) {
+      const db = getPool()
+      if (!db || !address || sessionId == null) return false
+      await audit(db, 'signer_acceptance_verified', 'success', {
+        address: String(address),
+        sessionId: String(sessionId),
+        verifiedAt: String(verifiedAt || new Date().toISOString()),
+      })
+      return true
+    },
     // Internal in-process verifier for Owner transaction routes. Session tokens
     // remain in HttpOnly cookies; callers receive only the enrolled address and
     // session identifier after optional CSRF/Origin validation.

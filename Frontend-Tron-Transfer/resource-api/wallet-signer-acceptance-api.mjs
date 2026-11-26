@@ -40,6 +40,7 @@ export function createWalletSignerAcceptanceApi({
   authenticateSponsorSession,
   fetchImpl = globalThis.fetch,
   tronWebFactory = () => createMainnetTronWeb({ env, fetchImpl }),
+  recordAcceptance = async () => false,
   identityReport,
   now = () => Date.now(),
   ttlMs = CHALLENGE_TTL_MS,
@@ -158,9 +159,22 @@ export function createWalletSignerAcceptanceApi({
         send(res, 401, { success: false, error: 'LOCAL_SIGNER_ADDRESS_MISMATCH' }, origin)
         return true
       }
+      const verifiedAt = new Date(now()).toISOString()
+      let auditRecorded = false
+      try {
+        auditRecorded = await recordAcceptance({
+          role,
+          address: challenge.address,
+          sessionId: challenge.sessionId,
+          verifiedAt,
+        }) === true
+      } catch {
+        auditRecorded = false
+      }
       return send(res, 200, {
         success: true,
         verified: true,
+        auditRecorded,
         role,
         address: challenge.address,
         verifiedAt: new Date(now()).toISOString(),

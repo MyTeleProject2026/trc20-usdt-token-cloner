@@ -590,6 +590,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <b>Owner vault key-control check</b>
         <p>Signs a one-time, session-bound Mainnet message locally and asks the API to verify the recovered Owner address. No transaction is created or broadcast.</p>
         {ownerSignerAcceptance && <small className="trax-signer-acceptance-result" role="status">Verified {new Date(ownerSignerAcceptance.verifiedAt).toLocaleString()} · {shorten(ownerSignerAcceptance.address)}</small>}
+        {ownerSignerAcceptance && <small className="trax-signer-acceptance-result" role="status">{ownerSignerAcceptance.auditRecorded ? 'Saved to the Owner security audit log.' : 'Signature verified, but durable audit logging is unavailable. Retry when the Resource API is healthy.'}</small>}
       </div>
       <button type="button" className="outline-button" disabled={busy} onClick={() => void verifyOwnerLocalSigner()}>Run sign-only acceptance</button>
     </div>}

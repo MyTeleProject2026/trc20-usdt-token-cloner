@@ -1227,6 +1227,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         <h3>Sponsor vault key-control check</h3>
         <p>Signs a one-time challenge bound to the independent Sponsor session. The Resource API verifies the recovered Sponsor address; no transaction is created or broadcast.</p>
         {sponsorSignerAcceptance && <small className="trax-signer-acceptance-result" role="status">Verified {new Date(sponsorSignerAcceptance.verifiedAt).toLocaleString()} · {sponsorSignerAcceptance.address}</small>}
+        {sponsorSignerAcceptance && <small className="trax-signer-acceptance-result" role="status">{sponsorSignerAcceptance.auditRecorded ? 'Saved to the Sponsor security audit log.' : 'Signature verified, but durable audit logging is unavailable. Retry when the Resource API is healthy.'}</small>}
       </div>
       <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => void verifySponsorLocalSigner()}>Run sign-only acceptance</button>
     </section>}
