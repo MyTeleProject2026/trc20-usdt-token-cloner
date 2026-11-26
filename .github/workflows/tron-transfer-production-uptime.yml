@@ -117,6 +117,10 @@ jobs:
                         ownerAdminSessionConfigured: parsed?.ownerAdminSessionConfiguredForLedgerRelease === true,
                         engineConfigured: parsed?.engineConfigured === true,
                         engineEnabled: parsed?.engineEnabled === true,
+                        broadcastAvailable: parsed?.broadcastAvailable === true,
+                        clientSigningAvailable: parsed?.clientSigningAvailable === true,
+                        stakingEnabled: parsed?.stakingPolicy?.enabled === true,
+                        ownerTopupEnabled: parsed?.ownerTopupPolicy?.enabled === true,
                         localSignerReady: parsed?.localSignerReady === true,
                         writesReleaseAvailable: parsed?.writesReleaseAvailable === true,
                         transactionExecutionAvailable: parsed?.transactionExecutionAvailable === true,
@@ -143,6 +147,10 @@ jobs:
                           + ' · sessionAuth=' + flags.sessionAuthenticationConfigured
                           + ' · adminSession=' + flags.ownerAdminSessionConfigured
                           + ' · engine=' + flags.engineConfigured + '/' + flags.engineEnabled
+                          + ' · broadcast=' + flags.broadcastAvailable
+                          + ' · clientSigning=' + flags.clientSigningAvailable
+                          + ' · staking=' + flags.stakingEnabled
+                          + ' · ownerTopup=' + flags.ownerTopupEnabled
                           + ' · paused=' + flags.sponsorWritesPaused
                           + ' · signer=' + flags.localSignerReady
                           + ' · release=' + flags.writesReleaseAvailable
