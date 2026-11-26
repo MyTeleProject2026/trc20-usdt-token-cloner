@@ -18,10 +18,11 @@ function makeRequest(method, headers = {}, body = null) {
   }
 }
 
-function makeApi({ recoveredAddress = owner, now = () => 1_800_000_000_000 } = {}) {
+function makeApi({ recoveredAddress = owner, now = () => 1_800_000_000_000, recordAcceptance = async () => true } = {}) {
   const replies = []
   const api = createWalletSignerAcceptanceApi({
     send: (_res, status, payload) => { replies.push({ status, payload }); return true },
+    recordAcceptance,
     identityReport: {
       network: 'TRON Mainnet',
       owner: { address: owner },
@@ -69,6 +70,7 @@ test('Owner sign-only challenge is session-bound and verifies locally without a 
   assert.equal(verified.payload.broadcast, false)
   assert.equal(verified.payload.signatureStored, false)
   assert.equal(verified.payload.privateKeyReceived, false)
+  assert.equal(verified.payload.auditRecorded, true)
   assert.equal('signature' in verified.payload, false)
   assert.equal(api.pendingChallengeCount(), 0)
 })
@@ -86,6 +88,7 @@ test('Sponsor sign-only challenge uses the independent Sponsor session and ident
   assert.equal(verified.status, 200)
   assert.equal(verified.payload.verified, true)
   assert.equal(verified.payload.address, sponsor)
+  assert.equal(verified.payload.auditRecorded, true)
 })
 
 test('sign-only verification rejects missing CSRF, then permits one valid verification and blocks replay', async () => {
@@ -157,4 +160,42 @@ test('TRON Web v6 signs and recovers an actual local message signature without R
   assert.equal(verified.payload.verified, true)
   assert.equal(verified.payload.address, ownerAddress)
   assert.equal(verified.payload.broadcast, false)
+})
+
+test('successful sign-only verification records only role, public address, session and timestamp', async () => {
+  const events = []
+  const { api, replies, url } = makeApi({
+    recordAcceptance: async event => { events.push(event); return true },
+  })
+  await api.handle(makeRequest('GET'), {}, url('owner'), origin)
+  const challenge = replies.pop().payload
+  await api.handle(makeRequest('POST', { origin, 'x-owner-csrf-token': 'owner-csrf' }, {
+    challengeId: challenge.challengeId, signature,
+  }), {}, new URL(url('owner').href + '/verify'), origin)
+  const verified = replies.pop()
+  assert.equal(verified.status, 200)
+  assert.equal(verified.payload.auditRecorded, true)
+  assert.deepEqual(events, [{
+    role: 'owner',
+    address: owner,
+    sessionId: 11,
+    verifiedAt: new Date(1_800_000_000_000).toISOString(),
+  }])
+  assert.equal(JSON.stringify(events).includes(signature), false)
+  assert.equal(JSON.stringify(events).includes(challenge.message), false)
+})
+
+test('sign-only verification remains successful but reports missing audit if durable logging fails', async () => {
+  const { api, replies, url } = makeApi({
+    recordAcceptance: async () => { throw new Error('database unavailable') },
+  })
+  await api.handle(makeRequest('GET'), {}, url('owner'), origin)
+  const challenge = replies.pop().payload
+  await api.handle(makeRequest('POST', { origin, 'x-owner-csrf-token': 'owner-csrf' }, {
+    challengeId: challenge.challengeId, signature,
+  }), {}, new URL(url('owner').href + '/verify'), origin)
+  const verified = replies.pop()
+  assert.equal(verified.status, 200)
+  assert.equal(verified.payload.verified, true)
+  assert.equal(verified.payload.auditRecorded, false)
 })
