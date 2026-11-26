@@ -895,7 +895,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   async function submitResourceTransaction(action, options = {}) {
     if (!wallet || !tronWeb || busy) return
-    if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The local signing protocol is implemented, but the production database, durability, fresh resource preflight, paused-write and explicit Mainnet release gates must all pass. No transaction was sent.'); return }
+    if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'Sponsor execution requires the released ledger control, approved database identity, verified durability, enrolled local signer and explicit Mainnet release configuration. No transaction was sent.'); return }
     const selectedAmount = options.amount || (action === 'withdraw' ? formatSunAsTrx(snapshot?.withdrawableSun || '0') : amount)
     const selectedResource = options.resource || resourceType
     const recipientAddress = action === 'transfer' ? String(options.recipientAddress || transferRecipient).trim() : ownerAddress
@@ -1068,7 +1068,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       return
     }
     if (sponsorApiStatus?.transactionExecutionAvailable !== true) {
-      notify('error', 'Sponsor execution is not ready', 'Local Sponsor-vault signing is implemented. Production database acceptance, durability, fresh resource preflight and explicit Mainnet release gates are still required. No transaction was sent.')
+      notify('error', 'Sponsor execution is not ready', 'Sponsor execution requires the released ledger control, approved database identity, verified durability, enrolled local signer and explicit Mainnet release configuration. No transaction was sent.')
       return
     }
     try {
@@ -1260,7 +1260,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Local Sponsor-vault signing is implemented, but live Mainnet execution remains gated by database acceptance, durability, resource preflight and explicit release approval. No server-side private-key signer is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> The imported Sponsor vault signs the exact prepared transaction; the Resource API verifies, persists and reconciles it.</p>}
       <section className="sponsor-card" aria-label="Sponsor production acceptance checks">
-        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor acceptance checks</h3><p>Current state: {sponsorApiStatus?.acceptance?.state || 'checking'} · Acceptance is diagnostic only and does not authorize Mainnet execution.</p></div></div>
+        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor pre-release readiness review</h3><p>Pre-release checklist: {sponsorApiStatus?.acceptance?.state || 'checking'} · This checklist tracks guarded release prerequisites. Live Sponsor execution availability is reported separately above.</p></div></div>
         <div className="sponsor-release-checks">{(sponsorApiStatus?.acceptance?.checks || []).map(check => <div key={check.id}><span>{check.id.replaceAll('-', ' ')}</span><b className={check.state === 'passed' ? 'passed' : 'blocked'}>{check.state}</b></div>)}</div>
         <p className="sponsor-muted">Sponsor write release is evaluated separately below. The database pause, explicit release flag, broadcast gate and client-signing gate remain independent controls.</p>
       </section>
