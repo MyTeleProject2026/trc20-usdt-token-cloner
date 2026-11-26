@@ -38,15 +38,18 @@ test('Owner deployment resource preflight displays the actual Mainnet RPC provid
   assert.ok(panel.includes('providersUsed?.chainParameters'))
 })
 
-test('Owner Sponsor audit warns when the production ledger control is not paused', async () => {
+test('Owner Sponsor audit reports the live ledger state without blocking active controls', async () => {
   const panel = await read('../src/TRXMainnetPanel.jsx')
-  assert.ok(panel.includes('Sponsor ledger is not paused in production.'))
-  assert.ok(panel.includes('Do not prepare, sign, or submit Sponsor operations.'))
+  assert.ok(panel.includes("{sponsorAudit.sponsorWritesPaused ? 'Paused' : 'Active'}"))
+  assert.ok(panel.includes('Sponsor ledger writes are paused.'))
+  assert.ok(panel.includes('guarded Sponsor controls'))
+  assert.equal(panel.includes('Do not prepare, sign, or submit Sponsor operations.'), false)
   const workflow = await read('../../.github/workflows/tron-transfer-production-uptime.yml')
-  for (const gate of [
+  for (const field of [
     'sponsorWritesPaused', 'engineEnabled', 'broadcastAvailable',
     'clientSigningAvailable', 'writesReleaseConfigured',
     'writesReleaseAvailable', 'transactionExecutionAvailable',
-  ]) assert.ok(workflow.includes(gate), 'production probe missing safety gate: ' + gate)
-  assert.ok(workflow.includes('sponsorSafetyPassed'))
+  ]) assert.ok(workflow.includes(field), 'production probe missing Sponsor status field: ' + field)
+  assert.ok(workflow.includes('availability/schema probe'))
+  assert.equal(workflow.includes('sponsorSafetyPassed'), false)
 })
