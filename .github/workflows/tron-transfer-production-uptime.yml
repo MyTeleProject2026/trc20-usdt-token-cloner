@@ -163,11 +163,25 @@ jobs:
                       validPayload = response.ok && parsed?.success === true && count > 0;
                       detail = validPayload ? 'Git-backed history served · ' + count + ' archived runs' : 'history endpoint returned no valid archived records';
                     } else if (target.name === 'render-metrics') {
-                      const cpu = parsed?.metrics?.find(item => item.id === 'cpu');
-                      const memory = parsed?.metrics?.find(item => item.id === 'memory');
+                      const metrics = Array.isArray(parsed?.metrics) ? parsed.metrics : [];
+                      const cpu = metrics.find(item => item.id === 'cpu');
+                      const memory = metrics.find(item => item.id === 'memory');
+                      const hasMetricRecords = Boolean(cpu && memory);
+                      const unavailable = [cpu, memory].some(item => item?.state === 'unavailable');
                       const hasSamples = Boolean(cpu?.points?.length && memory?.points?.length);
-                      validPayload = response.ok && parsed?.success === true && parsed?.configured === true && hasSamples;
-                      detail = validPayload ? 'server credential verified · CPU and memory samples received' : parsed?.configured === false ? 'RENDER_API_KEY is not configured on the resource API' : 'Render metrics payload missing authenticated CPU/memory samples';
+                      validPayload = response.ok && parsed?.success === true
+                        && parsed?.configured === true && hasMetricRecords && !unavailable;
+                      detail = validPayload
+                        ? hasSamples
+                          ? 'server credential verified · CPU and memory samples received'
+                          : 'server credential verified · CPU=' + String(cpu.state || 'unknown')
+                            + ' · memory=' + String(memory.state || 'unknown')
+                            + ' · no platform samples in the current window'
+                        : parsed?.configured === false
+                          ? 'RENDER_API_KEY is not configured on the resource API'
+                          : !hasMetricRecords
+                            ? 'Render metrics payload is missing CPU or memory metric records'
+                            : 'Render CPU or memory metrics are unavailable from the platform API';
                     } else {
                       const networkMatches = !target.expectedNetwork || parsed?.network === target.expectedNetwork;
                       validPayload = response.ok && parsed && parsed.ok === true && networkMatches;
@@ -419,6 +433,13 @@ jobs:
               fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\nNo open production incident; all checks passed.\n');
             }
           })().catch(error => {
+            // GitHub Issues can be disabled after the read succeeds; treat HTTP
+            // 410 on create/update/resolve the same as HTTP 410 on the list call.
+            if (String(error?.message || error).includes('HTTP 410')) {
+              console.log('GitHub Issues are disabled for this repository; incident tracking skipped.');
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '\nIncident tracking skipped: GitHub Issues are disabled (HTTP 410).\n');
+              return;
+            }
             console.error('Incident automation could not update GitHub issues:', error.message);
             process.exitCode = 1;
           });
