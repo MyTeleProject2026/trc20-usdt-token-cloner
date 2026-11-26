@@ -932,7 +932,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
               : `Withdraw all currently matured Stake 2.0 TRX (${selectedAmount}) to Sponsor Wallet ${wallet.address}?`
     if (!window.confirm(`${prompt}
 
-This request is sent to the authenticated TRON Transfer Resource API. The Resource API prepares the exact unsigned Mainnet transaction. The imported Sponsor vault must sign it locally; the API must verify the Sponsor signer and permission, persist the signed payload before a single broadcast, and reconcile a solidified receipt. Mainnet execution remains disabled until the production ledger, durability, resource and explicit release gates all pass.`)) return
+This request is sent to the authenticated TRON Transfer Resource API. The Resource API prepares the exact unsigned Mainnet transaction. The imported Sponsor vault must sign it locally; the API must verify the Sponsor signer and permission, persist the signed payload before a single broadcast, and reconcile a solidified receipt. Mainnet execution is gated by the current production ledger, durability, resource and write-control checks. The API will reject this request unless every required gate is currently satisfied.`)) return
     setBusy(true)
     try {
       const idempotencyKey = createIdempotencyKey()

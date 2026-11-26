@@ -36,6 +36,9 @@ test('Sponsor workspace render errors are contained by an application error boun
   assert.match(app, /class SponsorWorkspaceErrorBoundary extends React\.Component/)
   assert.ok(app.includes('<SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>'))
   assert.match(app, /This Sponsor page could not be displayed/)
+  assert.match(app, /A render error does not confirm transaction status/)
+  assert.match(app, /Check the durable Sponsor ledger and solidified Mainnet receipt before retrying/)
+  assert.doesNotMatch(app, /No transaction was submitted/)
 })
 
 test('Owner Admin re-authentication state is cleared on Sponsor wallet lock and workspace exit', () => {

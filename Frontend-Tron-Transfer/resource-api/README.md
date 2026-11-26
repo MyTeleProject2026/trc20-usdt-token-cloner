@@ -51,7 +51,7 @@ Sponsor operations use a two-phase local-signing protocol:
 
 The legacy one-step endpoint `POST /api/sponsor/operations` returns HTTP 410 and cannot invoke a server-side signer. The Resource API does not use `SPONSOR_MAINNET_PRIVATE_KEY`, `SPONSOR_SIGNER_URL`, or a remote signer service.
 
-Supported Sponsor operations are `stake`, `delegate`, `undelegate`, `unstake`, `withdraw`, and a manual Sponsor-to-Owner native TRX `topup`. Manual stake and top-up amounts have no fixed application-level business cap. Each requested amount is constrained by the Sponsor's fresh confirmed TRX balance, the protected liquid reserve, the transaction's current Bandwidth/fee preflight, available stake/delegation/unfreeze state and TRON protocol rules. The amount and recipient are reviewed and signed locally for every operation; no automatic spending is enabled. Sponsor operations cannot sign Owner TRӾ contract transactions.
+Supported Sponsor operations are `stake`, `delegate`, `undelegate`, `unstake`, `withdraw`, Sponsor-to-Owner native TRX `topup`, and manual arbitrary-recipient native TRX `transfer`. The `topup` action is restricted to the configured Owner address; `transfer` requires a separately reviewed recipient address. Manual stake, top-up and transfer amounts have no fixed application-level business cap. Each requested amount is constrained by the Sponsor's fresh confirmed TRX balance, the protected liquid reserve, the transaction's current Bandwidth/fee preflight, available stake/delegation/unfreeze state and TRON protocol rules. The amount and recipient are reviewed and signed locally for every operation; no automatic spending is enabled. Sponsor operations cannot sign Owner TRӾ contract transactions.
 
 ## Sponsor API endpoints
 

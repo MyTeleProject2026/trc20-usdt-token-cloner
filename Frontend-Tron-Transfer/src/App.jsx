@@ -13,13 +13,26 @@ import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 
 const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
 
+
+
+class OwnerWorkspaceErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false, message: '' } }
+  static getDerivedStateFromError(error) { return { hasError: true, message: String(error?.message || 'Unknown render error').slice(0, 240) } }
+  componentDidCatch(error, info) { console.error('Owner workspace render failure', error, info?.componentStack) }
+  componentDidUpdate(previousProps) { if (previousProps.activePage !== this.props.activePage && this.state.hasError) this.setState({ hasError: false, message: '' }) }
+  render() {
+    if (this.state.hasError) return <section className="trax-shell-alert error" role="alert"><AlertTriangle size={16}/><div><strong>This Owner page could not be displayed.</strong><p>A render error does not confirm transaction status. Check the durable Owner operation ledger and solidified Mainnet receipt before retrying; do not create a replacement operation until the original is reconciled.</p><p>Diagnostic: <code>{this.state.message}</code></p></div><button type="button" className="trax-topbar-connect" onClick={() => this.setState({ hasError: false, message: '' })}>Retry this page</button><button type="button" className="trax-topbar-security" onClick={() => this.props.onNavigate('home')}>Owner overview</button></section>
+    return this.props.children
+  }
+}
+
 class SponsorWorkspaceErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, message: '' } }
   static getDerivedStateFromError(error) { return { hasError: true, message: String(error?.message || 'Unknown render error').slice(0, 240) } }
   componentDidCatch(error, info) { console.error('Sponsor workspace render failure', error, info?.componentStack) }
   componentDidUpdate(previousProps) { if (previousProps.activePage !== this.props.activePage && this.state.hasError) this.setState({ hasError: false, message: '' }) }
   render() {
-    if (this.state.hasError) return <section className="sponsor-card sponsor-render-error" role="alert"><div className="sponsor-card-heading"><AlertTriangle/><div><h3>This Sponsor page could not be displayed</h3><p>The error is isolated to this page. No transaction was submitted.</p><p className="sponsor-muted">Diagnostic: <code>{this.state.message}</code></p></div></div><div className="sponsor-actions"><button type="button" className="sponsor-primary" onClick={() => this.setState({ hasError: false, message: '' })}>Retry this page</button><button type="button" className="sponsor-secondary" onClick={() => this.props.onNavigate('sponsor')}>Return to Sponsor overview</button></div></section>
+    if (this.state.hasError) return <section className="sponsor-card sponsor-render-error" role="alert"><div className="sponsor-card-heading"><AlertTriangle/><div><h3>This Sponsor page could not be displayed</h3><p>A render error does not confirm transaction status. Check the durable Sponsor ledger and solidified Mainnet receipt before retrying; do not create a replacement operation until the original is reconciled.</p><p className="sponsor-muted">Diagnostic: <code>{this.state.message}</code></p></div></div><div className="sponsor-actions"><button type="button" className="sponsor-primary" onClick={() => this.setState({ hasError: false, message: '' })}>Retry this page</button><button type="button" className="sponsor-secondary" onClick={() => this.props.onNavigate('sponsor')}>Return to Sponsor overview</button></div></section>
     return this.props.children
   }
 }
@@ -168,7 +181,7 @@ export default function App() {
           <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace}/></SponsorWorkspaceErrorBoundary>
         </div>
         <div hidden={sponsorWorkspace} aria-hidden={sponsorWorkspace}>
-          {activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}
+          <OwnerWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>{activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}</OwnerWorkspaceErrorBoundary>
         </div>
       </main>
       {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
