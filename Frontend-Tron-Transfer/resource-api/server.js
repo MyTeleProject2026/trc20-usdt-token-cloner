@@ -387,7 +387,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
         endpoints: {
           sponsorStatus: '/api/sponsor/status',
           ownerOperations: '/api/owner/operations',
-          ownerDeployment: '/api/owner/deployment/status',
+          ownerDeployment: '/api/owner/deployment/readiness',
           mainnetProviderHealth: '/api/mainnet/provider-health',
         },
       }, origin)
