@@ -13,6 +13,8 @@ const IDEMPOTENCY = /^[A-Za-z0-9._:-]{24,128}$/
 const TXID = /^[0-9a-f]{64}$/i
 const SPONSOR_LEDGER_MIGRATION_VERSION = '20261126_sponsor_operations_ledger.sql'
 const SPONSOR_LEDGER_MIGRATION_SHA256 = 'cb2f2a8e1eba285dc196dbc904c68996bdaf64b9c11d80bd56a87a5866d5d32a'
+const SPONSOR_RECIPIENT_MIGRATION_VERSION = '20261128_sponsor_arbitrary_trx_transfer.sql'
+const SPONSOR_RECIPIENT_MIGRATION_SHA256 = 'b03b9abd49bc255158ed9ea61baa51690dea66f2d66374ac97c8fe5373443239'
 const CONFIRMATION = 'CONFIRM TRON MAINNET SPONSOR TRANSACTION'
 const challenges = new Map()
 const intents = new Map()
@@ -250,6 +252,13 @@ async function assertSchema(db) {
   if (!migration.rows?.length || String(migration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_LEDGER_MIGRATION_SHA256) {
     throw new Error('sponsor-ledger-migration-checksum-not-verified')
   }
+  const recipientMigration = await db.query(
+    'SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1',
+    [SPONSOR_RECIPIENT_MIGRATION_VERSION],
+  )
+  if (!recipientMigration.rows?.length || String(recipientMigration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_RECIPIENT_MIGRATION_SHA256) {
+    throw new Error('sponsor-recipient-migration-checksum-not-verified')
+  }
   if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
     || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true
                 || schema.rows[0].recipient_address_column !== true) {
@@ -482,6 +491,13 @@ export function createSponsorResourceApi({
                 if (!migration.rows?.length || String(migration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_LEDGER_MIGRATION_SHA256) {
                   databaseStatus = 'migration-checksum-unverified'
                 } else {
+                  const recipientMigration = await db.query(
+                    'SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1',
+                    [SPONSOR_RECIPIENT_MIGRATION_VERSION],
+                  )
+                  if (!recipientMigration.rows?.length || String(recipientMigration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_RECIPIENT_MIGRATION_SHA256) {
+                    databaseStatus = 'recipient-migration-checksum-unverified'
+                  } else {
                   const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
                   if (!control.rows?.length) {
                     databaseStatus = 'control-row-missing'
@@ -489,6 +505,7 @@ export function createSponsorResourceApi({
                     sponsorWritesPaused = control.rows[0].writes_paused === true
                     databaseReady = true
                     databaseStatus = 'ready'
+                  }
                   }
                 }
               }
