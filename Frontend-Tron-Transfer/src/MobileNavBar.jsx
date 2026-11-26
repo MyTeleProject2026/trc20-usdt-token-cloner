@@ -58,7 +58,7 @@ export default function MobileNavBar({ items, activePage, onNavigate, workspace 
       <button type="button" className="trax-mobile-backdrop" aria-label="Close navigation menu" onClick={() => setMoreOpen(false)}/>
       <section id="trax-mobile-sheet" className="trax-mobile-sheet" ref={sheetRef} role="dialog" aria-modal="true" aria-label={workspace === 'sponsor' ? 'More Sponsor sections' : 'More Owner sections'}>
         <div className="trax-mobile-sheet-heading">
-          <div><span className="trax-kicker">TRON TRANSFER · MAINNET</span><h2>{workspace === 'sponsor' ? 'Sponsor workspace' : 'Owner workspace'}</h2><p>Choose a task area</p></div>
+          <div><span className="trax-kicker">TRON TRANSFER · MAINNET</span><h2>More workspace · {workspace === 'sponsor' ? 'Sponsor' : 'Owner'}</h2><p>Choose a task area</p></div>
           <button type="button" className="trax-icon-button" onClick={() => setMoreOpen(false)} aria-label="Close menu"><X size={18}/></button>
         </div>
         <div className="trax-mobile-sheet-groups">

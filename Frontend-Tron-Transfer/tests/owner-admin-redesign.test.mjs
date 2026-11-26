@@ -11,14 +11,17 @@ test('owner admin navigation groups related operations into clear workspace sect
     read('../src/MobileNavBar.jsx'),
     read('../src/owner-admin-redesign.css'),
   ])
-  for (const group of ['Overview', 'Token administration', 'Transfers & records', 'Security & audit']) {
+  for (const group of ['Overview', 'Assets', 'Token operations', 'Transfers', 'Security', 'Sponsor', 'Provisioning', 'Audit']) {
     assert.ok(app.includes("group: '" + group + "'"), 'missing navigation group: ' + group)
   }
-  assert.ok(sidebar.includes('trax-sidebar-group-title'))
+  assert.ok(sidebar.includes('trax-sidebar-group-toggle'))
+  assert.ok(sidebar.includes('expandedGroups'))
   assert.ok(sidebar.includes("item.group || 'Workspace'"))
   assert.ok(sidebar.includes('/trax-token-mark.svg'))
-  assert.ok(mobile.includes("['home', 'portfolio', 'issuance', 'transfers']"))
-  assert.ok(theme.includes('--owner-primary: #4866d8'))
+  assert.ok(mobile.includes("const OWNER_PRIMARY = ['home', 'portfolio', 'transfers']"))
+  assert.ok(mobile.includes('secondaryGroups.map'))
+  assert.ok(theme.includes('--owner-primary: #4e8dff'))
+  assert.ok(theme.includes('--owner-bg: #07111f'))
   assert.ok(theme.includes('@media (max-width: 720px)'))
   assert.ok(theme.includes('prefers-reduced-motion: reduce'))
 })

@@ -11,11 +11,13 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
   const ids = ['home','portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']
   for (const id of ids) assert.ok(app.includes("id: '" + id + "'"), 'missing page route: ' + id)
   assert.ok(sidebar.includes('trax-desktop-workspace-nav'))
-  assert.ok(sidebar.includes('Owner workspace pages') && sidebar.includes('Sponsor workspace pages'))
+  assert.ok(sidebar.includes('Owner workspace navigation') && sidebar.includes('Sponsor workspace navigation'))
+  assert.ok(sidebar.includes('trax-sidebar-group-toggle') && sidebar.includes('expandedGroups'))
   assert.ok(sidebar.includes('collapsed'))
   assert.ok(sidebar.includes('Expand sidebar'))
   assert.ok(sidebar.includes('Collapse sidebar'))
-  assert.ok(mobile.includes("const primaryIds = ['home', 'portfolio', 'issuance', 'transfers']"))
+  assert.ok(mobile.includes("const OWNER_PRIMARY = ['home', 'portfolio', 'transfers']"))
+  assert.ok(mobile.includes("const SPONSOR_PRIMARY = ['sponsor', 'sponsor-resources', 'sponsor-activity']"))
   assert.ok(mobile.includes('More workspace'))
   assert.ok(mobile.includes('role="dialog"'))
 })
@@ -88,7 +90,7 @@ test('Owner and Sponsor wallet workspaces have separate navigation contexts', as
   assert.ok(app.includes('Owner workspace') && app.includes('Sponsor workspace'))
   assert.ok(app.includes('workspace={sponsorWorkspace ? "sponsor" : "owner"}'))
   assert.ok(mobile.includes('trax-mobile-nav-sponsor'))
-  assert.ok(mobile.includes("onNavigate('home')"))
+  assert.ok(mobile.includes("choose('home')"))
 })
 
 test('workspace layout has responsive desktop, tablet and mobile breakpoints', async () => {
@@ -113,7 +115,7 @@ test('Sponsor workspace exposes independent Overview, Resources, Automation and 
   assert.ok(app.includes('<SponsorWalletManager activePage={activePage}'))
   for (const id of ['sponsor-overview','sponsor-resources','sponsor-automation','sponsor-activity']) assert.ok(sponsor.includes('id="' + id + '"'))
   assert.ok(sponsor.includes('Sponsor platform sections'))
-  assert.ok(mobile.includes('Sponsor workspace navigation') && mobile.includes('items.map'))
+  assert.ok(mobile.includes('Sponsor workspace navigation') && mobile.includes('primary.map') && mobile.includes('secondaryGroups.map'))
   assert.ok(css.includes('.sponsor-product-tabs') && css.includes('@media(max-width:720px)'))
 })
 
@@ -150,8 +152,8 @@ test('desktop sidebar clearly identifies the active workspace context', async ()
   const sidebar = await read('../src/TRAXSidebar.jsx')
   assert.ok(sidebar.includes('SPONSOR TREASURY · MAINNET'))
   assert.ok(sidebar.includes('OWNER CONTROL · MAINNET'))
-  assert.ok(sidebar.includes('Sponsor workspace pages'))
-  assert.ok(sidebar.includes('Owner workspace pages'))
+  assert.ok(sidebar.includes('Sponsor workspace navigation'))
+  assert.ok(sidebar.includes('Owner workspace navigation'))
 })
 
 
