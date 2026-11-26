@@ -19,6 +19,14 @@ const ACTIVITY_KEY = 'tron-transfer.sponsor-activity.v1'
 const SECURITY_KEY = 'tron-transfer.sponsor-security-events.v1'
 const TARGETS_KEY = 'tron-transfer.sponsor-resource-targets.v1'
 
+function sponsorReleaseChecksPassed(status) {
+  const checks = Array.isArray(status?.writesReleaseChecks) ? status.writesReleaseChecks : []
+  // The visible checklist is the same server-computed release gate. Derive the
+  // button state from it so a missing/stale summary boolean cannot strand an
+  // otherwise-ready Owner Admin. The API independently revalidates every gate.
+  return checks.length > 0 && checks.every(check => check?.state === 'passed')
+}
+
 function formatSponsorDatabaseStatus(status, payload) {
   const labels = {
     ready: 'connected',
@@ -1266,7 +1274,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
           <p className="sponsor-warning">Release is a separate Owner-authorized administrative action. It requires the explicit Render release flag, approved database identity, verified backup and restore, independent wallet identities, local Sponsor signer and enabled Mainnet transaction engine. This action only changes the ledger write-control row; it does not sign or broadcast a transaction.</p>
           <div className="sponsor-release-checks">{(sponsorApiStatus.writesReleaseChecks || []).map(check => <div key={check.id}><span>{check.id.replaceAll('-', ' ')}</span><b className={check.state === 'passed' ? 'passed' : 'blocked'}>{check.state}</b></div>)}</div>
           <label className="sponsor-field">Type ENABLE_SPONSOR_MAINNET_WRITES to release Sponsor writes<input value={sponsorControlPhrase} onChange={event => setSponsorControlPhrase(event.target.value)} autoComplete="off" spellCheck="false"/></label>
-          <button type="button" className="sponsor-primary" disabled={busy || !ownerAdminReady || sponsorApiStatus.writesReleaseAvailable !== true || sponsorControlPhrase !== 'ENABLE_SPONSOR_MAINNET_WRITES'} onClick={() => void changeSponsorWriteControl(false)}>Enable Sponsor Mainnet writes</button>
+          <button type="button" className="sponsor-primary" disabled={busy || !ownerAdminReady || !sponsorReleaseChecksPassed(sponsorApiStatus) || sponsorControlPhrase !== 'ENABLE_SPONSOR_MAINNET_WRITES'} onClick={() => void changeSponsorWriteControl(false)}>Enable Sponsor Mainnet writes</button>
         </> : <>
           <p className="sponsor-warning">When all execution gates pass, Sponsor operations use the independent Sponsor session, local signing, resource preflight and receipt checks. Pause writes immediately if the ledger, wallet identity or Mainnet execution state needs review.</p>
           <label className="sponsor-field">Type PAUSE_SPONSOR_MAINNET_WRITES to pause Sponsor writes<input value={sponsorControlPhrase} onChange={event => setSponsorControlPhrase(event.target.value)} autoComplete="off" spellCheck="false"/></label>
