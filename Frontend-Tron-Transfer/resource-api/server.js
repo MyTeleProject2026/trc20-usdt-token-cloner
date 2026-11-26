@@ -10,6 +10,7 @@ import { createOwnerOperationApi } from './owner-operation-api.mjs'
 import { createTRAXDeploymentApi } from './trax-deployment-api.mjs'
 import { createPendingOwnerAcceptanceApi } from './pending-owner-acceptance-api.mjs'
 import { createSponsorWalletAuthApi } from './sponsor-wallet-auth-api.mjs'
+import { createWalletSignerAcceptanceApi } from './wallet-signer-acceptance-api.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
@@ -317,6 +318,11 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
   })
   const pendingOwnerAcceptanceApi = createPendingOwnerAcceptanceApi({ env, send, database: sponsorDatabase || null })
   const sponsorWalletAuthApi = createSponsorWalletAuthApi({ env, send })
+  const walletSignerAcceptanceApi = createWalletSignerAcceptanceApi({
+    env, send, fetchImpl,
+    authenticateOwnerSession: (req, options) => ownerWalletAuthApi.authenticateRequest(req, options),
+    authenticateSponsorSession: (req, options) => sponsorWalletAuthApi.authenticateRequest(req, options),
+  })
   const sponsorApi = createSponsorResourceApi({
     env, allowedAddress, fetchImpl,
     ...(sponsorEngine ? { engine: sponsorEngine } : {}),
@@ -405,6 +411,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
         }, origin)
       }
     }
+    if (await walletSignerAcceptanceApi.handle(req, res, url, origin)) return
     if (await ownerWalletAuthApi.handle(req, res, url, origin)) return
     if (await ownerOperationApi.handle(req, res, url, origin)) return
     if (await traxDeploymentApi.handle(req, res, url, origin)) return
