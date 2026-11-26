@@ -18,5 +18,5 @@ test('production push probe verifies Retry-After and CORS header exposure', asyn
   assert.ok(workflow.includes('Verify production Retry-After and CORS response headers'))
   assert.ok(workflow.includes("limited.headers.get('retry-after')"))
   assert.ok(workflow.includes("limited.headers.get('access-control-expose-headers')"))
-  assert.ok(workflow.includes("if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'"))
+  assert.ok(workflow.includes("if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')"))
 })
