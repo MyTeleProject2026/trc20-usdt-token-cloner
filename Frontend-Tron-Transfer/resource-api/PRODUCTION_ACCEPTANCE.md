@@ -155,3 +155,16 @@ The Sponsor ledger bootstrap is a separate operation from Sponsor account enroll
 ### TronScan Mainnet explorer credential
 
 The Resource API prefers `TRONSCAN_PRO_API_KEY` and accepts `TRONSCAN_API_KEY` as a compatibility fallback. The production health endpoint exposes only the selected environment-variable name and a boolean configured flag; it never returns the credential value. The production probe requires the key to be configured and the TronScan Mainnet API to respond successfully.
+
+
+## Local Owner and Sponsor sign-only acceptance
+
+The Owner and Sponsor workspaces expose a separate **Run sign-only acceptance** action after the corresponding encrypted local wallet is unlocked.
+
+- The API issues a random, short-lived challenge bound to the authenticated role, configured Mainnet address and session.
+- The browser signs the challenge with the selected local vault using TRON message signing.
+- The API recovers the signer address and compares it with that role's authenticated and configured wallet address.
+- Challenges expire after two minutes and are consumed once. Verification requires the role-specific CSRF proof.
+- The API does not receive a private key, persist the signature, create a transaction, spend TRX or broadcast.
+
+A passing result proves local key control and message-signing compatibility for that wallet at that time. It does **not** prove a transaction was accepted by Mainnet, does not release Sponsor writes, and is not a substitute for separate transaction and receipt acceptance.

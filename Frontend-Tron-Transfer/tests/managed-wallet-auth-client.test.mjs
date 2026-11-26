@@ -97,3 +97,25 @@ test('session refresh restores a CSRF proof after a page reload before logout', 
   await api.logout()
   assert.equal(calls[1].options.headers['x-csrf-token'], 'rotated-csrf')
 })
+
+
+test('role-scoped sign-only challenge methods use the wallet-auth namespace and CSRF proof', async () => {
+  const calls = []
+  const api = createManagedWalletAuthClient({
+    role: 'owner',
+    apiBaseUrl: 'https://api.test',
+    cookieReader: () => 'tron_owner_csrf=owner-csrf-cookie',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options })
+      return response(200, { success: true, role: 'owner', challengeId: 'challenge-1', verified: true })
+    },
+  })
+  await api.signingChallenge()
+  await api.verifySigningChallenge('challenge-1', 'ab'.repeat(65))
+  assert.equal(calls[0].url, 'https://api.test/api/wallet-auth/owner/signing-challenge')
+  assert.equal(calls[0].options.method, 'GET')
+  assert.equal(calls[1].url, 'https://api.test/api/wallet-auth/owner/signing-challenge/verify')
+  assert.equal(calls[1].options.method, 'POST')
+  assert.equal(calls[1].options.headers['x-csrf-token'], 'owner-csrf-cookie')
+  assert.deepEqual(JSON.parse(calls[1].options.body), { challengeId: 'challenge-1', signature: 'ab'.repeat(65) })
+})
