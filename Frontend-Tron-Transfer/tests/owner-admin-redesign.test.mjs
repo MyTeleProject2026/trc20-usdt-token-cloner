@@ -1,0 +1,35 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+
+const read = path => readFile(new URL(path, import.meta.url), 'utf8')
+
+test('owner admin navigation groups related operations into clear workspace sections', async () => {
+  const [app, sidebar, mobile, theme] = await Promise.all([
+    read('../src/App.jsx'),
+    read('../src/TRAXSidebar.jsx'),
+    read('../src/MobileNavBar.jsx'),
+    read('../src/owner-admin-redesign.css'),
+  ])
+  for (const group of ['Overview', 'Token administration', 'Transfers & records', 'Security & audit']) {
+    assert.ok(app.includes("group: '" + group + "'"), 'missing navigation group: ' + group)
+  }
+  assert.ok(sidebar.includes('trax-sidebar-group-title'))
+  assert.ok(sidebar.includes("item.group || 'Workspace'"))
+  assert.ok(sidebar.includes('/trax-token-mark.svg'))
+  assert.ok(mobile.includes("['home', 'portfolio', 'issuance', 'transfers']"))
+  assert.ok(theme.includes('--owner-primary: #4866d8'))
+  assert.ok(theme.includes('@media (max-width: 720px)'))
+  assert.ok(theme.includes('prefers-reduced-motion: reduce'))
+})
+
+test('owner redesign retains Mainnet-only transaction safety and existing route identifiers', async () => {
+  const app = await read('../src/App.jsx')
+  for (const id of ['home','portfolio','deploy','issuance','credits','batch','pause','minting','transfers','withdraw','ownership','history','balance']) {
+    assert.ok(app.includes("id: '" + id + "'"), 'route was removed: ' + id)
+  }
+  assert.ok(app.includes('TRON MAINNET'))
+  assert.ok(app.includes('OwnerWalletAccess'))
+  assert.ok(app.includes('OwnerAccountSecurity'))
+  assert.ok(app.includes('SponsorWalletManager'))
+})
