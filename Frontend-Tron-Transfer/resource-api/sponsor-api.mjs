@@ -390,6 +390,13 @@ export function createSponsorResourceApi({
     const session = await authenticateOwnerAdminSession(req, { requireCsrf: true })
     return Boolean(session && session.address === ownerAddress)
   }
+  async function verifyAdminReadAuthorization(req) {
+    // Read-only audit requests require the authenticated Owner identity but
+    // do not require a CSRF token because they cannot mutate ledger state.
+    if (!ownerAdminAuthConfigured) return false
+    const session = await authenticateOwnerAdminSession(req, { requireCsrf: false })
+    return Boolean(session && session.address === ownerAddress)
+  }
   const rateCounts = new Map()
   function rateLimit(req, key, max = 12) {
     const ip = String(sponsorClientIp(req)).slice(0, 80)
