@@ -140,3 +140,144 @@
 .sponsor-danger{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:11px 15px;border:1px solid rgba(236,126,126,.45);border-radius:10px;background:rgba(91,28,28,.35);color:#ffc0c0;font-size:11px;font-weight:800}
 .sponsor-danger:disabled,.sponsor-primary:disabled,.sponsor-secondary:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:700px){.sponsor-release-checks{grid-template-columns:1fr}}
+
+
+/* Premium Sponsor treasury workspace: restrained navy, cyan and indigo fintech system. */
+.sponsor-manager {
+  color: #edf6ff;
+  gap: 20px;
+  padding-bottom: 24px;
+}
+.sponsor-manager-header {
+  padding: 8px 2px 13px;
+  align-items: flex-start;
+}
+.sponsor-manager-header h2 {
+  color: #f4f8ff;
+  font-size: clamp(27px, 3.3vw, 38px);
+  letter-spacing: -.05em;
+}
+.sponsor-manager-header p, .sponsor-card p {
+  color: #9db1c8;
+  line-height: 1.65;
+}
+.sponsor-eyebrow { color: #72d1f4; letter-spacing: .15em; }
+.sponsor-network-pill, .sponsor-status {
+  border: 1px solid rgba(79, 194, 240, .24);
+  background: linear-gradient(120deg, rgba(19, 92, 133, .23), rgba(53, 70, 132, .16));
+  color: #d6f4ff;
+  border-radius: 999px;
+}
+.sponsor-network-pill i, .sponsor-status i {
+  background: #52c9ef;
+  box-shadow: 0 0 13px rgba(82, 201, 239, .55);
+}
+.sponsor-card {
+  border: 1px solid rgba(133, 174, 219, .17);
+  border-radius: 20px;
+  background: linear-gradient(150deg, rgba(17, 38, 63, .94), rgba(10, 25, 44, .96));
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .025);
+  padding: clamp(17px, 2.2vw, 25px);
+}
+.sponsor-card h2, .sponsor-card h3, .sponsor-card h4 {
+  color: #eff7ff;
+  letter-spacing: -.035em;
+}
+.sponsor-card-heading { gap: 13px; }
+.sponsor-card-heading > svg { color: #69c9ee; }
+.sponsor-metric-grid {
+  gap: 12px;
+}
+.sponsor-metric-grid article {
+  border: 1px solid rgba(130, 176, 222, .15);
+  border-radius: 17px;
+  padding: 17px;
+  background: linear-gradient(145deg, rgba(18, 43, 70, .86), rgba(10, 27, 48, .92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
+}
+.sponsor-metric-grid article small, .sponsor-metric-grid article span {
+  color: #8fa8c3;
+  letter-spacing: .08em;
+}
+.sponsor-metric-grid article strong {
+  color: #f1f8ff;
+  font-size: clamp(22px, 2.2vw, 29px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.04em;
+}
+.sponsor-product-tabs {
+  border: 1px solid rgba(127, 174, 218, .17);
+  border-radius: 15px;
+  background: rgba(7, 19, 34, .94);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .16);
+}
+.sponsor-product-tabs button {
+  border-radius: 10px;
+  color: #93a9c2;
+  font-size: 12px;
+}
+.sponsor-product-tabs button.active {
+  border-color: rgba(73, 192, 239, .34);
+  background: linear-gradient(120deg, rgba(21, 126, 177, .30), rgba(73, 85, 163, .22));
+  color: #e7f8ff;
+  box-shadow: inset 0 0 0 1px rgba(80, 188, 232, .08);
+}
+.sponsor-primary, .sponsor-wallet-actions .sponsor-primary {
+  border: 1px solid rgba(97, 206, 242, .42);
+  border-radius: 12px;
+  background: linear-gradient(115deg, #168cbd, #356fc0 58%, #4b61b7);
+  color: #f5fbff;
+  font-weight: 800;
+  box-shadow: 0 8px 22px rgba(18, 112, 169, .22);
+}
+.sponsor-primary:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: 0 11px 28px rgba(25, 136, 194, .30);
+}
+.sponsor-secondary, .sponsor-wallet-actions .sponsor-secondary {
+  border: 1px solid rgba(131, 174, 216, .22);
+  border-radius: 12px;
+  background: rgba(18, 43, 69, .74);
+  color: #d5e7f8;
+}
+.sponsor-secondary:hover:not(:disabled) {
+  border-color: rgba(83, 190, 235, .38);
+  background: rgba(27, 63, 96, .82);
+}
+.sponsor-card input, .sponsor-card select, .sponsor-card textarea {
+  min-height: 46px;
+  border: 1px solid rgba(133, 176, 220, .22);
+  border-radius: 12px;
+  background: rgba(5, 16, 30, .82);
+  color: #edf7ff;
+}
+.sponsor-card input:focus, .sponsor-card select:focus, .sponsor-card textarea:focus {
+  border-color: rgba(79, 195, 239, .66);
+  box-shadow: 0 0 0 3px rgba(55, 171, 222, .12);
+  outline: none;
+}
+.sponsor-activity-row, .sponsor-operation-row {
+  border-bottom-color: rgba(132, 174, 217, .12);
+}
+.sponsor-muted, .sponsor-card small { color: #8fa6bf; }
+.sponsor-toast {
+  border: 1px solid rgba(92, 180, 225, .30);
+  border-radius: 16px;
+  background: rgba(13, 34, 57, .98);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .48);
+}
+.sponsor-toast p { color: #a9bfd6; }
+.sponsor-toast.error { border-color: rgba(255, 125, 143, .38); }
+.sponsor-wallet-actions button { min-height: 43px; }
+@media (max-width: 720px) {
+  .sponsor-manager { gap: 14px; }
+  .sponsor-card { border-radius: 17px; padding: 16px; }
+  .sponsor-manager-header { padding-bottom: 7px; }
+  .sponsor-metric-grid { gap: 9px; }
+  .sponsor-metric-grid article { padding: 14px; border-radius: 14px; }
+  .sponsor-product-tabs { margin-inline: 0; }
+}
+@media (max-width: 380px) {
+  .sponsor-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sponsor-metric-grid article strong { font-size: 19px; }
+}
