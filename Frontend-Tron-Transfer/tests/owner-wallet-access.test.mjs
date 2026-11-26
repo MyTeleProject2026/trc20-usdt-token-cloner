@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
 const access = await readFile(new URL('../src/OwnerWalletAccess.jsx', import.meta.url), 'utf8')
 const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+const sidebar = await readFile(new URL('../src/TRAXSidebar.jsx', import.meta.url), 'utf8')
 
 test('Owner Admin combines a managed application session with the independent encrypted local Owner vault', () => {
   assert.ok(app.includes("import OwnerWalletAccess from './OwnerWalletAccess.jsx'"))
@@ -45,6 +46,11 @@ test('TRӾ writes use the guarded backend operation API and local Owner signing 
   assert.ok(panel.includes('signer.trx.sign(pendingOperation.unsignedTransaction)'))
   assert.ok(panel.includes('signer.trx.sign(deploymentOperation.unsignedTransaction)'))
   assert.doesNotMatch(panel, /requestTronLinkConnection|sendAndVerifyContractCall|deployContractWithOwnerSigner|sendRawTransaction/)
+})
+
+test('Owner sidebar describes the local vault action as unlocking, not connecting an external wallet', () => {
+  assert.ok(sidebar.includes('Unlock Owner Wallet'))
+  assert.equal(sidebar.includes('Connect Owner Wallet'), false)
 })
 
 test('Owner application authentication is separate from the local transaction-signing key', () => {
