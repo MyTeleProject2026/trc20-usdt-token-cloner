@@ -397,12 +397,14 @@ test('Sponsor status reports a missing ledger schema without attempting DDL', as
   assert.equal(calls.some(sql => /^\\s*(CREATE|ALTER|DROP|INSERT|UPDATE)\\b/im.test(sql)), false)
 })
 
-test('Sponsor ledger bootstrap requires admin authorization and explicit confirmation and leaves writes paused', async () => {
+test('Sponsor ledger bootstrap preserves arbitrary-recipient TRX transfer support', async () => {
   let schemaCreated = false
+  let bootstrapSql = ''
   const database = {
     async query(sql) {
       if (sql.includes('CREATE TABLE IF NOT EXISTS public.tron_transfer_sponsor_operations')) {
         schemaCreated = true
+        bootstrapSql = sql
         return { rowCount: 0, rows: [] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
@@ -428,6 +430,11 @@ test('Sponsor ledger bootstrap requires admin authorization and explicit confirm
   assert.equal(initialized.payload.sponsorWritesPaused, true)
   assert.equal(initialized.payload.transactionExecutionAvailable, false)
   assert.equal(schemaCreated, true)
+  const operationConstraints = bootstrapSql.match(/operation IN \([^)]*\)/g) || []
+  assert.equal(operationConstraints.length, 2, 'create and re-assert constraints must both be present')
+  for (const constraint of operationConstraints) {
+    assert.match(constraint, /'transfer'/, 'bootstrap must preserve the existing arbitrary-recipient TRX transfer operation')
+  }
 })
 
 test('managed Owner Admin authorization for Sponsor bootstrap requires the CSRF-protected Owner session', async () => {

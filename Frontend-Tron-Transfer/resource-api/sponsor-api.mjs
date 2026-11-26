@@ -197,7 +197,7 @@ async function ensureSchema(db) {
         id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         idempotency_key_hash CHAR(64) NOT NULL UNIQUE,
         request_hash CHAR(64) NOT NULL,
-        operation TEXT NOT NULL CHECK (operation IN ('stake','delegate','undelegate','unstake','withdraw','topup')),
+        operation TEXT NOT NULL CHECK (operation IN ('stake','delegate','undelegate','unstake','withdraw','topup','transfer')),
         resource TEXT NOT NULL CHECK (resource IN ('ENERGY','BANDWIDTH','TRX')),
         amount_sun NUMERIC(21,0) NOT NULL CHECK (amount_sun > 0),
         sponsor_address TEXT NOT NULL,
@@ -214,7 +214,7 @@ async function ensureSchema(db) {
       ALTER TABLE public.tron_transfer_sponsor_operations ADD COLUMN IF NOT EXISTS prepared_transaction JSONB;
       ALTER TABLE public.tron_transfer_sponsor_operations ADD COLUMN IF NOT EXISTS signed_transaction JSONB;
       ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_operation_check;
-      ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_operation_check CHECK (operation IN ('stake','delegate','undelegate','unstake','withdraw','topup'));
+      ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_operation_check CHECK (operation IN ('stake','delegate','undelegate','unstake','withdraw','topup','transfer'));
       ALTER TABLE public.tron_transfer_sponsor_operations DROP CONSTRAINT IF EXISTS tron_transfer_sponsor_operations_resource_check;
       ALTER TABLE public.tron_transfer_sponsor_operations ADD CONSTRAINT tron_transfer_sponsor_operations_resource_check CHECK (resource IN ('ENERGY','BANDWIDTH','TRX'));
       CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_operations_sponsor_created
