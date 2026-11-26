@@ -934,6 +934,12 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
       })
       const unsignedTransaction = prepared?.unsignedTransaction
+      const feePolicy = prepared?.feePolicy
+      const requiredBandwidthFeeSun = String(feePolicy?.requiredBandwidthFeeSun ?? '')
+      const feeReserveSun = String(feePolicy?.reserveSun ?? '')
+      if (!/^(?:0|[1-9][0-9]*)$/.test(requiredBandwidthFeeSun) || !/^[1-9][0-9]*$/.test(feeReserveSun)) {
+        throw new Error('Sponsor API did not return a valid live Bandwidth fee estimate and protected reserve. No signature was requested.')
+      }
       if (!unsignedTransaction?.txID || !/^[0-9a-f]{64}$/i.test(unsignedTransaction.txID)
         || typeof unsignedTransaction.raw_data_hex !== 'string'
         || prepared.sponsorAddress !== wallet.address || prepared.ownerAddress !== ownerAddress
@@ -957,8 +963,10 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       }
       if (!window.confirm('Review the exact unsigned Mainnet transaction before local signing.\\n\\nOperation: ' + action
         + '\\nSponsor: ' + wallet.address + '\\nOwner: ' + ownerAddress + '\\nTransaction ID: ' + unsignedTransaction.txID
+        + '\\nEstimated Bandwidth fee: ' + formatSunAsTrx(requiredBandwidthFeeSun) + ' TRX'
+        + '\\nProtected liquid reserve: ' + formatSunAsTrx(feeReserveSun) + ' TRX'
         + '\\nExpires: ' + new Date(expiration).toLocaleString()
-        + '\\n\\nOnly the imported local Sponsor Wallet signs this transaction. The Resource API will verify the signature and recheck balance and Bandwidth before broadcast.')) {
+        + '\\n\\nThe fee estimate uses the current Mainnet Bandwidth price and transaction size. The API rechecks live balance, reserve and fee before its single broadcast attempt. Only the imported local Sponsor Wallet signs this transaction.')) {
         try {
           await sponsorApiRequest('/api/sponsor/operations/cancel', {
             method: 'POST', csrfToken: authCsrfToken, body: { operationReference: idempotencyKey },
@@ -1235,7 +1243,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
 
     {activePage === 'sponsor' && <section className="sponsor-card">
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Independent local vault, exact-intent verification and durable operation ledger.</p></div></div>
-      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Local signer implementation: {sponsorApiStatus?.localSignerReady ? 'present' : 'blocked'} · Legacy server signer: disabled · Broadcast gate: {sponsorApiStatus?.broadcastAvailable === true ? 'enabled' : 'disabled'} · Client signing gate: {sponsorApiStatus?.clientSigningAvailable === true ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · manual amount bounded by live balance and reserve' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · manual amount bounded by live balance and reserve' : 'disabled'} · Owner authentication boundary: {sponsorApiStatus?.ownerAdminSessionConfiguredForLedgerRelease ? 'guarded bootstrap and pause/release actions only' : 'not configured'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee cap: {sponsorApiStatus?.feePolicy?.maxBandwidthFeeSun || '0'} SUN</p>
+      <p className="sponsor-muted">API: {sponsorApiStatus?.success ? 'reachable' : 'checking / unavailable'} · PostgreSQL: {formatSponsorDatabaseStatus(sponsorApiStatus?.databaseStatus, sponsorApiStatus)} · Ledger durability: {sponsorApiStatus?.ledgerDurabilityVerified ? 'backup & restore verified' : 'not verified'} · Ledger writes: {sponsorApiStatus?.sponsorWritesPaused ? 'paused for maintenance' : 'available subject to execution gates'} · Session auth: {sponsorApiStatus?.sessionAuthenticationConfigured ? 'configured' : 'missing'} · Local signer implementation: {sponsorApiStatus?.localSignerReady ? 'present' : 'blocked'} · Legacy server signer: disabled · Broadcast gate: {sponsorApiStatus?.broadcastAvailable === true ? 'enabled' : 'disabled'} · Client signing gate: {sponsorApiStatus?.clientSigningAvailable === true ? 'enabled' : 'disabled'} · Stake policy: {sponsorApiStatus?.stakingPolicy?.enabled ? 'enabled · manual amount bounded by live balance and reserve' : 'disabled'} · Owner top-up: {sponsorApiStatus?.ownerTopupPolicy?.enabled ? 'enabled · manual amount bounded by live balance and reserve' : 'disabled'} · Owner authentication boundary: {sponsorApiStatus?.ownerAdminSessionConfiguredForLedgerRelease ? 'guarded bootstrap and pause/release actions only' : 'not configured'} · Reserve: {sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'} TRX · Fee model: live Mainnet Bandwidth price, balance-checked</p>
       {!sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-warning">{sponsorApiStatus?.sponsorWritesPaused ? 'Sponsor ledger writes are paused for a database migration or maintenance window. Signing and broadcasting are blocked until the destination ledger is verified and explicitly re-enabled.' : sponsorApiStatus?.ledgerDurabilityVerified !== true ? 'Sponsor writes are blocked until a non-expiring production database, verified backup and tested restore are explicitly attested by the operator.' : sponsorApiStatus?.error || 'Local Sponsor-vault signing is implemented, but live Mainnet execution remains gated by database acceptance, durability, resource preflight and explicit release approval. No server-side private-key signer is used.'}</p>}
       {sponsorApiStatus?.transactionExecutionAvailable && <p className="sponsor-security-note"><ShieldCheck/> The imported Sponsor vault signs the exact prepared transaction; the Resource API verifies, persists and reconciles it.</p>}
       <section className="sponsor-card" aria-label="Sponsor production acceptance checks">
