@@ -6,10 +6,12 @@ import { createSponsorTransactionEngine, verifySponsorSignedTransaction } from '
 
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const RECIPIENT = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
 const TXID = 'a'.repeat(64)
 const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' })
 const sponsorHex = tronWeb.address.toHex(SPONSOR)
 const ownerHex = tronWeb.address.toHex(OWNER)
+const recipientHex = tronWeb.address.toHex(RECIPIENT)
 
 function configuredEnv(overrides = {}) {
   return {
@@ -50,16 +52,21 @@ function fixture({ bandwidth = 600, stakedBandwidth = 0, balance = 10_000_000n, 
   const fakeTronWeb = {
     address: {
       fromPrivateKey: () => SPONSOR,
-      fromHex: value => value === sponsorHex ? SPONSOR : value === ownerHex ? OWNER : '',
-      toHex: value => value === SPONSOR ? sponsorHex : value === OWNER ? ownerHex : '',
+      fromHex: value => value === sponsorHex ? SPONSOR : value === ownerHex ? OWNER : value === recipientHex ? RECIPIENT : '',
+      toHex: value => value === SPONSOR ? sponsorHex : value === OWNER ? ownerHex : value === RECIPIENT ? recipientHex : '',
     },
-    isAddress: value => value === SPONSOR || value === OWNER,
+    isAddress: value => value === SPONSOR || value === OWNER || value === RECIPIENT,
     utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => sponsorHex } },
-    transactionBuilder: { freezeBalanceV2: async (amount, resource) => {
-      transaction.raw_data.contract[0].parameter.value.frozen_balance = String(amount)
-      transaction.raw_data.contract[0].parameter.value.resource = resource === 'ENERGY' ? 1 : 0
-      return transaction
-    } },
+    transactionBuilder: {
+      freezeBalanceV2: async (amount, resource) => {
+        transaction.raw_data.contract[0] = { type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: sponsorHex, frozen_balance: String(amount), resource: resource === 'ENERGY' ? 1 : 0 } } }
+        return transaction
+      },
+      sendTrx: async (recipient, amount) => {
+        transaction.raw_data.contract[0] = { type: 'TransferContract', parameter: { value: { owner_address: sponsorHex, to_address: recipientHex, amount: String(amount) } } }
+        return transaction
+      },
+    },
     trx: {
       getBalance: async () => balance,
       getAccountResources: async () => ({ freeNetLimit: bandwidth, freeNetUsed: 0, NetLimit: stakedBandwidth, NetUsed: 0 }),
@@ -275,7 +282,7 @@ test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner a
       fromHex: value => value === ownerHex ? OWNER : SPONSOR,
       toHex: value => value === SPONSOR ? sponsorHex : value === OWNER ? ownerHex : '',
     },
-    isAddress: value => value === SPONSOR || value === OWNER,
+    isAddress: value => value === SPONSOR || value === OWNER || value === RECIPIENT,
     utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => sponsorHex } },
     transactionBuilder: { sendTrx: async (to, amount, from) => {
       assert.equal(to, OWNER); assert.equal(amount, '1000000'); assert.equal(from, SPONSOR); return transfer
@@ -344,7 +351,7 @@ function lifecycleFixture({ operation, amountSun, resource = 'ENERGY', transacti
       fromHex: value => value === ownerHex ? OWNER : SPONSOR,
       toHex: value => value === SPONSOR ? sponsorHex : value === OWNER ? ownerHex : '',
     },
-    isAddress: value => value === SPONSOR || value === OWNER,
+    isAddress: value => value === SPONSOR || value === OWNER || value === RECIPIENT,
     utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => sponsorHex } },
     transactionBuilder: {
       [builderName]: async (...args) => {
@@ -478,7 +485,7 @@ test('backend accepts only an exact locally signed Sponsor transaction with matc
   const signedTransaction = { ...transaction, signature: ['b'.repeat(130)] }
   const fakeTronWeb = {
     address: { fromHex: value => value === sponsorHex ? SPONSOR : value === ownerHex ? OWNER : '', toHex: value => value === SPONSOR ? sponsorHex : value === OWNER ? ownerHex : '' },
-    isAddress: value => value === SPONSOR || value === OWNER,
+    isAddress: value => value === SPONSOR || value === OWNER || value === RECIPIENT,
     utils: {
       transaction: { txCheck: () => true },
       crypto: { ecRecover: () => sponsorHex },
@@ -497,6 +504,31 @@ test('backend accepts only an exact locally signed Sponsor transaction with matc
     sponsorAddress: SPONSOR, ownerAddress: OWNER,
   })
   assert.deepEqual(result, { verified: true, sponsorAddress: SPONSOR, ownerAddress: OWNER, transactionId })
+})
+
+test('Sponsor arbitrary-recipient native TRX transfer is bound, locally signed and solidified', async () => {
+  const f = fixture({ bandwidth: 600 })
+  const result = await f.engine.execute({
+    operation: 'transfer', resource: 'TRX', amountSun: '1500000', ownerAddress: RECIPIENT,
+    onSigned: async txid => { assert.equal(txid, TXID); f.markDurable() },
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.equal(result.operation, 'transfer')
+  assert.equal(result.ownerAddress, RECIPIENT)
+  assert.equal(f.counts().signedCount, 1)
+  assert.equal(f.counts().broadcastCount, 1)
+})
+
+test('Sponsor arbitrary-recipient transfer rejects the Sponsor wallet as its own recipient', async () => {
+  const f = fixture()
+  const prepared = await f.engine.prepare({
+    operation: 'transfer', resource: 'TRX', amountSun: '1000000', ownerAddress: SPONSOR,
+  })
+  assert.equal(prepared.success, false)
+  assert.equal(prepared.status, 'invalid-mainnet-operation')
+  assert.equal(f.counts().signedCount, 0)
+  assert.equal(f.counts().broadcastCount, 0)
 })
 
 test('Sponsor engine never broadcasts when durable signed-transaction persistence fails', async () => {

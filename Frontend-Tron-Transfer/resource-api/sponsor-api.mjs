@@ -13,6 +13,8 @@ const IDEMPOTENCY = /^[A-Za-z0-9._:-]{24,128}$/
 const TXID = /^[0-9a-f]{64}$/i
 const SPONSOR_LEDGER_MIGRATION_VERSION = '20261126_sponsor_operations_ledger.sql'
 const SPONSOR_LEDGER_MIGRATION_SHA256 = 'cb2f2a8e1eba285dc196dbc904c68996bdaf64b9c11d80bd56a87a5866d5d32a'
+const SPONSOR_RECIPIENT_MIGRATION_VERSION = '20261128_sponsor_arbitrary_trx_transfer.sql'
+const SPONSOR_RECIPIENT_MIGRATION_SHA256 = 'b03b9abd49bc255158ed9ea61baa51690dea66f2d66374ac97c8fe5373443239'
 const CONFIRMATION = 'CONFIRM TRON MAINNET SPONSOR TRANSACTION'
 const challenges = new Map()
 const intents = new Map()
@@ -240,7 +242,8 @@ async function assertSchema(db) {
       to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
       to_regclass('public.tron_transfer_sponsor_control') AS control_table,
       EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column,
-      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column,
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='recipient_address') AS recipient_address_column
   `)
   const migration = await db.query(
     'SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1',
@@ -249,8 +252,16 @@ async function assertSchema(db) {
   if (!migration.rows?.length || String(migration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_LEDGER_MIGRATION_SHA256) {
     throw new Error('sponsor-ledger-migration-checksum-not-verified')
   }
+  const recipientMigration = await db.query(
+    'SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1',
+    [SPONSOR_RECIPIENT_MIGRATION_VERSION],
+  )
+  if (!recipientMigration.rows?.length || String(recipientMigration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_RECIPIENT_MIGRATION_SHA256) {
+    throw new Error('sponsor-recipient-migration-checksum-not-verified')
+  }
   if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
-    || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true) {
+    || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true
+                || schema.rows[0].recipient_address_column !== true) {
     throw new Error('sponsor-ledger-schema-not-initialized')
   }
   const control = await db.query(
@@ -312,7 +323,8 @@ function intentMessage(value) {
     'TRON TRANSFER SPONSOR TRANSACTION AUTHORIZATION',
     'Network: TRON Mainnet',
     'Sponsor: ' + value.sponsorAddress,
-    'Owner recipient: ' + value.ownerAddress,
+    'Configured Owner: ' + value.ownerAddress,
+    'Recipient: ' + value.recipientAddress,
     'Operation: ' + value.operation,
     'Resource: ' + value.resource,
     'Amount (sun): ' + value.amountSun,
@@ -427,6 +439,8 @@ export function createSponsorResourceApi({
         let sponsorWritesPaused = true
         let ownerWalletEnrolled = false
         let sponsorWalletEnrolled = false
+        let ownerSignerAcceptanceVerified = false
+        let sponsorSignerAcceptanceVerified = false
         if (dbConfigured) {
           try {
             const db = getDatabase()
@@ -445,6 +459,12 @@ export function createSponsorResourceApi({
                 const sponsorAccount = accountsByRole.get('sponsor')
                 ownerWalletEnrolled = ownerAccount?.enabled === true && ownerAccount.wallet_address === ownerAddress
                 sponsorWalletEnrolled = sponsorAccount?.enabled === true && sponsorAccount.wallet_address === env.SPONSOR_MAINNET_ADDRESS
+                const signerAudit = await db.query(
+                  "SELECT DISTINCT ON (wallet_role) wallet_role, metadata->>'address' AS accepted_address FROM public.tron_transfer_wallet_auth_audit WHERE event_type='signer_acceptance_verified' AND outcome='success' AND wallet_role IN ('owner','sponsor') ORDER BY wallet_role, created_at DESC",
+                )
+                const acceptedByRole = new Map((signerAudit.rows || []).map(row => [row.wallet_role, row.accepted_address]))
+                ownerSignerAcceptanceVerified = acceptedByRole.get('owner') === ownerAddress
+                sponsorSignerAcceptanceVerified = acceptedByRole.get('sponsor') === env.SPONSOR_MAINNET_ADDRESS
               } catch {
                 ownerWalletEnrolled = false
                 sponsorWalletEnrolled = false
@@ -456,10 +476,12 @@ export function createSponsorResourceApi({
                   to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
                   to_regclass('public.tron_transfer_sponsor_control') AS control_table,
                   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column,
-                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column
+                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column,
+                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='recipient_address') AS recipient_address_column
               `)
               if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
-                || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true) {
+                || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true
+                || schema.rows[0].recipient_address_column !== true) {
                 databaseStatus = 'schema-missing'
               } else {
                 const migration = await db.query(
@@ -469,6 +491,13 @@ export function createSponsorResourceApi({
                 if (!migration.rows?.length || String(migration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_LEDGER_MIGRATION_SHA256) {
                   databaseStatus = 'migration-checksum-unverified'
                 } else {
+                  const recipientMigration = await db.query(
+                    'SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1',
+                    [SPONSOR_RECIPIENT_MIGRATION_VERSION],
+                  )
+                  if (!recipientMigration.rows?.length || String(recipientMigration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_RECIPIENT_MIGRATION_SHA256) {
+                    databaseStatus = 'recipient-migration-checksum-unverified'
+                  } else {
                   const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
                   if (!control.rows?.length) {
                     databaseStatus = 'control-row-missing'
@@ -476,6 +505,7 @@ export function createSponsorResourceApi({
                     sponsorWritesPaused = control.rows[0].writes_paused === true
                     databaseReady = true
                     databaseStatus = 'ready'
+                  }
                   }
                 }
               }
@@ -489,6 +519,8 @@ export function createSponsorResourceApi({
           { id: 'sponsor-mainnet-address-configured-and-independent', state: readiness.sponsorAddressValid === true && sponsorIndependent ? 'passed' : 'blocked' },
           { id: 'owner-wallet-enrolled', state: ownerWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
+          { id: 'owner-signer-acceptance', state: ownerSignerAcceptanceVerified ? 'passed' : 'blocked' },
+          { id: 'sponsor-signer-acceptance', state: sponsorSignerAcceptanceVerified ? 'passed' : 'blocked' },
           { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
           { id: 'database-target-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
@@ -503,10 +535,12 @@ export function createSponsorResourceApi({
         const writesReleaseChecks = [
           { id: 'explicit-release-flag', state: env.SPONSOR_WRITES_RELEASE_ENABLED === 'true' ? 'passed' : 'blocked' },
           { id: 'owner-wallet-enrolled', state: ownerWalletEnrolled ? 'passed' : 'blocked' },
+          { id: 'owner-signer-acceptance', state: ownerSignerAcceptanceVerified ? 'passed' : 'blocked' },
           { id: 'owner-admin-session', state: adminConfigured ? 'passed' : 'blocked' },
           { id: 'owner-mainnet-identity', state: ownerAddressMatches ? 'passed' : 'blocked' },
           { id: 'independent-sponsor-mainnet-identity', state: sponsorIndependent && sponsorAddressMatches && readiness.sponsorAddressValid === true ? 'passed' : 'blocked' },
           { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
+          { id: 'sponsor-signer-acceptance', state: sponsorSignerAcceptanceVerified ? 'passed' : 'blocked' },
           { id: 'approved-database-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked' },
           { id: 'sponsor-ledger-migration-checksum', state: databaseStatus === 'ready' ? 'passed' : 'blocked' },
@@ -542,6 +576,9 @@ export function createSponsorResourceApi({
           ledgerDurabilityVerified,
           ownerAddressMatches,
           ownerWalletEnrolled,
+          sponsorWalletEnrolled,
+          ownerSignerAcceptanceVerified,
+          sponsorSignerAcceptanceVerified,
           sponsorIndependent,
           sponsorAddressMatches,
           sponsorWalletEnrolled,
@@ -550,7 +587,7 @@ export function createSponsorResourceApi({
           broadcastAvailable: readiness.broadcastAvailable === true,
           clientSigningAvailable: readiness.clientSigningAvailable === true,
           localSignerReady,
-          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && readiness.enabled === true && readiness.broadcastAvailable === true && sponsorWalletEnrolled && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && ledgerDurabilityVerified && env.SPONSOR_WRITES_RELEASE_ENABLED === 'true',
+          transactionExecutionAvailable: localSignerReady && readiness.clientSigningAvailable === true && readiness.enabled === true && readiness.broadcastAvailable === true && ownerWalletEnrolled && sponsorWalletEnrolled && ownerSignerAcceptanceVerified && sponsorSignerAcceptanceVerified && databaseReady && databaseIdentityMatches && !sponsorWritesPaused && Boolean(sessionSecret(env)) && ownerAddressMatches && sponsorIndependent && ledgerDurabilityVerified && env.SPONSOR_WRITES_RELEASE_ENABLED === 'true',
           feePolicy: readiness.feePolicy,
           stakingPolicy: readiness.stakingPolicy,
           ownerTopupPolicy: readiness.ownerTopupPolicy,
@@ -801,14 +838,15 @@ export function createSponsorResourceApi({
       let body
       try { body = await readBody(req) } catch (error) { return reply(res, error.status || 400, { success: false, error: error.message }, origin) }
       const { operation, resource, amountSun, idempotencyKey } = body
-      const validOperation = ['stake', 'delegate', 'undelegate', 'unstake', 'withdraw', 'topup'].includes(operation)
-      const validResource = ['topup', 'withdraw'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
-      if (!validOperation || !validResource
+      const recipientAddress = operation === 'transfer' ? String(body.recipientAddress || '') : ownerAddress
+      const validOperation = ['stake', 'delegate', 'undelegate', 'unstake', 'withdraw', 'topup', 'transfer'].includes(operation)
+      const validResource = ['topup', 'withdraw', 'transfer'].includes(operation) ? resource === 'TRX' : ['ENERGY', 'BANDWIDTH'].includes(resource)
+      if (!validOperation || !validResource || !validAddress(recipientAddress) || recipientAddress === session.address
         || !positiveSun(amountSun) || !IDEMPOTENCY.test(String(idempotencyKey || ''))) {
         return reply(res, 400, { success: false, error: 'invalid-sponsor-operation-intent' }, origin)
       }
       const expiresAt = now() + INTENT_TTL_MS
-      const intent = { intentId: randomBytes(24).toString('base64url'), sponsorAddress: session.address, ownerAddress, operation, resource, amountSun, idempotencyKey, expiresAt }
+      const intent = { intentId: randomBytes(24).toString('base64url'), sponsorAddress: session.address, ownerAddress, recipientAddress, operation, resource, amountSun, idempotencyKey, expiresAt }
       const message = intentMessage(intent)
       intents.set(intent.intentId, { ...intent, message })
       return reply(res, 201, { success: true, intentId: intent.intentId, message, expiresAt: new Date(expiresAt).toISOString(), confirmationPhrase: CONFIRMATION }, origin)
@@ -830,7 +868,7 @@ export function createSponsorResourceApi({
       const db = getDatabase()
       if (!db) return reply(res, 503, { success: false, error: 'durable-idempotency-storage-required' }, origin)
       const keyHash = sha(intent.idempotencyKey)
-      const requestHash = sha(JSON.stringify({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: session.address, ownerAddress }))
+      const requestHash = sha(JSON.stringify({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: session.address, ownerAddress, recipientAddress: intent.recipientAddress }))
       let client
       let open = false
       try {
@@ -844,19 +882,19 @@ export function createSponsorResourceApi({
           return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
         }
         const reserved = await client.query(
-          "INSERT INTO public.tron_transfer_sponsor_operations (idempotency_key_hash,request_hash,operation,resource,amount_sun,sponsor_address,owner_address,status) VALUES ($1,$2,$3,$4,$5,$6,$7,'reserved') ON CONFLICT (idempotency_key_hash) DO NOTHING RETURNING id",
-          [keyHash, requestHash, intent.operation, intent.resource, intent.amountSun, session.address, ownerAddress],
+          "INSERT INTO public.tron_transfer_sponsor_operations (idempotency_key_hash,request_hash,operation,resource,amount_sun,sponsor_address,owner_address,recipient_address,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'reserved') ON CONFLICT (idempotency_key_hash) DO NOTHING RETURNING id",
+          [keyHash, requestHash, intent.operation, intent.resource, intent.amountSun, session.address, ownerAddress, intent.recipientAddress],
         )
         if (!reserved.rowCount) {
           await client.query('ROLLBACK'); open = false
           return reply(res, 409, { success: false, error: 'operation-already-recorded', retryAllowed: false }, origin)
         }
-        const prepared = await engine.prepare({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, ownerAddress })
+        const prepared = await engine.prepare({ operation: intent.operation, resource: intent.resource, amountSun: intent.amountSun, ownerAddress: intent.recipientAddress })
         if (!prepared?.success || !prepared.transaction?.txID) {
           await client.query('ROLLBACK'); open = false
           return reply(res, 422, { success: false, error: prepared?.status || 'sponsor-transaction-preparation-failed', retryAllowed: false }, origin)
         }
-        if (prepared.sponsorAddress !== session.address || prepared.ownerAddress !== ownerAddress
+        if (prepared.sponsorAddress !== session.address || prepared.ownerAddress !== intent.recipientAddress
           || prepared.operation !== intent.operation || prepared.resource !== intent.resource
           || String(prepared.amountSun) !== String(intent.amountSun)) {
           await client.query('ROLLBACK'); open = false
@@ -872,7 +910,7 @@ export function createSponsorResourceApi({
         return reply(res, 201, {
           success: true, operationReference: intent.idempotencyKey, operation: intent.operation,
           resource: intent.resource, amountSun: intent.amountSun, sponsorAddress: prepared.sponsorAddress,
-          ownerAddress: prepared.ownerAddress, unsignedTransaction: prepared.transaction, feePolicy: prepared.feePolicy,
+          ownerAddress, recipientAddress: prepared.ownerAddress, unsignedTransaction: prepared.transaction, feePolicy: prepared.feePolicy,
           expiresAt: new Date(Number(prepared.transaction.raw_data.expiration)).toISOString(),
           note: 'Unsigned Mainnet transaction only. Sign locally in the imported Sponsor vault; do not alter transaction bytes.',
         }, origin)
@@ -936,7 +974,7 @@ export function createSponsorResourceApi({
           return reply(res, 423, { success: false, error: 'sponsor-writes-paused-for-maintenance', retryAllowed: false }, origin)
         }
         const found = await client.query(
-          "SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2 FOR UPDATE",
+          "SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,recipient_address,status,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2 FOR UPDATE",
           [keyHash, session.address],
         )
         const row = found.rows?.[0]
@@ -951,7 +989,7 @@ export function createSponsorResourceApi({
         const result = await engine.submitSigned({
           signedTransaction: body.signedTransaction,
           preparedTransaction: row.prepared_transaction,
-          operation: row.operation, resource: row.resource, amountSun: row.amount_sun, ownerAddress: row.owner_address,
+          operation: row.operation, resource: row.resource, amountSun: row.amount_sun, ownerAddress: row.recipient_address || row.owner_address,
           onSigned: async transactionId => {
             if (!TXID.test(transactionId || '') || transactionId !== row.prepared_transaction.txID) throw new Error('signed-transaction-id-mismatch')
             const saved = await client.query(
@@ -1021,7 +1059,7 @@ export function createSponsorResourceApi({
       try {
         await assertSchema(db)
         const result = await db.query(
-          'SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,transaction_id,result_code,confirmation_block,created_at,updated_at FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 ORDER BY created_at DESC LIMIT $2',
+          'SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,recipient_address,status,transaction_id,result_code,confirmation_block,created_at,updated_at FROM public.tron_transfer_sponsor_operations WHERE sponsor_address=$1 ORDER BY created_at DESC LIMIT $2',
           [session.address, limit],
         )
         return reply(res, 200, { success: true, network: 'TRON Mainnet', operations: result.rows || [], checkedAt: new Date(now()).toISOString() }, origin)
@@ -1071,7 +1109,7 @@ export function createSponsorResourceApi({
       try {
         await assertSchema(db)
         const result = await db.query(
-          'SELECT idempotency_key_hash,operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,status,transaction_id,result_code,confirmation_block,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2',
+          'SELECT idempotency_key_hash,operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,recipient_address,status,transaction_id,result_code,confirmation_block,prepared_transaction FROM public.tron_transfer_sponsor_operations WHERE idempotency_key_hash=$1 AND sponsor_address=$2',
           [sha(key), session.address],
         )
         const row = result.rows?.[0]
@@ -1091,7 +1129,7 @@ export function createSponsorResourceApi({
         if (row.transaction_id && ['signed-not-broadcast', 'broadcast-unknown'].includes(row.status)) {
           reconciliation = await engine.reconcile({
             transactionId: row.transaction_id, operation: row.operation, resource: row.resource,
-            amountSun: row.amount_sun, sponsorAddress: row.sponsor_address, ownerAddress: row.owner_address,
+            amountSun: row.amount_sun, sponsorAddress: row.sponsor_address, ownerAddress: row.recipient_address || row.owner_address,
           })
           const confirmed = reconciliation.confirmed === true
           const solidifiedFailure = reconciliation.status === 'solidified-execution-failed'

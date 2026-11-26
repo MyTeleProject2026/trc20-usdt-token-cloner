@@ -378,6 +378,20 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
       return res.end()
     }
     const url = new URL(req.url || '/', 'http://localhost')
+    if (req.method === 'GET' && url.pathname === '/') {
+      return send(res, 200, {
+        service: 'TRON Transfer Resource API',
+        status: 'ok',
+        network: 'TRON Mainnet',
+        health: '/health',
+        endpoints: {
+          sponsorStatus: '/api/sponsor/status',
+          ownerOperations: '/api/owner/operations',
+          ownerDeployment: '/api/owner/deployment/readiness',
+          mainnetProviderHealth: '/api/mainnet/provider-health',
+        },
+      }, origin)
+    }
     const rpcProxyMatch = url.pathname.match(/^\/api\/tron\/mainnet\/rpc(\/wallet(?:solidity)?\/[a-zA-Z0-9]+)$/)
     if (rpcProxyMatch) {
       if (req.method !== 'POST') return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)

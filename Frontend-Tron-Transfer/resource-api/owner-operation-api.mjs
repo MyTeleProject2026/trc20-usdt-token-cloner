@@ -9,6 +9,8 @@ import { normalizePostgresTlsMode } from './scripts/sponsor-ledger-database-iden
 const { Pool } = pg
 const MAINNET = 'https://api.trongrid.io'
 const OFFICIAL_USDT_MAINNET_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const OWNER_NATIVE_TRX_MIGRATION_VERSION = '20261128_owner_native_trx_withdrawal.sql'
+const OWNER_NATIVE_TRX_MIGRATION_SHA256 = 'fc3ff5c770cc069dbfb810968a1b41072f079beb3de1f22a2672f8a38d0b5663'
 const USDT_TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 function mainnetHost() { return MAINNET }
 const CONFIRMATION_PHRASE = 'CONFIRM TRON MAINNET OWNER OPERATION'
@@ -45,6 +47,7 @@ const METHODS = Object.freeze({
   } },
   transfer: { method: 'transfer', args: input => [address(input.recipient), uint(input.amount)] },
   'usdt-transfer': { method: 'transfer', args: input => { const recipient = address(input.recipient); if (recipient === input.ownerAddress) fail('OWNER_USDT_RECIPIENT_MUST_DIFFER'); return [recipient, uint(input.amount)] } },
+  'trx-transfer': { method: 'sendTrx', args: input => { const recipient = address(input.recipient); if (recipient === input.ownerAddress) fail('OWNER_TRX_RECIPIENT_MUST_DIFFER'); return [recipient, uint(input.amount)] } },
   pause: { method: 'setPaused', args: () => [true] },
   unpause: { method: 'setPaused', args: () => [false] },
   'minting-enable': { method: 'setMintingEnabled', args: () => [true] },
@@ -168,6 +171,21 @@ function canonicalAddressBytes(tronWeb, value) {
     return canonicalHexAddressValue(tronWeb.address.toHex(address))
   } catch { return canonicalHexAddressValue(value) }
 }
+export function verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction, ownerAddress, recipientAddress, amountSun }) {
+  const contracts = Array.isArray(transaction?.raw_data?.contract) ? transaction.raw_data.contract : []
+  const transfer = contracts.length === 1 && contracts[0]?.type === 'TransferContract' ? contracts[0] : null
+  const value = transfer?.parameter?.value || {}
+  const valid = Boolean(transfer && tronWeb?.isAddress?.(ownerAddress) && tronWeb?.isAddress?.(recipientAddress)
+    && recipientAddress !== ownerAddress
+    && asAddress(tronWeb, value.owner_address) === ownerAddress
+    && asAddress(tronWeb, value.to_address) === recipientAddress
+    && String(value.amount ?? '') === String(amountSun)
+    && TXID.test(String(transaction?.txID || ''))
+    && /^(?:[0-9a-f]{2})+$/i.test(String(transaction?.raw_data_hex || '')))
+  if (!valid) fail('OWNER_TRX_TRANSFER_INTENT_MISMATCH', 409)
+  return true
+}
+
 export function verifyOwnerUsdtTransferIntent({ tronWeb, transaction, ownerAddress, contractAddress, recipientAddress, amountBaseUnits }) {
   const contracts = Array.isArray(transaction?.raw_data?.contract) ? transaction.raw_data.contract : []
   const trigger = contracts.length === 1 && contracts[0]?.type === 'TriggerSmartContract' ? contracts[0] : null
@@ -294,6 +312,13 @@ async function verifyOfficialUsdtContract(tronWeb, contractAddress, _ownerAddres
   return { name: String(name), symbol: String(symbol), decimals: Number(decimals), contractAddress }
 }
 async function buildUnsigned(tronWeb, contractAddress, ownerAddress, normalized) {
+  if (normalized.operationType === 'trx-transfer') {
+    const [recipient, amountSun] = normalized.args
+    if (!tronWeb.isAddress(ownerAddress) || !tronWeb.isAddress(recipient) || recipient === ownerAddress) fail('OWNER_TRX_RECIPIENT_INVALID')
+    const transaction = await tronWeb.transactionBuilder.sendTrx(recipient, amountSun, ownerAddress)
+    verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction, ownerAddress, recipientAddress: recipient, amountSun })
+    return safeJson(transaction)
+  }
   if (!tronWeb.isAddress(ownerAddress) || !tronWeb.isAddress(contractAddress)) fail('OWNER_OPERATION_MAINNET_ADDRESS_INVALID')
   const abi = ABI.find(item => item.type === 'function' && item.name === normalized.method)
   if (!abi) fail('OWNER_OPERATION_ABI_METHOD_MISSING', 500)
@@ -352,7 +377,43 @@ async function readReservedUsdtBaseUnits(database, ownerAddress, excludeOperatio
   return reserved
 }
 
-async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env, reservedUsdtBaseUnits = '0' }) {
+async function readReservedOwnerTrxBaseUnits(database, ownerAddress, excludeOperationId = null) {
+  const result = await database.query(
+    "SELECT COALESCE(SUM(CASE WHEN (intent->'args'->>1) ~ '^[0-9]+$' THEN (intent->'args'->>1)::numeric ELSE 0 END),0)::text AS reserved_base_units FROM public.tron_transfer_owner_operations WHERE wallet_role='owner' AND intent->>'ownerAddress'=$1 AND operation_type='trx-transfer' AND operation_id <> COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid) AND ((state IN ('created','preflight-passed') AND created_at > now() - interval '10 minutes') OR (state='awaiting-confirmation' AND COALESCE((receipt->'unsignedTransaction'->'raw_data'->>'expiration')::numeric,0) > (extract(epoch FROM now()) * 1000)) OR state IN ('confirming','signed','broadcast-unknown','broadcast'))",
+    [ownerAddress, excludeOperationId],
+  )
+  const reserved = String(result.rows?.[0]?.reserved_base_units ?? '0')
+  if (!/^(?:0|[1-9][0-9]*)$/.test(reserved)) fail('OWNER_TRX_RESERVED_BALANCE_INVALID', 503)
+  return reserved
+}
+
+async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env, reservedUsdtBaseUnits = '0', reservedTrxBaseUnits = '0', operationType = '', feeBudgetSun = '0' }) {
+  if (operationType === 'trx-transfer' || contractAddress === 'TRX') {
+    const recipientAddress = String(transaction?.raw_data?.contract?.[0]?.parameter?.value?.to_address || '')
+    const amountSun = String(transaction?.raw_data?.contract?.[0]?.parameter?.value?.amount || '')
+    verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction, ownerAddress, recipientAddress: asAddress(tronWeb, recipientAddress), amountSun })
+    const account = await rpcPost('/wallet/getaccount', { address: ownerAddress, visible: true }, { fetchImpl, env })
+    const resourceResponse = await rpcPost('/wallet/getaccountresource', { address: ownerAddress, visible: true }, { fetchImpl, env })
+    const chainParameters = await rpcPost('/wallet/getchainparameters', {}, { fetchImpl, env })
+    const resourceSnapshot = normalizeMainnetAccountResources(resourceResponse, chainParameters)
+    if (asAddress(tronWeb, account?.address) !== ownerAddress) fail('OWNER_MAINNET_ACCOUNT_ADDRESS_MISMATCH', 409)
+    const permission = normalizeMainnetPermissionSnapshot(account, ownerAddress, tronWeb)
+    if (Number(permission.permissionId) !== 0) fail('OWNER_OPERATION_PERMISSION_ID_NOT_OWNER', 403)
+    if (!permission.connectedSignerCanAuthorizeAlone) fail('OWNER_SIGNER_CANNOT_SATISFY_OWNER_PERMISSION', 403)
+    const transactionBytes = BigInt(Math.ceil(String(transaction.raw_data_hex || '').length / 2) + 3 + 64 + 67)
+    const availableBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable) > BigInt(resourceSnapshot.stakedBandwidthAvailable) ? BigInt(resourceSnapshot.freeBandwidthAvailable) : BigInt(resourceSnapshot.stakedBandwidthAvailable)
+    const bandwidthFeeSun = BigInt(resourceSnapshot.bandwidthFeeSun || '0')
+    const bandwidthBurnSun = transactionBytes > availableBandwidth ? transactionBytes * bandwidthFeeSun : 0n
+    const selectedFeeBudgetSun = BigInt(String(feeBudgetSun || '0'))
+    if (bandwidthBurnSun > selectedFeeBudgetSun) fail('OWNER_TRX_TRANSFER_FEE_BUDGET_EXCEEDED', 422)
+    const amount = BigInt(amountSun)
+    const reserved = BigInt(String(reservedTrxBaseUnits || '0'))
+    const balance = BigInt(String(account.balance || '0'))
+    if (balance < amount + reserved + bandwidthBurnSun) fail('OWNER_TRX_BALANCE_INSUFFICIENT_OR_RESERVED', 409)
+    const txId = String(transaction.txID || '').toLowerCase()
+    if (!TXID.test(txId)) fail('OWNER_UNSIGNED_TRANSACTION_ID_INVALID', 500)
+    return { network:'TRON Mainnet', ownerAddress, recipientAddress, permission, amountSun, accountBalanceSun:balance.toString(), reservedTrxBaseUnits:reserved.toString(), transactionBytes:transactionBytes.toString(), availableBandwidth:availableBandwidth.toString(), estimatedTrxFallbackSun:bandwidthBurnSun.toString(), feeBudgetSun:selectedFeeBudgetSun.toString(), maxFeeLimitSun:resourceSnapshot.maxFeeLimitSun, txID:txId, checkedAt:new Date().toISOString() }
+  }
   const value = transaction?.raw_data?.contract?.[0]?.parameter?.value
   const data = String(value?.data || '').replace(/^0x/i, '')
   if (!/^(?:[0-9a-f]{2}){4,}$/i.test(data)) fail('OWNER_OPERATION_CALL_DATA_INVALID', 409)
@@ -442,7 +503,19 @@ export function createOwnerOperationApi({
       fail('OWNER_SOLIDIFIED_RECEIPT_INTENT_MISMATCH', 409)
     }
     const blockNumber = Number(info?.blockNumber)
+    if (!Number.isSafeInteger(blockNumber) || blockNumber <= 0) return { solidified: false, status: 'not-solidified' }
     const contracts = transaction?.raw_data?.contract
+    if (contractAddress === 'TRX') {
+      if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== 'TransferContract') return { solidified: false, status: 'native-transfer-transaction-not-found-or-invalid' }
+      const value = contracts[0]?.parameter?.value || {}
+      const expectedValue = expectedTransaction?.raw_data?.contract?.[0]?.parameter?.value || {}
+      if (asAddress(tronWeb, value.owner_address) !== ownerAddress || asAddress(tronWeb, value.to_address) !== asAddress(tronWeb, expectedValue.to_address) || String(value.amount) !== String(expectedValue.amount)) fail('OWNER_SOLIDIFIED_NATIVE_TRX_INTENT_MISMATCH', 409)
+      assertTransactionIntegrity(tronWeb, transaction, 'Solidified native TRON Mainnet transfer')
+      verifyTransactionSigner(tronWeb, transaction, ownerAddress)
+      const result = String(info?.receipt?.result || info?.result || '').toUpperCase()
+      if (!result) return { solidified: false, status: 'solidified-receipt-result-unavailable', blockNumber }
+      return { solidified: true, success: result === 'SUCCESS', status: result, blockNumber }
+    }
     if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== 'TriggerSmartContract') {
       return { solidified: false, status: 'transaction-not-found-or-invalid' }
     }
@@ -547,9 +620,10 @@ export function createOwnerOperationApi({
         const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? Math.min(50, requestedLimit) : 20
         const rows = await ledger.list(String(env.TRON_OWNER_ADDRESS || ''), limit)
         const reservedUsdtBaseUnits = await readReservedUsdtBaseUnits(db, String(env.TRON_OWNER_ADDRESS || ''))
+        const reservedTrxBaseUnits = await readReservedOwnerTrxBaseUnits(db, String(env.TRON_OWNER_ADDRESS || ''))
         return reply(res, 200, {
           success: true, network: 'TRON Mainnet', executionEnabled: executionGateEnabled(env),
-          reservedUsdtBaseUnits,
+          reservedUsdtBaseUnits, reservedTrxBaseUnits,
           operations: rows.map(row => ({
             operationId: row.operation_id, operationType: row.operation_type,
             contractAddress: row.contract_address, state: row.state,
@@ -567,20 +641,37 @@ export function createOwnerOperationApi({
         const input = await readBody(req)
         const ownerAddress = String(env.TRON_OWNER_ADDRESS || '')
         const operationType = String(input.operationType || '')
-        const contractAddress = operationType === 'usdt-transfer'
+        const contractAddress = operationType === 'trx-transfer' ? 'TRX' : operationType === 'usdt-transfer'
           ? OFFICIAL_USDT_MAINNET_CONTRACT
           : String(env.TRAX_CONTRACT_ADDRESS || '')
-        if (!ADDRESS.test(ownerAddress) || !ADDRESS.test(contractAddress)
-          || (operationType !== 'usdt-transfer' && !ADDRESS.test(String(env.TRAX_CONTRACT_ADDRESS || '')))) {
+        if (!ADDRESS.test(ownerAddress) || (operationType === 'trx-transfer' ? contractAddress !== 'TRX' : !ADDRESS.test(contractAddress))
+          || (operationType !== 'usdt-transfer' && operationType !== 'trx-transfer' && !ADDRESS.test(String(env.TRAX_CONTRACT_ADDRESS || '')))) {
           return reply(res, 503, { success: false, error: 'OWNER_MAINNET_IDENTITY_OR_TOKEN_CONTRACT_NOT_CONFIGURED' }, origin)
         }
-        if (String(input.contractAddress || '') !== contractAddress) fail(operationType === 'usdt-transfer' ? 'OWNER_USDT_CONTRACT_ADDRESS_NOT_OFFICIAL' : 'OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', 409)
+        if (String(input.contractAddress || '') !== contractAddress) fail(operationType === 'usdt-transfer' ? 'OWNER_USDT_CONTRACT_ADDRESS_NOT_OFFICIAL' : operationType === 'trx-transfer' ? 'OWNER_NATIVE_TRX_ASSET_MARKER_MISMATCH' : 'OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', 409)
         const normalized = normalizeIntent(input, ownerAddress)
         if (session.address !== ownerAddress) fail('OWNER_SESSION_IDENTITY_MISMATCH', 403)
         const intent = { ownerAddress, contractAddress, method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun }
         let record
         let reservedUsdtBaseUnits = '0'
-        if (operationType === 'usdt-transfer') {
+        let reservedTrxBaseUnits = '0'
+        if (operationType === 'trx-transfer') {
+          const migration = await db.query('SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1', [OWNER_NATIVE_TRX_MIGRATION_VERSION])
+          if (migration.rows?.[0]?.checksum !== OWNER_NATIVE_TRX_MIGRATION_SHA256) fail('OWNER_NATIVE_TRX_MIGRATION_NOT_APPLIED', 503)
+          if (typeof db.connect !== 'function') fail('OWNER_TRX_RESERVATION_LOCK_UNAVAILABLE', 503)
+          const client = await db.connect()
+          let transactionOpen = false
+          try {
+            await client.query('BEGIN'); transactionOpen = true
+            await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [ownerAddress, 'owner-native-trx-withdrawal'])
+            reservedTrxBaseUnits = await readReservedOwnerTrxBaseUnits(client, ownerAddress)
+            record = await ledgerFactory({ database: client }).prepare({ sessionId: session.sessionId, ownerAddress, idempotencyKey: normalized.idempotencyKey, operationType: normalized.operationType, contractAddress, intent })
+            await client.query('COMMIT'); transactionOpen = false
+          } catch (error) {
+            if (transactionOpen) await client.query('ROLLBACK').catch(() => {})
+            throw error
+          } finally { client.release?.() }
+        } else if (operationType === 'usdt-transfer') {
           if (typeof db.connect !== 'function') fail('OWNER_USDT_RESERVATION_LOCK_UNAVAILABLE', 503)
           const client = await db.connect()
           let transactionOpen = false
@@ -623,10 +714,11 @@ export function createOwnerOperationApi({
         try {
           const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           if (operationType === 'usdt-transfer') await verifyUsdtContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
-          else await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
+          else if (operationType !== 'trx-transfer') await verifyContractState(tronWeb, contractAddress, ownerAddress, { fetchImpl: pacedFetch, env })
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
           if (operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction, ownerAddress, contractAddress, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
-          result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits })
+          if (operationType === 'trx-transfer') verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction, ownerAddress, recipientAddress: normalized.args[0], amountSun: normalized.args[1] })
+          result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits, reservedTrxBaseUnits, operationType, feeBudgetSun: normalized.feeLimitSun })
         } catch (error) {
           await ledger.transition({
             operationId: record.operation_id, ownerAddress,
@@ -679,7 +771,7 @@ export function createOwnerOperationApi({
           || operationIntentHash(operation.operation_type, operation.intent) !== intentHash) {
           return reply(res, 409, { success: false, error: 'OWNER_OPERATION_LEDGER_INTENT_INTEGRITY_FAILED', retryAllowed: false }, origin)
         }
-        const expectedContractAddress = operation.operation_type === 'usdt-transfer'
+        const expectedContractAddress = operation.operation_type === 'trx-transfer' ? 'TRX' : operation.operation_type === 'usdt-transfer'
           ? OFFICIAL_USDT_MAINNET_CONTRACT
           : String(env.TRAX_CONTRACT_ADDRESS || '')
         if (!expectedContractAddress || operation.contract_address !== expectedContractAddress
@@ -730,21 +822,26 @@ export function createOwnerOperationApi({
             || !/^[1-9][0-9]{0,11}$/.test(normalized.feeLimitSun)) fail('OWNER_OPERATION_STORED_INTENT_INVALID', 409)
           const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           if (normalized.operationType === 'usdt-transfer') await verifyUsdtContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
-          else await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
+          else if (normalized.operationType !== 'trx-transfer') await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
           const unsigned = preparedUnsigned
-          const reservedUsdtBaseUnits = normalized.operationType === 'usdt-transfer'
-            ? await readReservedUsdtBaseUnits(db, ownerAddress, operationId)
-            : '0'
-          const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits })
+          const reservedUsdtBaseUnits = normalized.operationType === 'usdt-transfer' ? await readReservedUsdtBaseUnits(db, ownerAddress, operationId) : '0'
+          const reservedTrxBaseUnits = normalized.operationType === 'trx-transfer' ? await readReservedOwnerTrxBaseUnits(db, ownerAddress, operationId) : '0'
+          const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits, reservedTrxBaseUnits, operationType: normalized.operationType, feeBudgetSun: normalized.feeLimitSun })
           const expiration = Number(unsigned?.raw_data?.expiration)
           if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
           }
           verifyUnsignedTransaction(tronWeb, unsigned)
           if (normalized.operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction: unsigned, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
+          if (normalized.operationType === 'trx-transfer') {
+            const migration = await db.query('SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1', [OWNER_NATIVE_TRX_MIGRATION_VERSION])
+            if (migration.rows?.[0]?.checksum !== OWNER_NATIVE_TRX_MIGRATION_SHA256) fail('OWNER_NATIVE_TRX_MIGRATION_NOT_APPLIED', 503)
+            verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction: unsigned, ownerAddress, recipientAddress: normalized.args[0], amountSun: normalized.args[1] })
+          }
           const signed = signedCandidate
           await verifySignedTransaction(tronWeb, signed, ownerAddress)
           if (normalized.operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction: signed, ownerAddress, contractAddress: claimed.contract_address, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
+          if (normalized.operationType === 'trx-transfer') verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction: signed, ownerAddress, recipientAddress: normalized.args[0], amountSun: normalized.args[1] })
           transactionId = String(signed?.txID || '').toLowerCase()
           if (!TXID.test(transactionId) || transactionId !== String(unsigned.txID).toLowerCase()) {
             fail('OWNER_SIGNED_TRANSACTION_ID_MISMATCH', 409)
