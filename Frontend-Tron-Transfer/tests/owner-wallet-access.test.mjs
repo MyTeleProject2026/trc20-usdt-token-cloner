@@ -50,7 +50,9 @@ test('TRӾ writes use the guarded backend operation API and local Owner signing 
 
 test('Owner sidebar describes the local vault action as unlocking, not connecting an external wallet', () => {
   assert.ok(sidebar.includes('Unlock Owner Wallet'))
+  assert.ok(sidebar.includes("'Locked'"))
   assert.equal(sidebar.includes('Connect Owner Wallet'), false)
+  assert.equal(sidebar.includes('Not connected'), false)
 })
 
 test('Owner application authentication is separate from the local transaction-signing key', () => {
