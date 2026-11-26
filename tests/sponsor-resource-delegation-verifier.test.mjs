@@ -101,7 +101,7 @@ test('resource delegation verifier rejects amount, receiver, resource, and execu
     { name: 'additional contract', mock: { transactionOverrides: { raw_data: { contract: [
       { type: 'DelegateResourceContract', parameter: { value: { owner_address: sponsorHex, receiver_address: receiverHex, resource: 1, balance: 10000000, lock: false } } },
       { type: 'TransferContract', parameter: { value: {} } },
-    ] } } },
+    ] } } } },
   ]
   for (const item of cases) {
     await t.test(item.name, async () => {
