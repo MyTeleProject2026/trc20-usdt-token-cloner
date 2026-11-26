@@ -7,6 +7,7 @@ import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'
 import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 import OwnerAccountSecurity from './OwnerAccountSecurity.jsx'
+import PWAInstallButton from './PWAInstallButton.jsx'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 
 const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
@@ -151,6 +152,7 @@ export default function App() {
           <p>{page.description}</p>
         </div>
         <div className="trax-topbar-actions">
+          <PWAInstallButton />
           <div className="trax-workspace-switch" role="group" aria-label="Wallet workspace">
             <button type="button" className={!sponsorWorkspace ? 'active' : ''} aria-current={!sponsorWorkspace ? 'page' : undefined} aria-pressed={!sponsorWorkspace} onClick={() => setActivePage('home')}>Owner workspace</button>
             <button type="button" className={sponsorWorkspace ? 'active sponsor' : ''} aria-current={sponsorWorkspace ? 'page' : undefined} aria-pressed={sponsorWorkspace} onClick={() => setActivePage('sponsor')}>Sponsor workspace</button>
