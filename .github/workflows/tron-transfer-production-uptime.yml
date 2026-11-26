@@ -185,12 +185,16 @@ jobs:
                   detail = validPayload ? 'HTML response received' : 'empty or unsuccessful frontend response';
                 }
                 const elapsedMs = Date.now() - started;
+                const expectedUnauthorized = (target.name === 'owner-signer-challenge-auth'
+                  || target.name === 'sponsor-signer-challenge-auth')
+                  && response.status === 401 && parsed?.success === false
+                  && parsed?.error === 'WALLET_SESSION_REQUIRED';
                 if (attempts > 1) detail += ' · recovered after ' + elapsedMs + ' ms (' + attempts + ' attempts)';
                 if (responseLatencyMs > 5000) detail += ' · final response latency threshold exceeded';
                 return {
                   name: target.name,
                   url: target.url,
-                  ok: response.ok && validPayload && responseLatencyMs <= 5000,
+                  ok: (response.ok || expectedUnauthorized) && validPayload && responseLatencyMs <= 5000,
                   status: response.status,
                   latencyMs: responseLatencyMs,
                   elapsedMs,
