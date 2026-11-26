@@ -10,6 +10,8 @@ import './sponsor-wallet.css'
 import WalletDepositPanel from './WalletDepositPanel.jsx'
 
 const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+// Shared Mainnet Base58Check shape guard used by Owner and Sponsor session validation.
+const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const SUN = 1_000_000
 const RESOURCE_API = (import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/+$/, '')
 const ACTIVITY_KEY = 'tron-transfer.sponsor-activity.v1'
