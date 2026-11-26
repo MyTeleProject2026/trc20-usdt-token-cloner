@@ -51,7 +51,7 @@ Sponsor operations use a two-phase local-signing protocol:
 
 The legacy one-step endpoint `POST /api/sponsor/operations` returns HTTP 410 and cannot invoke a server-side signer. The Resource API does not use `SPONSOR_MAINNET_PRIVATE_KEY`, `SPONSOR_SIGNER_URL`, or a remote signer service.
 
-Supported Sponsor operations are `stake`, `delegate`, `undelegate`, `unstake`, `withdraw`, and a bounded Sponsor-to-Owner native TRX `topup`. Sponsor operations cannot sign Owner TRӾ contract transactions.
+Supported Sponsor operations are `stake`, `delegate`, `undelegate`, `unstake`, `withdraw`, and a manual Sponsor-to-Owner native TRX `topup`. Manual stake and top-up amounts have no fixed application-level business cap. Each requested amount is constrained by the Sponsor's fresh confirmed TRX balance, the protected liquid reserve, the transaction's current Bandwidth/fee preflight, available stake/delegation/unfreeze state and TRON protocol rules. The amount and recipient are reviewed and signed locally for every operation; no automatic spending is enabled. Sponsor operations cannot sign Owner TRӾ contract transactions.
 
 ## Sponsor API endpoints
 
@@ -95,9 +95,8 @@ Configure these only on the existing Resource API service in Render. Never put s
 - `SPONSOR_TRANSACTION_ENGINE_ENABLED=true` and `SPONSOR_MAINNET_BROADCAST_ENABLED=true` — both must be explicitly enabled before local-signing operations can execute. Keep both false until release approval.
 - `SPONSOR_WRITES_RELEASE_ENABLED=true` — separate explicit Owner-admin release gate. Keep false until the approved production database, backup/restore, local signer and Mainnet acceptance checks pass; keep it true while Sponsor writes are enabled.
 - `SPONSOR_LIQUID_RESERVE_TRX` — protected liquid reserve; defaults to 2 TRX.
-- `SPONSOR_STAKING_ENABLED=true` — explicit Stake 2.0 enablement.
-- `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` — maximum single stake amount; defaults to zero (disabled).
-- `SPONSOR_MAX_OWNER_TOPUP_TRX` — separate maximum Owner top-up; if omitted, the configured stake cap is used.
+- Manual Stake 2.0 and Sponsor-to-Owner top-up availability follows the guarded transaction-engine, Mainnet-broadcast and Sponsor-ledger release gates. There is no separate fixed stake or top-up business cap.
+- `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` and `SPONSOR_MAX_OWNER_TOPUP_TRX` are legacy settings and are ignored by the manual amount policy; remove them from the existing Render service after deploying this revision.
 - `SPONSOR_MAX_TX_FEE_SUN` — maximum authorized Bandwidth-shortfall fee in SUN; defaults to zero, so uncovered transactions are blocked.
 
 There is no Sponsor private-key environment variable in the local-vault architecture. Remove any obsolete `SPONSOR_MAINNET_PRIVATE_KEY`, `SPONSOR_SIGNER_URL` or remote-signer HMAC secret from the existing Render service only after confirming the deployed production revision no longer depends on the old signer. This feature branch has not been deployed.
