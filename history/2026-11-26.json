@@ -767,6 +767,122 @@
           "checkedAt": "2026-11-26T02:28:13.926Z"
         }
       ]
+    },
+    {
+      "id": 45742853241,
+      "runNumber": 102,
+      "checkedAt": "2026-11-26T02:30:26.374Z",
+      "status": "failure",
+      "conclusion": "failure",
+      "commit": "b6a40ff82a731751c2e494ef4a52991190ae4292",
+      "event": "push",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/45742853241",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 414,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-26T02:30:26.374Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 722,
+          "detail": "healthy · TRON Mainnet",
+          "metrics": null,
+          "checkedAt": "2026-11-26T02:30:26.897Z"
+        },
+        {
+          "name": "mainnet-rpc-providers",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 2160,
+          "detail": "Tatum block 88328658 · TronGrid block 88328658",
+          "metrics": null,
+          "checkedAt": "2026-11-26T02:30:28.336Z"
+        },
+        {
+          "name": "tronscan-explorer",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1807,
+          "detail": "TronScan public read endpoint reachable · official USDT indexed · API key=not configured (public read-only)",
+          "metrics": null,
+          "checkedAt": "2026-11-26T02:30:27.983Z"
+        },
+        {
+          "name": "sponsor-readiness",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 3351,
+          "detail": "Sponsor acceptance=blocked · db=ready · dbReady=true · sponsor=true · owner=true · independent=true · durable=true · adminSession=true · paused=true · signer=true · release=false · execute=false",
+          "metrics": null,
+          "checkedAt": "2026-11-26T02:30:29.528Z"
+        },
+        {
+          "name": "owner-signer-challenge-auth",
+          "ok": false,
+          "status": 401,
+          "latencyMs": 401,
+          "detail": "Owner sign-only challenge endpoint is present and rejects unauthenticated access",
+          "metrics": null,
+          "checkedAt": "2026-11-26T02:30:26.579Z"
+        },
+        {
+          "name": "sponsor-signer-challenge-auth",
+          "ok": false,
+          "status": 401,
+          "latencyMs": 818,
+          "detail": "Sponsor sign-only challenge endpoint is present and rejects unauthenticated access",
+          "metrics": null,
+          "checkedAt": "2026-11-26T02:30:26.997Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 911,
+          "detail": "valid JSON health payload",
+          "metrics": {
+            "sampledAt": "2026-11-26T02:30:27.004Z",
+            "uptimeSeconds": 55,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 126431232,
+            "heapUsedBytes": 32761448,
+            "heapTotalBytes": 36175872,
+            "eventLoopP95Ms": 76.546047,
+            "requestCount": 23,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 237,
+            "p95LatencyMs": 1776
+          },
+          "checkedAt": "2026-11-26T02:30:27.091Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1110,
+          "detail": "Git-backed history served · 18 archived runs",
+          "metrics": null,
+          "checkedAt": "2026-11-26T02:30:27.291Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1008,
+          "detail": "server credential verified · CPU and memory samples received",
+          "metrics": null,
+          "checkedAt": "2026-11-26T02:30:27.191Z"
+        }
+      ]
     }
   ]
 }
