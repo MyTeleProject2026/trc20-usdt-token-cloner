@@ -10,6 +10,8 @@ const RESOURCE_API = (import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-tra
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const POLL = Object.freeze({
   health: 30_000,
+  providers: 60_000,
+  explorer: 120_000,
   runtime: 5_000,
   resources: 30_000,
   transactions: 60_000,
@@ -19,6 +21,8 @@ const POLL = Object.freeze({
 })
 const API_FLOWS = [
   { id: 'health', hub: 'RESOURCE API', fn: 'platform.health.read', method: 'GET', path: '/health', interval: '30s' },
+  { id: 'providers', hub: 'TRON MAINNET RPC', fn: 'mainnet.rpc.providers.probe', method: 'GET', path: '/api/mainnet/provider-health', interval: '60s · 30s cache' },
+  { id: 'explorer', hub: 'TRONSCAN EXPLORER', fn: 'mainnet.explorer.probe', method: 'GET', path: '/api/mainnet/explorer-health', interval: '120s · 60s cache' },
   { id: 'runtime', hub: 'RUNTIME CORE', fn: 'runtime.snapshot.read', method: 'GET', path: '/api/observatory/snapshot', interval: '5s' },
   { id: 'resources', hub: 'TRON MAINNET', fn: 'mainnet.resources.read', method: 'GET', path: '/v1/resources/{owner}', interval: '30s · cached' },
   { id: 'transactions', hub: 'TRON MAINNET', fn: 'mainnet.confirmed.transactions', method: 'GET', path: '/api/observatory/transactions?address={owner}', interval: '60s' },
@@ -88,6 +92,8 @@ function readJson(path, timeoutMs = 8_000) {
 export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const [calls, setCalls] = useState(INITIAL_CALLS)
   const [health, setHealth] = useState(null)
+  const [providerHealth, setProviderHealth] = useState(null)
+  const [explorerHealth, setExplorerHealth] = useState(null)
   const [runtime, setRuntime] = useState(null)
   const [resources, setResources] = useState(null)
   const [transactions, setTransactions] = useState([])
@@ -142,6 +148,16 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   }, [recordEvent])
 
   const refreshHealth = useCallback(() => invoke('health', '/health', body => { setHealth(body); return body.ok && body.network === 'TRON Mainnet' ? null : { state: 'warning', detail: 'Health payload did not confirm TRON Mainnet' } }), [invoke])
+  const refreshProviders = useCallback(() => invoke('providers', '/api/mainnet/provider-health', body => {
+    if (body.network !== 'TRON Mainnet' || !Array.isArray(body.providers)) throw new Error('Mainnet RPC provider diagnostics returned an invalid response')
+    setProviderHealth(body)
+    return body.ok ? null : { state: 'warning', detail: 'No configured Mainnet RPC provider returned a live block' }
+  }), [invoke])
+  const refreshExplorer = useCallback(() => invoke('explorer', '/api/mainnet/explorer-health', body => {
+    if (body.explorer !== 'TronScan' || body.network !== 'TRON Mainnet') throw new Error('TronScan explorer diagnostics returned an invalid response')
+    setExplorerHealth(body)
+    return body.reachable ? null : { state: 'warning', detail: 'TronScan Mainnet explorer probe is unavailable' }
+  }), [invoke])
   const refreshRuntime = useCallback(() => invoke('runtime', '/api/observatory/snapshot', body => {
     if (!body?.ok) throw new Error('Runtime snapshot payload is not healthy')
     setRuntime(body)
@@ -176,9 +192,9 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const refreshAll = useCallback(async () => {
     setRefreshing(true)
     try {
-      await Promise.all([refreshHealth(), refreshRuntime(), refreshResources(), refreshTransactions(), refreshRenderEvents(), refreshUptime(), refreshRenderMetrics()])
+      await Promise.all([refreshHealth(), refreshProviders(), refreshExplorer(), refreshRuntime(), refreshResources(), refreshTransactions(), refreshRenderEvents(), refreshUptime(), refreshRenderMetrics()])
     } finally { setRefreshing(false) }
-  }, [refreshHealth, refreshRuntime, refreshResources, refreshTransactions, refreshRenderEvents, refreshUptime, refreshRenderMetrics])
+  }, [refreshHealth, refreshProviders, refreshExplorer, refreshRuntime, refreshResources, refreshTransactions, refreshRenderEvents, refreshUptime, refreshRenderMetrics])
 
   useEffect(() => {
     alive.current = true
@@ -190,6 +206,8 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     const startPolling = () => {
       if (document.visibilityState === 'hidden') return
       refreshHealth()
+      refreshProviders()
+      refreshExplorer()
       refreshRuntime()
       refreshResources()
       refreshTransactions()
@@ -198,6 +216,8 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
       refreshRenderMetrics()
       timers = [
         window.setInterval(refreshHealth, POLL.health),
+        window.setInterval(refreshProviders, POLL.providers),
+        window.setInterval(refreshExplorer, POLL.explorer),
         window.setInterval(refreshRuntime, POLL.runtime),
         window.setInterval(refreshResources, POLL.resources),
         window.setInterval(refreshTransactions, POLL.transactions),
@@ -218,7 +238,7 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
       stopPolling()
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [refreshHealth, refreshRuntime, refreshResources, refreshTransactions, refreshRenderEvents, refreshUptime, refreshRenderMetrics])
+  }, [refreshHealth, refreshProviders, refreshExplorer, refreshRuntime, refreshResources, refreshTransactions, refreshRenderEvents, refreshUptime, refreshRenderMetrics])
 
   const heartbeat = runtime?.heartbeat
   const process = runtime?.process
@@ -242,12 +262,14 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     { id: 'owner', label: 'OWNER CONSOLE', sub: ownerConnected ? 'Configured owner wallet connected' : 'Dashboard session · wallet not connected', state: ownerConnected ? 'online' : 'warning', x: 500, y: 220, icon: Wallet },
     { id: 'gateway', label: 'MCP GATEWAY', sub: 'Resource API · 1:1 routes', state: calls.health.state === 'online' && runtimeState === 'online' ? 'online' : calls.health.state, x: 500, y: 78, icon: Network },
     { id: 'mainnet', label: 'TRON MAINNET', sub: 'Owner resources · confirmed chain', state: calls.resources.state, x: 210, y: 220, icon: Globe2 },
-    { id: 'trongrid', label: 'TRONGRID MAINNET RPC', sub: 'Single node · chain reads and signed broadcasts', state: calls.resources.state, x: 115, y: 85, icon: Server },
+    { id: 'tatum', label: 'TATUM MAINNET RPC', sub: 'Primary read provider · live block probe', state: providerHealth?.providers?.find(provider => provider.id === 'tatum')?.reachable ? 'online' : (providerHealth ? 'warning' : calls.providers.state), x: 115, y: 85, icon: Server },
+    { id: 'trongrid', label: 'TRONGRID MAINNET RPC', sub: 'Fallback read provider · live block probe', state: providerHealth?.providers?.find(provider => provider.id === 'trongrid')?.reachable ? 'online' : (providerHealth ? 'warning' : calls.providers.state), x: 310, y: 85, icon: Server },
+    { id: 'tronscan', label: 'TRONSCAN EXPLORER', sub: 'Mainnet contract index · read-only', state: explorerHealth?.reachable ? 'online' : (explorerHealth ? 'warning' : calls.explorer.state), x: 790, y: 85, icon: Globe2 },
     { id: 'render', label: 'RENDER CONTROL', sub: 'Service events · metrics', state: calls.renderEvents.state === 'online' && calls.renderMetrics.state === 'online' ? 'online' : calls.renderEvents.state, x: 790, y: 355, icon: Layers3 },
     { id: 'archive', label: 'GITHUB ARCHIVE', sub: 'Persistent uptime callbacks', state: calls.uptime.state, x: 500, y: 390, icon: Database },
   ]
   const links = [
-    ['owner', 'gateway'], ['gateway', 'mainnet'], ['mainnet', 'trongrid'],
+    ['owner', 'gateway'], ['gateway', 'mainnet'], ['mainnet', 'tatum'], ['mainnet', 'trongrid'], ['gateway', 'tronscan'],
     ['gateway', 'render'], ['gateway', 'archive'], ['owner', 'mainnet'],
   ]
   const callAge = id => age(calls[id].returnedAt, clockNow)
@@ -312,11 +334,13 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
         <div className="am-runtime-foot"><span><Cpu size={14}/> RSS {process ? bytes(process.rssBytes) : '—'} · Heap {process ? bytes(process.heapUsedBytes) : '—'} / {process ? bytes(process.heapTotalBytes) : '—'}</span><span><Server size={14}/> PID {process?.pid ?? '—'} · {process?.nodeVersion ?? 'Node runtime pending'}</span></div>
         <p className="am-note">{runtime?.retention || 'Process samples are volatile and reset when the API restarts.'}</p>
       </section>
-      <section className="am-panel"><div className="am-panel-head"><div><span className="am-eyebrow">04 / MAINNET CONNECTION</span><h3>RPC node & callbacks</h3></div><Status state={calls.health.state}/></div>
-        <div className="am-provider"><span>TronGrid Mainnet RPC · single node</span><Status state={calls.resources.state} label={calls.resources.state === 'online' ? 'CONNECTED' : 'UNAVAILABLE'}/></div>
+      <section className="am-panel"><div className="am-panel-head"><div><span className="am-eyebrow">04 / MAINNET CONNECTION</span><h3>RPC & explorer connections</h3></div><Status state={calls.providers.state}/></div>
+        <div className="am-provider"><span>Tatum Mainnet · primary RPC</span><Status state={providerHealth?.providers?.find(provider => provider.id === 'tatum')?.reachable ? 'online' : (providerHealth ? 'warning' : calls.providers.state)} label={providerHealth?.providers?.find(provider => provider.id === 'tatum')?.reachable ? 'LIVE · BLOCK ' + providerHealth.providers.find(provider => provider.id === 'tatum').blockNumber : 'NOT VERIFIED'}/></div>
+        <div className="am-provider"><span>TronGrid Mainnet · fallback RPC</span><Status state={providerHealth?.providers?.find(provider => provider.id === 'trongrid')?.reachable ? 'online' : (providerHealth ? 'warning' : calls.providers.state)} label={providerHealth?.providers?.find(provider => provider.id === 'trongrid')?.reachable ? 'LIVE · BLOCK ' + providerHealth.providers.find(provider => provider.id === 'trongrid').blockNumber : 'NOT VERIFIED'}/></div>
+        <div className="am-provider"><span>TronScan Mainnet · explorer/indexer</span><Status state={explorerHealth?.reachable ? 'online' : (explorerHealth ? 'warning' : calls.explorer.state)} label={explorerHealth?.reachable ? (explorerHealth.probeContractIndexed ? 'LIVE · USDT INDEXED' : 'LIVE · INDEX UNCONFIRMED') : 'NOT VERIFIED'}/></div>
         <div className="am-provider"><span>Render control plane</span><Status state={calls.renderEvents.state}/></div>
         <div className="am-provider"><span>GitHub archive</span><Status state={calls.uptime.state}/></div>
-        <p className="am-note">TronGrid supplies Mainnet chain reads and signed-transaction broadcast only. It does not provide Energy, Bandwidth or TRX sponsorship. Resource provisioning is performed by the owner's separate Sponsor wallet.</p>
+        <p className="am-note">Tatum is the preferred Mainnet read provider; TronGrid is the independent RPC fallback. TronScan supplies explorer/indexing evidence only. None of these services signs transactions or supplies Energy, Bandwidth or TRX. Sponsor resource provisioning uses the separate Sponsor wallet.</p>
         <div className="am-provider-used">{Object.entries(providerUsed).map(([key,value])=><span key={key}><b>{key}</b>{value}</span>)}</div>
       </section>
     </div>
