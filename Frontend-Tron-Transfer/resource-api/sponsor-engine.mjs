@@ -112,12 +112,11 @@ export function createSponsorTransactionEngine({
     const reserveTrx = String(env.SPONSOR_LIQUID_RESERVE_TRX || '2')
     const reserveAmountSun = decimalTrxToSun(reserveTrx)
     const reserveValid = reserveAmountSun !== null && reserveAmountSun > 0n
-    const maxStakeTrx = String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0')
-    const maxStakeSun = decimalTrxToSun(maxStakeTrx)
-    const stakingEnabled = env.SPONSOR_STAKING_ENABLED === 'true' && maxStakeSun !== null && maxStakeSun > 0n
-    const maxOwnerTopupTrx = String(env.SPONSOR_MAX_OWNER_TOPUP_TRX || maxStakeTrx)
-    const maxOwnerTopupSun = decimalTrxToSun(maxOwnerTopupTrx)
-    const ownerTopupEnabled = maxOwnerTopupSun !== null && maxOwnerTopupSun > 0n
+    // Manual Sponsor principal amounts have no application-level business cap.
+    // Every operation is still bounded by fresh on-chain balance, protected
+    // reserve, resource/delegation state, transaction fees and protocol rules.
+    const stakingEnabled = enabled
+    const ownerTopupEnabled = enabled
     const policyValid = feeCapValid && reserveValid
     return {
       configured: addressesIndependent && policyValid,
@@ -133,8 +132,8 @@ export function createSponsorTransactionEngine({
       databaseRequired: true,
       broadcastAvailable: enabled && addressesIndependent && policyValid,
       clientSigningAvailable: enabled && addressesIndependent && policyValid,
-      stakingPolicy: { enabled: stakingEnabled, maxStakeTrx },
-      ownerTopupPolicy: { enabled: ownerTopupEnabled, maxTopupTrx: maxOwnerTopupTrx },
+      stakingPolicy: { enabled: stakingEnabled, amountLimitMode: 'live-balance-minus-reserve' },
+      ownerTopupPolicy: { enabled: ownerTopupEnabled, amountLimitMode: 'live-balance-minus-reserve' },
       feePolicy: {
         valid: policyValid,
         maxBandwidthFeeSun: String(maxFeeRaw),
@@ -222,14 +221,7 @@ export function createSponsorTransactionEngine({
     if (!validOperation || !validResource || recipient !== ownerAddress || !ADDRESS.test(recipient || '')) return { success: false, status: 'invalid-mainnet-operation' }
     const amount = positiveSun(amountSun)
     if (!amount || (['stake', 'delegate', 'undelegate', 'unstake'].includes(operation) && amount < SUN)) return { success: false, status: 'invalid-amount-sun' }
-    if (operation === 'stake') {
-      const cap = decimalTrxToSun(String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
-      if (env.SPONSOR_STAKING_ENABLED !== 'true' || cap === null || cap <= 0n || amount > cap) return { success: false, status: 'staking-disabled-or-amount-exceeds-configured-cap' }
-    }
-    if (operation === 'topup') {
-      const cap = decimalTrxToSun(String(env.SPONSOR_MAX_OWNER_TOPUP_TRX || env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
-      if (cap === null || cap <= 0n || amount > cap) return { success: false, status: 'owner-topup-disabled-or-amount-exceeds-configured-cap' }
-    }
+
     try {
       const tronWeb = makeTronWeb()
       const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
@@ -327,14 +319,7 @@ export function createSponsorTransactionEngine({
       })
       const amount = positiveSun(String(amountSun))
       if (!amount) throw new Error('invalid-amount-sun')
-      if (operation === 'stake') {
-        const cap = decimalTrxToSun(String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
-        if (env.SPONSOR_STAKING_ENABLED !== 'true' || cap === null || cap <= 0n || amount > cap) throw new Error('staking-disabled-or-amount-exceeds-configured-cap')
-      }
-      if (operation === 'topup') {
-        const cap = decimalTrxToSun(String(env.SPONSOR_MAX_OWNER_TOPUP_TRX || env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
-        if (cap === null || cap <= 0n || amount > cap) throw new Error('owner-topup-disabled-or-amount-exceeds-configured-cap')
-      }
+
       if (operation === 'delegate') {
         const maximumResult = await tronWeb.trx.getCanDelegatedMaxSize(sponsorAddress, resource, { confirmed: true })
         const maximum = BigInt(String(maximumResult?.max_size ?? maximumResult ?? '0'))
@@ -385,14 +370,7 @@ export function createSponsorTransactionEngine({
       if (bandwidthFeeSun > maxFee) throw new Error('bandwidth-shortfall-exceeds-authorized-fee-cap')
       const principal = ['stake', 'topup'].includes(operation) ? BigInt(String(amountSun)) : 0n
       if (balance < principal + reserve + bandwidthFeeSun) throw new Error('insufficient-balance-for-authorized-fee-cap')
-      if (operation === 'stake') {
-        const cap = decimalTrxToSun(String(env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
-        if (env.SPONSOR_STAKING_ENABLED !== 'true' || cap === null || cap <= 0n || BigInt(amountSun) > cap) throw new Error('staking-disabled-or-amount-exceeds-configured-cap')
-      }
-      if (operation === 'topup') {
-        const cap = decimalTrxToSun(String(env.SPONSOR_MAX_OWNER_TOPUP_TRX || env.SPONSOR_MAX_AUTOMATIC_STAKE_TRX || '0'))
-        if (cap === null || cap <= 0n || BigInt(amountSun) > cap) throw new Error('owner-topup-disabled-or-amount-exceeds-configured-cap')
-      }
+
       const reader = tronWeb.trx.raw || tronWeb.trx
       if (operation === 'delegate') {
         const maximumResult = await tronWeb.trx.getCanDelegatedMaxSize(sponsorAddress, resource, { confirmed: true })
