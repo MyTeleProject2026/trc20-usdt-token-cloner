@@ -7,12 +7,13 @@ import {
 } from '../scripts/migrate-owner-admin-ledgers.mjs'
 
 const PROJECT_ID = 'super-water-26874320'
-const EXPECTED_BRANCH_NAME = 'tron-transfer-owner-fingerprint-baseline-test'
+const EXPECTED_BRANCH_NAME = 'tron-transfer-restore-acceptance-2026-11-26'
+const EXPECTED_SNAPSHOT_ID = 'snap-green-lab-beqjmb7l'
 const PRODUCTION_BRANCH_ID = 'br-proud-mud-bexgns9g'
 const SIGNER_ACCEPTANCE_MIGRATION = '20261126_wallet_signer_acceptance_audit.sql'
 const SIGNER_ACCEPTANCE_INDEX = 'tron_transfer_wallet_auth_audit_signer_acceptance'
 const SIGNER_ACCEPTANCE_EVENT = 'signer_acceptance_verified'
-const BASELINE_FINGERPRINT = '8ae2a1bf5fa5fce2150a8d0aefe75fe0c48beab9f40df23b7402a20c50f12f7e'
+const BASELINE_FINGERPRINT = 'f950a9bf0464f74fff0a039453bb2fe40f1873561ae2b0499b7837dd66bd5364'
 
 const databaseUrl = process.env.OWNER_ADMIN_FINGERPRINT_TEST_DATABASE_URL
 const neonApiKey = process.env.NEON_API_KEY
@@ -77,12 +78,13 @@ async function verifyRestoredBranchIdentity(parsedUrl) {
   assert.equal(branch.name, EXPECTED_BRANCH_NAME, 'Connected branch is not the dedicated restore-test fixture.')
   assert.equal(branch.default, false, 'The restore-test branch must not be the project default/production branch.')
   assert.equal(branch.parent_id ?? null, null, 'The restore fixture must be an isolated snapshot restore, not a child of production.')
+  assert.equal(branch.restored_from, EXPECTED_SNAPSHOT_ID, 'The restore fixture must come from the verified post-signer production snapshot.')
   assert.equal(branch.current_state ?? branch.state, 'ready', 'The restore-test branch must be ready before connecting.')
 
   return { endpointId, branchId: branch.id }
 }
 
-test('Owner Admin fingerprint matches the pre-signer baseline on an identity-verified Neon restore', {
+test('Owner Admin fingerprint matches the post-signer production baseline on an identity-verified Neon restore', {
   skip: configured ? false : 'Set the five OWNER_ADMIN_FINGERPRINT_TEST_* / NEON_API_KEY variables to run the isolated restore integration test.',
   timeout: 60000,
 }, async () => {
@@ -115,13 +117,13 @@ test('Owner Admin fingerprint matches the pre-signer baseline on an identity-ver
       'SELECT EXISTS (SELECT 1 FROM public.tron_transfer_owner_admin_schema_migrations WHERE version = $1) AS present',
       [SIGNER_ACCEPTANCE_MIGRATION],
     )
-    assert.equal(signerMigration.rows[0]?.present, false, 'The baseline fixture must predate the signer-acceptance audit migration.')
+    assert.equal(signerMigration.rows[0]?.present, true, 'The production baseline must include the signer-acceptance audit migration.')
 
     const signerIndex = await client.query(
       'SELECT to_regclass($1) IS NOT NULL AS present',
       [`public.${SIGNER_ACCEPTANCE_INDEX}`],
     )
-    assert.equal(signerIndex.rows[0]?.present, false, 'The signer-acceptance partial index must be absent from the baseline fixture.')
+    assert.equal(signerIndex.rows[0]?.present, true, 'The production baseline must include the signer-acceptance partial index.')
 
     const signerConstraint = await client.query(
       `SELECT pg_get_constraintdef(oid) AS definition
@@ -131,12 +133,12 @@ test('Owner Admin fingerprint matches the pre-signer baseline on an identity-ver
     )
     assert.equal(signerConstraint.rowCount, 1, 'The wallet auth audit event-type constraint must exist.')
     assert.ok(
-      !String(signerConstraint.rows[0].definition).includes(SIGNER_ACCEPTANCE_EVENT),
-      'The signer-acceptance event must not be allowed by the baseline constraint.',
+      String(signerConstraint.rows[0].definition).includes(SIGNER_ACCEPTANCE_EVENT),
+      'The production baseline constraint must allow the signer-acceptance event.',
     )
 
     const actualFingerprint = await getOwnerAdminSchemaFingerprint(client)
-    assert.equal(actualFingerprint, BASELINE_FINGERPRINT, 'The restored branch does not match the independently verified baseline fingerprint.')
+    assert.equal(actualFingerprint, BASELINE_FINGERPRINT, 'The restored branch does not match the independently verified production fingerprint.')
     assert.equal(actualFingerprint, OWNER_ADMIN_SCHEMA_FINGERPRINT, 'The committed migration runner baseline fingerprint has changed.')
     assert.deepEqual(identity, { endpointId: parsedUrl.hostname.split('.')[0], branchId })
 
