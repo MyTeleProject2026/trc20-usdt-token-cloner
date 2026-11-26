@@ -37,13 +37,18 @@ function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SES
     SPONSOR_MAINNET_BROADCAST_ENABLED: 'false',
   }
   const calls = []
-  const testDatabase = database ? {
+  const wrapDatabaseClient = client => ({
     query: async (sql, values) => {
       if (String(sql).includes('SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations')) {
         return migrationChecksum ? { rowCount: 1, rows: [{ checksum: migrationChecksum }] } : { rowCount: 0, rows: [] }
       }
-      return database.query(sql, values)
+      return client.query(sql, values)
     },
+    ...(typeof client.release === 'function' ? { release: (...args) => client.release(...args) } : {}),
+  })
+  const testDatabase = database ? {
+    ...wrapDatabaseClient(database),
+    ...(typeof database.connect === 'function' ? { connect: async () => wrapDatabaseClient(await database.connect()) } : {}),
   } : null
   const api = createSponsorResourceApi({
     env,
