@@ -7,6 +7,7 @@ import { normalizePostgresTlsMode } from '../scripts/sponsor-ledger-database-ide
 const SPONSOR = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const SECRET = 'test-session-secret-with-at-least-thirty-two-bytes'
+const SPONSOR_LEDGER_MIGRATION_SHA256 = 'cb2f2a8e1eba285dc196dbc904c68996bdaf64b9c11d80bd56a87a5866d5d32a'
 const SIGNATURE = 'a'.repeat(130)
 const OWNER_SESSION_FIXTURE = 'test-admin-token-with-at-least-thirty-two-bytes'
 
@@ -21,7 +22,7 @@ function request(method, path, body, token, ownerSessionFixture, client = {}) {
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SESSION_FIXTURE, databaseUrl = '', expectedDatabaseIdentitySha256 = '', authenticateManagedSession = null, authenticateOwnerAdminSession = async req => req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null } = {}) {
+function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SESSION_FIXTURE, databaseUrl = '', expectedDatabaseIdentitySha256 = '', migrationChecksum = SPONSOR_LEDGER_MIGRATION_SHA256, authenticateManagedSession = null, authenticateOwnerAdminSession = async req => req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null } = {}) {
   let clock = Date.now()
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
@@ -36,10 +37,18 @@ function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SES
     SPONSOR_MAINNET_BROADCAST_ENABLED: 'false',
   }
   const calls = []
+  const testDatabase = database ? {
+    query: async (sql, values) => {
+      if (String(sql).includes('SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations')) {
+        return migrationChecksum ? { rowCount: 1, rows: [{ checksum: migrationChecksum }] } : { rowCount: 0, rows: [] }
+      }
+      return database.query(sql, values)
+    },
+  } : null
   const api = createSponsorResourceApi({
     env,
     allowedAddress: OWNER,
-    getDatabase: () => database,
+    getDatabase: () => testDatabase,
     ...(authenticateManagedSession ? { authenticateManagedSession } : {}),
     ...(authenticateOwnerAdminSession ? { authenticateOwnerAdminSession } : {}),
     engine: engine || {
