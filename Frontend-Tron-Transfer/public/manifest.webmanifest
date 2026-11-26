@@ -19,6 +19,18 @@
   ],
   "icons": [
     {
+      "src": "/trax-app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/trax-app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/trax-token-mark.svg",
       "sizes": "any",
       "type": "image/svg+xml",
@@ -32,9 +44,9 @@
       "url": "/#/portfolio",
       "icons": [
         {
-          "src": "/trax-token-mark.svg",
-          "sizes": "any",
-          "type": "image/svg+xml"
+          "src": "/trax-app-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
         }
       ]
     },
@@ -44,9 +56,9 @@
       "url": "/#/deploy",
       "icons": [
         {
-          "src": "/trax-token-mark.svg",
-          "sizes": "any",
-          "type": "image/svg+xml"
+          "src": "/trax-app-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
         }
       ]
     }
