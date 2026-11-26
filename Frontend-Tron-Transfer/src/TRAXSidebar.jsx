@@ -32,7 +32,7 @@ export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onC
       {!collapsed && <div><b>TRON Mainnet</b><small>{workspace === 'sponsor' ? 'Independent Sponsor wallet' : 'Owner administration'}</small></div>}
       {!collapsed && <span className="trax-network-tag">LIVE</span>}
     </div>
-    <div className="trax-sidebar-label">{!collapsed && (workspace === 'sponsor' ? 'SPONSOR WORKSPACE' : 'OWNER WORKSPACE')}</div>
+    <div className="trax-sidebar-label">{!collapsed && (workspace === 'sponsor' ? 'SPONSOR TREASURY · MAINNET' : 'OWNER CONTROL · MAINNET')}</div>
     <nav id="trax-desktop-workspace-nav" aria-label={workspace === 'sponsor' ? 'Sponsor workspace pages' : 'Owner workspace pages'}>
       {groups.map(group => <section className="trax-sidebar-group" key={group.title} aria-label={group.title}>
         {!collapsed && <h2>{group.title}</h2>}
