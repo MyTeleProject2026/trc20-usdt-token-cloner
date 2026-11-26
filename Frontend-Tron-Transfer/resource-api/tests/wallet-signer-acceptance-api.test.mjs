@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
 import { createWalletSignerAcceptanceApi } from '../wallet-signer-acceptance-api.mjs'
@@ -198,4 +199,11 @@ test('sign-only verification remains successful but reports missing audit if dur
   assert.equal(verified.status, 200)
   assert.equal(verified.payload.verified, true)
   assert.equal(verified.payload.auditRecorded, false)
+})
+
+test('Owner Admin migration permits durable signer acceptance audit records', async () => {
+  const sql = await readFile(new URL('../migrations/20261126_wallet_signer_acceptance_audit.sql', import.meta.url), 'utf8')
+  assert.match(sql, /'signer_acceptance_verified'/)
+  assert.match(sql, /tron_transfer_wallet_auth_audit_signer_acceptance/)
+  assert.match(sql, /wallet_role, created_at DESC/)
 })
