@@ -5,18 +5,18 @@ export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onC
   const [collapsed, setCollapsed] = useState(false)
   return <aside className={collapsed ? 'trax-sidebar collapsed' : 'trax-sidebar'}>
     <div className="trax-sidebar-brand">
-      <img src="https://thesvg.org/icons/tron/default.svg" alt="TRON icon" />
+      <img src="/trax-token-mark.svg" alt="TRӾ token mark" />
       {!collapsed && <div><b>TRON TRANSFER</b><small>{workspace === 'sponsor' ? 'SPONSOR TREASURY · MAINNET' : 'OWNER CONTROL · MAINNET'}</small></div>}
     </div>
     <div className="trax-sidebar-network"><span className="trax-live-dot"/>{!collapsed && <><b>TRON Mainnet</b><small>{workspace === 'sponsor' ? 'Sponsor account workspace' : 'Owner account workspace'}</small></>}</div>
     <div className="trax-sidebar-label">{!collapsed && (workspace === 'sponsor' ? 'SPONSOR WORKSPACE' : 'OWNER WORKSPACE')}</div>
     <nav id="trax-desktop-workspace-nav" aria-label={workspace === 'sponsor' ? 'Sponsor workspace pages' : 'Owner workspace pages'}>
-      {items.map(item => {
+      {Object.entries(items.reduce((groups, item) => { const group = item.group || 'Workspace'; (groups[group] ||= []).push(item); return groups }, {})).map(([group, groupItems]) => <div className="trax-sidebar-group" key={group}><div className="trax-sidebar-group-title">{!collapsed && group}</div>{groupItems.map(item => {
         const Icon = item.icon
         return <button key={item.id} title={collapsed ? item.label : undefined} className={activePage === item.id ? 'active' : ''} aria-current={activePage === item.id ? 'page' : undefined} onClick={() => onNavigate(item.id)}>
           <Icon size={18}/>{!collapsed && <span>{item.label}</span>}
         </button>
-      })}
+      })}</div>)}
     </nav>
     <div className="trax-sidebar-bottom">
       {workspace === 'owner' && !collapsed && <div className="trax-sidebar-wallet"><small>OWNER WALLET</small><b>{wallet?.address ? wallet.address.slice(0,8)+'…'+wallet.address.slice(-6) : 'Not connected'}</b></div>}
