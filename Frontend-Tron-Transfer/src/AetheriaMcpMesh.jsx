@@ -84,7 +84,14 @@ function readJson(path, timeoutMs = 8_000) {
   }).then(async response => {
     const body = await response.json().catch(() => ({}))
     const latencyMs = Math.round(performance.now() - started)
-    if (!response.ok) throw Object.assign(new Error(body.message || body.error || 'HTTP ' + response.status), { statusCode: response.status, latencyMs })
+    if (!response.ok) {
+      const headerSeconds = Number(response.headers?.get?.('retry-after'))
+      const bodySeconds = Number(body.retryAfterSeconds)
+      const retryAfterMs = Math.max(5_000, Math.min(120_000, (headerSeconds || bodySeconds || 30) * 1000))
+      throw Object.assign(new Error(body.message || body.error || 'HTTP ' + response.status), {
+        statusCode: response.status, latencyMs, ...(response.status === 429 ? { retryAfterMs } : {}),
+      })
+    }
     return { body, statusCode: response.status, latencyMs }
   }).finally(() => window.clearTimeout(timer))
 }
@@ -104,6 +111,7 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   const [clockNow, setClockNow] = useState(Date.now())
   const [refreshing, setRefreshing] = useState(false)
   const inFlight = useRef(new Set())
+  const cooldownUntil = useRef(new Map())
   const alive = useRef(true)
 
   const recordEvent = useCallback((flow, result, detail) => {
@@ -115,6 +123,17 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
 
   const invoke = useCallback(async (id, path, consume) => {
     if (inFlight.current.has(id)) return
+    const now = Date.now()
+    const blockedUntil = cooldownUntil.current.get(id) || 0
+    if (blockedUntil > now) {
+      const retrySeconds = Math.ceil((blockedUntil - now) / 1000)
+      setCalls(previous => ({ ...previous, [id]: {
+        ...previous[id], state: 'warning', statusCode: 429,
+        returnedAt: new Date().toISOString(), callback: 'cooldown',
+        detail: 'API rate limit; retry in ' + retrySeconds + 's',
+      } }))
+      return
+    }
     inFlight.current.add(id)
     const requestedAt = new Date().toISOString()
     const requestId = (globalThis.crypto?.randomUUID?.() || String(Date.now()) + '-' + id)
@@ -135,13 +154,19 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     } catch (error) {
       if (!alive.current) return
       const returnedAt = new Date().toISOString()
+      const rateLimited = error.statusCode === 429
+      const cooldownMs = rateLimited ? Math.max(5_000, Math.min(120_000, Number(error.retryAfterMs) || 30_000)) : 0
+      if (rateLimited) cooldownUntil.current.set(id, Date.now() + cooldownMs)
+      const detail = rateLimited
+        ? 'API rate limit; retry in ' + Math.ceil(cooldownMs / 1000) + 's'
+        : error.message || 'No response callback'
       setCalls(previous => ({ ...previous, [id]: {
         state: error.statusCode >= 500 ? 'offline' : 'warning',
         statusCode: error.statusCode || 0, latencyMs: error.latencyMs ?? null,
-        requestedAt, returnedAt, requestId, callback: 'error',
-        detail: error.message || 'No response callback',
+        requestedAt, returnedAt, requestId, callback: rateLimited ? 'cooldown' : 'error',
+        detail,
       } }))
-      recordEvent(id, 'error', error.message || 'Request failed')
+      recordEvent(id, 'error', detail)
     } finally {
       inFlight.current.delete(id)
     }
