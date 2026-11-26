@@ -13,6 +13,8 @@ import { createSponsorWalletAuthApi } from './sponsor-wallet-auth-api.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
+export const TRONSCAN_MAINNET_API = 'https://apilist.tronscanapi.com'
+export const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 export const ALLOWED_ORIGINS = new Set([
   'https://tron-transfer.onrender.com',
   'http://localhost:5173',
@@ -327,6 +329,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
   let uptimeHistoryCache = { at: 0, value: null }
   let renderMetricsCache = { at: 0, value: null }
   let mainnetProviderHealthCache = { at: 0, value: null }
+  let mainnetExplorerHealthCache = { at: 0, value: null }
   const allowRequest = (ip, scope = 'default', limit = RATE_LIMIT) => {
     let limiter = rateLimiters.get(scope)
     if (!limiter) {
@@ -614,6 +617,60 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
       }
       renderMetricsCache = { at: Date.now(), value }
       return send(res, 200, value, origin)
+    }
+    if (req.method === 'GET' && url.pathname === '/api/mainnet/explorer-health') {
+      if (mainnetExplorerHealthCache.value && Date.now() - mainnetExplorerHealthCache.at < 60_000) {
+        return send(res, 200, mainnetExplorerHealthCache.value, origin)
+      }
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'mainnet-explorer-health', 10)) {
+        return send(res, 429, { ok: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      }
+      const apiKey = typeof env.TRONSCAN_PRO_API_KEY === 'string' ? env.TRONSCAN_PRO_API_KEY.trim() : ''
+      const endpoint = new URL('/api/contract', TRONSCAN_MAINNET_API)
+      endpoint.searchParams.set('contract', OFFICIAL_MAINNET_USDT)
+      const startedAt = performance.now()
+      try {
+        const response = await fetchImpl(endpoint.toString(), {
+          method: 'GET',
+          headers: { accept: 'application/json', ...(apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {}) },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+          redirect: 'error',
+        })
+        const payload = await response.json().catch(() => ({}))
+        const records = Array.isArray(payload?.data) ? payload.data : null
+        if (!response.ok || !records) {
+          const value = {
+            ok: false, explorer: 'TronScan', network: 'TRON Mainnet',
+            reachable: false, apiKeyConfigured: Boolean(apiKey),
+            latencyMs: Math.round(performance.now() - startedAt),
+            errorCode: response.status === 401 || response.status === 403 ? 'EXPLORER_AUTH_FAILED' : response.status === 429 ? 'EXPLORER_RATE_LIMITED' : 'EXPLORER_UNAVAILABLE',
+            checkedAt: new Date().toISOString(),
+          }
+          mainnetExplorerHealthCache = { at: Date.now(), value }
+          return send(res, 503, value, origin)
+        }
+        const indexed = records.some(record => record?.address === OFFICIAL_MAINNET_USDT)
+        const value = {
+          ok: true, explorer: 'TronScan', network: 'TRON Mainnet',
+          reachable: true, apiKeyConfigured: Boolean(apiKey),
+          probeContract: OFFICIAL_MAINNET_USDT, probeContractIndexed: indexed,
+          latencyMs: Math.round(performance.now() - startedAt),
+          checkedAt: new Date().toISOString(),
+        }
+        mainnetExplorerHealthCache = { at: Date.now(), value }
+        return send(res, 200, value, origin)
+      } catch {
+        const value = {
+          ok: false, explorer: 'TronScan', network: 'TRON Mainnet',
+          reachable: false, apiKeyConfigured: Boolean(apiKey),
+          latencyMs: Math.round(performance.now() - startedAt),
+          errorCode: 'EXPLORER_UNAVAILABLE',
+          checkedAt: new Date().toISOString(),
+        }
+        mainnetExplorerHealthCache = { at: Date.now(), value }
+        return send(res, 503, value, origin)
+      }
     }
     if (req.method === 'GET' && url.pathname === '/api/mainnet/provider-health') {
       if (mainnetProviderHealthCache.value && Date.now() - mainnetProviderHealthCache.at < RESOURCE_CACHE_TTL_MS) {
