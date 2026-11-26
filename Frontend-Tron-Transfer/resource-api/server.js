@@ -19,6 +19,7 @@ export const ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:5173',
 ])
 const CACHE_TTL_MS = 15_000
+const RESOURCE_CACHE_TTL_MS = 30_000
 const UPSTREAM_TIMEOUT_MS = 8_000
 const RATE_WINDOW_MS = 60_000
 const RATE_LIMIT = 30
@@ -321,6 +322,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
   const rateLimiters = new Map()
   let uptimeHistoryCache = { at: 0, value: null }
   let renderMetricsCache = { at: 0, value: null }
+  let mainnetProviderHealthCache = { at: 0, value: null }
   const allowRequest = (ip, scope = 'default', limit = RATE_LIMIT) => {
     let limiter = rateLimiters.get(scope)
     if (!limiter) {
@@ -609,6 +611,50 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
       renderMetricsCache = { at: Date.now(), value }
       return send(res, 200, value, origin)
     }
+    if (req.method === 'GET' && url.pathname === '/api/mainnet/provider-health') {
+      if (mainnetProviderHealthCache.value && Date.now() - mainnetProviderHealthCache.at < RESOURCE_CACHE_TTL_MS) {
+        return send(res, 200, mainnetProviderHealthCache.value, origin)
+      }
+      const ip = observatoryRateLimitIp(req)
+      if (!allowRequest(ip, 'mainnet-provider-health', 10)) {
+        return send(res, 429, { ok: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
+      }
+      const providers = rpcProviders(env)
+      const results = []
+      for (const provider of providers) {
+        const startedAt = performance.now()
+        try {
+          const response = await scheduledRpcFetch(fetchImpl, provider.baseUrl + '/wallet/getnowblock', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json', ...provider.headers },
+            body: JSON.stringify({}),
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+            redirect: 'error',
+          }, provider.id)
+          const payload = await response.json().catch(() => ({}))
+          const blockNumber = Number(payload?.block_header?.raw_data?.number)
+          if (!response.ok || !Number.isSafeInteger(blockNumber) || blockNumber < 1) {
+            const status = response.status || 502
+            results.push({ id: provider.id, configured: true, reachable: false, latencyMs: Math.round(performance.now() - startedAt), errorCode: status === 401 || status === 403 ? 'PROVIDER_AUTH_FAILED' : status === 429 ? 'PROVIDER_RATE_LIMITED' : 'INVALID_BLOCK_RESPONSE' })
+            continue
+          }
+          results.push({ id: provider.id, configured: true, reachable: true, latencyMs: Math.round(performance.now() - startedAt), blockNumber })
+        } catch (error) {
+          const status = Number(error?.status || 0)
+          results.push({ id: provider.id, configured: true, reachable: false, latencyMs: Math.round(performance.now() - startedAt), errorCode: status === 401 || status === 403 ? 'PROVIDER_AUTH_FAILED' : status === 429 ? 'PROVIDER_RATE_LIMITED' : 'PROVIDER_UNAVAILABLE' })
+        }
+      }
+      const value = {
+        ok: results.some(provider => provider.reachable),
+        network: 'TRON Mainnet',
+        providerPriority: providers.map(provider => provider.id),
+        providers: results,
+        checkedAt: new Date().toISOString(),
+        cacheTtlSeconds: RESOURCE_CACHE_TTL_MS / 1000,
+      }
+      mainnetProviderHealthCache = { at: Date.now(), value }
+      return send(res, value.ok ? 200 : 503, value, origin)
+    }
     if (req.method === 'GET' && url.pathname === '/health') {
       const providers = rpcProviders(env)
       const tatumConfigured = providers.some(provider => provider.id === 'tatum')
@@ -673,7 +719,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
     // Serve fresh cache hits before applying the per-IP miss budget. Dashboard
     // refreshes can legitimately request the same address from multiple widgets.
     const cached = cache.get(address)
-    if (cached && Date.now() - cached.at < CACHE_TTL_MS) return send(res, 200, { address, network: 'TRON Mainnet', ...cached.value }, origin)
+    if (cached && Date.now() - cached.at < RESOURCE_CACHE_TTL_MS) return send(res, 200, { address, network: 'TRON Mainnet', ...cached.value }, origin)
 
     // Coalesce concurrent cache misses for the same address so a single UI
     // refresh cannot fan out into duplicate provider RPC requests.
@@ -693,7 +739,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
     }
 
     const ip = observatoryRateLimitIp(req)
-    if (!allowRequest(ip, 'mainnet-resource-read')) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 15 }, origin)
+    if (!allowRequest(ip, 'mainnet-resource-read', 90)) return send(res, 429, { error: 'RATE_LIMITED', retryAfterSeconds: 15 }, origin)
     const readPromise = readResources(address, { fetchImpl, env })
     resourceReadsInFlight.set(address, readPromise)
     try {
