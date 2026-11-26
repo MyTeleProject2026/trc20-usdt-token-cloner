@@ -3119,6 +3119,7 @@ body {
 
 
 /* TRON TRANSFER Signature Edition — branded consistency marker for visual QA. */
+/* @media(max-width:900px) and (min-width:721px) */
 .sponsor-release-hint {
   margin: 9px 0 0;
   padding: 10px 12px;
