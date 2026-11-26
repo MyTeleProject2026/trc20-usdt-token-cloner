@@ -772,6 +772,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
               <span>Owner native balance: {(Number(BigInt(deploymentResourcePreflight.ownerBalanceSun || '0')) / 1e6).toFixed(6)} TRX</span>
               <span>Energy required with 25% margin: {deploymentResourcePreflight.budget?.energyWithSafetyMargin} · Available: {deploymentResourcePreflight.budget?.availableEnergy}</span>
               <span>Estimated transaction Bandwidth: {deploymentResourcePreflight.budget?.estimatedBandwidthBytes} bytes · Largest single available quota: {deploymentResourcePreflight.budget?.availableBandwidth}</span>
+              <span>Mainnet RPC sources: Energy {deploymentResourcePreflight.resources?.rpc?.providersUsed?.accountResources || 'unavailable'} · Account {deploymentResourcePreflight.resources?.rpc?.providersUsed?.account || 'unavailable'} · Chain parameters {deploymentResourcePreflight.resources?.rpc?.providersUsed?.chainParameters || 'unavailable'}</span>
               <span>Estimated TRX fallback: {(Number(BigInt(deploymentResourcePreflight.budget?.requiredTrxSun || '0')) / 1e6).toFixed(6)} TRX</span>
               <span>Energy shortfall: {deploymentResourcePreflight.budget?.energyShortfall} · Bandwidth shortfall: {deploymentResourcePreflight.budget?.bandwidthShortfall}</span>
             </>}
