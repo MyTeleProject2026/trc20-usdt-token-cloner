@@ -57,7 +57,15 @@ function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SES
     ...(authenticateManagedSession ? { authenticateManagedSession } : {}),
     ...(authenticateOwnerAdminSession ? { authenticateOwnerAdminSession } : {}),
     engine: engine || {
-      readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, feePolicy: {} }),
+      readiness: () => ({
+        configured: false,
+        enabled: false,
+        broadcastAvailable: false,
+        clientSigningAvailable: false,
+        stakingPolicy: { enabled: false, maxStakeTrx: '0' },
+        ownerTopupPolicy: { enabled: false, maxTopupTrx: '0' },
+        feePolicy: {},
+      }),
       execute: async () => { calls.push('execute'); return { success: true } },
       reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
     },
