@@ -32,6 +32,11 @@ jobs:
           const targets = [
             { name: 'owner-admin-frontend', url: 'https://tron-transfer.onrender.com/', expectJson: false },
             { name: 'resource-api-health', url: 'https://tron-transfer-resource-api.onrender.com/health', expectJson: true, expectedNetwork: 'TRON Mainnet' },
+            { name: 'mainnet-rpc-providers', url: 'https://tron-transfer-resource-api.onrender.com/api/mainnet/provider-health', expectJson: true },
+            { name: 'tronscan-explorer', url: 'https://tron-transfer-resource-api.onrender.com/api/mainnet/explorer-health', expectJson: true },
+            { name: 'sponsor-readiness', url: 'https://tron-transfer-resource-api.onrender.com/api/sponsor/status', expectJson: true },
+            { name: 'owner-signer-challenge-auth', url: 'https://tron-transfer-resource-api.onrender.com/api/wallet-auth/owner/signing-challenge', expectJson: true },
+            { name: 'sponsor-signer-challenge-auth', url: 'https://tron-transfer-resource-api.onrender.com/api/wallet-auth/sponsor/signing-challenge', expectJson: true },
             { name: 'runtime-observatory', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/snapshot', expectJson: true },
             { name: 'uptime-history', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/uptime-history', expectJson: true },
             { name: 'render-metrics', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/render-metrics', expectJson: true },
@@ -67,9 +72,10 @@ jobs:
                 let validPayload = true;
                 let detail = 'HTTP ' + response.status;
                 let metrics = null;
+                let parsed = null;
                 if (target.expectJson) {
                   try {
-                    const parsed = JSON.parse(body);
+                    parsed = JSON.parse(body);
                     if (target.name === 'runtime-observatory' && parsed?.process && parsed?.requests && parsed?.heartbeat) {
                       metrics = {
                         sampledAt: parsed.sampledAt || null,
@@ -87,7 +93,72 @@ jobs:
                         p95LatencyMs: Number(parsed.requests.p95LatencyMs) || 0,
                       };
                     }
-                    if (target.name === 'uptime-history') {
+                    if (target.name === 'owner-signer-challenge-auth' || target.name === 'sponsor-signer-challenge-auth') {
+                      validPayload = response.status === 401 && parsed?.success === false
+                        && parsed?.error === 'WALLET_SESSION_REQUIRED';
+                      const role = target.name.startsWith('owner-') ? 'Owner' : 'Sponsor';
+                      detail = validPayload
+                        ? role + ' sign-only challenge endpoint is present and rejects unauthenticated access'
+                        : role + ' sign-only challenge endpoint did not enforce the expected wallet session';
+                    } else if (target.name === 'sponsor-readiness') {
+                      const flags = {
+                        databaseConfigured: parsed?.databaseConfigured === true,
+                        databaseReady: parsed?.databaseReady === true,
+                        sponsorWritesPaused: parsed?.sponsorWritesPaused === true,
+                        ledgerDurabilityVerified: parsed?.ledgerDurabilityVerified === true,
+                        ownerAddressMatches: parsed?.ownerAddressMatches === true,
+                        sponsorIndependent: parsed?.sponsorIndependent === true,
+                        sponsorWalletEnrolled: parsed?.sponsorWalletEnrolled === true,
+                        sessionAuthenticationConfigured: parsed?.sessionAuthenticationConfigured === true,
+                        ownerAdminSessionConfigured: parsed?.ownerAdminSessionConfiguredForLedgerRelease === true,
+                        localSignerReady: parsed?.localSignerReady === true,
+                        writesReleaseAvailable: parsed?.writesReleaseAvailable === true,
+                        transactionExecutionAvailable: parsed?.transactionExecutionAvailable === true,
+                      };
+                      const acceptanceState = String(parsed?.acceptance?.state || 'unknown').slice(0, 40);
+                      validPayload = response.ok && parsed?.success === true
+                        && parsed?.acceptance?.version === 1 && Array.isArray(parsed?.acceptance?.checks);
+                      const databaseStatus = String(parsed?.databaseStatus || 'unknown').slice(0, 32);
+                      detail = validPayload
+                        ? 'Sponsor acceptance=' + acceptanceState
+                          + ' · db=' + databaseStatus
+                          + ' · dbReady=' + flags.databaseReady
+                          + ' · sponsor=' + flags.sponsorWalletEnrolled
+                          + ' · owner=' + flags.ownerAddressMatches
+                          + ' · independent=' + flags.sponsorIndependent
+                          + ' · durable=' + flags.ledgerDurabilityVerified
+                          + ' · adminSession=' + flags.ownerAdminSessionConfigured
+                          + ' · paused=' + flags.sponsorWritesPaused
+                          + ' · signer=' + flags.localSignerReady
+                          + ' · release=' + flags.writesReleaseAvailable
+                          + ' · execute=' + flags.transactionExecutionAvailable
+                        : 'Sponsor status endpoint returned an invalid acceptance payload';
+                    } else if (target.name === 'mainnet-rpc-providers') {
+                      const providers = Array.isArray(parsed?.providers) ? parsed.providers : [];
+                      const tatum = providers.find(provider => provider?.id === 'tatum');
+                      const trongrid = providers.find(provider => provider?.id === 'trongrid');
+                      const bothReachable = parsed?.providerPriority?.[0] === 'tatum'
+                        && parsed?.providerPriority?.includes('trongrid')
+                        && tatum?.configured === true && tatum?.reachable === true
+                        && trongrid?.configured === true && trongrid?.reachable === true;
+                      validPayload = response.ok && parsed?.network === 'TRON Mainnet' && bothReachable;
+                      detail = validPayload
+                        ? 'Tatum block ' + tatum.blockNumber + ' · TronGrid block ' + trongrid.blockNumber
+                        : 'Independent RPC check failed · Tatum=' + (tatum?.reachable ? 'reachable' : 'unavailable')
+                          + ' · TronGrid=' + (trongrid?.reachable ? 'reachable' : 'unavailable');
+                    } else if (target.name === 'tronscan-explorer') {
+                      validPayload = response.ok && parsed?.ok === true
+                        && parsed?.explorer === 'TronScan' && parsed?.network === 'TRON Mainnet'
+                        && parsed?.reachable === true && parsed?.probeContractIndexed === true;
+                      const apiKeyState = parsed?.apiKeyConfigured === true
+                        ? String(parsed.apiKeySource || 'configured')
+                        : 'not configured (public read-only)';
+                      detail = validPayload
+                        ? 'TronScan public read endpoint reachable · official USDT indexed · API key=' + apiKeyState
+                        : !parsed?.reachable
+                          ? 'TronScan Mainnet explorer unavailable · ' + String(parsed?.errorCode || 'unreachable')
+                          : 'TronScan did not confirm the official USDT reference contract';
+                    } else if (target.name === 'uptime-history') {
                       const count = Array.isArray(parsed?.runs) ? parsed.runs.length : 0;
                       validPayload = response.ok && parsed?.success === true && count > 0;
                       detail = validPayload ? 'Git-backed history served · ' + count + ' archived runs' : 'history endpoint returned no valid archived records';
@@ -115,12 +186,16 @@ jobs:
                   detail = validPayload ? 'HTML response received' : 'empty or unsuccessful frontend response';
                 }
                 const elapsedMs = Date.now() - started;
+                const expectedUnauthorized = (target.name === 'owner-signer-challenge-auth'
+                  || target.name === 'sponsor-signer-challenge-auth')
+                  && response.status === 401 && parsed?.success === false
+                  && parsed?.error === 'WALLET_SESSION_REQUIRED';
                 if (attempts > 1) detail += ' · recovered after ' + elapsedMs + ' ms (' + attempts + ' attempts)';
                 if (responseLatencyMs > 5000) detail += ' · final response latency threshold exceeded';
                 return {
                   name: target.name,
                   url: target.url,
-                  ok: response.ok && validPayload && responseLatencyMs <= 5000,
+                  ok: (response.ok || expectedUnauthorized) && validPayload && responseLatencyMs <= 5000,
                   status: response.status,
                   latencyMs: responseLatencyMs,
                   elapsedMs,
