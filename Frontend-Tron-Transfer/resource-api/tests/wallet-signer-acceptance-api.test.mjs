@@ -87,13 +87,16 @@ test('Sponsor sign-only challenge uses the independent Sponsor session and ident
   assert.equal(verified.payload.address, sponsor)
 })
 
-test('sign-only verification rejects missing CSRF and consumes the challenge', async () => {
+test('sign-only verification rejects missing CSRF, then permits one valid verification and blocks replay', async () => {
   const { api, replies, url } = makeApi()
   await api.handle(makeRequest('GET'), {}, url('owner'), origin)
   const challenge = replies.pop().payload
   await api.handle(makeRequest('POST', { origin }, { challengeId: challenge.challengeId, signature }), {}, new URL(url('owner').href + '/verify'), origin)
   assert.equal(replies.pop().status, 401)
   assert.equal(api.pendingChallengeCount(), 1)
+  await api.handle(makeRequest('POST', { origin, 'x-owner-csrf-token': 'owner-csrf' }, { challengeId: challenge.challengeId, signature }), {}, new URL(url('owner').href + '/verify'), origin)
+  assert.equal(replies.pop().status, 200)
+  assert.equal(api.pendingChallengeCount(), 0)
   await api.handle(makeRequest('POST', { origin, 'x-owner-csrf-token': 'owner-csrf' }, { challengeId: challenge.challengeId, signature }), {}, new URL(url('owner').href + '/verify'), origin)
   assert.equal(replies.pop().status, 409)
 })
