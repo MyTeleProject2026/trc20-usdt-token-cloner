@@ -264,6 +264,7 @@ test('Owner native TRX withdrawal prepares a TransferContract through the guarde
     database, send: (_res, status, payload) => replies.push({ status, payload }),
     authenticateManagedSession: async () => ({ address: owner, sessionId: 9 }),
     tronWebFactory: () => tronWeb,
+    verifyUnsignedTransaction: () => true,
     prepareTransaction: async (_tronWeb, asset, sender, normalized) => {
       assert.equal(asset, 'TRX'); assert.equal(sender, owner); assert.equal(normalized.operationType, 'trx-transfer')
       return transaction
