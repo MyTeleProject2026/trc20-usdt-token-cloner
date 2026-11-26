@@ -718,11 +718,20 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
           results.push({ id: provider.id, configured: true, reachable: false, latencyMs: Math.round(performance.now() - startedAt), errorCode: status === 401 || status === 403 ? 'PROVIDER_AUTH_FAILED' : status === 429 ? 'PROVIDER_RATE_LIMITED' : 'PROVIDER_UNAVAILABLE' })
         }
       }
+      const blockNumbers = results.filter(provider => provider.reachable).map(provider => provider.blockNumber)
+      const blockHeightSpread = blockNumbers.length > 1 ? Math.max(...blockNumbers) - Math.min(...blockNumbers) : 0
+      // This endpoint is an independent-provider acceptance check, not a
+      // failover-read check. A healthy fallback must not conceal a failed
+      // configured primary (or vice versa).
+      const allConfiguredProvidersHealthy = results.length === providers.length
+        && results.every(provider => provider.configured === true && provider.reachable === true)
       const value = {
-        ok: results.some(provider => provider.reachable),
+        ok: allConfiguredProvidersHealthy,
+        allConfiguredProvidersHealthy,
         network: 'TRON Mainnet',
         providerPriority: providers.map(provider => provider.id),
         providers: results,
+        blockHeightSpread,
         checkedAt: new Date().toISOString(),
         cacheTtlSeconds: RESOURCE_CACHE_TTL_MS / 1000,
       }
