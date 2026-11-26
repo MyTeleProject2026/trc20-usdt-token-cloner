@@ -228,9 +228,9 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return next
   })
 
-  const requestReadOnlyDeploymentPreflight = async () => {
+  const requestReadOnlyDeploymentPreflight = async (readiness = deploymentReadiness) => {
     if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured Owner session before checking Mainnet resources.')
-    if (!deploymentReadiness?.readyForPreparation) throw new Error('Pass the artifact and database readiness gates before running the resource preflight.')
+    if (!readiness?.readyForPreparation) throw new Error('Pass the artifact and database readiness gates before running the resource preflight.')
     const result = await wallet.authClient.apiRequest('/api/owner/deployment/preflight?feeLimitSun=' + encodeURIComponent(String(feeCapSun)))
     setDeploymentResourcePreflight({ ...result, owner: connectedAddress, feeCapSun, expiresAt: Date.now() + 60_000 })
     return result
@@ -252,7 +252,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setDeploymentResourcePreflight(null)
     if (result.readyForPreparation) {
       try {
-        const preflight = await requestReadOnlyDeploymentPreflight()
+        const preflight = await requestReadOnlyDeploymentPreflight(result)
         setNotice(preflight.zeroTrxBurnReady
           ? 'Artifact pins, durable ledger and live zero-TRX Mainnet resource preflight passed. No transaction was persisted, signed or broadcast.'
           : 'Artifact and database readiness passed, but ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT. Estimated fallback: ' + (Number(BigInt(preflight.budget.requiredTrxSun)) / 1e6).toFixed(6) + ' TRX. No transaction was persisted, signed or broadcast.')
