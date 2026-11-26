@@ -282,13 +282,13 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
   return <section className="aetheria-mesh" aria-label="AETHERIA global MCP mesh runtime monitoring">
     <header className="am-hero">
       <div className="am-brandline"><span className="am-brand-mark"><Network size={19}/></span><div><span>AETHERIA // GLOBAL MCP MESH</span><small>TRON TRANSFER · OWNER ADMIN RUNTIME FABRIC</small></div></div>
-      <div className="am-hero-copy"><div><span className="am-eyebrow"><Radio size={13}/> MULTI-HUB OBSERVABILITY · TRON MAINNET</span><h2>One mesh. Every live execution path.</h2><p>One-to-one API routes, function invocations and return callbacks mapped onto the live infrastructure graph. The one-second clock refreshes telemetry age and runtime heartbeat; upstream services retain their safe polling intervals.</p></div>
+      <div className="am-hero-copy"><div><span className="am-eyebrow"><Radio size={13}/> MULTI-HUB OBSERVABILITY · TRON MAINNET</span><h2>One console. Every critical service path.</h2><p>Live API, provider and infrastructure status in one operational view. The one-second clock updates telemetry age and runtime heartbeat; upstream services retain their safe polling intervals.</p></div>
         <div className="am-hero-actions"><span className={'am-live-badge ' + (runtimeState === 'online' ? 'online' : 'stale')}><i/>{runtimeState === 'online' ? 'MESH LIVE · 1S TICK' : 'MESH SIGNAL · ' + runtimeState.toUpperCase()}</span><button type="button" onClick={refreshAll} disabled={refreshing}><RefreshCw size={14} className={refreshing ? 'am-spin' : ''}/>{refreshing ? 'Dispatching' : 'Invoke all flows'}</button></div>
       </div>
       <div className="am-telemetry-bar"><span><Clock3 size={13}/> LOCAL TICK <b>{stamp(clockNow)}</b></span><span><Activity size={13}/> RUNTIME HEARTBEAT <b>{heartbeatAge == null ? '—' : heartbeatAge + ' ms'}</b></span><span><Radio size={13}/> LAST CALLBACK <b>{latestTick ? age(latestTick, clockNow) : 'Awaiting'}</b></span><span><Waves size={13}/> API ROUTES <b>{allFlowCount}/{flowCount} online</b></span></div>
     </header>
 
-    <div className="am-section-head"><div><span className="am-eyebrow">01 / SPATIAL TOPOLOGY</span><h3>Global hub constellation</h3><p>Every link represents an implemented service path; animated packets indicate the visual route, not fabricated transaction throughput.</p></div><div className="am-legend"><span><i className="ok"/> live</span><span><i className="warn"/> degraded</span><span><i className="bad"/> offline</span><span><i className="pulse"/> callback pulse</span></div></div>
+    <div className="am-section-head"><div><span className="am-eyebrow">01 / SERVICE TOPOLOGY</span><h3>Connected services</h3><p>Each service tile reports its own live probe or latest successful response.</p></div><div className="am-legend"><span><i className="ok"/> live</span><span><i className="warn"/> degraded</span><span><i className="bad"/> offline</span><span><i className="pulse"/> callback pulse</span></div></div>
     <div className="am-mesh-stage">
       <div className="am-grid-floor"/>
       <svg className="am-connection-svg" viewBox="0 0 1000 460" role="img" aria-label="AETHERIA hub connections">
@@ -375,6 +375,6 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
       </section>
     </div>
 
-    <footer className="am-footer"><span><Activity size={13}/> MESH CLOCK · 1 SECOND</span><span>RESOURCE API 30s POLL / 15s CACHE · RENDER METRICS 5m POLL / 5m SERVER CACHE</span><span>READ ONLY · NO TRANSACTION SIGNING</span></footer>
+    <footer className="am-footer"><span><Activity size={13}/> STATUS CLOCK · 1 SECOND</span><span>RESOURCE API 30s POLL / 15s CACHE · RENDER METRICS 5m POLL / 5m SERVER CACHE</span><span>READ ONLY · NO TRANSACTION SIGNING</span></footer>
   </section>
 }
