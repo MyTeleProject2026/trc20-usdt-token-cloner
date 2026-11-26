@@ -1,4 +1,4 @@
-import { ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ChevronDown, Layers3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 function groupId(value) {
@@ -16,8 +16,8 @@ export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onC
   const [expandedGroups, setExpandedGroups] = useState(() => new Set([activeGroup]))
 
   useEffect(() => {
-    setExpandedGroups(previous => new Set([...previous, activeGroup]))
-  }, [activeGroup])
+    setExpandedGroups(previous => collapsed ? new Set([activeGroup]) : new Set([...previous, activeGroup]))
+  }, [activeGroup, collapsed])
 
   function toggleGroup(group) {
     setExpandedGroups(previous => {
@@ -40,9 +40,9 @@ export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onC
         const open = expandedGroups.has(group)
         const id = groupId(group)
         return <section className="trax-sidebar-group" key={group}>
-          {!collapsed && <button type="button" className="trax-sidebar-group-toggle" aria-expanded={open} aria-controls={id} onClick={() => toggleGroup(group)}>
-            <span>{group}</span><ChevronDown size={14} aria-hidden="true"/>
-          </button>}
+          <button type="button" className={'trax-sidebar-group-toggle' + (collapsed ? ' compact' : '')} title={collapsed ? group : undefined} aria-label={collapsed ? group + ' navigation' : undefined} aria-expanded={open} aria-controls={id} onClick={() => toggleGroup(group)}>
+            {collapsed ? <Layers3 size={17} aria-hidden="true"/> : <><span>{group}</span><ChevronDown size={14} aria-hidden="true"/></>}
+          </button>
           <div id={id} className="trax-sidebar-group-items" hidden={!open}>
             {groupItems.map(item => {
               const Icon = item.icon

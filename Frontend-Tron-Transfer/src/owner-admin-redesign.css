@@ -65,6 +65,9 @@ body:has(.trax-admin-shell)::before { display:none!important; }
   font:800 8px/1.2 var(--owner-font);letter-spacing:.14em;text-transform:uppercase;cursor:pointer;
 }
 .trax-sidebar-group-toggle svg { transition:transform .18s ease; }
+.trax-sidebar-group-toggle.compact { justify-content:center; width:40px; min-height:38px; margin-inline:auto; padding:0; border:1px solid rgba(113,158,211,.14); background:rgba(62,102,154,.09); color:#9bb9df; }
+.trax-sidebar-group-toggle.compact[aria-expanded="true"] { border-color:rgba(78,141,255,.36); background:rgba(49,105,187,.22); color:#d7e9ff; }
+.trax-sidebar.collapsed .trax-sidebar-group { gap:5px; }
 .trax-sidebar-group-toggle[aria-expanded="true"] svg { transform:rotate(180deg); }
 .trax-sidebar-group-toggle:hover { color:#d9e9fb;background:rgba(94,137,191,.08); }
 .trax-sidebar-group-items { display:grid;gap:4px; }
@@ -240,11 +243,8 @@ body:has(.trax-admin-shell)::before { display:none!important; }
   .trax-sidebar { width:220px; }
 }
 @media (max-width:900px) and (min-width:721px) {
-  .trax-admin-shell { grid-template-columns:76px minmax(0,1fr); }
-  .trax-sidebar { width:76px;padding-inline:10px; }
-  .trax-sidebar-group-toggle,.trax-sidebar-label { display:none; }
-  .trax-sidebar-group-items[hidden] { display:none!important; }
-  .trax-sidebar-group-items:not([hidden]) { display:grid; }
+  .trax-admin-shell { grid-template-columns:220px minmax(0,1fr); }
+  .trax-sidebar { width:220px; }
 }
 @media (max-width:720px) {
   .trax-admin-shell { display:block; }
