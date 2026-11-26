@@ -289,3 +289,16 @@ test('Mainnet provider diagnostics verify Tatum and TronGrid independently witho
   assert.equal(cached.status, 200)
   assert.equal(calls.length, 2)
 })
+
+
+test('HTTP response helper safely ignores duplicate writes after a response is complete', async () => {
+  const { send } = await import('../server.js')
+  const response = {
+    headersSent: true,
+    writableEnded: true,
+    destroyed: false,
+    writeHead() { throw new Error('writeHead must not run for a completed response') },
+    end() { throw new Error('end must not run for a completed response') },
+  }
+  assert.equal(send(response, 500, { error: 'late-error' }), false)
+})
