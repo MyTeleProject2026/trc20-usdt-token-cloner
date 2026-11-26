@@ -78,6 +78,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [broadcastConfirmationPhrase, setBroadcastConfirmationPhrase] = useState('')
   const [deploymentExecutionEnabled, setDeploymentExecutionEnabled] = useState(false)
   const [recentOperations, setRecentOperations] = useState([])
+  const [sponsorAudit, setSponsorAudit] = useState(null)
+  const [sponsorAuditState, setSponsorAuditState] = useState('idle')
   const [ownerDepositHistory, setOwnerDepositHistory] = useState({ transactions: [], tokenTransfers: [], transactionsAvailable: false, tokenTransfersAvailable: false })
   const [ownerDepositLoading, setOwnerDepositLoading] = useState(false)
   const [usdtWithdrawalRecipient, setUsdtWithdrawalRecipient] = useState('')
@@ -525,6 +527,23 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     return result.operations || []
   })
 
+  const refreshSponsorAudit = () => run('Loading Owner-authorized Sponsor audit', async () => {
+    if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the Owner session to read the Sponsor audit.')
+    setSponsorAuditState('loading')
+    try {
+      const result = await wallet.authClient.apiRequest('/api/sponsor/audit?limit=50')
+      if (result?.success !== true || result?.readOnly !== true || !Array.isArray(result.operations)) {
+        throw new Error(result?.error || 'SPONSOR_AUDIT_RESPONSE_INVALID')
+      }
+      setSponsorAudit(result)
+      setSponsorAuditState('ready')
+      return result
+    } catch (auditError) {
+      setSponsorAuditState('error')
+      throw auditError
+    }
+  })
+
   const checkOwnerOperation = operationId => run('Checking Owner operation receipt', async () => {
     const result = await wallet.authClient.apiRequest('/api/owner/operations/' + operationId)
     const operation = result.operation
@@ -899,6 +918,25 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <div><b>{operation.operationType} · {operation.state}</b><small>{operation.method || 'Contract operation'} · {operation.createdAt ? new Date(operation.createdAt).toLocaleString() : 'Time unavailable'}</small><small>Operation: {operation.operationId}</small>{operation.transactionId && <small>Transaction: {operation.transactionId}</small>}{operation.failureCode && <small>Result: {operation.failureCode}</small>}</div>
         <button type="button" className="outline-button" disabled={busy} onClick={() => checkOwnerOperation(operation.operationId)}>Recover / check receipt</button>
       </article>)}</div>}
+    </div>}
+    {show('history') && <div className="trax-actions" aria-label="Sponsor audit journal">
+      <div className="trax-section-title"><h3>Read-only Sponsor audit</h3><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshSponsorAudit}><RefreshCw size={14}/> {sponsorAuditState === 'loading' ? 'Refreshing…' : 'Refresh Sponsor audit'}</button></div>
+      <p className="fine-print">Owner-authorized view of Sponsor ledger operations and verified Owner/Sponsor sign-only acceptance records. Signed transaction payloads are never returned. This audit endpoint cannot release Sponsor writes or execute transactions.</p>
+      {sponsorAuditState === 'error' && <p className="fine-print" role="status">Sponsor audit unavailable. Verify Owner session and approved ledger database readiness, then retry.</p>}
+      {sponsorAudit && <>
+        <div className="trax-stats">
+          <article><span>Sponsor writes</span><b>{sponsorAudit.sponsorWritesPaused ? 'Paused' : 'Review required'}</b></article>
+          <article><span>Ledger records</span><b>{sponsorAudit.operations.length}</b></article>
+          <article><span>Confirmed</span><b>{sponsorAudit.operationCounts?.confirmed || '0'}</b></article>
+        </div>
+        <p className="fine-print">Read-only audit · transaction execution available: No · signed payloads included: No · signer audit: {sponsorAudit.signerAcceptanceAuditAvailable ? 'available' : 'unavailable'}</p>
+        {sponsorAudit.signerAcceptances?.length > 0 && <div className="trax-history-list">{sponsorAudit.signerAcceptances.map((entry, index) => <article className="trax-history-item" key={entry.role + ':' + entry.recordedAt + ':' + index}>
+          <div><b>{entry.role === 'owner' ? 'Owner' : 'Sponsor'} sign-only acceptance · {entry.outcome}</b><small>{entry.address}</small><small>{entry.recordedAt ? new Date(entry.recordedAt).toLocaleString() : 'Time unavailable'}</small></div>
+        </article>)}</div>}
+        {sponsorAudit.operations.length === 0 ? <p className="fine-print">No durable Sponsor operations are recorded.</p> : <div className="trax-history-list">{sponsorAudit.operations.map((operation, index) => <article className="trax-history-item" key={operation.transaction_id || operation.created_at || index}>
+          <div><b>{operation.operation} · {operation.resource} · {operation.status}</b><small>Amount (sun): {operation.amount_sun}</small><small>Sponsor: {operation.sponsor_address} · Recipient: {operation.recipient_address || operation.owner_address}</small><small>{operation.created_at ? new Date(operation.created_at).toLocaleString() : 'Time unavailable'}{operation.transaction_id ? ' · Tx: ' + operation.transaction_id : ''}</small>{operation.result_code && <small>Result: {operation.result_code}{operation.confirmation_block ? ' · Block ' + operation.confirmation_block : ''}</small>}</div>
+        </article>)}</div>}
+      </>}
     </div>}
     {show('history') && <TRAXCreditHistory wallet={panelWallet} tokenAddress={tokenAddress} run={run} busy={busy}/>}
 
