@@ -20,7 +20,7 @@ function configuredEnv(overrides = {}) {
     SPONSOR_LIQUID_RESERVE_TRX: '2',
     SPONSOR_MAX_TX_FEE_SUN: '0',
     SPONSOR_STAKING_ENABLED: 'true',
-    SPONSOR_MAX_AUTOMATIC_STAKE_TRX: '10',
+    SPONSOR_MAX_AUTOMATIC_STAKE_TRX: '0.5',
     ...overrides,
   }
 }
@@ -55,7 +55,11 @@ function fixture({ bandwidth = 600, stakedBandwidth = 0, balance = 10_000_000n, 
     },
     isAddress: value => value === SPONSOR || value === OWNER,
     utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => sponsorHex } },
-    transactionBuilder: { freezeBalanceV2: async () => transaction },
+    transactionBuilder: { freezeBalanceV2: async (amount, resource) => {
+      transaction.raw_data.contract[0].parameter.value.frozen_balance = String(amount)
+      transaction.raw_data.contract[0].parameter.value.resource = resource === 'ENERGY' ? 1 : 0
+      return transaction
+    } },
     trx: {
       getBalance: async () => balance,
       getAccountResources: async () => ({ freeNetLimit: bandwidth, freeNetUsed: 0, NetLimit: stakedBandwidth, NetUsed: 0 }),
@@ -222,25 +226,27 @@ test('transaction ID persistence callback is mandatory before any broadcast', as
 })
 
 
-test('configured stake cap blocks an amount above SPONSOR_MAX_AUTOMATIC_STAKE_TRX', async () => {
-  const f = fixture()
+test('manual stake amount is not restricted by the legacy application cap', async () => {
+  const f = fixture({ balance: 200_000_000n })
   const result = await f.engine.execute({
-    operation: 'stake', resource: 'ENERGY', amountSun: '11000000', ownerAddress: OWNER,
-    onSigned: async () => assert.fail('stake above configured cap must not be signed'),
+    operation: 'stake', resource: 'ENERGY', amountSun: '100000000', ownerAddress: OWNER,
+    onSigned: async txid => { assert.equal(txid, TXID); f.markDurable() },
   })
-  assert.equal(result.status, 'staking-disabled-or-amount-exceeds-configured-cap')
-  assert.equal(f.counts().signedCount, 0)
-  assert.equal(f.counts().broadcastCount, 0)
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.equal(f.counts().signedCount, 1)
+  assert.equal(f.counts().broadcastCount, 1)
 })
 
-test('SPONSOR_STAKING_ENABLED=false blocks Stake 2.0 even when broadcast flags are true', async () => {
+test('manual Stake 2.0 is available under the guarded transaction-engine release without a separate amount flag', async () => {
   const f = fixture({ envOverrides: { SPONSOR_STAKING_ENABLED: 'false' } })
   const result = await f.engine.execute({
     operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
-    onSigned: async () => assert.fail('disabled staking must not be signed'),
+    onSigned: async txid => { assert.equal(txid, TXID); f.markDurable() },
   })
-  assert.equal(result.status, 'staking-disabled-or-amount-exceeds-configured-cap')
-  assert.equal(f.counts().signedCount, 0)
+  assert.equal(result.success, true)
+  assert.equal(f.counts().signedCount, 1)
+  assert.equal(f.counts().broadcastCount, 1)
 })
 
 test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner and verifies solidified Mainnet state', async () => {
@@ -281,7 +287,7 @@ test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner a
       : transfer,
   })
   const engine = createSponsorTransactionEngine({
-    env: configuredEnv(),
+    env: configuredEnv({ SPONSOR_MAX_OWNER_TOPUP_TRX: '0.5' }),
     tronWebFactory: () => fakeTronWeb,
     fetchImpl,
   })
@@ -295,12 +301,14 @@ test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner a
   assert.equal(broadcasts, 1)
 })
 
-test('Sponsor TRX top-up fails closed above the configured Owner funding cap', async () => {
-  const f = fixture({ envOverrides: { SPONSOR_MAX_OWNER_TOPUP_TRX: '0.5' } })
-  const result = await f.engine.execute({ operation: 'topup', resource: 'TRX', amountSun: '600000', ownerAddress: OWNER })
-  assert.equal(result.status, 'owner-topup-disabled-or-amount-exceeds-configured-cap')
-  assert.equal(result.success, false)
-  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
+test('manual amount policies expose no fixed maximum for staking or Owner top-ups', () => {
+  const state = createSponsorTransactionEngine({ env: configuredEnv() }).readiness()
+  assert.equal(state.stakingPolicy.enabled, true)
+  assert.equal(state.ownerTopupPolicy.enabled, true)
+  assert.equal(state.stakingPolicy.amountLimitMode, 'live-balance-minus-reserve')
+  assert.equal(state.ownerTopupPolicy.amountLimitMode, 'live-balance-minus-reserve')
+  assert.equal(Object.hasOwn(state.stakingPolicy, 'maxStakeTrx'), false)
+  assert.equal(Object.hasOwn(state.ownerTopupPolicy, 'maxTopupTrx'), false)
 })
 
 
