@@ -933,7 +933,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
           <article><span>Confirmed</span><b>{sponsorAudit.operationCounts?.confirmed || '0'}</b></article>
         </div>
         <p className="fine-print">Read-only audit · transaction execution available: No · signed payloads included: No · signer audit: {sponsorAudit.signerAcceptanceAuditAvailable ? 'available' : 'unavailable'}</p>
-        {sponsorAudit.sponsorWritesPaused !== true && <div className="owner-alert owner-alert--danger" role="alert">
+        {sponsorAudit.sponsorWritesPaused !== true && <div className="notice notice-error" role="alert">
           <b>Sponsor ledger is not paused in production.</b>
           <p>The live database control row currently allows Sponsor ledger writes. Do not prepare, sign, or submit Sponsor operations. Use the guarded Owner Sponsor pause control before any further Sponsor activity.</p>
         </div>}
