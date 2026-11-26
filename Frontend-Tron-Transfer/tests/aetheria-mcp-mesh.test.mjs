@@ -55,3 +55,12 @@ test('former platform monitor UI sources are removed rather than retained beside
     await assert.rejects(access(new URL(path, import.meta.url)))
   }
 })
+
+test('Mainnet refresh honors Retry-After and cools down rate-limited flow requests', () => {
+  assert.ok(source.includes("response.headers?.get?.('retry-after')"))
+  assert.ok(source.includes('body.retryAfterSeconds'))
+  assert.ok(source.includes('const cooldownUntil = useRef(new Map())'))
+  assert.ok(source.includes("error.statusCode === 429"))
+  assert.ok(source.includes("API rate limit; retry in "))
+  assert.ok(source.includes("callback: 'cooldown'"))
+})
