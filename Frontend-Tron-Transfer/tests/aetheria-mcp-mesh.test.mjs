@@ -64,3 +64,13 @@ test('Mainnet refresh honors Retry-After and cools down rate-limited flow reques
   assert.ok(source.includes("API rate limit; retry in "))
   assert.ok(source.includes("callback: 'cooldown'"))
 })
+
+test('Owner Admin uses the unified mobile-first operations-console theme', async () => {
+  const entry = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8')
+  const theme = await readFile(new URL('../src/owner-console-refresh.css', import.meta.url), 'utf8')
+  assert.ok(entry.includes("import './owner-console-refresh.css'"))
+  assert.ok(theme.includes('grid-template-columns:repeat(5,minmax(0,1fr))'))
+  assert.ok(theme.includes('.am-connection-svg { display:none !important; }'))
+  assert.ok(theme.includes('.am-hub-field {'))
+  assert.ok(theme.includes('env(safe-area-inset-bottom'))
+})
