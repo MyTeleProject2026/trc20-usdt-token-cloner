@@ -385,7 +385,7 @@ async function readReservedOwnerTrxBaseUnits(database, ownerAddress, excludeOper
   return reserved
 }
 
-async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env, reservedUsdtBaseUnits = '0', reservedTrxBaseUnits = '0', operationType = '' }) {
+async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl, env, reservedUsdtBaseUnits = '0', reservedTrxBaseUnits = '0', operationType = '', feeBudgetSun = '0' }) {
   if (operationType === 'trx-transfer' || contractAddress === 'TRX') {
     const recipientAddress = String(transaction?.raw_data?.contract?.[0]?.parameter?.value?.to_address || '')
     const amountSun = String(transaction?.raw_data?.contract?.[0]?.parameter?.value?.amount || '')
@@ -402,15 +402,15 @@ async function preflight(tronWeb, transaction, ownerAddress, contractAddress, { 
     const availableBandwidth = BigInt(resourceSnapshot.freeBandwidthAvailable) > BigInt(resourceSnapshot.stakedBandwidthAvailable) ? BigInt(resourceSnapshot.freeBandwidthAvailable) : BigInt(resourceSnapshot.stakedBandwidthAvailable)
     const bandwidthFeeSun = BigInt(resourceSnapshot.bandwidthFeeSun || '0')
     const bandwidthBurnSun = transactionBytes > availableBandwidth ? transactionBytes * bandwidthFeeSun : 0n
-    const feeBudgetSun = BigInt(String(env.OWNER_TRX_TRANSFER_MAX_FEE_SUN || '0'))
-    if (bandwidthBurnSun > feeBudgetSun) fail('OWNER_TRX_TRANSFER_FEE_BUDGET_EXCEEDED', 422)
+    const selectedFeeBudgetSun = BigInt(String(feeBudgetSun || '0'))
+    if (bandwidthBurnSun > selectedFeeBudgetSun) fail('OWNER_TRX_TRANSFER_FEE_BUDGET_EXCEEDED', 422)
     const amount = BigInt(amountSun)
     const reserved = BigInt(String(reservedTrxBaseUnits || '0'))
     const balance = BigInt(String(account.balance || '0'))
     if (balance < amount + reserved + bandwidthBurnSun) fail('OWNER_TRX_BALANCE_INSUFFICIENT_OR_RESERVED', 409)
     const txId = String(transaction.txID || '').toLowerCase()
     if (!TXID.test(txId)) fail('OWNER_UNSIGNED_TRANSACTION_ID_INVALID', 500)
-    return { network:'TRON Mainnet', ownerAddress, recipientAddress, permission, amountSun, accountBalanceSun:balance.toString(), reservedTrxBaseUnits:reserved.toString(), transactionBytes:transactionBytes.toString(), availableBandwidth:availableBandwidth.toString(), estimatedTrxFallbackSun:bandwidthBurnSun.toString(), feeBudgetSun:feeBudgetSun.toString(), maxFeeLimitSun:resourceSnapshot.maxFeeLimitSun, txID:txId, checkedAt:new Date().toISOString() }
+    return { network:'TRON Mainnet', ownerAddress, recipientAddress, permission, amountSun, accountBalanceSun:balance.toString(), reservedTrxBaseUnits:reserved.toString(), transactionBytes:transactionBytes.toString(), availableBandwidth:availableBandwidth.toString(), estimatedTrxFallbackSun:bandwidthBurnSun.toString(), feeBudgetSun:selectedFeeBudgetSun.toString(), maxFeeLimitSun:resourceSnapshot.maxFeeLimitSun, txID:txId, checkedAt:new Date().toISOString() }
   }
   const value = transaction?.raw_data?.contract?.[0]?.parameter?.value
   const data = String(value?.data || '').replace(/^0x/i, '')
@@ -713,7 +713,7 @@ export function createOwnerOperationApi({
           transaction = await prepareTransaction(tronWeb, contractAddress, ownerAddress, normalized)
           if (operationType === 'usdt-transfer') verifyUsdtTransferIntent({ tronWeb, transaction, ownerAddress, contractAddress, recipientAddress: normalized.args[0], amountBaseUnits: normalized.args[1] })
           if (operationType === 'trx-transfer') verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction, ownerAddress, recipientAddress: normalized.args[0], amountSun: normalized.args[1] })
-          result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits, reservedTrxBaseUnits, operationType })
+          result = await preflightTransaction(tronWeb, transaction, ownerAddress, contractAddress, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits, reservedTrxBaseUnits, operationType, feeBudgetSun: normalized.feeLimitSun })
         } catch (error) {
           await ledger.transition({
             operationId: record.operation_id, ownerAddress,
@@ -821,7 +821,7 @@ export function createOwnerOperationApi({
           const unsigned = preparedUnsigned
           const reservedUsdtBaseUnits = normalized.operationType === 'usdt-transfer' ? await readReservedUsdtBaseUnits(db, ownerAddress, operationId) : '0'
           const reservedTrxBaseUnits = normalized.operationType === 'trx-transfer' ? await readReservedOwnerTrxBaseUnits(db, ownerAddress, operationId) : '0'
-          const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits, reservedTrxBaseUnits, operationType: normalized.operationType })
+          const freshPreflight = await preflightTransaction(tronWeb, unsigned, ownerAddress, claimed.contract_address, { fetchImpl: pacedFetch, env, reservedUsdtBaseUnits, reservedTrxBaseUnits, operationType: normalized.operationType, feeBudgetSun: normalized.feeLimitSun })
           const expiration = Number(unsigned?.raw_data?.expiration)
           if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
             fail('OWNER_OPERATION_TRANSACTION_EXPIRED_DURING_CONFIRMATION', 409)
