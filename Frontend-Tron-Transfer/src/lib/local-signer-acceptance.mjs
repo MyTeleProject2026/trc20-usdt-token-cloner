@@ -31,6 +31,7 @@ export async function runLocalSignerAcceptance({ authClient, tronWeb, address, r
     address,
     verified: true,
     verifiedAt: String(result.verifiedAt || new Date().toISOString()),
+    auditRecorded: result.auditRecorded === true,
     transactionCreated: false,
     broadcast: false,
   })
