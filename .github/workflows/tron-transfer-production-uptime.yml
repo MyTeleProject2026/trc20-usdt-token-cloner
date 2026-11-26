@@ -104,17 +104,26 @@ jobs:
                       const flags = {
                         databaseConfigured: parsed?.databaseConfigured === true,
                         databaseReady: parsed?.databaseReady === true,
+                        databaseIdentityMatches: parsed?.databaseIdentityMatches === true,
+                        expectedDatabaseIdentityConfigured: parsed?.expectedDatabaseIdentityConfigured === true,
                         sponsorWritesPaused: parsed?.sponsorWritesPaused === true,
                         ledgerDurabilityVerified: parsed?.ledgerDurabilityVerified === true,
                         ownerAddressMatches: parsed?.ownerAddressMatches === true,
+                        ownerWalletEnrolled: parsed?.ownerWalletEnrolled === true,
                         sponsorIndependent: parsed?.sponsorIndependent === true,
                         sponsorWalletEnrolled: parsed?.sponsorWalletEnrolled === true,
                         sessionAuthenticationConfigured: parsed?.sessionAuthenticationConfigured === true,
                         ownerAdminSessionConfigured: parsed?.ownerAdminSessionConfiguredForLedgerRelease === true,
+                        engineConfigured: parsed?.engineConfigured === true,
+                        engineEnabled: parsed?.engineEnabled === true,
                         localSignerReady: parsed?.localSignerReady === true,
                         writesReleaseAvailable: parsed?.writesReleaseAvailable === true,
                         transactionExecutionAvailable: parsed?.transactionExecutionAvailable === true,
                       };
+                      const acceptanceChecks = Array.isArray(parsed?.acceptance?.checks) ? parsed.acceptance.checks : [];
+                      const blockedAcceptance = acceptanceChecks.filter(check => check?.state !== 'passed').map(check => String(check?.id || 'unknown').slice(0, 80));
+                      const releaseChecks = Array.isArray(parsed?.writesReleaseChecks) ? parsed.writesReleaseChecks : [];
+                      const blockedRelease = releaseChecks.filter(check => check?.state !== 'passed').map(check => String(check?.id || 'unknown').slice(0, 80));
                       const acceptanceState = String(parsed?.acceptance?.state || 'unknown').slice(0, 40);
                       validPayload = response.ok && parsed?.success === true
                         && parsed?.acceptance?.version === 1 && Array.isArray(parsed?.acceptance?.checks);
@@ -123,15 +132,22 @@ jobs:
                         ? 'Sponsor acceptance=' + acceptanceState
                           + ' · db=' + databaseStatus
                           + ' · dbReady=' + flags.databaseReady
+                          + ' · dbIdentity=' + flags.databaseIdentityMatches
+                          + ' · expectedDbIdentity=' + flags.expectedDatabaseIdentityConfigured
                           + ' · sponsor=' + flags.sponsorWalletEnrolled
                           + ' · owner=' + flags.ownerAddressMatches
+                          + ' · ownerEnrolled=' + flags.ownerWalletEnrolled
                           + ' · independent=' + flags.sponsorIndependent
                           + ' · durable=' + flags.ledgerDurabilityVerified
+                          + ' · sessionAuth=' + flags.sessionAuthenticationConfigured
                           + ' · adminSession=' + flags.ownerAdminSessionConfigured
+                          + ' · engine=' + flags.engineConfigured + '/' + flags.engineEnabled
                           + ' · paused=' + flags.sponsorWritesPaused
                           + ' · signer=' + flags.localSignerReady
                           + ' · release=' + flags.writesReleaseAvailable
                           + ' · execute=' + flags.transactionExecutionAvailable
+                          + ' · blockedAcceptance=' + (blockedAcceptance.join(',') || 'none')
+                          + ' · blockedRelease=' + (blockedRelease.join(',') || 'none')
                         : 'Sponsor status endpoint returned an invalid acceptance payload';
                     } else if (target.name === 'mainnet-rpc-providers') {
                       const providers = Array.isArray(parsed?.providers) ? parsed.providers : [];
