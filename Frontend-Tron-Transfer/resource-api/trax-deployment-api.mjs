@@ -178,8 +178,6 @@ export function createTRAXDeploymentApi({
       if (!ready) return send(res, 503, { success: false, error: artifactError || 'TRAX_DEPLOYMENT_READINESS_GATES_BLOCKED', blocker: !ledgerReady ? 'TRAX_DEPLOYMENT_LEDGER_NOT_INSTALLED' : !databaseIdentityMatches ? 'TRAX_DEPLOYMENT_DATABASE_TARGET_IDENTITY_NOT_VERIFIED' : !durabilityReady(env) ? 'TRAX_DEPLOYMENT_LEDGER_DURABILITY_NOT_VERIFIED' : !pinsConfigured ? 'TRAX_DEPLOYMENT_ARTIFACT_PINS_NOT_CONFIGURED' : 'TRAX_DEPLOYMENT_ARTIFACT_INVALID' }, origin)
       const feeLimitSun = String(url.searchParams.get('feeLimitSun') || '')
       if (!/^[1-9][0-9]{0,11}$/.test(feeLimitSun)) return send(res, 400, { success: false, error: 'TRAX_DEPLOYMENT_FEE_LIMIT_INVALID' }, origin)
-      const maxFeeLimitSun = BigInt(env.TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN || '150000000')
-      if (BigInt(feeLimitSun) > maxFeeLimitSun) return send(res, 400, { success: false, error: 'TRAX_DEPLOYMENT_FEE_LIMIT_ABOVE_POLICY' }, origin)
       try {
         const artifactNow = await artifactLoader({ env })
         const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
@@ -453,8 +451,6 @@ export function createTRAXDeploymentApi({
     if (!/^[A-Za-z0-9._:-]{16,160}$/.test(idempotencyKey)) return send(res, 400, { error: 'TRAX_DEPLOYMENT_IDEMPOTENCY_KEY_INVALID' }, origin)
     const feeLimitSun = String(body.feeLimitSun || '')
     if (!/^[1-9][0-9]{0,11}$/.test(feeLimitSun)) return send(res, 400, { error: 'TRAX_DEPLOYMENT_FEE_LIMIT_INVALID' }, origin)
-    const maxFeeLimitSun = BigInt(env.TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN || '150000000')
-    if (BigInt(feeLimitSun) > maxFeeLimitSun) return send(res, 400, { error: 'TRAX_DEPLOYMENT_FEE_LIMIT_ABOVE_POLICY' }, origin)
     const prior = await db.query(
       'SELECT operation_id,state,transaction_id,intent,intent_sha256 FROM public.tron_transfer_deployments WHERE owner_address=$1 AND idempotency_key=$2',
       [session.address, idempotencyKey],
