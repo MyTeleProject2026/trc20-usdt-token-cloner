@@ -2636,6 +2636,9 @@ input:focus, select:focus, textarea:focus {
 
 
 /* Institutional operations console redesign — shared Owner and Sponsor system. */
+/* The sidebar (desktop) or bottom dock (mobile) is the single Sponsor page navigator. */
+.sponsor-product-tabs { display: none !important; }
+
 :root {
   --tt-bg: #080e19;
   --tt-panel: #101a2b;
