@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { TronWeb } from 'tronweb'
 import { createWalletSignerAcceptanceApi } from '../wallet-signer-acceptance-api.mjs'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -117,4 +118,43 @@ test('sign-only challenge expires and cannot be replayed', async () => {
   time += 120_001
   await api.handle(makeRequest('POST', { origin, 'x-owner-csrf-token': 'owner-csrf' }, { challengeId: challenge.challengeId, signature }), {}, new URL(url('owner').href + '/verify'), origin)
   assert.equal(replies.pop().status, 410)
+})
+
+
+test('TRON Web v6 signs and recovers an actual local message signature without RPC broadcast', async () => {
+  const ownerTronWeb = new TronWeb({
+    fullHost: 'https://api.trongrid.io',
+    privateKey: '0000000000000000000000000000000000000000000000000000000000000001',
+  })
+  const sponsorTronWeb = new TronWeb({
+    fullHost: 'https://api.trongrid.io',
+    privateKey: '0000000000000000000000000000000000000000000000000000000000000002',
+  })
+  const ownerAddress = ownerTronWeb.defaultAddress.base58
+  const sponsorAddress = sponsorTronWeb.defaultAddress.base58
+  const replies = []
+  const api = createWalletSignerAcceptanceApi({
+    send: (_res, status, payload) => { replies.push({ status, payload }); return true },
+    identityReport: {
+      network: 'TRON Mainnet',
+      owner: { address: ownerAddress },
+      sponsor: { address: sponsorAddress },
+      identitiesDistinct: true,
+    },
+    authenticateOwnerSession: async () => ({ address: ownerAddress, sessionId: 31 }),
+    authenticateSponsorSession: async () => ({ address: sponsorAddress, sessionId: 32 }),
+    tronWebFactory: () => new TronWeb({ fullHost: 'https://api.trongrid.io' }),
+  })
+  const challengeUrl = new URL('https://api.test/api/wallet-auth/owner/signing-challenge')
+  await api.handle(makeRequest('GET'), {}, challengeUrl, origin)
+  const challenge = replies.pop().payload
+  const signature = await ownerTronWeb.trx.signMessageV2(challenge.message)
+  await api.handle(makeRequest('POST', { origin, 'x-owner-csrf-token': 'owner-csrf' }, {
+    challengeId: challenge.challengeId, signature,
+  }), {}, new URL(challengeUrl.href + '/verify'), origin)
+  const verified = replies.pop()
+  assert.equal(verified.status, 200)
+  assert.equal(verified.payload.verified, true)
+  assert.equal(verified.payload.address, ownerAddress)
+  assert.equal(verified.payload.broadcast, false)
 })
