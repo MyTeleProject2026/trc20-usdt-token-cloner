@@ -97,7 +97,7 @@ Configure these only on the existing Resource API service in Render. Never put s
 - `SPONSOR_LIQUID_RESERVE_TRX` — protected liquid reserve; defaults to 2 TRX.
 - Manual Stake 2.0 and Sponsor-to-Owner top-up availability follows the guarded transaction-engine, Mainnet-broadcast and Sponsor-ledger release gates. There is no separate fixed stake or top-up business cap.
 - `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` and `SPONSOR_MAX_OWNER_TOPUP_TRX` are legacy settings and are ignored by the manual amount policy; remove them from the existing Render service after deploying this revision.
-- `SPONSOR_MAX_TX_FEE_SUN` — maximum authorized Bandwidth-shortfall fee in SUN; defaults to zero, so uncovered transactions are blocked.
+- Sponsor Bandwidth fees are derived from the live Mainnet `getTransactionFee` parameter and the exact transaction size. The legacy `SPONSOR_MAX_TX_FEE_SUN` setting is ignored; the actual estimated fee is allowed only when the fresh Sponsor balance covers principal, protected reserve and fee.
 
 There is no Sponsor private-key environment variable in the local-vault architecture. Remove any obsolete `SPONSOR_MAINNET_PRIVATE_KEY`, `SPONSOR_SIGNER_URL` or remote-signer HMAC secret from the existing Render service only after confirming the deployed production revision no longer depends on the old signer. This feature branch has not been deployed.
 
@@ -107,7 +107,7 @@ For read-only account-resource, account-balance and chain-parameter queries, the
 
 Signed transaction broadcast, transaction-history REST queries, Owner transaction preparation/verification, and Sponsor transaction preparation/verification continue to use the existing TronGrid Mainnet path. Tatum and TronGrid here are blockchain RPC/data connectivity only—not Energy/Bandwidth suppliers, fee sponsors, wallet custodians, or funding sources. The platform's own Sponsor wallet stakes its TRX, delegates its own Energy/Bandwidth directly to the configured Owner wallet, and can explicitly transfer its own TRX to Owner. No third-party resource provider or external Sponsor is configured.
 
-TRON does not combine free Bandwidth and staked/delegated Bandwidth into one single-transaction allowance. The preflight uses the more conservative single-source coverage rule. The fee cap defaults to zero, so a transaction that needs an uncovered TRX fee is blocked. A provider API key does not grant Energy, Bandwidth or transaction authorization.
+TRON does not combine free Bandwidth and staked/delegated Bandwidth into one single-transaction allowance. The preflight uses the more conservative single-source coverage rule. Any uncovered Bandwidth is priced from the live Mainnet `getTransactionFee` parameter and the transaction's exact byte size; the actual estimated fee must fit within the Sponsor balance after the requested principal and protected reserve. There is no fixed application-level Sponsor transaction-fee cap. A provider API key does not grant Energy, Bandwidth or transaction authorization.
 
 There is no protocol free Energy quota. This code does not claim or automate free Energy grants, free Bandwidth grants, or independent fee sponsorship. Resource estimates are not guarantees. Sponsor resource actions require explicit per-operation approval; no unattended scheduler is enabled.
 
