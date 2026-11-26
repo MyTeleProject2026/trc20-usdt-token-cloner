@@ -159,16 +159,26 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   }, [feeCap])
 
   const deploymentReady = Boolean(deploymentReadiness?.readyForPreparation
+    && deploymentResourcePreflight?.zeroTrxBurnReady === true
     && deploymentReadiness.owner === connectedAddress
     && deploymentReadiness.feeCapSun === feeCapSun
     && deploymentReadiness.tokenAddress === tokenAddress
-    && deploymentReadiness.expiresAt > Date.now())
+    && deploymentReadiness.expiresAt > Date.now()
+    && deploymentResourcePreflight.owner === connectedAddress
+    && deploymentResourcePreflight.feeCapSun === feeCapSun
+    && deploymentResourcePreflight.expiresAt > Date.now())
 
   useEffect(() => {
     if (!deploymentReadiness) return undefined
     const timeout = window.setTimeout(() => setDeploymentReadiness(null), Math.max(0, deploymentReadiness.expiresAt - Date.now()))
     return () => window.clearTimeout(timeout)
   }, [deploymentReadiness])
+
+  useEffect(() => {
+    if (!deploymentResourcePreflight?.expiresAt) return undefined
+    const timeout = window.setTimeout(() => setDeploymentResourcePreflight(null), Math.max(0, deploymentResourcePreflight.expiresAt - Date.now()))
+    return () => window.clearTimeout(timeout)
+  }, [deploymentResourcePreflight])
 
   useEffect(() => { setDeploymentReadiness(null); setDeploymentResourcePreflight(null) }, [connectedAddress, feeCapSun, tokenAddress])
 
@@ -698,7 +708,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
           <span>Read-only check · transaction persisted: No · signature requested: No · broadcast attempted: No</span>
           {deploymentResourcePreflight.checkedAt && <span>Checked at: {deploymentResourcePreflight.checkedAt}</span>}
         </div>}
-        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={refreshDeploymentResourcePreflight}><RefreshCw size={15}/> Refresh resource preflight</button><button type="button" className="primary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}><Rocket size={15}/> Prepare deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
+        <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReadiness?.readyForPreparation} onClick={refreshDeploymentResourcePreflight}><RefreshCw size={15}/> Refresh resource preflight</button><button type="button" className="primary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}><Rocket size={15}/> Prepare deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
         {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.predictedContractAddress || deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span>
           {deploymentOperation.state === 'prepared' && <><label>Type exact signing confirmation phrase: {deploymentOperation.confirmationPhrase}<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Sign exact transaction with local Owner vault</button></>}
           {deploymentOperation.state === 'signed' && <><p className="fine-print">Owner signature verified and stored. No transaction has been broadcast. This second approval is bound to the exact transaction ID above.</p><label>Type transaction-specific broadcast phrase: {deploymentOperation.broadcastApproval?.confirmationPhrase}<input value={broadcastConfirmationPhrase} onChange={event => setBroadcastConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.broadcastApproval?.confirmationPhrase}/></label><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || !deploymentOperation.broadcastApproval || broadcastConfirmationPhrase !== deploymentOperation.broadcastApproval.confirmationPhrase} onClick={broadcastApprovedDeployment}>Broadcast this exact approved transaction</button></>}

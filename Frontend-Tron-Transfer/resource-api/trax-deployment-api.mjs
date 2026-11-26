@@ -139,7 +139,7 @@ export function createTRAXDeploymentApi({
     const statusPath = Boolean(statusMatch)
     if (!readinessPath && !preflightPath && !preparePath && !confirmPath && !broadcastPath && !statusPath) return false
     if (req.method !== (readinessPath || preflightPath || statusPath ? 'GET' : 'POST')) return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
-    const session = await authenticateManagedSession(req, { requireCsrf: !readinessPath && !statusPath })
+    const session = await authenticateManagedSession(req, { requireCsrf: !readinessPath && !preflightPath && !statusPath })
     if (!session?.address || !OWNER.test(session.address) || session.address !== env.TRON_OWNER_ADDRESS) {
       return send(res, 401, { error: 'OWNER_SESSION_REQUIRED' }, origin)
     }

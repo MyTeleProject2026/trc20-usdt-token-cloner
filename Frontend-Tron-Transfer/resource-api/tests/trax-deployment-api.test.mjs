@@ -16,7 +16,7 @@ function make(overrides={}) {
     env:{ TRON_OWNER_ADDRESS:owner, DATABASE_URL:testDatabaseUrl, OWNER_ADMIN_EXPECTED_DATABASE_IDENTITY_SHA256:testDatabaseIdentity, ...overrides.env },
     database:overrides.database || { async query(sql) { if (sql.includes('to_regclass')) return {rows:[{deployments_table:'tron_transfer_deployments'}]}; return {rows:[]} } },
     send:(_res,status,payload)=>replies.push({status,payload}),
-    authenticateManagedSession:async()=>overrides.session || {address:owner,sessionId:1},
+    authenticateManagedSession:async(req,options)=>overrides.authenticateManagedSession ? overrides.authenticateManagedSession(req,options) : (overrides.session || {address:owner,sessionId:1}),
     artifactLoader:overrides.artifactLoader || (async()=>({contractName:'Restricted1TRAX',compiler:'solc 0.8.25',sourceSha256:'1'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),artifactSha256:'4'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'})),
     tronWebFactory:overrides.tronWebFactory || (()=>{ throw new Error('must-not-construct-without-prepare') }),
     recoverDeployment:overrides.recoverDeployment,
@@ -39,6 +39,18 @@ test('deployment readiness requires an authenticated configured Owner', async()=
  await api.handle(req(),res(),new URL('https://api.test/api/owner/deployment/readiness'),null)
  assert.equal(replies[0].status,401)
 })
+test('read-only resource preflight authenticates the Owner session without requiring CSRF on GET', async()=>{
+ let requireCsrf = null
+ const {api,replies}=make({env:{
+  TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',
+  TRAX_SOURCE_SHA256:'1'.repeat(64),TRAX_CREATION_BYTECODE_SHA256:'2'.repeat(64),TRAX_RUNTIME_BYTECODE_SHA256:'3'.repeat(64),TRAX_DEPLOYMENT_ARTIFACT_SHA256:'4'.repeat(64),
+ },authenticateManagedSession:async(_req,options)=>{requireCsrf=options.requireCsrf;return {address:owner,sessionId:1}}})
+ await api.handle(req(),res(),new URL('https://api.test/api/owner/deployment/preflight'),null)
+ assert.equal(requireCsrf,false)
+ assert.equal(replies[0].status,400)
+ assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_FEE_LIMIT_INVALID')
+})
+
 test('deployment readiness reports artifact and ledger gates without signing or broadcasting', async()=>{
  const env={TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',TRAX_SOURCE_SHA256:'1'.repeat(64),TRAX_CREATION_BYTECODE_SHA256:'2'.repeat(64),TRAX_RUNTIME_BYTECODE_SHA256:'3'.repeat(64),TRAX_DEPLOYMENT_ARTIFACT_SHA256:'4'.repeat(64)}
  const {api,replies}=make({env})
