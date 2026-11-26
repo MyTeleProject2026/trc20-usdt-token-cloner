@@ -4011,6 +4011,148 @@
           "checkedAt": "2026-11-26T15:19:23.571Z"
         }
       ]
+    },
+    {
+      "id": 45848410580,
+      "runNumber": 129,
+      "checkedAt": "2026-11-26T15:22:21.294Z",
+      "status": "failure",
+      "conclusion": "failure",
+      "commit": "83dc6dae12690c0b797c9b249ade939828f96969",
+      "event": "push",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/45848410580",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 288,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-26T15:22:21.294Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 374,
+          "detail": "healthy · TRON Mainnet",
+          "metrics": null,
+          "checkedAt": "2026-11-26T15:22:21.429Z"
+        },
+        {
+          "name": "owner-mainnet-resource-readiness",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 2564,
+          "detail": "Energy=0 · free Bandwidth=600 · staked Bandwidth=0 · RPC=tatum/tatum/tatum",
+          "metrics": {
+            "energyAvailable": "0",
+            "freeBandwidthAvailable": "600",
+            "stakedBandwidthAvailable": "0",
+            "accountResourcesProvider": "tatum",
+            "accountProvider": "tatum",
+            "chainParametersProvider": "tatum"
+          },
+          "checkedAt": "2026-11-26T15:22:23.620Z"
+        },
+        {
+          "name": "mainnet-rpc-providers",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 4380,
+          "detail": "Tatum block 88344093 · TronGrid block 88344093",
+          "metrics": null,
+          "checkedAt": "2026-11-26T15:22:25.437Z"
+        },
+        {
+          "name": "tronscan-explorer",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1567,
+          "detail": "TronScan public read endpoint reachable · official USDT indexed · API key=TRONSCAN_PRO_API_KEY",
+          "metrics": null,
+          "checkedAt": "2026-11-26T15:22:22.624Z"
+        },
+        {
+          "name": "sponsor-readiness",
+          "ok": false,
+          "status": 200,
+          "latencyMs": 3373,
+          "detail": "Sponsor status endpoint is invalid or one or more Mainnet execution safety gates are not disabled",
+          "metrics": {
+            "sponsorWritesPaused": false,
+            "engineEnabled": true,
+            "broadcastAvailable": true,
+            "clientSigningAvailable": true,
+            "writesReleaseConfigured": true,
+            "writesReleaseAvailable": false,
+            "stakingEnabled": true,
+            "ownerTopupEnabled": true,
+            "transactionExecutionAvailable": true
+          },
+          "checkedAt": "2026-11-26T15:22:24.431Z"
+        },
+        {
+          "name": "owner-signer-challenge-auth",
+          "ok": true,
+          "status": 401,
+          "latencyMs": 368,
+          "detail": "Owner sign-only challenge endpoint is present and rejects unauthenticated access",
+          "metrics": null,
+          "checkedAt": "2026-11-26T15:22:21.426Z"
+        },
+        {
+          "name": "sponsor-signer-challenge-auth",
+          "ok": true,
+          "status": 401,
+          "latencyMs": 479,
+          "detail": "Sponsor sign-only challenge endpoint is present and rejects unauthenticated access",
+          "metrics": null,
+          "checkedAt": "2026-11-26T15:22:21.538Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 468,
+          "detail": "valid JSON health payload",
+          "metrics": {
+            "sampledAt": "2026-11-26T15:22:21.419Z",
+            "uptimeSeconds": 95,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 100671488,
+            "heapUsedBytes": 31137624,
+            "heapTotalBytes": 33554432,
+            "eventLoopP95Ms": 20.135935,
+            "requestCount": 16,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 0,
+            "p95LatencyMs": 1
+          },
+          "checkedAt": "2026-11-26T15:22:21.528Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1364,
+          "detail": "Git-backed history served · 44 archived runs",
+          "metrics": null,
+          "checkedAt": "2026-11-26T15:22:22.424Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1464,
+          "detail": "server credential verified · CPU and memory samples received",
+          "metrics": null,
+          "checkedAt": "2026-11-26T15:22:22.525Z"
+        }
+      ]
     }
   ]
 }
