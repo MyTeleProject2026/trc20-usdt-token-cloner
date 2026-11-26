@@ -254,3 +254,38 @@ test('Mainnet resource endpoint serves cached reads before rate limiting and coa
   }
   assert.equal(providerCalls, 3)
 })
+
+
+test('Mainnet provider diagnostics verify Tatum and TronGrid independently without exposing credentials', async (t) => {
+  const { createServer } = await import('../server.js')
+  const calls = []
+  const server = createServer({
+    env: { TATUM_API_KEY: 'tatum-test-secret', TATUM_TRON_NETWORK: 'mainnet', TRONGRID_API_KEY: 'trongrid-test-secret' },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options })
+      const blockNumber = String(url).includes('tatum.io') ? 90000123 : 90000124
+      return new Response(JSON.stringify({ blockID: 'a'.repeat(64), block_header: { raw_data: { number: blockNumber } } }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/mainnet/provider-health')
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.ok, true)
+  assert.equal(payload.network, 'TRON Mainnet')
+  assert.deepEqual(payload.providerPriority, ['tatum', 'trongrid'])
+  assert.deepEqual(payload.providers.map(provider => provider.reachable), [true, true])
+  assert.deepEqual(payload.providers.map(provider => provider.blockNumber), [90000123, 90000124])
+  assert.equal(calls.length, 2)
+  assert.ok(calls[0].url.startsWith('https://tron-mainnet.gateway.tatum.io/'))
+  assert.equal(calls[0].options.headers['x-api-key'], 'tatum-test-secret')
+  assert.ok(calls[1].url.startsWith('https://api.trongrid.io/'))
+  assert.equal(calls[1].options.headers['TRON-PRO-API-KEY'], 'trongrid-test-secret')
+  assert.equal(JSON.stringify(payload).includes('test-secret'), false)
+  const cached = await fetch('http://127.0.0.1:' + server.address().port + '/api/mainnet/provider-health')
+  assert.equal(cached.status, 200)
+  assert.equal(calls.length, 2)
+})
