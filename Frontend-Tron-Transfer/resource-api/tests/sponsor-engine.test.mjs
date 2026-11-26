@@ -183,28 +183,37 @@ test('engine persists the transaction ID before broadcasting and verifies a soli
   assert.equal(f.counts().broadcastCount, 1)
 })
 
-test('zero-fee policy blocks transactions whose own Bandwidth pool cannot cover the full transaction', async () => {
-  const f = fixture({ bandwidth: 0, envOverrides: { SPONSOR_MAX_TX_FEE_SUN: undefined } })
+test('Sponsor Bandwidth fallback fee is calculated from live chain price and covered by available balance', async () => {
+  const f = fixture({ bandwidth: 0, envOverrides: { SPONSOR_MAX_TX_FEE_SUN: '0' } })
   const result = await f.engine.execute({
     operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
-    onSigned: async () => assert.fail('must not sign a transaction with an unauthorized fee shortfall'),
+    onSigned: async txid => { assert.equal(txid, TXID); f.markDurable() },
   })
-  assert.equal(result.status, 'bandwidth-shortfall-exceeds-authorized-fee-cap')
-  assert.equal(f.counts().signedCount, 0)
-  assert.equal(f.counts().broadcastCount, 0)
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.equal(f.counts().signedCount, 1)
+  assert.equal(f.counts().broadcastCount, 1)
 })
 
 test('preflight does not pool free and staked Bandwidth quotas for one transaction', async () => {
   // The 110-byte transaction cannot fit in either 60-byte or 50-byte quota.
-  // It must not be treated as fitting by adding the two independent quotas.
+  // The 60-byte source is used, so the 50-byte shortfall is priced at the live chain rate.
   const f = fixture({ bandwidth: 60, stakedBandwidth: 50 })
+  const result = await f.engine.prepare({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
+  assert.equal(result.success, true)
+  assert.equal(result.feePolicy.requiredBandwidthFeeSun, '50000')
+  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
+})
+
+test('Sponsor transaction fee is blocked only when live balance cannot cover principal, reserve and actual Bandwidth fee', async () => {
+  const f = fixture({ bandwidth: 0, balance: 3_000_000n })
   const result = await f.engine.execute({
     operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
-    onSigned: async () => assert.fail('single-quota Bandwidth shortfall must block signing'),
+    onSigned: async () => assert.fail('insufficient balance for the live transaction fee must block signing'),
   })
-  assert.equal(result.success, false)
-  assert.equal(result.status, 'bandwidth-shortfall-exceeds-authorized-fee-cap')
-  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
+  assert.equal(result.status, 'insufficient-balance-for-transaction-fee')
+  assert.equal(f.counts().signedCount, 0)
+  assert.equal(f.counts().broadcastCount, 0)
 })
 
 test('Stake 2.0 checks the protected liquid reserve before signing', async () => {
