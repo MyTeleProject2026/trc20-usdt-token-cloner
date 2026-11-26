@@ -45,3 +45,16 @@ test('local signer acceptance rejects mismatched local vault addresses before re
   }), /LOCAL_SIGNER_ADDRESS_MISMATCH/)
   assert.equal(requests, 0)
 })
+
+
+test('Owner and Sponsor workspaces expose separate sign-only acceptance actions', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const owner = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  const sponsor = await readFile(new URL('../src/SponsorWalletManager.jsx', import.meta.url), 'utf8')
+  assert.match(owner, /role: 'owner'/)
+  assert.match(sponsor, /role: 'sponsor'/)
+  assert.match(owner, /Run sign-only acceptance/)
+  assert.match(sponsor, /Run sign-only acceptance/)
+  assert.match(owner, /No transaction, fee or broadcast occurred/)
+  assert.match(sponsor, /no transaction is created or broadcast/i)
+})
