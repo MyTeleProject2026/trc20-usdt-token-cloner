@@ -35,6 +35,8 @@ jobs:
             { name: 'mainnet-rpc-providers', url: 'https://tron-transfer-resource-api.onrender.com/api/mainnet/provider-health', expectJson: true },
             { name: 'tronscan-explorer', url: 'https://tron-transfer-resource-api.onrender.com/api/mainnet/explorer-health', expectJson: true },
             { name: 'sponsor-readiness', url: 'https://tron-transfer-resource-api.onrender.com/api/sponsor/status', expectJson: true },
+            { name: 'owner-signer-challenge-auth', url: 'https://tron-transfer-resource-api.onrender.com/api/wallet-auth/owner/signing-challenge', expectJson: true },
+            { name: 'sponsor-signer-challenge-auth', url: 'https://tron-transfer-resource-api.onrender.com/api/wallet-auth/sponsor/signing-challenge', expectJson: true },
             { name: 'runtime-observatory', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/snapshot', expectJson: true },
             { name: 'uptime-history', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/uptime-history', expectJson: true },
             { name: 'render-metrics', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/render-metrics', expectJson: true },
@@ -90,7 +92,14 @@ jobs:
                         p95LatencyMs: Number(parsed.requests.p95LatencyMs) || 0,
                       };
                     }
-                    if (target.name === 'sponsor-readiness') {
+                    if (target.name === 'owner-signer-challenge-auth' || target.name === 'sponsor-signer-challenge-auth') {
+                      validPayload = response.status === 401 && parsed?.success === false
+                        && parsed?.error === 'WALLET_SESSION_REQUIRED';
+                      const role = target.name.startsWith('owner-') ? 'Owner' : 'Sponsor';
+                      detail = validPayload
+                        ? role + ' sign-only challenge endpoint is present and rejects unauthenticated access'
+                        : role + ' sign-only challenge endpoint did not enforce the expected wallet session';
+                    } else if (target.name === 'sponsor-readiness') {
                       const flags = {
                         databaseConfigured: parsed?.databaseConfigured === true,
                         databaseReady: parsed?.databaseReady === true,
