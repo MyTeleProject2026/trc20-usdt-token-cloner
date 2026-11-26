@@ -195,6 +195,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [ownerAdminPassword, setOwnerAdminPassword] = useState('')
   const [ownerAdminReady, setOwnerAdminReady] = useState(false)
   const [amount, setAmount] = useState('10')
+  const [transferRecipient, setTransferRecipient] = useState('')
   const [energyTarget, setEnergyTarget] = useState(() => readSavedTarget('energy', '1278524'))
   const [bandwidthTarget, setBandwidthTarget] = useState(() => readSavedTarget('bandwidth', '1000'))
   const [resourceType, setResourceType] = useState('ENERGY')
@@ -889,6 +890,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     if (sponsorApiStatus?.transactionExecutionAvailable !== true) { notify('error', 'Sponsor execution is not ready', 'The local signing protocol is implemented, but the production database, durability, fresh resource preflight, paused-write and explicit Mainnet release gates must all pass. No transaction was sent.'); return }
     const selectedAmount = options.amount || (action === 'withdraw' ? formatSunAsTrx(snapshot?.withdrawableSun || '0') : amount)
     const selectedResource = options.resource || resourceType
+    const recipientAddress = action === 'transfer' ? String(options.recipientAddress || transferRecipient).trim() : ownerAddress
+    if (action === 'transfer' && (!tronWeb.isAddress(recipientAddress) || recipientAddress === wallet.address)) { notify('error', 'Invalid TRX recipient', 'Enter a different valid TRON Mainnet address.'); return }
     let amountSun
     try { amountSun = parseTrx(selectedAmount) } catch (error) { notify('error', 'Invalid resource amount', error.message); return false }
     if (['stake', 'delegate', 'undelegate', 'unstake'].includes(action) && amountSun < SUN) { notify('error', 'Minimum resource amount', 'Use at least 1 TRX for staking or resource delegation.'); return }
@@ -896,7 +899,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     let protectedReserveSun
     try { protectedReserveSun = BigInt(parseTrx(String(sponsorApiStatus?.feePolicy?.protectedReserveTrx || '2'))) }
     catch { notify('error', 'Invalid Sponsor reserve policy', 'The Resource API returned an invalid protected TRX reserve. No transaction was sent.'); return }
-    const requiredLiquidSun = (action === 'stake' || action === 'topup' ? BigInt(amountSun) : 0n) + protectedReserveSun
+    const requiredLiquidSun = (['stake', 'topup', 'transfer'].includes(action) ? BigInt(amountSun) : 0n) + protectedReserveSun
     if (available < requiredLiquidSun) {
       notify('error', 'Insufficient protected TRX reserve', 'The Sponsor Wallet must retain the configured liquid reserve in addition to the requested stake or delegation fee.'); return
     }
@@ -904,12 +907,14 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       const maxDelegatable = BigInt(selectedResource === 'ENERGY' ? snapshot?.maxEnergyDelegatableSun || '0' : snapshot?.maxBandwidthDelegatableSun || '0')
       if (BigInt(amountSun) > maxDelegatable) { notify('error', 'Insufficient delegatable stake', 'The requested resource amount exceeds the Sponsor Wallet\'s confirmed Stake 2.0 delegation ceiling.'); return }
     }
-    const verb = ({ stake: 'stake', topup: 'top up', delegate: 'delegate', undelegate: 'reclaim delegation', unstake: 'initiate unstaking', withdraw: 'withdraw matured TRX' })[action] || action
-    const target = ['stake', 'unstake', 'withdraw'].includes(action) ? wallet.address : ownerAddress
+    const verb = ({ stake: 'stake', topup: 'top up', transfer: 'send TRX', delegate: 'delegate', undelegate: 'reclaim delegation', unstake: 'initiate unstaking', withdraw: 'withdraw matured TRX' })[action] || action
+    const target = action === 'transfer' ? recipientAddress : ['stake', 'unstake', 'withdraw'].includes(action) ? wallet.address : ownerAddress
     const prompt = action === 'stake'
       ? `Stake ${selectedAmount} TRX for ${selectedResource} in Sponsor Wallet ${wallet.address}?`
       : action === 'topup'
         ? `Send ${selectedAmount} TRX from Sponsor Wallet ${wallet.address} to the existing Owner Wallet ${ownerAddress}? This is a real Mainnet TRX transfer.`
+        : action === 'transfer'
+          ? `Send ${selectedAmount} TRX from Sponsor Wallet ${wallet.address} to ${recipientAddress}? This is an arbitrary-recipient native TRX Mainnet transfer.`
         : action === 'delegate'
           ? `Delegate ${selectedAmount} TRX-equivalent of ${selectedResource} from Sponsor Wallet ${wallet.address} to Owner Wallet ${ownerAddress}?`
           : action === 'undelegate'
@@ -925,7 +930,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       const idempotencyKey = createIdempotencyKey()
       const intent = await sponsorApiRequest('/api/sponsor/intent', {
         method: 'POST', csrfToken: authCsrfToken,
-        body: { operation: action, resource: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey },
+        body: { operation: action, resource: ['topup', 'withdraw', 'transfer'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey, ...(action === 'transfer' ? { recipientAddress } : {}) },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
       if (!window.confirm('Confirm this exact Sponsor operation?\\n\\n' + intent.message + '\\n\\nThe Resource API will prepare and persist one unsigned transaction. The imported Sponsor Wallet will sign locally; the API will verify the signer and persist the transaction ID before broadcasting.')) return
@@ -942,8 +947,8 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       }
       if (!unsignedTransaction?.txID || !/^[0-9a-f]{64}$/i.test(unsignedTransaction.txID)
         || typeof unsignedTransaction.raw_data_hex !== 'string'
-        || prepared.sponsorAddress !== wallet.address || prepared.ownerAddress !== ownerAddress
-        || prepared.operation !== action || prepared.resource !== (['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource)
+        || prepared.sponsorAddress !== wallet.address || prepared.ownerAddress !== recipientAddress
+        || prepared.operation !== action || prepared.resource !== (['topup', 'withdraw', 'transfer'].includes(action) ? 'TRX' : selectedResource)
         || prepared.amountSun !== String(amountSun)
         || !Array.isArray(unsignedTransaction.raw_data?.contract) || unsignedTransaction.raw_data.contract.length !== 1) {
         throw new Error('Sponsor API returned an invalid or mismatched unsigned Mainnet transaction. No signature was requested.')
@@ -952,7 +957,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       const preparedActivity = {
         transactionId: '', preparedTransactionId: unsignedTransaction.txID, operationReference: idempotencyKey,
         sponsorAddress: wallet.address, receiverAddress: target, action,
-        resourceType: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource,
+        resourceType: ['topup', 'withdraw', 'transfer'].includes(action) ? 'TRX' : selectedResource,
         stakeEquivalentSun: String(amountSun), status: 'prepared-awaiting-local-signature',
         createdAt: new Date().toISOString(),
       }
@@ -962,7 +967,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         throw new Error('Prepared Sponsor transaction is too close to expiration. Refresh resources and prepare a new operation.')
       }
       if (!window.confirm('Review the exact unsigned Mainnet transaction before local signing.\\n\\nOperation: ' + action
-        + '\\nSponsor: ' + wallet.address + '\\nOwner: ' + ownerAddress + '\\nTransaction ID: ' + unsignedTransaction.txID
+        + '\\nSponsor: ' + wallet.address + '\\nRecipient: ' + recipientAddress + '\\nTransaction ID: ' + unsignedTransaction.txID
         + '\\nEstimated Bandwidth fee: ' + formatSunAsTrx(requiredBandwidthFeeSun) + ' TRX'
         + '\\nProtected liquid reserve: ' + formatSunAsTrx(feeReserveSun) + ' TRX'
         + '\\nExpires: ' + new Date(expiration).toLocaleString()
@@ -1012,7 +1017,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         setLastOperationReference(result.solidified || result.operationStatus === 'failed' ? '' : operationReference)
         const event = {
           transactionId, operationReference, sponsorAddress: wallet.address, receiverAddress: target, action,
-          resourceType: ['topup', 'withdraw'].includes(action) ? 'TRX' : selectedResource, stakeEquivalentSun: String(amountSun),
+          resourceType: ['topup', 'withdraw', 'transfer'].includes(action) ? 'TRX' : selectedResource, stakeEquivalentSun: String(amountSun),
           status: result.solidified ? (action === 'delegate' ? 'solidified-mainnet-verified' : 'solidified-mainnet-confirmed') : result.broadcast ? 'broadcast-pending-verification' : 'signed-not-broadcast',
           blockNumber: result.confirmationBlock || null, createdAt: new Date().toISOString(),
         }
