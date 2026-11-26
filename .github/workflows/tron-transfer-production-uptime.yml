@@ -284,6 +284,7 @@ jobs:
                 };
               }
             }));
+            results.push(...resourceProbes);
             fs.mkdirSync('uptime-results', { recursive: true });
             fs.writeFileSync('uptime-results/latest.json', JSON.stringify({
               service: 'Tron Transfer',
@@ -291,7 +292,6 @@ jobs:
               interval: '5 minutes (best effort; GitHub scheduled execution is not real-time guaranteed)',
               results,
             }, null, 2) + '\n');
-            results.push(...resourceProbes);
             const failed = results.filter(item => !item.ok);
             const summary = [
               '## Tron Transfer production probe',
