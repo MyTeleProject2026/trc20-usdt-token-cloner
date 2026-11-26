@@ -524,7 +524,6 @@ export function createSponsorResourceApi({
           { id: 'owner-mainnet-identity', state: ownerAddressMatches ? 'passed' : 'blocked' },
           { id: 'independent-sponsor-mainnet-identity', state: sponsorIndependent && sponsorAddressMatches && readiness.sponsorAddressValid === true ? 'passed' : 'blocked' },
           { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
-          { id: 'owner-signer-acceptance', state: ownerSignerAcceptanceVerified ? 'passed' : 'blocked' },
           { id: 'sponsor-signer-acceptance', state: sponsorSignerAcceptanceVerified ? 'passed' : 'blocked' },
           { id: 'approved-database-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked' },
