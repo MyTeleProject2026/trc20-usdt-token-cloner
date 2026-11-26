@@ -295,6 +295,65 @@ test('pinned Owner Admin direct Neon URL is the runtime fallback when shared dat
   }), false, 'an explicitly configured but different runtime URL must not be masked by the Owner Admin fallback')
 })
 
+test('Owner-only Sponsor audit returns sanitized read-only ledger and signer acceptance history', async () => {
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const calls = []
+  const database = {
+    async query(sql, values) {
+      const query = String(sql)
+      calls.push(query)
+      if (query.includes('to_regclass')) return { rowCount: 1, rows: [{
+        operations_table: 'tron_transfer_sponsor_operations',
+        control_table: 'tron_transfer_sponsor_control',
+        prepared_transaction_column: true,
+        signed_transaction_column: true,
+        recipient_address_column: true,
+      }] }
+      if (query.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      if (query.includes('SELECT operation,resource,amount_sun')) return { rowCount: 1, rows: [{
+        operation: 'delegate', resource: 'ENERGY', amount_sun: '1000000',
+        sponsor_address: SPONSOR, owner_address: OWNER, recipient_address: OWNER,
+        status: 'confirmed', transaction_id: 'a'.repeat(64), result_code: 'SUCCESS',
+        confirmation_block: 123, created_at: '2026-11-26T12:00:00.000Z', updated_at: '2026-11-26T12:01:00.000Z',
+      }] }
+      if (query.includes('GROUP BY status')) return { rowCount: 1, rows: [{ status: 'confirmed', count: '1' }] }
+      if (query.includes('signer_acceptance_verified')) return { rowCount: 2, rows: [
+        { wallet_role: 'owner', address: OWNER, outcome: 'success', created_at: '2026-11-26T11:00:00.000Z' },
+        { wallet_role: 'sponsor', address: SPONSOR, outcome: 'success', created_at: '2026-11-26T11:05:00.000Z' },
+      ] }
+      throw new Error('unexpected audit query')
+    },
+  }
+  let auditAuthOptions = null
+  const { api } = setup({
+    database, databaseUrl, expectedDatabaseIdentitySha256,
+    authenticateOwnerAdminSession: async (req, options) => {
+      auditAuthOptions = options
+      return req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null
+    },
+  })
+  const denied = await call(api, 'GET', '/api/sponsor/audit', undefined, undefined, '')
+  assert.deepEqual(auditAuthOptions, { requireCsrf: false })
+  assert.equal(denied.status, 401)
+  assert.equal(denied.payload.error, 'admin-authorization-required')
+
+  const result = await call(api, 'GET', '/api/sponsor/audit?limit=25')
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.network, 'TRON Mainnet')
+  assert.equal(result.payload.readOnly, true)
+  assert.equal(result.payload.sponsorWritesPaused, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
+  assert.equal(result.payload.operations.length, 1)
+  assert.equal(result.payload.operationCounts.confirmed, '1')
+  assert.equal(result.payload.signerAcceptances.length, 2)
+  assert.equal(result.payload.signerAcceptanceAuditAvailable, true)
+  assert.equal(result.payload.signedTransactionPayloadsIncluded, false)
+  assert.equal(JSON.stringify(result.payload).includes('prepared_transaction'), false)
+  assert.equal(JSON.stringify(result.payload).includes('signed_transaction'), false)
+  assert.equal(calls.some(query => /^\\s*(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\\b/im.test(query)), false)
+})
+
 test('Sponsor status exposes readiness but never secret values', async () => {
   const { api } = setup()
   const result = await call(api, 'GET', '/api/sponsor/status')

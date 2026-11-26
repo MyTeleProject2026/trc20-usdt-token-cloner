@@ -390,6 +390,13 @@ export function createSponsorResourceApi({
     const session = await authenticateOwnerAdminSession(req, { requireCsrf: true })
     return Boolean(session && session.address === ownerAddress)
   }
+  async function verifyAdminReadAuthorization(req) {
+    // Read-only audit requests require the authenticated Owner identity but
+    // do not require a CSRF token because they cannot mutate ledger state.
+    if (!ownerAdminAuthConfigured) return false
+    const session = await authenticateOwnerAdminSession(req, { requireCsrf: false })
+    return Boolean(session && session.address === ownerAddress)
+  }
   const rateCounts = new Map()
   function rateLimit(req, key, max = 12) {
     const ip = String(sponsorClientIp(req)).slice(0, 80)
@@ -606,6 +613,7 @@ export function createSponsorResourceApi({
   async function handle(req, res, url, origin) {
     const path = url.pathname
     const isRoute = path === '/api/sponsor/status'
+      || path === '/api/sponsor/audit'
       || path === '/api/acceptance/production'
       || path === '/api/sponsor/ledger/bootstrap'
       || path === '/api/sponsor/ledger/release'
@@ -621,6 +629,71 @@ export function createSponsorResourceApi({
       || path === '/api/tron/sponsorship/resource-delegations/verify-wallet'
     if (!isRoute) return false
     cleanup(now())
+
+    // Owner-only, read-only Sponsor audit. Return operation metadata and signer
+    // acceptance facts, never prepared or signed transaction payloads.
+    if (req.method === 'GET' && path === '/api/sponsor/audit') {
+      if (!(await verifyAdminReadAuthorization(req))) {
+        return reply(res, 401, { success: false, error: 'admin-authorization-required' }, origin)
+      }
+      if (!databaseTargetIdentityMatches(env)) {
+        return reply(res, 503, { success: false, error: 'sponsor-ledger-database-identity-not-accepted', sponsorWritesPaused: true }, origin)
+      }
+      if (!rateLimit(req, 'audit', 20)) {
+        return reply(res, 429, { success: false, error: 'rate-limited', retryAfterSeconds: 60, sponsorWritesPaused: true }, origin)
+      }
+      const requestedLimit = Number(url.searchParams.get('limit') || 50)
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100) {
+        return reply(res, 400, { success: false, error: 'invalid-audit-limit' }, origin)
+      }
+      const db = getDatabase()
+      if (!db) return reply(res, 503, { success: false, error: 'sponsor-ledger-unavailable', sponsorWritesPaused: true }, origin)
+      try {
+        const control = await assertSchema(db)
+        const [operations, counts] = await Promise.all([
+          db.query(
+            'SELECT operation,resource,amount_sun::text AS amount_sun,sponsor_address,owner_address,recipient_address,status,transaction_id,result_code,confirmation_block,created_at,updated_at FROM public.tron_transfer_sponsor_operations ORDER BY created_at DESC LIMIT $1',
+            [requestedLimit],
+          ),
+          db.query(
+            'SELECT status,count(*)::text AS count FROM public.tron_transfer_sponsor_operations GROUP BY status ORDER BY status',
+          ),
+        ])
+        let signerAcceptances = []
+        let signerAcceptanceAuditAvailable = true
+        try {
+          const audit = await db.query(
+            "SELECT wallet_role,metadata->>'address' AS address,outcome,created_at FROM public.tron_transfer_wallet_auth_audit WHERE event_type='signer_acceptance_verified' AND wallet_role IN ('owner','sponsor') ORDER BY created_at DESC LIMIT 20",
+          )
+          signerAcceptances = (audit.rows || []).map(row => ({
+            role: row.wallet_role,
+            address: row.address,
+            outcome: row.outcome,
+            recordedAt: row.created_at,
+          }))
+        } catch {
+          signerAcceptanceAuditAvailable = false
+        }
+        return reply(res, 200, {
+          success: true,
+          network: 'TRON Mainnet',
+          readOnly: true,
+          sponsorWritesPaused: control.writesPaused === true,
+          transactionExecutionAvailable: false,
+          operations: operations.rows || [],
+          operationCounts: Object.fromEntries((counts.rows || []).map(row => [row.status, String(row.count)])),
+          signerAcceptances,
+          signerAcceptanceAuditAvailable,
+          signedTransactionPayloadsIncluded: false,
+          checkedAt: new Date(now()).toISOString(),
+        }, origin)
+      } catch {
+        return reply(res, 503, {
+          success: false, error: 'sponsor-audit-unavailable',
+          sponsorWritesPaused: true, transactionExecutionAvailable: false,
+        }, origin)
+      }
+    }
 
     if (req.method === 'GET' && (path === '/api/sponsor/status' || path === '/api/acceptance/production')) {
       if (sponsorStatusCache.value?.sponsorWritesPaused === true && now() - sponsorStatusCache.at < 5000) {
