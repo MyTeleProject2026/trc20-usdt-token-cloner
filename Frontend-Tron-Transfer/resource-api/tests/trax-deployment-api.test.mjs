@@ -23,6 +23,7 @@ function make(overrides={}) {
     buildTransaction:overrides.buildTransaction,
     estimateEnergy:overrides.estimateEnergy,
     readResources:overrides.readResources,
+    getBalance:overrides.getBalance,
     calculateBudget:overrides.calculateBudget,
     assertBudget:overrides.assertBudget,
     assertIntegrity:overrides.assertIntegrity,
@@ -59,6 +60,46 @@ test('deployment readiness and confirmation block a mismatched database identity
  await api.handle(req(),res(),new URL('https://api.test/api/owner/deployment/123e4567-e89b-42d3-a456-426614174000'),null)
  assert.equal(replies[2].status,503)
  assert.equal(replies[2].payload.error,'TRAX_DEPLOYMENT_DATABASE_TARGET_IDENTITY_NOT_VERIFIED')
+})
+
+test('read-only deployment preflight returns current Mainnet resources without persisting or signing', async()=>{
+ const events=[]
+ const db={async query(sql){if(sql.includes('to_regclass'))return {rows:[{deployments_table:'tron_transfer_deployments'}]};events.push('database-write');return {rows:[]}}}
+ const fakeTron={address:{toHex:()=> '41'+'11'.repeat(20)}}
+ const {api,replies}=make({env:{
+  TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',
+  TRAX_SOURCE_SHA256:'1'.repeat(64),TRAX_CREATION_BYTECODE_SHA256:'2'.repeat(64),TRAX_RUNTIME_BYTECODE_SHA256:'3'.repeat(64),TRAX_DEPLOYMENT_ARTIFACT_SHA256:'4'.repeat(64),
+ },database:db,tronWebFactory:()=>fakeTron,buildTransaction:async()=>({txID:'a'.repeat(64),raw_data_hex:'ab'.repeat(32),raw_data:{contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000',abi:{entrys:[]}}}}}]}}),
+ assertIntegrity:()=>true,estimateEnergy:async()=>({energyUsed:1000}),readResources:async()=>({energyAvailable:'2000',freeBandwidthAvailable:'500',stakedBandwidthAvailable:'100',energyFeeSun:'420',bandwidthFeeSun:'1000',maxFeeLimitSun:'150000000'}),
+ getBalance:async()=> '0',calculateBudget:()=>({requiredTrxSun:'0',energyWithSafetyMargin:'1250',availableEnergy:'2000',estimatedBandwidthBytes:'130',availableBandwidth:'500',energyBurnSun:'0',bandwidthBurnSun:'0'}),assertBudget:()=>true,
+ })
+ const url=new URL('https://api.test/api/owner/deployment/preflight?feeLimitSun=150000000')
+ await api.handle(req(),res(),url,null)
+ assert.equal(replies[0].status,200)
+ assert.equal(replies[0].payload.zeroTrxBurnReady,true)
+ assert.equal(replies[0].payload.ownerBalanceSun,'0')
+ assert.equal(replies[0].payload.readOnly,true)
+ assert.equal(replies[0].payload.transactionPersisted,false)
+ assert.equal(replies[0].payload.signatureRequested,false)
+ assert.equal(replies[0].payload.broadcastAttempted,false)
+ assert.deepEqual(events,[])
+})
+
+test('read-only deployment preflight reports resource shortfall without requesting a signature', async()=>{
+ const {api,replies}=make({env:{
+  TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',
+  TRAX_SOURCE_SHA256:'1'.repeat(64),TRAX_CREATION_BYTECODE_SHA256:'2'.repeat(64),TRAX_RUNTIME_BYTECODE_SHA256:'3'.repeat(64),TRAX_DEPLOYMENT_ARTIFACT_SHA256:'4'.repeat(64),
+ },tronWebFactory:()=>({address:{toHex:()=> '41'+'11'.repeat(20)}}),buildTransaction:async()=>({txID:'a'.repeat(64),raw_data_hex:'ab'.repeat(32),raw_data:{contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000',abi:{entrys:[]}}}}}]}}),
+ assertIntegrity:()=>true,estimateEnergy:async()=>({energyUsed:1000}),readResources:async()=>({energyAvailable:'100',freeBandwidthAvailable:'20',stakedBandwidthAvailable:'10',energyFeeSun:'420',bandwidthFeeSun:'1000',maxFeeLimitSun:'150000000'}),
+ getBalance:async()=> '5000000',calculateBudget:()=>({requiredTrxSun:'12000000',energyWithSafetyMargin:'1250',availableEnergy:'100',estimatedBandwidthBytes:'130',availableBandwidth:'20',energyBurnSun:'11000000',bandwidthBurnSun:'1000000'}),assertBudget:()=>{throw new Error('must not assert an insufficient budget')},
+ })
+ await api.handle(req(),res(),new URL('https://api.test/api/owner/deployment/preflight?feeLimitSun=150000000'),null)
+ assert.equal(replies[0].status,200)
+ assert.equal(replies[0].payload.zeroTrxBurnReady,false)
+ assert.equal(replies[0].payload.blocker,'ZERO_TRX_BURN_BUDGET_EXCEEDED')
+ assert.equal(replies[0].payload.budget.requiredTrxSun,'12000000')
+ assert.equal(replies[0].payload.transactionPersisted,false)
+ assert.equal(replies[0].payload.broadcastAttempted,false)
 })
 
 test('deployment confirmation is locked even when readiness checks pass', async()=>{
