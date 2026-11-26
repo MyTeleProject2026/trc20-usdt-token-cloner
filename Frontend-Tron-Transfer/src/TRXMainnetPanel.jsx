@@ -928,14 +928,14 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       {sponsorAuditState === 'error' && <p className="fine-print" role="status">Sponsor audit unavailable. Verify Owner session and approved ledger database readiness, then retry.</p>}
       {sponsorAudit && <>
         <div className="trax-stats">
-          <article><span>Sponsor writes</span><b>{sponsorAudit.sponsorWritesPaused ? 'Paused' : 'Review required'}</b></article>
+          <article><span>Sponsor ledger</span><b>{sponsorAudit.sponsorWritesPaused ? 'Paused' : 'Active'}</b></article>
           <article><span>Ledger records</span><b>{sponsorAudit.operations.length}</b></article>
           <article><span>Confirmed</span><b>{sponsorAudit.operationCounts?.confirmed || '0'}</b></article>
         </div>
-        <p className="fine-print">Read-only audit · transaction execution available: No · signed payloads included: No · signer audit: {sponsorAudit.signerAcceptanceAuditAvailable ? 'available' : 'unavailable'}</p>
-        {sponsorAudit.sponsorWritesPaused !== true && <div className="notice notice-error" role="alert">
-          <b>Sponsor ledger is not paused in production.</b>
-          <p>The live database control row currently allows Sponsor ledger writes. Do not prepare, sign, or submit Sponsor operations. Use the guarded Owner Sponsor pause control before any further Sponsor activity.</p>
+        <p className="fine-print">Read-only audit endpoint · signed transaction payloads included: No · signer audit: {sponsorAudit.signerAcceptanceAuditAvailable ? 'available' : 'unavailable'}</p>
+        {sponsorAudit.sponsorWritesPaused === true && <div className="notice" role="status">
+          <b>Sponsor ledger writes are paused.</b>
+          <p>New Sponsor operations remain unavailable until the operator resumes writes through the guarded Sponsor controls.</p>
         </div>}
 
         {sponsorAudit.signerAcceptances?.length > 0 && <div className="trax-history-list">{sponsorAudit.signerAcceptances.map((entry, index) => <article className="trax-history-item" key={entry.role + ':' + entry.recordedAt + ':' + index}>
