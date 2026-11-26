@@ -13,14 +13,20 @@ test('PWA manifest uses the canonical TRӾ token artwork and standalone app iden
   assert.equal(manifest.short_name, 'Tron Transfer')
   assert.equal(manifest.display, 'standalone')
   assert.equal(manifest.scope, '/')
+  assert.ok(manifest.icons.some(icon => icon.src === '/trax-app-icon-192.png' && icon.sizes === '192x192' && icon.type === 'image/png'))
+  assert.ok(manifest.icons.some(icon => icon.src === '/trax-app-icon-512.png' && icon.sizes === '512x512' && icon.type === 'image/png'))
   assert.ok(manifest.icons.some(icon => icon.src === '/trax-token-mark.svg' && icon.type === 'image/svg+xml'))
   await read('public/trax-token-mark.svg')
+  await read('public/trax-app-icon-192.png')
+  await read('public/trax-app-icon-512.png')
 })
 
 test('document metadata links the same TRӾ artwork and web app manifest', async () => {
   const html = await read('index.html')
   assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/)
   assert.match(html, /href="\/trax-token-mark\.svg"/)
+  assert.match(html, /rel="apple-touch-icon" sizes="180x180" href="\/trax-apple-touch-icon\.png"/)
+  await read('public/trax-apple-touch-icon.png')
   assert.match(html, /Tron Transfer Owner Admin/)
 })
 
