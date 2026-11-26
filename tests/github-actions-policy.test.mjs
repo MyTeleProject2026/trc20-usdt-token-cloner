@@ -89,3 +89,12 @@ test('production uptime probe verifies independent Mainnet RPCs and current Spon
   assert.match(source, /writesReleaseAvailable/)
   assert.doesNotMatch(source, /adminTokenRequired|adminTokenConfigured/)
 })
+
+
+test('production uptime probe verifies both sign-only endpoints reject unauthenticated requests', async () => {
+  const source = await readFile(new URL('tron-transfer-production-uptime.yml', workflowsDirectory), 'utf8')
+  assert.match(source, /api\/wallet-auth\/owner\/signing-challenge/)
+  assert.match(source, /api\/wallet-auth\/sponsor\/signing-challenge/)
+  assert.match(source, /response\.status === 401/)
+  assert.match(source, /WALLET_SESSION_REQUIRED/)
+})
