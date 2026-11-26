@@ -88,6 +88,12 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [usdtWithdrawalAvailableBalance, setUsdtWithdrawalAvailableBalance] = useState(null)
   const [usdtWithdrawalHistory, setUsdtWithdrawalHistory] = useState([])
   const [usdtWithdrawalBalanceAt, setUsdtWithdrawalBalanceAt] = useState('')
+  const [nativeTrxWithdrawalRecipient, setNativeTrxWithdrawalRecipient] = useState('')
+  const [nativeTrxWithdrawalAmount, setNativeTrxWithdrawalAmount] = useState('')
+  const [nativeTrxReservedBalanceSun, setNativeTrxReservedBalanceSun] = useState('0')
+  const [nativeTrxAvailableBalanceSun, setNativeTrxAvailableBalanceSun] = useState(null)
+  const [nativeTrxWithdrawalHistory, setNativeTrxWithdrawalHistory] = useState([])
+  const [nativeTrxBalanceAt, setNativeTrxBalanceAt] = useState('')
   const prepareInFlightRef = useRef(null)
   const preparationKeyRef = useRef('')
 
@@ -373,8 +379,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     if (prepareInFlightRef.current) return prepareInFlightRef.current
     const task = run('Preparing guarded TRON Mainnet Owner operation', async () => {
       if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Authenticate the configured backend Owner session before preparing a write.')
-      const operationContractAddress = operationType === 'usdt-transfer' ? OFFICIAL_USDT_MAINNET_CONTRACT : tokenAddress.trim()
-      if (operationType !== 'usdt-transfer' && !operationContractAddress) throw new Error('Enter the existing verified TRӾ Mainnet contract address.')
+      const operationContractAddress = operationType === 'trx-transfer' ? 'TRX' : operationType === 'usdt-transfer' ? OFFICIAL_USDT_MAINNET_CONTRACT : tokenAddress.trim()
+      if (!['trx-transfer', 'usdt-transfer'].includes(operationType) && !operationContractAddress) throw new Error('Enter the existing verified TRӾ Mainnet contract address.')
       if (!feeCapSun) throw new Error('Enter a valid transaction fee limit.')
       const idempotencyKey = preparationKeyRef.current || (preparationKeyRef.current = makeIdempotencyKey())
       let result
@@ -623,6 +629,44 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   }
 
   const refreshUsdtWithdrawalBalance = () => run('Reading official USDT balance and active withdrawal reservations', readUsdtWithdrawalSnapshot)
+
+  const readOwnerNativeTrxSnapshot = async () => {
+    if (!walletReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Unlock the configured encrypted local Owner Wallet first.')
+    const [balance, journal] = await Promise.all([
+      getMainnetNativeBalance(readOnlyTronWeb, connectedAddress),
+      wallet.authClient.apiRequest('/api/owner/operations?limit=50'),
+    ])
+    if (!journal?.success || !Object.hasOwn(journal, 'reservedTrxBaseUnits')) throw new Error(journal?.error || 'OWNER_TRX_RESERVATION_SUMMARY_UNAVAILABLE')
+    const reserved = String(journal.reservedTrxBaseUnits)
+    if (!/^(?:0|[1-9][0-9]*)$/.test(reserved)) throw new Error('OWNER_TRX_RESERVED_BALANCE_INVALID')
+    const available = BigInt(String(balance)) > BigInt(reserved) ? (BigInt(String(balance)) - BigInt(reserved)).toString() : '0'
+    setUsdtWithdrawalTrxBalanceSun(String(balance))
+    setNativeTrxReservedBalanceSun(reserved)
+    setNativeTrxAvailableBalanceSun(available)
+    setNativeTrxWithdrawalHistory((journal.operations || []).filter(item => item.operationType === 'trx-transfer'))
+    setNativeTrxBalanceAt(new Date().toISOString())
+    return { balance: String(balance), reserved, available }
+  }
+
+  const refreshOwnerNativeTrxBalance = () => run('Reading Owner native TRX balance and active withdrawal reservations', readOwnerNativeTrxSnapshot)
+
+  const prepareNativeTrxWithdrawal = async () => {
+    try {
+      const recipientAddress = nativeTrxWithdrawalRecipient.trim()
+      if (!readOnlyTronWeb.isAddress(recipientAddress)) throw new Error('Enter a valid TRON Mainnet recipient address.')
+      if (recipientAddress === connectedAddress) throw new Error('The recipient must be different from the Owner wallet.')
+      const amountSun = parseTokenUnits(nativeTrxWithdrawalAmount)
+      const current = await readOwnerNativeTrxSnapshot()
+      if (BigInt(amountSun) > BigInt(current.available)) throw new Error('The requested withdrawal exceeds available native TRX after active withdrawal reservations.')
+      return await prepareOwnerOperation({
+        operationType: 'trx-transfer', recipient: recipientAddress, amount: amountSun,
+        summary: 'Send ' + nativeTrxWithdrawalAmount + ' native TRX to ' + recipientAddress,
+      })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      return null
+    }
+  }
 
   const prepareUsdtWithdrawal = async () => {
     try {
