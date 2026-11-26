@@ -98,3 +98,12 @@ test('production uptime probe verifies both sign-only endpoints reject unauthent
   assert.match(source, /response\.status === 401/)
   assert.match(source, /WALLET_SESSION_REQUIRED/)
 })
+
+
+test('production probe treats only the expected unauthenticated signer response as healthy', async () => {
+  const source = await readFile(new URL('tron-transfer-production-uptime.yml', workflowsDirectory), 'utf8')
+  assert.match(source, /const expectedUnauthorized =/)
+  assert.match(source, /response\.status === 401/)
+  assert.match(source, /parsed\?\.error === 'WALLET_SESSION_REQUIRED'/)
+  assert.match(source, /\(response\.ok \|\| expectedUnauthorized\)/)
+})
