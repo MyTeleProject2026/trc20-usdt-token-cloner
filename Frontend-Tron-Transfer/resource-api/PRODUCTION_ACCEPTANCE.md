@@ -150,3 +150,8 @@ Before enrollment, verify that the existing Resource API has the intended Mainne
 Check `GET /api/wallet-auth/owner/status` and `GET /api/wallet-auth/sponsor/status` before enrolling. Each role can be enrolled only once; a repeat returns HTTP 409. After a successful first enrollment, remove the corresponding enrollment token from the Render environment and redeploy the Resource API. Keep recovery procedures available before removing access to the only bootstrap mechanism.
 
 The Sponsor ledger bootstrap is a separate operation from Sponsor account enrollment. It requires an authenticated Owner Admin session, Owner CSRF proof, the explicit confirmation string `INITIALIZE_SPONSOR_LEDGER_SCHEMA`, and a matching approved database identity. It creates the Sponsor operations schema but leaves Sponsor writes paused. Do not enable transaction execution as part of enrollment or schema bootstrap. **It does not require the Sponsor password session or an unlocked Sponsor wallet vault.** The existing Sponsor workspace exposes this guarded bootstrap control as soon as the read-only status check reports a missing Sponsor ledger schema; Owner Admin authentication remains the authorization boundary. This allows the production database to be initialized before the Sponsor wallet is imported or unlocked.
+
+
+### TronScan Mainnet explorer credential
+
+The Resource API prefers `TRONSCAN_PRO_API_KEY` and accepts `TRONSCAN_API_KEY` as a compatibility fallback. The production health endpoint exposes only the selected environment-variable name and a boolean configured flag; it never returns the credential value. The production probe requires the key to be configured and the TronScan Mainnet API to respond successfully.

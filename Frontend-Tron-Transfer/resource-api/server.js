@@ -10,6 +10,7 @@ import { createOwnerOperationApi } from './owner-operation-api.mjs'
 import { createTRAXDeploymentApi } from './trax-deployment-api.mjs'
 import { createPendingOwnerAcceptanceApi } from './pending-owner-acceptance-api.mjs'
 import { createSponsorWalletAuthApi } from './sponsor-wallet-auth-api.mjs'
+import { resolveTronScanApiKey } from './tronscan-config.mjs'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const TATUM_MAINNET_RPC = 'https://tron-mainnet.gateway.tatum.io'
@@ -626,7 +627,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
       if (!allowRequest(ip, 'mainnet-explorer-health', 10)) {
         return send(res, 429, { ok: false, error: 'RATE_LIMITED', retryAfterSeconds: 60 }, origin)
       }
-      const apiKey = typeof env.TRONSCAN_PRO_API_KEY === 'string' ? env.TRONSCAN_PRO_API_KEY.trim() : ''
+      const { value: apiKey, source: apiKeySource } = resolveTronScanApiKey(env)
       const endpoint = new URL('/api/contract', TRONSCAN_MAINNET_API)
       endpoint.searchParams.set('contract', OFFICIAL_MAINNET_USDT)
       const startedAt = performance.now()
@@ -642,7 +643,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
         if (!response.ok || !records) {
           const value = {
             ok: false, explorer: 'TronScan', network: 'TRON Mainnet',
-            reachable: false, apiKeyConfigured: Boolean(apiKey),
+            reachable: false, apiKeyConfigured: Boolean(apiKey), apiKeySource,
             latencyMs: Math.round(performance.now() - startedAt),
             errorCode: response.status === 401 || response.status === 403 ? 'EXPLORER_AUTH_FAILED' : response.status === 429 ? 'EXPLORER_RATE_LIMITED' : 'EXPLORER_UNAVAILABLE',
             checkedAt: new Date().toISOString(),
@@ -653,7 +654,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
         const indexed = records.some(record => record?.address === OFFICIAL_MAINNET_USDT)
         const value = {
           ok: true, explorer: 'TronScan', network: 'TRON Mainnet',
-          reachable: true, apiKeyConfigured: Boolean(apiKey),
+          reachable: true, apiKeyConfigured: Boolean(apiKey), apiKeySource,
           probeContract: OFFICIAL_MAINNET_USDT, probeContractIndexed: indexed,
           latencyMs: Math.round(performance.now() - startedAt),
           checkedAt: new Date().toISOString(),
@@ -663,7 +664,7 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
       } catch {
         const value = {
           ok: false, explorer: 'TronScan', network: 'TRON Mainnet',
-          reachable: false, apiKeyConfigured: Boolean(apiKey),
+          reachable: false, apiKeyConfigured: Boolean(apiKey), apiKeySource,
           latencyMs: Math.round(performance.now() - startedAt),
           errorCode: 'EXPLORER_UNAVAILABLE',
           checkedAt: new Date().toISOString(),

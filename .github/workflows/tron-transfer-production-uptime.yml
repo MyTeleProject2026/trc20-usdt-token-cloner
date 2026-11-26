@@ -141,7 +141,7 @@ jobs:
                         && parsed?.explorer === 'TronScan' && parsed?.network === 'TRON Mainnet'
                         && parsed?.reachable === true && parsed?.apiKeyConfigured === true;
                       detail = validPayload
-                        ? 'TronScan authenticated and reachable · official USDT indexed=' + (parsed.probeContractIndexed === true)
+                        ? 'TronScan authenticated via ' + String(parsed.apiKeySource || 'configured key') + ' · official USDT indexed=' + (parsed.probeContractIndexed === true)
                         : !parsed?.apiKeyConfigured
                           ? 'TRONSCAN_PRO_API_KEY is not configured on the Resource API'
                           : 'TronScan Mainnet explorer unavailable · ' + String(parsed?.errorCode || 'invalid response');
