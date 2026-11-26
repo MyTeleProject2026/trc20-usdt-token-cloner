@@ -159,6 +159,35 @@ test('zero-TRX preflight blocks the exact Bandwidth quota shortfall before signi
   }), /total 0[.]139000 TRX.*No wallet prompt, signature, or broadcast was attempted/)
 })
 
+test('read-only resource preflight can report fallback cost while the default deployment policy still blocks it', () => {
+  const budget = calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    rawDataHex: '6001600055',
+    feeLimitSun: '150000000',
+    allowTrxFallback: true,
+    resourceSnapshot: {
+      energyFeeSun: '100',
+      bandwidthFeeSun: '1000',
+      energyAvailable: '125000',
+      freeBandwidthAvailable: '60',
+      stakedBandwidthAvailable: '40',
+      maxFeeLimitSun: '15000000000',
+    },
+  })
+  assert.equal(budget.requiredTrxSun, '139000')
+  assert.equal(budget.energyBurnSun, '0')
+  assert.equal(budget.bandwidthBurnSun, '139000')
+  assert.throws(() => calculateDeploymentResourceBudget({
+    energyRequired: '100000',
+    rawDataHex: '6001600055',
+    feeLimitSun: '150000000',
+    resourceSnapshot: {
+      energyFeeSun: '100', bandwidthFeeSun: '1000', energyAvailable: '125000',
+      freeBandwidthAvailable: '60', stakedBandwidthAvailable: '40', maxFeeLimitSun: '15000000000',
+    },
+  }), /ZERO-TRX-BURN PROTECTION BLOCKED DEPLOYMENT/)
+})
+
 test('zero-TRX policy blocks resource shortfalls without reading native TRX balance', () => {
   assert.throws(() => calculateDeploymentResourceBudget({
     energyRequired: '100000',

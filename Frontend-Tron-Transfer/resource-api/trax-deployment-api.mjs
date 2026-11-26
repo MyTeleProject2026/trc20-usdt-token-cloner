@@ -104,6 +104,7 @@ export function createTRAXDeploymentApi({
   predictAddress = predictMainnetContractAddress,
   recoverDeployment = recoverMainnetDeployment,
   broadcastDeployment = (client, signed) => client.trx.sendRawTransaction(signed),
+  getBalance = getMainnetNativeBalance,
 } = {}) {
   if (typeof send !== 'function' || typeof authenticateManagedSession !== 'function') throw new TypeError('TRӾ deployment API requires response and Owner-session adapters.')
   const makeTronWeb = typeof tronWebFactory === 'function'
@@ -130,13 +131,14 @@ export function createTRAXDeploymentApi({
   }
   async function handle(req, res, url, origin) {
     const readinessPath = url.pathname === '/api/owner/deployment/readiness'
+    const preflightPath = url.pathname === '/api/owner/deployment/preflight'
     const preparePath = url.pathname === '/api/owner/deployment/prepare'
     const confirmPath = url.pathname === '/api/owner/deployment/confirm'
     const broadcastPath = url.pathname === '/api/owner/deployment/broadcast'
     const statusMatch = url.pathname.match(/^\/api\/owner\/deployment\/([0-9a-f-]{36})$/i)
     const statusPath = Boolean(statusMatch)
-    if (!readinessPath && !preparePath && !confirmPath && !broadcastPath && !statusPath) return false
-    if (req.method !== (readinessPath || statusPath ? 'GET' : 'POST')) return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
+    if (!readinessPath && !preflightPath && !preparePath && !confirmPath && !broadcastPath && !statusPath) return false
+    if (req.method !== (readinessPath || preflightPath || statusPath ? 'GET' : 'POST')) return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
     const session = await authenticateManagedSession(req, { requireCsrf: !readinessPath && !statusPath })
     if (!session?.address || !OWNER.test(session.address) || session.address !== env.TRON_OWNER_ADDRESS) {
       return send(res, 401, { error: 'OWNER_SESSION_REQUIRED' }, origin)
@@ -171,6 +173,55 @@ export function createTRAXDeploymentApi({
         executionEnabled: mainnetEnabled(),
         note: 'Readiness checks never sign or broadcast. Owner transactions require the encrypted local Owner Wallet signer; the Resource API never receives or signs with an Owner private key.',
       }, origin)
+    }
+    if (preflightPath) {
+      if (!ready) return send(res, 503, { success: false, error: artifactError || 'TRAX_DEPLOYMENT_READINESS_GATES_BLOCKED', blocker: !ledgerReady ? 'TRAX_DEPLOYMENT_LEDGER_NOT_INSTALLED' : !databaseIdentityMatches ? 'TRAX_DEPLOYMENT_DATABASE_TARGET_IDENTITY_NOT_VERIFIED' : !durabilityReady(env) ? 'TRAX_DEPLOYMENT_LEDGER_DURABILITY_NOT_VERIFIED' : !pinsConfigured ? 'TRAX_DEPLOYMENT_ARTIFACT_PINS_NOT_CONFIGURED' : 'TRAX_DEPLOYMENT_ARTIFACT_INVALID' }, origin)
+      const feeLimitSun = String(url.searchParams.get('feeLimitSun') || '')
+      if (!/^[1-9][0-9]{0,11}$/.test(feeLimitSun)) return send(res, 400, { success: false, error: 'TRAX_DEPLOYMENT_FEE_LIMIT_INVALID' }, origin)
+      const maxFeeLimitSun = BigInt(env.TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN || '150000000')
+      if (BigInt(feeLimitSun) > maxFeeLimitSun) return send(res, 400, { success: false, error: 'TRAX_DEPLOYMENT_FEE_LIMIT_ABOVE_POLICY' }, origin)
+      try {
+        const artifactNow = await artifactLoader({ env })
+        const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
+        const unsigned = await buildTransaction(tronWeb, {
+          abi: artifactNow.abi, bytecode: artifactNow.bytecode, feeLimit: Number(feeLimitSun),
+          originEnergyLimit: Number(env.TRAX_DEPLOYMENT_ORIGIN_ENERGY_LIMIT || 10000000),
+          name: 'TRӾ', callValue: 0, userFeePercentage: 100,
+        }, session.address)
+        assertIntegrity(tronWeb, unsigned, 'Read-only TRӾ deployment preflight transaction')
+        const contract = unsigned?.raw_data?.contract?.[0]
+        const value = contract?.parameter?.value || {}
+        const newContract = value.new_contract || {}
+        if (contract?.type !== 'CreateSmartContract'
+          || String(value.owner_address || '').toLowerCase() !== tronWeb.address.toHex(session.address).toLowerCase()
+          || String(newContract.bytecode || '').replace(/^0x/i, '').toLowerCase() !== artifactNow.bytecode.toLowerCase()
+          || !Array.isArray(newContract.abi?.entrys) || newContract.abi.entrys.length !== artifactNow.abi.length
+          || !TXID.test(String(unsigned.txID || ''))) fail('TRAX_DEPLOYMENT_UNSIGNED_TRANSACTION_MISMATCH', 409)
+        const [estimate, snapshot, balanceSun] = await Promise.all([
+          estimateEnergy(tronWeb, session.address, artifactNow),
+          readResources(tronWeb, session.address),
+          getBalance(tronWeb, session.address),
+        ])
+        const resource = resourceFields(snapshot)
+        const budget = calculateBudget({
+          energyRequired: estimate.energyUsed, resourceSnapshot: resource, rawDataHex: unsigned.raw_data_hex,
+          feeLimitSun, safetyMarginBps: 12500, transactionLabel: 'TRӾ deployment read-only preflight', allowTrxFallback: true,
+        })
+        const zeroTrxBurnReady = String(budget.requiredTrxSun) === '0'
+        if (zeroTrxBurnReady) assertBudget(budget)
+        return send(res, 200, {
+          success: true, network: 'TRON Mainnet', ownerAddress: session.address,
+          artifact: { artifactSha256: artifactNow.artifactSha256, creationBytecodeSha256: artifactNow.creationBytecodeSha256, runtimeBytecodeSha256: artifactNow.runtimeBytecodeSha256 },
+          estimate, resources: resource, ownerBalanceSun: String(balanceSun), budget,
+          zeroTrxBurnReady, blocker: zeroTrxBurnReady ? null : 'ZERO_TRX_BURN_BUDGET_EXCEEDED',
+          checkedAt: new Date().toISOString(),
+          readOnly: true, transactionPersisted: false, walletPromptRequested: false, signatureRequested: false, broadcastAttempted: false,
+          message: zeroTrxBurnReady ? 'Live Mainnet resource preflight passed. No transaction was persisted, signed or broadcast.' : 'Zero-TRX-burn protection blocks this deployment. The fallback estimate is shown for diagnosis; no transaction was persisted, signed or broadcast.',
+        }, origin)
+      } catch (error) {
+        const status = Number.isInteger(error?.status) ? error.status : 503
+        return send(res, status, { success: false, error: error?.code || 'TRAX_DEPLOYMENT_RESOURCE_PREFLIGHT_FAILED', message: String(error?.message || 'TRӾ deployment resource preflight failed').slice(0, 280), readOnly: true, transactionPersisted: false, walletPromptRequested: false, signatureRequested: false, broadcastAttempted: false }, origin)
+      }
     }
     if (statusPath) {
       if (!databaseIdentityMatches) return send(res, 503, { error: 'TRAX_DEPLOYMENT_DATABASE_TARGET_IDENTITY_NOT_VERIFIED' }, origin)
