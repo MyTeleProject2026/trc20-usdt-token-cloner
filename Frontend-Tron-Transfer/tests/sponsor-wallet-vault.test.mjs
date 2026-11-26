@@ -51,7 +51,7 @@ test('Sponsor local vault is independent from the Owner and matches the authenti
 
 test('Sponsor transaction writes stay gated until release acceptance even though local signing is implemented', () => {
   assert.ok(ui.includes('transactionExecutionAvailable !== true'))
-  assert.ok(ui.includes('Local Sponsor-vault signing is implemented.'))
+  assert.ok(ui.includes('released ledger control, approved database identity, verified durability'))
   assert.ok(ui.includes('/api/sponsor/operations/prepare'))
   assert.ok(ui.includes('/api/sponsor/operations/submit'))
   assert.ok(ui.includes('signSponsorTransaction(wallet, unsignedTransaction)'))
