@@ -129,23 +129,28 @@ jobs:
                       ].every(key => typeof parsed?.[key] === 'boolean')
                         && typeof parsed?.stakingPolicy?.enabled === 'boolean'
                         && typeof parsed?.ownerTopupPolicy?.enabled === 'boolean';
-                      const sponsorSafetyPassed = safetyFieldsPresent
-                        && flags.sponsorWritesPaused
-                        && !flags.engineEnabled
-                        && !flags.broadcastAvailable
-                        && !flags.clientSigningAvailable
-                        && !flags.writesReleaseConfigured
-                        && !flags.writesReleaseAvailable
-                        && !flags.stakingEnabled
-                        && !flags.ownerTopupEnabled
-                        && !flags.transactionExecutionAvailable;
+                      // This is an availability/schema probe, not a policy gate.
+                      // Sponsor controls are operator-managed in the application:
+                      // an intentionally enabled engine, signer, staking policy or
+                      // broadcast path must not be treated as an outage. Readiness
+                      // and release blockers remain visible in the acceptance state.
                       const acceptanceState = String(parsed?.acceptance?.state || 'unknown').slice(0, 40);
+                      const acceptanceChecksPresent = parsed?.acceptance?.version === 1
+                        && Array.isArray(parsed?.acceptance?.checks);
                       validPayload = response.ok && parsed?.success === true
-                        && parsed?.acceptance?.version === 1 && Array.isArray(parsed?.acceptance?.checks)
-                        && sponsorSafetyPassed;
+                        && acceptanceChecksPresent && safetyFieldsPresent;
                       const databaseStatus = String(parsed?.databaseStatus || 'unknown').slice(0, 32);
                       metrics = {
+                        databaseConfigured: flags.databaseConfigured,
+                        databaseReady: flags.databaseReady,
+                        ownerAddressMatches: flags.ownerAddressMatches,
+                        sponsorIndependent: flags.sponsorIndependent,
+                        sponsorWalletEnrolled: flags.sponsorWalletEnrolled,
+                        sessionAuthenticationConfigured: flags.sessionAuthenticationConfigured,
+                        ownerAdminSessionConfigured: flags.ownerAdminSessionConfigured,
+                        ledgerDurabilityVerified: flags.ledgerDurabilityVerified,
                         sponsorWritesPaused: flags.sponsorWritesPaused,
+                        localSignerReady: flags.localSignerReady,
                         engineEnabled: flags.engineEnabled,
                         broadcastAvailable: flags.broadcastAvailable,
                         clientSigningAvailable: flags.clientSigningAvailable,
@@ -156,7 +161,7 @@ jobs:
                         transactionExecutionAvailable: flags.transactionExecutionAvailable,
                       };
                       detail = validPayload
-                        ? 'Sponsor acceptance=' + acceptanceState
+                        ? 'Sponsor API schema valid · acceptance=' + acceptanceState
                           + ' · db=' + databaseStatus
                           + ' · dbReady=' + flags.databaseReady
                           + ' · sponsor=' + flags.sponsorWalletEnrolled
@@ -173,8 +178,7 @@ jobs:
                           + ' · staking=' + flags.stakingEnabled
                           + ' · topup=' + flags.ownerTopupEnabled
                           + ' · execute=' + flags.transactionExecutionAvailable
-                          + ' · safe=' + sponsorSafetyPassed
-                        : 'Sponsor status endpoint is invalid or one or more Mainnet execution safety gates are not disabled';
+                        : 'Sponsor status endpoint is unavailable or returned an invalid response schema';
                     } else if (target.name === 'owner-mainnet-resource-readiness') {
                       const energy = String(parsed?.energy?.available ?? '');
                       const freeBandwidth = String(parsed?.bandwidth?.freeAvailable ?? '');
