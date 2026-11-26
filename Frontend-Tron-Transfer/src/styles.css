@@ -2464,3 +2464,172 @@ body::before { opacity: .075; }
 @media(max-width:1100px){.trax-admin-topbar{align-items:flex-start}.trax-topbar-actions{flex-wrap:wrap;justify-content:flex-end}}
 @media(max-width:720px){.trax-admin-topbar{gap:13px}.trax-topbar-actions{display:grid;grid-template-columns:1fr auto;gap:8px}.trax-workspace-switch{grid-column:1/-1}.trax-admin-content{padding:14px 12px calc(112px + env(safe-area-inset-bottom,0px))}.sponsor-manager-header{align-items:flex-start;flex-direction:column;padding:17px}.sponsor-product-tabs{position:sticky;top:0;width:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.sponsor-product-tabs button{min-width:0;padding-inline:4px;font-size:9px}.sponsor-card{padding:17px}.sponsor-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(prefers-reduced-motion:reduce){.trax-admin-shell *,.trax-admin-shell *:before,.trax-admin-shell *:after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+
+/* Tron Transfer premium fintech console refresh — shared Owner + Sponsor shell. */
+:root {
+  color-scheme: dark;
+  --bg: #07111f;
+  --bg-raised: #0b1728;
+  --surface: rgba(13, 27, 46, .92);
+  --surface-strong: #102139;
+  --surface-soft: rgba(18, 39, 64, .78);
+  --surface-glass: rgba(12, 27, 46, .82);
+  --line: rgba(139, 177, 220, .15);
+  --line-strong: rgba(80, 190, 245, .32);
+  --ink: #f2f7ff;
+  --ink-soft: #c2d0e2;
+  --muted: #8da2bb;
+  --muted-deep: #71869f;
+  --mint: #66d5f4;
+  --mint-bright: #39bdf0;
+  --emerald: #31c6a0;
+  --amber: #f5c66d;
+  --red: #ff929e;
+  --radius: 20px;
+  --radius-sm: 13px;
+  --shadow: 0 22px 64px rgba(0, 0, 0, .32);
+  font-family: Inter, 'DM Sans', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+html, body { background: #07111f; }
+body {
+  background:
+    radial-gradient(ellipse at 12% -12%, rgba(31, 126, 190, .20), transparent 38rem),
+    radial-gradient(ellipse at 92% 4%, rgba(94, 78, 190, .15), transparent 34rem),
+    linear-gradient(145deg, #07111f 0%, #0a1728 52%, #081322 100%);
+  color: var(--ink);
+}
+body::before { opacity: .055; }
+.trax-admin-shell {
+  width: min(100%, 1760px);
+  background: transparent;
+}
+.trax-admin-main { min-width: 0; }
+.trax-sidebar {
+  background: linear-gradient(180deg, rgba(11, 25, 43, .98), rgba(8, 19, 34, .98));
+  border-right: 1px solid rgba(129, 177, 220, .14);
+  box-shadow: 12px 0 40px rgba(0, 0, 0, .12);
+}
+.trax-sidebar-brand img {
+  filter: drop-shadow(0 0 12px rgba(62, 192, 244, .24));
+}
+.trax-sidebar-network, .trax-sidebar-wallet {
+  border-color: rgba(104, 184, 229, .18);
+  background: linear-gradient(135deg, rgba(26, 73, 111, .32), rgba(24, 42, 73, .38));
+}
+.trax-sidebar nav button {
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #9fb2ca;
+  transition: background .18s ease, border-color .18s ease, color .18s ease, transform .18s ease;
+}
+.trax-sidebar nav button:hover {
+  color: #eff8ff;
+  background: rgba(64, 154, 207, .10);
+  border-color: rgba(91, 180, 231, .16);
+  transform: translateX(2px);
+}
+.trax-sidebar nav button.active {
+  color: #eaf8ff;
+  border-color: rgba(73, 190, 241, .34);
+  background: linear-gradient(110deg, rgba(29, 139, 194, .26), rgba(74, 94, 174, .19));
+  box-shadow: inset 3px 0 0 #49c5f1, 0 8px 22px rgba(0, 0, 0, .16);
+}
+.trax-admin-topbar {
+  padding: 22px clamp(18px, 3vw, 42px);
+  border-bottom: 1px solid rgba(135, 174, 218, .12);
+  background: rgba(7, 17, 31, .78);
+  backdrop-filter: blur(22px);
+}
+.trax-kicker, .trax-sidebar-label {
+  color: #79c9ed;
+  letter-spacing: .16em;
+}
+.trax-topbar-title h1 {
+  color: #f3f8ff;
+  font-size: clamp(25px, 3vw, 34px);
+  letter-spacing: -.045em;
+}
+.trax-topbar-title p { color: #9aadc4; }
+.trax-workspace-switch {
+  padding: 4px;
+  border: 1px solid rgba(127, 171, 215, .17);
+  border-radius: 14px;
+  background: rgba(7, 17, 31, .76);
+}
+.trax-workspace-switch button {
+  min-height: 40px;
+  border-radius: 10px;
+  color: #9eb1c8;
+}
+.trax-workspace-switch button.active {
+  color: #eaf8ff;
+  background: linear-gradient(120deg, rgba(22, 132, 188, .30), rgba(75, 91, 171, .24));
+  box-shadow: inset 0 0 0 1px rgba(77, 190, 239, .25);
+}
+.trax-mainnet-badge {
+  border: 1px solid rgba(65, 194, 237, .22);
+  background: rgba(21, 85, 120, .18);
+  color: #c9efff;
+}
+.trax-admin-content { padding: clamp(16px, 2.5vw, 34px); }
+.trax-admin-footer {
+  color: #6f849d;
+  border-top-color: rgba(133, 174, 218, .12);
+}
+.trax-mobile-nav {
+  border: 1px solid rgba(123, 174, 220, .16);
+  border-bottom: 0;
+  background: rgba(7, 17, 31, .96);
+  box-shadow: 0 -14px 42px rgba(0, 0, 0, .34);
+  backdrop-filter: blur(22px);
+}
+.trax-mobile-nav button { color: #8298b2; }
+.trax-mobile-nav button.active {
+  color: #dff7ff;
+  border-color: rgba(75, 190, 239, .25);
+  background: linear-gradient(145deg, rgba(30, 126, 179, .23), rgba(76, 88, 164, .18));
+}
+.trax-mobile-sheet {
+  border: 1px solid rgba(101, 180, 225, .24);
+  background: linear-gradient(160deg, #10223a, #0a1729);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .55);
+}
+.trax-mobile-sheet-grid button {
+  border-color: rgba(135, 178, 220, .13);
+  background: rgba(17, 39, 64, .72);
+}
+.trax-shell-alert {
+  border-color: rgba(67, 190, 150, .26);
+  background: rgba(19, 99, 83, .18);
+}
+.trax-shell-alert.error {
+  border-color: rgba(255, 125, 143, .30);
+  background: rgba(125, 35, 58, .22);
+}
+button, input, select, textarea { accent-color: #4bc5ef; }
+button:not(:disabled) { transition: filter .16s ease, transform .16s ease, box-shadow .16s ease; }
+button:not(:disabled):active { transform: translateY(1px); }
+input, select, textarea {
+  color: #eff7ff;
+  border-color: rgba(132, 173, 216, .22);
+  background: rgba(5, 16, 30, .82);
+}
+input:focus, select:focus, textarea:focus {
+  border-color: rgba(76, 195, 240, .65);
+  box-shadow: 0 0 0 3px rgba(57, 179, 226, .12);
+}
+@media (max-width: 800px) {
+  .trax-admin-topbar { padding: 17px 16px 15px; }
+  .trax-admin-content { padding: 15px 13px calc(94px + env(safe-area-inset-bottom)); }
+  .trax-topbar-title h1 { font-size: 25px; }
+  .trax-workspace-switch { width: 100%; }
+  .trax-workspace-switch button { flex: 1; }
+  .trax-mobile-nav { padding-bottom: env(safe-area-inset-bottom); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
