@@ -135,9 +135,9 @@ jobs:
                           + ' · execute=' + flags.transactionExecutionAvailable
                         : 'Sponsor status endpoint returned an invalid acceptance payload';
                     } else if (target.name === 'owner-mainnet-resource-readiness') {
-                      const energy = String(parsed?.energyAvailable ?? '');
-                      const freeBandwidth = String(parsed?.freeBandwidthAvailable ?? '');
-                      const stakedBandwidth = String(parsed?.stakedBandwidthAvailable ?? '');
+                      const energy = String(parsed?.energy?.available ?? '');
+                      const freeBandwidth = String(parsed?.bandwidth?.freeAvailable ?? '');
+                      const stakedBandwidth = String(parsed?.bandwidth?.stakedOrDelegatedAvailable ?? '');
                       const providers = parsed?.rpc?.providersUsed || {};
                       validPayload = response.ok && parsed?.network === 'TRON Mainnet'
                         && /^\d+$/.test(energy)
