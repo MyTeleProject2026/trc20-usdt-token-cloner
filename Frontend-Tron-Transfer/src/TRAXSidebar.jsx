@@ -19,7 +19,7 @@ export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onC
       })}</div>)}
     </nav>
     <div className="trax-sidebar-bottom">
-      {workspace === 'owner' && !collapsed && <div className="trax-sidebar-wallet"><small>OWNER WALLET</small><b>{wallet?.address ? wallet.address.slice(0,8)+'…'+wallet.address.slice(-6) : 'Not connected'}</b></div>}
+      {workspace === 'owner' && !collapsed && <div className="trax-sidebar-wallet"><small>OWNER WALLET</small><b>{wallet?.address ? wallet.address.slice(0,8)+'…'+wallet.address.slice(-6) : 'Locked'}</b></div>}
       <button className="trax-sidebar-toggle" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} aria-controls="trax-desktop-workspace-nav">
         {collapsed ? <PanelLeftOpen size={18}/> : <PanelLeftClose size={18}/>}
         {!collapsed && <span>Collapse menu</span>}
