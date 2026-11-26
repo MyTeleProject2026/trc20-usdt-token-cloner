@@ -128,7 +128,8 @@ Required Owner/deployment configuration includes:
 - `TRAX_CREATION_BYTECODE_SHA256`
 - `TRAX_RUNTIME_BYTECODE_SHA256`
 - `TRAX_DEPLOYMENT_ARTIFACT_SHA256`
-- `OWNER_MAX_FEE_LIMIT_SUN` and `TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN`
+
+The Owner selects a fee-limit ceiling per operation. The Resource API validates that value against the live Mainnet `getMaxFeeLimit` chain parameter and the fresh operation-specific Energy/Bandwidth preflight; there is no fixed application-level 150/500 TRX fee cap. `OWNER_MAX_FEE_LIMIT_SUN` and `TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN` are legacy settings and are ignored by this code path. The selected fee limit is a ceiling, not a prepaid fee, and the existing zero-TRX-burn policy still blocks signing when the live resource budget requires TRX fallback.
 
 Owner operation and deployment ledger durability flags and execution acknowledgements must remain disabled until migrations, backup/restore, artifact identity, contract state, wallet identity, Energy, Bandwidth and zero-TRX-burn preflight have been independently accepted. CI success does not authorize a Mainnet signature or broadcast.
 
