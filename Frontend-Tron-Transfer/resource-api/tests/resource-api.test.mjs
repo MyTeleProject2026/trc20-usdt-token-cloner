@@ -302,3 +302,41 @@ test('HTTP response helper safely ignores duplicate writes after a response is c
   }
   assert.equal(send(response, 500, { error: 'late-error' }), false)
 })
+
+
+test('TronScan Mainnet explorer diagnostics probe official USDT and redact the optional API key', async (t) => {
+  const { createServer, OFFICIAL_MAINNET_USDT, TRONSCAN_MAINNET_API } = await import('../server.js')
+  const secret = 'tronscan-test-secret'
+  const calls = []
+  const server = createServer({
+    env: { TRONSCAN_PRO_API_KEY: secret },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options })
+      return new Response(JSON.stringify({ data: [{ address: OFFICIAL_MAINNET_USDT, tokenInfo: { tokenAbbr: 'USDT' } }] }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })
+    },
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+  const base = 'http://127.0.0.1:' + server.address().port
+  const response = await fetch(base + '/api/mainnet/explorer-health')
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.ok, true)
+  assert.equal(payload.explorer, 'TronScan')
+  assert.equal(payload.network, 'TRON Mainnet')
+  assert.equal(payload.reachable, true)
+  assert.equal(payload.probeContractIndexed, true)
+  assert.equal(payload.apiKeyConfigured, true)
+  assert.equal(calls.length, 1)
+  const requestUrl = new URL(calls[0].url)
+  assert.equal(requestUrl.origin, TRONSCAN_MAINNET_API)
+  assert.equal(requestUrl.pathname, '/api/contract')
+  assert.equal(requestUrl.searchParams.get('contract'), OFFICIAL_MAINNET_USDT)
+  assert.equal(calls[0].options.headers['TRON-PRO-API-KEY'], secret)
+  assert.equal(JSON.stringify(payload).includes(secret), false)
+  const cached = await fetch(base + '/api/mainnet/explorer-health')
+  assert.equal(cached.status, 200)
+  assert.equal(calls.length, 1)
+})
