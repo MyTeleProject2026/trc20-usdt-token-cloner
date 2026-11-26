@@ -178,6 +178,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   }, [])
 
   const verifyOwnerLocalSigner = () => run('Running local Owner sign-only acceptance', async () => {
+    setOwnerSignerAcceptance(null)
     const signer = await getOwnerSigner()
     const result = await runLocalSignerAcceptance({
       authClient: wallet?.authClient,
