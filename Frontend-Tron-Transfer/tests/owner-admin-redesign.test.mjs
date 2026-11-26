@@ -40,7 +40,7 @@ test('owner redesign retains Mainnet-only transaction safety and existing route 
 
 test('Owner and Sponsor render boundaries never guess whether a Mainnet transaction was submitted', async () => {
   const app = await read('../src/App.jsx')
-  assert.match(app, /class OwnerWorkspaceErrorBoundary extends React\\.Component/)
+  assert.ok(app.includes('class OwnerWorkspaceErrorBoundary extends React.Component'))
   assert.ok(app.includes('<OwnerWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>'))
   assert.match(app, /Check the durable Owner operation ledger and solidified Mainnet receipt before retrying/)
   assert.match(app, /Check the durable Sponsor ledger and solidified Mainnet receipt before retrying/)
