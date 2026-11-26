@@ -145,6 +145,7 @@ export function calculateDeploymentResourceBudget({
   feeLimitSun,
   safetyMarginBps = 12500,
   transactionLabel = 'deployment',
+  allowTrxFallback = false,
 }) {
   let energy, feeLimit
   try {
@@ -195,7 +196,7 @@ export function calculateDeploymentResourceBudget({
   }
   const bandwidthBurnSun = bandwidthShortfall * (bandwidthFee || 0n)
   const requiredTrxSun = energyBurnSun + bandwidthBurnSun
-  if (requiredTrxSun > 0n) {
+  if (requiredTrxSun > 0n && !allowTrxFallback) {
     const energyStatus = 'Energy required (with safety margin): ' + bufferedEnergy.toString()
       + '; available: ' + availableEnergy.toString()
       + '; shortfall: ' + energyShortfall.toString() + '.'
