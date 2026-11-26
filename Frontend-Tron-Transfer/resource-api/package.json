@@ -23,7 +23,8 @@
     "database:identity-fingerprint": "node scripts/print-database-identity-fingerprint.mjs",
     "sponsor:recovery-token": "WALLET_ROLE=sponsor node scripts/create-owner-recovery-token.mjs",
     "migrate:owner-admin-ledgers": "node scripts/migrate-owner-admin-ledgers.mjs",
-    "sponsor-ledger:register-checksum": "node scripts/register-sponsor-ledger-migration.mjs"
+    "sponsor-ledger:register-checksum": "node scripts/register-sponsor-ledger-migration.mjs",
+    "test:owner-admin-fingerprint-restore": "node --test tests/owner-admin-fingerprint-restore.integration.test.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",

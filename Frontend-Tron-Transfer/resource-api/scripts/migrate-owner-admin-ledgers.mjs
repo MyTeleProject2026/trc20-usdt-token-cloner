@@ -54,7 +54,7 @@ export const LEGACY_MIGRATION_CHECKSUMS = Object.freeze({
   '20261126_wallet_recovery_roles.sql': ['28c197c62eaf7f7757dad409cbaa6df0b82380bab64840d97a9817085a8187fe', '854d2cb8342c4289a85d88092626f8f31ce19bc027076eea8cab3f29977ed229'],
 })
 
-export const OWNER_ADMIN_SCHEMA_FINGERPRINT = '8ae2a1bf5fa5fce2150a8d0aefe75fe0c48beab9f40df23b7402a20c50f12f7e'
+export const OWNER_ADMIN_SCHEMA_FINGERPRINT = 'f950a9bf0464f74fff0a039453bb2fe40f1873561ae2b0499b7837dd66bd5364'
 
 const OWNER_ADMIN_SCHEMA_FINGERPRINT_SQL = String.raw`WITH target(table_name) AS (VALUES
  ('tron_transfer_wallet_accounts'),('tron_transfer_wallet_sessions'),('tron_transfer_wallet_auth_audit'),
