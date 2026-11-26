@@ -11,8 +11,9 @@ export async function runLocalSignerAcceptance({ authClient, tronWeb, address, r
   if (typeof tronWeb.trx?.signMessageV2 !== 'function') throw new Error('LOCAL_MESSAGE_SIGNING_UNAVAILABLE')
   const root = '/api/wallet-auth/' + role + '/signing-challenge'
   const challenge = await authClient.apiRequest(root)
-  if (challenge?.success !== true || typeof challenge.challengeId !== 'string'
-    || typeof challenge.message !== 'string' || !challenge.message.includes('TRON Mainnet')) {
+  if (challenge?.success !== true || challenge.role !== role || typeof challenge.challengeId !== 'string'
+    || typeof challenge.message !== 'string' || !challenge.message.includes('TRON Mainnet')
+    || !challenge.message.includes('Address: ' + address)) {
     throw new Error('LOCAL_SIGNER_CHALLENGE_INVALID')
   }
   const signature = await tronWeb.trx.signMessageV2(challenge.message)
