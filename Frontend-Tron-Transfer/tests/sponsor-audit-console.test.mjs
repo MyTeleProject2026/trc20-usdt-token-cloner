@@ -37,3 +37,16 @@ test('Owner deployment resource preflight displays the actual Mainnet RPC provid
   assert.ok(panel.includes('providersUsed?.account'))
   assert.ok(panel.includes('providersUsed?.chainParameters'))
 })
+
+test('Owner Sponsor audit warns when the production ledger control is not paused', async () => {
+  const panel = await read('../src/TRXMainnetPanel.jsx')
+  assert.ok(panel.includes('Sponsor ledger is not paused in production.'))
+  assert.ok(panel.includes('Do not prepare, sign, or submit Sponsor operations.'))
+  const workflow = await read('../../.github/workflows/tron-transfer-production-uptime.yml')
+  for (const gate of [
+    'sponsorWritesPaused', 'engineEnabled', 'broadcastAvailable',
+    'clientSigningAvailable', 'writesReleaseConfigured',
+    'writesReleaseAvailable', 'transactionExecutionAvailable',
+  ]) assert.ok(workflow.includes(gate), 'production probe missing safety gate: ' + gate)
+  assert.ok(workflow.includes('sponsorSafetyPassed'))
+})

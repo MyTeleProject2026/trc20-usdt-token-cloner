@@ -113,13 +113,48 @@ jobs:
                         sessionAuthenticationConfigured: parsed?.sessionAuthenticationConfigured === true,
                         ownerAdminSessionConfigured: parsed?.ownerAdminSessionConfiguredForLedgerRelease === true,
                         localSignerReady: parsed?.localSignerReady === true,
+                        engineEnabled: parsed?.engineEnabled === true,
+                        broadcastAvailable: parsed?.broadcastAvailable === true,
+                        clientSigningAvailable: parsed?.clientSigningAvailable === true,
+                        writesReleaseConfigured: parsed?.writesReleaseConfigured === true,
                         writesReleaseAvailable: parsed?.writesReleaseAvailable === true,
+                        stakingEnabled: parsed?.stakingPolicy?.enabled === true,
+                        ownerTopupEnabled: parsed?.ownerTopupPolicy?.enabled === true,
                         transactionExecutionAvailable: parsed?.transactionExecutionAvailable === true,
                       };
+                      const safetyFieldsPresent = [
+                        'sponsorWritesPaused', 'engineEnabled', 'broadcastAvailable',
+                        'clientSigningAvailable', 'writesReleaseConfigured',
+                        'writesReleaseAvailable', 'transactionExecutionAvailable',
+                      ].every(key => typeof parsed?.[key] === 'boolean')
+                        && typeof parsed?.stakingPolicy?.enabled === 'boolean'
+                        && typeof parsed?.ownerTopupPolicy?.enabled === 'boolean';
+                      const sponsorSafetyPassed = safetyFieldsPresent
+                        && flags.sponsorWritesPaused
+                        && !flags.engineEnabled
+                        && !flags.broadcastAvailable
+                        && !flags.clientSigningAvailable
+                        && !flags.writesReleaseConfigured
+                        && !flags.writesReleaseAvailable
+                        && !flags.stakingEnabled
+                        && !flags.ownerTopupEnabled
+                        && !flags.transactionExecutionAvailable;
                       const acceptanceState = String(parsed?.acceptance?.state || 'unknown').slice(0, 40);
                       validPayload = response.ok && parsed?.success === true
-                        && parsed?.acceptance?.version === 1 && Array.isArray(parsed?.acceptance?.checks);
+                        && parsed?.acceptance?.version === 1 && Array.isArray(parsed?.acceptance?.checks)
+                        && sponsorSafetyPassed;
                       const databaseStatus = String(parsed?.databaseStatus || 'unknown').slice(0, 32);
+                      metrics = {
+                        sponsorWritesPaused: flags.sponsorWritesPaused,
+                        engineEnabled: flags.engineEnabled,
+                        broadcastAvailable: flags.broadcastAvailable,
+                        clientSigningAvailable: flags.clientSigningAvailable,
+                        writesReleaseConfigured: flags.writesReleaseConfigured,
+                        writesReleaseAvailable: flags.writesReleaseAvailable,
+                        stakingEnabled: flags.stakingEnabled,
+                        ownerTopupEnabled: flags.ownerTopupEnabled,
+                        transactionExecutionAvailable: flags.transactionExecutionAvailable,
+                      };
                       detail = validPayload
                         ? 'Sponsor acceptance=' + acceptanceState
                           + ' · db=' + databaseStatus
@@ -131,9 +166,15 @@ jobs:
                           + ' · adminSession=' + flags.ownerAdminSessionConfigured
                           + ' · paused=' + flags.sponsorWritesPaused
                           + ' · signer=' + flags.localSignerReady
-                          + ' · release=' + flags.writesReleaseAvailable
+                          + ' · engine=' + flags.engineEnabled
+                          + ' · broadcast=' + flags.broadcastAvailable
+                          + ' · releaseConfigured=' + flags.writesReleaseConfigured
+                          + ' · releaseReady=' + flags.writesReleaseAvailable
+                          + ' · staking=' + flags.stakingEnabled
+                          + ' · topup=' + flags.ownerTopupEnabled
                           + ' · execute=' + flags.transactionExecutionAvailable
-                        : 'Sponsor status endpoint returned an invalid acceptance payload';
+                          + ' · safe=' + sponsorSafetyPassed
+                        : 'Sponsor status endpoint is invalid or one or more Mainnet execution safety gates are not disabled';
                     } else if (target.name === 'owner-mainnet-resource-readiness') {
                       const energy = String(parsed?.energy?.available ?? '');
                       const freeBandwidth = String(parsed?.bandwidth?.freeAvailable ?? '');

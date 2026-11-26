@@ -933,6 +933,11 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
           <article><span>Confirmed</span><b>{sponsorAudit.operationCounts?.confirmed || '0'}</b></article>
         </div>
         <p className="fine-print">Read-only audit · transaction execution available: No · signed payloads included: No · signer audit: {sponsorAudit.signerAcceptanceAuditAvailable ? 'available' : 'unavailable'}</p>
+        {sponsorAudit.sponsorWritesPaused !== true && <div className="notice notice-error" role="alert">
+          <b>Sponsor ledger is not paused in production.</b>
+          <p>The live database control row currently allows Sponsor ledger writes. Do not prepare, sign, or submit Sponsor operations. Use the guarded Owner Sponsor pause control before any further Sponsor activity.</p>
+        </div>}
+
         {sponsorAudit.signerAcceptances?.length > 0 && <div className="trax-history-list">{sponsorAudit.signerAcceptances.map((entry, index) => <article className="trax-history-item" key={entry.role + ':' + entry.recordedAt + ':' + index}>
           <div><b>{entry.role === 'owner' ? 'Owner' : 'Sponsor'} sign-only acceptance · {entry.outcome}</b><small>{entry.address}</small><small>{entry.recordedAt ? new Date(entry.recordedAt).toLocaleString() : 'Time unavailable'}</small></div>
         </article>)}</div>}
