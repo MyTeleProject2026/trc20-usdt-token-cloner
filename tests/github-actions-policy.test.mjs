@@ -76,8 +76,11 @@ test('production uptime probe verifies independent Mainnet RPCs and current Spon
   assert.match(source, /api\/mainnet\/provider-health/)
   assert.match(source, /api\/mainnet\/explorer-health/)
   assert.match(source, /parsed\?\.apiKeyConfigured === true/)
-  assert.match(source, /TRONSCAN_PRO_API_KEY/)
+  assert.match(source, /parsed\?\.probeContractIndexed === true/)
+  assert.match(source, /API key=/)
+  assert.match(source, /public read-only/)
   assert.match(source, /apiKeySource/)
+  assert.doesNotMatch(source, /TRONSCAN_PRO_API_KEY is not configured/)
   assert.match(source, /providerPriority\?\.\[0\] === 'tatum'/)
   assert.match(source, /provider\?\.id === 'tatum'/)
   assert.match(source, /provider\?\.id === 'trongrid'/)
@@ -85,4 +88,13 @@ test('production uptime probe verifies independent Mainnet RPCs and current Spon
   assert.match(source, /sponsorWalletEnrolled/)
   assert.match(source, /writesReleaseAvailable/)
   assert.doesNotMatch(source, /adminTokenRequired|adminTokenConfigured/)
+})
+
+
+test('production uptime probe verifies both sign-only endpoints reject unauthenticated requests', async () => {
+  const source = await readFile(new URL('tron-transfer-production-uptime.yml', workflowsDirectory), 'utf8')
+  assert.match(source, /api\/wallet-auth\/owner\/signing-challenge/)
+  assert.match(source, /api\/wallet-auth\/sponsor\/signing-challenge/)
+  assert.match(source, /response\.status === 401/)
+  assert.match(source, /WALLET_SESSION_REQUIRED/)
 })
