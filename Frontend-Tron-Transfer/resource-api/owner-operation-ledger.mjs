@@ -10,7 +10,7 @@ const TRANSITIONS = Object.freeze({
   broadcast: new Set(['confirmed','failed','broadcast-unknown']),
   confirmed: new Set(), failed: new Set(), cancelled: new Set(),
 })
-const OPERATION_TYPES = new Set(['deploy','owner-issue','credit','batch-credit','transfer','usdt-transfer','pause','unpause','minting-enable','minting-disable','ownership-transfer','ownership-accept'])
+const OPERATION_TYPES = new Set(['deploy','owner-issue','credit','batch-credit','transfer','usdt-transfer','trx-transfer','pause','unpause','minting-enable','minting-disable','ownership-transfer','ownership-accept'])
 function canonical(value) {
   if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
   if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + canonical(value[k])).join(',') + '}'
@@ -28,7 +28,7 @@ export function createOwnerOperationLedger({ database }) {
     if (typeof ownerAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(ownerAddress) || intent?.ownerAddress !== ownerAddress || intent?.contractAddress !== contractAddress) fail('OWNER_LEDGER_OWNER_OR_CONTRACT_IDENTITY_INVALID')
     if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{16,160}$/.test(idempotencyKey)) fail('OWNER_LEDGER_IDEMPOTENCY_KEY_INVALID')
     if (!OPERATION_TYPES.has(operationType)) fail('OWNER_LEDGER_OPERATION_NOT_ALLOWED')
-    if (typeof contractAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(contractAddress)) fail('OWNER_LEDGER_CONTRACT_ADDRESS_INVALID')
+    if (typeof contractAddress !== 'string' || (operationType === 'trx-transfer' ? contractAddress !== 'TRX' : !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(contractAddress))) fail('OWNER_LEDGER_CONTRACT_ADDRESS_INVALID')
     if (!intent || typeof intent !== 'object' || Array.isArray(intent)) fail('OWNER_LEDGER_INTENT_INVALID')
     const serialized = canonical(intent)
     if (serialized.length > 32768) fail('OWNER_LEDGER_INTENT_TOO_LARGE')
