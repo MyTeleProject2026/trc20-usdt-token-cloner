@@ -185,7 +185,7 @@ body:has(.trax-admin-shell)::before { display: none; }
   .trax-workspace-switch { grid-column:1/-1; width:100%; display:grid; grid-template-columns:1fr 1fr; }
   .trax-workspace-switch button { min-width:0; padding-inline:5px; }
   .trax-admin-content { padding:14px 12px calc(104px + env(safe-area-inset-bottom,0px)); }
-  .trax-mobile-nav { grid-template-columns:repeat(4,minmax(0,1fr)); padding:7px 8px calc(7px + env(safe-area-inset-bottom,0px)); }
+  .trax-mobile-nav { grid-template-columns:repeat(5,minmax(0,1fr)); padding:7px 8px calc(7px + env(safe-area-inset-bottom,0px)); }
 }
 @media (max-width: 380px) {
   .trax-topbar-title h1 { font-size:19px; }
