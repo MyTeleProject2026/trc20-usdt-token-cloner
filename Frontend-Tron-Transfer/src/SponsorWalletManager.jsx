@@ -94,12 +94,18 @@ async function readRecentTransactions(address) {
 async function readResourceSnapshot(address, tronWeb) {
   try {
     const response = await fetch(RESOURCE_API + '/v1/resources/' + encodeURIComponent(address), { cache: 'no-store' })
+    const payload = await response.json().catch(() => ({}))
     if (!response.ok) {
-      const error = new Error('Resource API returned HTTP ' + response.status)
+      const retryAfterSeconds = Math.max(1, Number(payload?.retryAfterSeconds || response.headers.get('retry-after') || 15))
+      const message = typeof payload?.message === 'string' ? payload.message
+        : response.status === 429
+          ? 'Mainnet resource reads are busy. Wait ' + retryAfterSeconds + ' seconds before refreshing again.'
+          : 'Resource API returned HTTP ' + response.status
+      const error = new Error(message)
       error.status = response.status
+      error.retryAfterSeconds = retryAfterSeconds
       throw error
     }
-    const payload = await response.json()
     if (payload?.address !== address || payload?.network !== 'TRON Mainnet' || !payload.energy || !payload.bandwidth || !payload.networkResourceWeights) throw new Error('Resource API returned an invalid account snapshot')
     return {
       balanceSun: String(payload.balanceSun || '0'),
@@ -211,6 +217,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [durableLedgerError, setDurableLedgerError] = useState('')
   const toastTimer = useRef(null)
   const resourceAlertState = useRef('unknown')
+  const refreshInFlight = useRef(false)
 
   const tronWeb = useMemo(() => wallet?.privateKey ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
@@ -564,7 +571,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       }
     }
     void loadStatus()
-    const timer = window.setInterval(() => { void loadStatus() }, 30_000)
+    const timer = window.setInterval(() => { void loadStatus() }, 60_000)
     return () => { active = false; window.clearInterval(timer) }
   }, [workspaceActive])
 
@@ -599,7 +606,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [workspaceActive, activePage, wallet?.address, tronWeb, loadDurableOperations])
 
   const refresh = useCallback(async ({ quiet = false } = {}) => {
-    if (!wallet || !tronWeb || !ownerAddress) return
+    if (!wallet || !tronWeb || !ownerAddress || refreshInFlight.current) return
+    refreshInFlight.current = true
     setBusy(true)
     try {
       const resourceReader = tronWeb.trx.raw || tronWeb.trx
@@ -665,6 +673,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     } catch (error) {
       if (!quiet) notify('error', 'Live refresh failed', error instanceof Error ? error.message : 'Could not read Sponsor Wallet data.')
     } finally {
+      refreshInFlight.current = false
       setBusy(false)
     }
   }, [wallet, tronWeb, notify, ownerAddress])
@@ -673,7 +682,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   useEffect(() => {
     if (!wallet || !workspaceActive) return undefined
-    const timer = window.setInterval(() => { void refresh({ quiet: true }) }, 60_000)
+    const timer = window.setInterval(() => { void refresh({ quiet: true }) }, 90_000)
     return () => window.clearInterval(timer)
   }, [wallet, workspaceActive, refresh])
 
