@@ -323,6 +323,36 @@ jobs:
             }
           })().catch(error => { console.error(error); process.exitCode = 1; });
           NODE
+      - name: Verify production Retry-After and CORS response headers
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const endpoint = 'https://tron-transfer-resource-api.onrender.com/api/observatory/render-metrics';
+          const origin = 'https://tron-transfer.onrender.com';
+          let limited = null;
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            const response = await fetch(endpoint, {
+              headers: { accept: 'application/json', origin },
+              signal: AbortSignal.timeout(20000),
+            });
+            await response.arrayBuffer();
+            if (response.status === 429) {
+              limited = response;
+              break;
+            }
+            if (![200, 503].includes(response.status)) {
+              throw new Error('Unexpected production observatory response: HTTP ' + response.status);
+            }
+          }
+          if (!limited) throw new Error('Production rate-limit probe did not receive HTTP 429 within 12 read-only requests.');
+          const retryAfter = limited.headers.get('retry-after');
+          if (retryAfter !== '60') throw new Error('Production Retry-After header mismatch: ' + String(retryAfter));
+          const exposed = limited.headers.get('access-control-expose-headers') || '';
+          if (!/\bretry-after\b/i.test(exposed)) throw new Error('Production CORS response does not expose Retry-After.');
+          console.log('Production API returned HTTP 429 with Retry-After: 60 and CORS exposed the header.');
+          NODE
       - name: Persist probe to Git-backed history
         if: always()
         continue-on-error: true
