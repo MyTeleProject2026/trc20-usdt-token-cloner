@@ -150,3 +150,16 @@ Before enrollment, verify that the existing Resource API has the intended Mainne
 Check `GET /api/wallet-auth/owner/status` and `GET /api/wallet-auth/sponsor/status` before enrolling. Each role can be enrolled only once; a repeat returns HTTP 409. After a successful first enrollment, remove the corresponding enrollment token from the Render environment and redeploy the Resource API. Keep recovery procedures available before removing access to the only bootstrap mechanism.
 
 The Sponsor ledger bootstrap is a separate operation from Sponsor account enrollment. It requires an authenticated Owner Admin session, Owner CSRF proof, the explicit confirmation string `INITIALIZE_SPONSOR_LEDGER_SCHEMA`, and a matching approved database identity. It creates the Sponsor operations schema but leaves Sponsor writes paused. Do not enable transaction execution as part of enrollment or schema bootstrap. **It does not require the Sponsor password session or an unlocked Sponsor wallet vault.** The existing Sponsor workspace exposes this guarded bootstrap control as soon as the read-only status check reports a missing Sponsor ledger schema; Owner Admin authentication remains the authorization boundary. This allows the production database to be initialized before the Sponsor wallet is imported or unlocked.
+
+
+## Local Owner and Sponsor sign-only acceptance
+
+The Owner and Sponsor workspaces expose a separate **Run sign-only acceptance** action after the corresponding encrypted local wallet is unlocked.
+
+- The API issues a random, short-lived challenge bound to the authenticated role, configured Mainnet address and session.
+- The browser signs the challenge with the selected local vault using TRON message signing.
+- The API recovers the signer address and compares it with that role's authenticated and configured wallet address.
+- Challenges expire after two minutes and are consumed once. Verification requires the role-specific CSRF proof.
+- The API does not receive a private key, persist the signature, create a transaction, spend TRX or broadcast.
+
+A passing result proves local key control and message-signing compatibility for that wallet at that time. It does **not** prove a transaction was accepted by Mainnet, does not release Sponsor writes, and is not a substitute for separate transaction and receipt acceptance.
