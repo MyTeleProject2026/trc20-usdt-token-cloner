@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { TronWeb } from 'tronweb'
-import { createOwnerOperationApi, verifyOwnerUsdtTransferIntent, verifyOwnerUsdtTransferReceipt } from '../owner-operation-api.mjs'
+import { createOwnerOperationApi, verifyOwnerNativeTrxTransferIntent, verifyOwnerUsdtTransferIntent, verifyOwnerUsdtTransferReceipt } from '../owner-operation-api.mjs'
 import { sponsorDatabaseTargetIdentityInfo } from '../sponsor-api.mjs'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -79,6 +79,23 @@ function usdtTransferFixture() {
   }
   return { tronWeb, recipient, amount, transaction, receipt }
 }
+
+test('Owner native TRX transfer intent must match exact Mainnet sender, recipient and SUN amount', () => {
+  const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' })
+  const recipient = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
+  const transaction = {
+    txID: 'c'.repeat(64),
+    raw_data_hex: '01'.repeat(32),
+    raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {
+      owner_address: tronWeb.address.toHex(owner),
+      to_address: tronWeb.address.toHex(recipient),
+      amount: '2500000',
+    } } }] },
+  }
+  assert.equal(verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction, ownerAddress: owner, recipientAddress: recipient, amountSun: '2500000' }), true)
+  assert.throws(() => verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction, ownerAddress: owner, recipientAddress: recipient, amountSun: '2500001' }), /OWNER_TRX_TRANSFER_INTENT_MISMATCH/)
+  assert.throws(() => verifyOwnerNativeTrxTransferIntent({ tronWeb, transaction, ownerAddress: owner, recipientAddress: owner, amountSun: '2500000' }), /OWNER_TRX_TRANSFER_INTENT_MISMATCH/)
+})
 
 test('official USDT unsigned intent must match exact Owner, contract, recipient and six-decimal amount', () => {
   const item = usdtTransferFixture()
