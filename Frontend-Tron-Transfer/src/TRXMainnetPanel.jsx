@@ -463,6 +463,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       setConfirmationPhrase('')
       setSnapshot(null)
       if (pendingOperation.operationType === 'usdt-transfer') await readUsdtWithdrawalSnapshot().catch(() => {})
+      else if (pendingOperation.operationType === 'trx-transfer') await readOwnerNativeTrxSnapshot().catch(() => {})
       const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
       if (journal?.success) setRecentOperations(journal.operations || [])
       return result
@@ -470,6 +471,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     if (result.transactionId) {
       setNotice('The signed transaction is recorded as ' + String(result.state || 'pending') + '. Do not retry or create a replacement operation. Refresh this operation status to reconcile the solidified receipt.')
       if (pendingOperation.operationType === 'usdt-transfer') await readUsdtWithdrawalSnapshot().catch(() => {})
+      else if (pendingOperation.operationType === 'trx-transfer') await readOwnerNativeTrxSnapshot().catch(() => {})
       return result
     }
     throw new Error(result.error || 'OWNER_OPERATION_CONFIRMATION_FAILED')
@@ -482,6 +484,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setConfirmationPhrase('')
     setNotice('The prepared Owner operation was cancelled. No transaction was signed or broadcast.')
     if (pendingOperation.operationType === 'usdt-transfer') await readUsdtWithdrawalSnapshot().catch(() => {})
+      else if (pendingOperation.operationType === 'trx-transfer') await readOwnerNativeTrxSnapshot().catch(() => {})
     const journal = await wallet.authClient.apiRequest('/api/owner/operations?limit=20').catch(() => null)
     if (journal?.success) setRecentOperations(journal.operations || [])
   })
@@ -497,6 +500,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     } : current)
     if (operation.operationType === 'usdt-transfer' && ['confirmed', 'failed'].includes(operation.state)) {
       await readUsdtWithdrawalSnapshot().catch(() => {})
+    } else if (operation.operationType === 'trx-transfer' && ['confirmed', 'failed'].includes(operation.state)) {
+      await readOwnerNativeTrxSnapshot().catch(() => {})
     }
     if (operation.state === 'confirmed' && operation.transactionId) {
       setLastTx(operation.transactionId)
