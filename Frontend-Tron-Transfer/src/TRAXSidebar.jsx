@@ -24,7 +24,7 @@ export default function TRAXSidebar({ items, activePage, onNavigate, wallet, onC
         {collapsed ? <PanelLeftOpen size={18}/> : <PanelLeftClose size={18}/>}
         {!collapsed && <span>Collapse menu</span>}
       </button>
-      {workspace === 'owner' && !wallet && <button className="trax-sidebar-connect" onClick={onConnect}>Connect Owner Wallet</button>}
+      {workspace === 'owner' && !wallet && <button className="trax-sidebar-connect" onClick={onConnect}>Unlock Owner Wallet</button>}
       {workspace === 'owner' && wallet && <button className="trax-sidebar-connect" onClick={onLock}>Lock owner wallet</button>}
     </div>
   </aside>
