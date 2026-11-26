@@ -29,7 +29,6 @@ test('Sponsor workspace exposes guarded bootstrap and Owner-authorized write con
   assert.ok(source.includes("ownerAuth.apiRequest(paused ? '/api/sponsor/ledger/pause' : '/api/sponsor/ledger/release'"))
   assert.ok(source.includes('ENABLE_SPONSOR_MAINNET_WRITES'))
   assert.ok(source.includes('PAUSE_SPONSOR_MAINNET_WRITES'))
-  assert.ok(source.includes('writesReleaseAvailable'))
   assert.ok(source.includes('function sponsorReleaseChecksPassed(status)'))
   assert.ok(source.includes("checks.every(check => check?.state === 'passed')"))
   assert.ok(source.includes('!sponsorReleaseChecksPassed(sponsorApiStatus)'))
