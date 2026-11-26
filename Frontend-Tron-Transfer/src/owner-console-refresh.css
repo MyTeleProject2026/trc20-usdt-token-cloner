@@ -494,3 +494,28 @@ body::before { display:none !important; }
 @media (prefers-reduced-motion:reduce) {
   .aetheria-mesh *,.aetheria-mesh *::before,.aetheria-mesh *::after { animation:none !important; transition:none !important; }
 }
+
+
+/* Local signer acceptance panels — explicit, non-transactional wallet proof. */
+.trax-signer-acceptance,.sponsor-signer-acceptance {
+  display:flex; align-items:center; justify-content:space-between; gap:18px;
+  min-width:0; margin:14px 0; padding:15px 17px;
+  border:1px solid var(--oc-border); border-radius:14px;
+  background:var(--oc-surface); box-shadow:var(--oc-shadow);
+}
+.trax-signer-acceptance>div,.sponsor-signer-acceptance>div { min-width:0; }
+.trax-signer-acceptance b,.sponsor-signer-acceptance h3 {
+  display:block; margin:4px 0; color:var(--oc-text);
+  font:650 14px/1.35 'Space Grotesk',sans-serif;
+}
+.trax-signer-acceptance p,.sponsor-signer-acceptance p {
+  margin:4px 0; max-width:76ch; color:var(--oc-muted); font-size:11px; line-height:1.55;
+}
+.trax-signer-acceptance-result {
+  display:block; margin-top:6px; color:#baf0df; font-size:10px; font-weight:750;
+}
+.trax-signer-acceptance>button,.sponsor-signer-acceptance>button { flex:0 0 auto; white-space:nowrap; }
+@media (max-width:720px) {
+  .trax-signer-acceptance,.sponsor-signer-acceptance { align-items:stretch; flex-direction:column; gap:10px; padding:14px; }
+  .trax-signer-acceptance>button,.sponsor-signer-acceptance>button { width:100%; }
+}
