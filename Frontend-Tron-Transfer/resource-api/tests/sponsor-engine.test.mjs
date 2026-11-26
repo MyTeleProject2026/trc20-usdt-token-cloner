@@ -20,7 +20,7 @@ function configuredEnv(overrides = {}) {
     SPONSOR_LIQUID_RESERVE_TRX: '2',
     SPONSOR_MAX_TX_FEE_SUN: '0',
     SPONSOR_STAKING_ENABLED: 'true',
-    SPONSOR_MAX_AUTOMATIC_STAKE_TRX: '10',
+    SPONSOR_MAX_AUTOMATIC_STAKE_TRX: '0.5',
     ...overrides,
   }
 }
@@ -55,7 +55,11 @@ function fixture({ bandwidth = 600, stakedBandwidth = 0, balance = 10_000_000n, 
     },
     isAddress: value => value === SPONSOR || value === OWNER,
     utils: { transaction: { txCheck: () => true }, crypto: { ecRecover: () => sponsorHex } },
-    transactionBuilder: { freezeBalanceV2: async () => transaction },
+    transactionBuilder: { freezeBalanceV2: async (amount, resource) => {
+      transaction.raw_data.contract[0].parameter.value.frozen_balance = String(amount)
+      transaction.raw_data.contract[0].parameter.value.resource = resource === 'ENERGY' ? 1 : 0
+      return transaction
+    } },
     trx: {
       getBalance: async () => balance,
       getAccountResources: async () => ({ freeNetLimit: bandwidth, freeNetUsed: 0, NetLimit: stakedBandwidth, NetUsed: 0 }),
@@ -69,7 +73,7 @@ function fixture({ bandwidth = 600, stakedBandwidth = 0, balance = 10_000_000n, 
     ok: true,
     json: async () => url.endsWith('gettransactioninfobyid')
       ? { id: TXID, blockNumber: 123, receipt: { result: 'SUCCESS' } }
-      : { txID: TXID, raw_data: { contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: sponsorHex, resource: 1, frozen_balance: '1000000' } } }] } },
+      : { txID: TXID, raw_data: transaction.raw_data },
   })
   const engine = createSponsorTransactionEngine({
     env: configuredEnv(envOverrides),
@@ -179,28 +183,37 @@ test('engine persists the transaction ID before broadcasting and verifies a soli
   assert.equal(f.counts().broadcastCount, 1)
 })
 
-test('zero-fee policy blocks transactions whose own Bandwidth pool cannot cover the full transaction', async () => {
-  const f = fixture({ bandwidth: 0, envOverrides: { SPONSOR_MAX_TX_FEE_SUN: undefined } })
+test('Sponsor Bandwidth fallback fee is calculated from live chain price and covered by available balance', async () => {
+  const f = fixture({ bandwidth: 0, envOverrides: { SPONSOR_MAX_TX_FEE_SUN: '0' } })
   const result = await f.engine.execute({
     operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
-    onSigned: async () => assert.fail('must not sign a transaction with an unauthorized fee shortfall'),
+    onSigned: async txid => { assert.equal(txid, TXID); f.markDurable() },
   })
-  assert.equal(result.status, 'bandwidth-shortfall-exceeds-authorized-fee-cap')
-  assert.equal(f.counts().signedCount, 0)
-  assert.equal(f.counts().broadcastCount, 0)
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.equal(f.counts().signedCount, 1)
+  assert.equal(f.counts().broadcastCount, 1)
 })
 
 test('preflight does not pool free and staked Bandwidth quotas for one transaction', async () => {
   // The 110-byte transaction cannot fit in either 60-byte or 50-byte quota.
-  // It must not be treated as fitting by adding the two independent quotas.
+  // The 60-byte source is used, so the 50-byte shortfall is priced at the live chain rate.
   const f = fixture({ bandwidth: 60, stakedBandwidth: 50 })
+  const result = await f.engine.prepare({ operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER })
+  assert.equal(result.success, true)
+  assert.equal(result.feePolicy.requiredBandwidthFeeSun, '50000')
+  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
+})
+
+test('Sponsor transaction fee is blocked only when live balance cannot cover principal, reserve and actual Bandwidth fee', async () => {
+  const f = fixture({ bandwidth: 0, balance: 3_000_000n })
   const result = await f.engine.execute({
     operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
-    onSigned: async () => assert.fail('single-quota Bandwidth shortfall must block signing'),
+    onSigned: async () => assert.fail('insufficient balance for the live transaction fee must block signing'),
   })
-  assert.equal(result.success, false)
-  assert.equal(result.status, 'bandwidth-shortfall-exceeds-authorized-fee-cap')
-  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
+  assert.equal(result.status, 'insufficient-balance-for-transaction-fee')
+  assert.equal(f.counts().signedCount, 0)
+  assert.equal(f.counts().broadcastCount, 0)
 })
 
 test('Stake 2.0 checks the protected liquid reserve before signing', async () => {
@@ -222,25 +235,27 @@ test('transaction ID persistence callback is mandatory before any broadcast', as
 })
 
 
-test('configured stake cap blocks an amount above SPONSOR_MAX_AUTOMATIC_STAKE_TRX', async () => {
-  const f = fixture()
+test('manual stake amount is not restricted by the legacy application cap', async () => {
+  const f = fixture({ balance: 200_000_000n })
   const result = await f.engine.execute({
-    operation: 'stake', resource: 'ENERGY', amountSun: '11000000', ownerAddress: OWNER,
-    onSigned: async () => assert.fail('stake above configured cap must not be signed'),
+    operation: 'stake', resource: 'ENERGY', amountSun: '100000000', ownerAddress: OWNER,
+    onSigned: async txid => { assert.equal(txid, TXID); f.markDurable() },
   })
-  assert.equal(result.status, 'staking-disabled-or-amount-exceeds-configured-cap')
-  assert.equal(f.counts().signedCount, 0)
-  assert.equal(f.counts().broadcastCount, 0)
+  assert.equal(result.success, true)
+  assert.equal(result.solidified, true)
+  assert.equal(f.counts().signedCount, 1)
+  assert.equal(f.counts().broadcastCount, 1)
 })
 
-test('SPONSOR_STAKING_ENABLED=false blocks Stake 2.0 even when broadcast flags are true', async () => {
+test('manual Stake 2.0 is available under the guarded transaction-engine release without a separate amount flag', async () => {
   const f = fixture({ envOverrides: { SPONSOR_STAKING_ENABLED: 'false' } })
   const result = await f.engine.execute({
     operation: 'stake', resource: 'ENERGY', amountSun: '1000000', ownerAddress: OWNER,
-    onSigned: async () => assert.fail('disabled staking must not be signed'),
+    onSigned: async txid => { assert.equal(txid, TXID); f.markDurable() },
   })
-  assert.equal(result.status, 'staking-disabled-or-amount-exceeds-configured-cap')
-  assert.equal(f.counts().signedCount, 0)
+  assert.equal(result.success, true)
+  assert.equal(f.counts().signedCount, 1)
+  assert.equal(f.counts().broadcastCount, 1)
 })
 
 test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner and verifies solidified Mainnet state', async () => {
@@ -281,7 +296,7 @@ test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner a
       : transfer,
   })
   const engine = createSponsorTransactionEngine({
-    env: configuredEnv(),
+    env: configuredEnv({ SPONSOR_MAX_OWNER_TOPUP_TRX: '0.5' }),
     tronWebFactory: () => fakeTronWeb,
     fetchImpl,
   })
@@ -295,12 +310,14 @@ test('Sponsor TRX top-up signs only a bounded transfer to the configured Owner a
   assert.equal(broadcasts, 1)
 })
 
-test('Sponsor TRX top-up fails closed above the configured Owner funding cap', async () => {
-  const f = fixture({ envOverrides: { SPONSOR_MAX_OWNER_TOPUP_TRX: '0.5' } })
-  const result = await f.engine.execute({ operation: 'topup', resource: 'TRX', amountSun: '600000', ownerAddress: OWNER })
-  assert.equal(result.status, 'owner-topup-disabled-or-amount-exceeds-configured-cap')
-  assert.equal(result.success, false)
-  assert.deepEqual(f.counts(), { signedCount: 0, broadcastCount: 0 })
+test('manual amount policies expose no fixed maximum for staking or Owner top-ups', () => {
+  const state = createSponsorTransactionEngine({ env: configuredEnv() }).readiness()
+  assert.equal(state.stakingPolicy.enabled, true)
+  assert.equal(state.ownerTopupPolicy.enabled, true)
+  assert.equal(state.stakingPolicy.amountLimitMode, 'live-balance-minus-reserve')
+  assert.equal(state.ownerTopupPolicy.amountLimitMode, 'live-balance-minus-reserve')
+  assert.equal(Object.hasOwn(state.stakingPolicy, 'maxStakeTrx'), false)
+  assert.equal(Object.hasOwn(state.ownerTopupPolicy, 'maxTopupTrx'), false)
 })
 
 

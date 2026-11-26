@@ -97,6 +97,20 @@ test('read-only deployment preflight returns current Mainnet resources without p
  assert.deepEqual(events,[])
 })
 
+test('read-only deployment preflight accepts a manual fee limit above the former 150 TRX app cap when the live chain maximum permits it', async()=>{
+  const {api,replies}=make({env:{
+   TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',
+   TRAX_SOURCE_SHA256:'1'.repeat(64),TRAX_CREATION_BYTECODE_SHA256:'2'.repeat(64),TRAX_RUNTIME_BYTECODE_SHA256:'3'.repeat(64),TRAX_DEPLOYMENT_ARTIFACT_SHA256:'4'.repeat(64),
+  },tronWebFactory:()=>({address:{toHex:()=> '41'+'11'.repeat(20)}}),buildTransaction:async()=>({txID:'a'.repeat(64),raw_data_hex:'ab'.repeat(32),raw_data:{contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000',abi:{entrys:[]}}}}}]}}),
+  assertIntegrity:()=>true,estimateEnergy:async()=>({energyUsed:1000}),readResources:async()=>({energyAvailable:'2000',freeBandwidthAvailable:'500',stakedBandwidthAvailable:'100',energyFeeSun:'420',bandwidthFeeSun:'1000',maxFeeLimitSun:'15000000000'}),
+  getBalance:async()=> '0',calculateBudget:()=>({requiredTrxSun:'0',energyWithSafetyMargin:'1250',availableEnergy:'2000',estimatedBandwidthBytes:'130',availableBandwidth:'500',energyBurnSun:'0',bandwidthBurnSun:'0'}),assertBudget:()=>true,
+  })
+  await api.handle(req(),res(),new URL('https://api.test/api/owner/deployment/preflight?feeLimitSun=500000000'),null)
+  assert.equal(replies[0].status,200)
+  assert.equal(replies[0].payload.zeroTrxBurnReady,true)
+  assert.equal(replies[0].payload.resources.maxFeeLimitSun,'15000000000')
+})
+
 test('read-only deployment preflight reports resource shortfall without requesting a signature', async()=>{
  const {api,replies}=make({env:{
   TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true',

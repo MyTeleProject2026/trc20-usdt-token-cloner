@@ -153,7 +153,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const feeCapSun = useMemo(() => {
     try {
       const units = BigInt(parseTokenUnits(feeCap))
-      if (units > 150000000n) return 0
+      if (units <= 0n || units > BigInt(Number.MAX_SAFE_INTEGER)) return 0
       return Number(units)
     } catch { return 0 }
   }, [feeCap])
@@ -679,8 +679,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     <div className="trax-addresses">
       {!show('withdraw') && <><label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
       <p id="trax-contract-address-note" className="fine-print">The contract address identifies the custom token on TRON Mainnet. Verify its on-chain bytecode and metadata before accepting deposits.</p></>}
-      <label>Maximum transaction fee limit (TRX)<input type="number" min="0.000001" max="500" step="1" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
-      <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Energy and Bandwidth are used first; any shortfall can still burn TRX. Zero-TRX-burn protection remains active, and the application will block signing when its resource preflight detects a shortfall.</p>
+      <label>Transaction fee limit (TRX)<input type="number" min="0.000001" step="0.000001" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
+      <p className="fine-print">Choose the fee-limit ceiling for this operation. The Resource API checks it against the current TRON Mainnet getMaxFeeLimit parameter and a fresh Energy/Bandwidth estimate; there is no fixed application-level TRX fee cap. The fee limit is not a prepaid fee, and zero-TRX-burn protection still blocks signing if the live resource preflight detects any TRX fallback.</p>
       {show('deploy') && <div className="trax-deploy-actions">
         <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. The backend pins source, creation bytecode, runtime bytecode and manifest; preparation is unsigned and execution remains gated.</span><span>4. The local Owner vault signs the exact prepared transaction; the Resource API verifies the signer, persists before broadcast, and verifies the solidified receipt, runtime, Owner and metadata.</span></div>
         {deploymentReadiness && <>

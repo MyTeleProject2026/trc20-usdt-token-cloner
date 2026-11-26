@@ -19,7 +19,6 @@ function base(overrides = {}) {
     protectedReserveSun: '2000000',
     network,
     stakingEnabled: true,
-    maxStakeSun: '5000000',
     ...overrides,
   }
 }
@@ -58,13 +57,18 @@ test('blocks staking when the Sponsor balance would consume the protected reserv
   assert.equal(plan.reason, 'insufficient-sponsor-balance-after-protected-reserve')
 })
 
-test('blocks incremental stake above the server-configured stake cap', () => {
+test('allows a manual stake above former business caps when live Sponsor balance covers it', () => {
   const plan = planSponsorResourceProvisioning(base({
+    target: '100000',
+    ownerAvailable: '1000',
     maxDelegatableSun: '0',
-    maxStakeSun: '1000000',
+    sponsorBalanceSun: '200000000',
+    protectedReserveSun: '2000000',
   }))
-  assert.equal(plan.ready, false)
-  assert.equal(plan.reason, 'incremental-stake-exceeds-configured-cap')
+  assert.equal(plan.ready, true)
+  assert.equal(plan.action, 'stake')
+  assert.equal(plan.amountSun, '113850000')
+  assert.equal(plan.reason, 'stake-increment-needed-before-delegation')
 })
 
 test('blocks when staking is disabled and existing delegation capacity is insufficient', () => {

@@ -577,8 +577,6 @@ export function createOwnerOperationApi({
         if (String(input.contractAddress || '') !== contractAddress) fail(operationType === 'usdt-transfer' ? 'OWNER_USDT_CONTRACT_ADDRESS_NOT_OFFICIAL' : 'OWNER_OPERATION_CONTRACT_ADDRESS_MISMATCH', 409)
         const normalized = normalizeIntent(input, ownerAddress)
         if (session.address !== ownerAddress) fail('OWNER_SESSION_IDENTITY_MISMATCH', 403)
-        const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
-        if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
         const intent = { ownerAddress, contractAddress, method: normalized.method, args: normalized.args, feeLimitSun: normalized.feeLimitSun }
         let record
         let reservedUsdtBaseUnits = '0'
@@ -730,8 +728,6 @@ export function createOwnerOperationApi({
           const definition = Object.hasOwn(METHODS, normalized.operationType) ? METHODS[normalized.operationType] : null
           if (!definition || definition.method !== normalized.method || claimed.intent?.contractAddress !== claimed.contract_address || !Array.isArray(normalized.args)
             || !/^[1-9][0-9]{0,11}$/.test(normalized.feeLimitSun)) fail('OWNER_OPERATION_STORED_INTENT_INVALID', 409)
-          const maxFee = BigInt(String(env.OWNER_MAX_FEE_LIMIT_SUN || '150000000'))
-          if (BigInt(normalized.feeLimitSun) > maxFee) fail('OWNER_OPERATION_FEE_LIMIT_EXCEEDS_SERVER_CAP')
           const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
           if (normalized.operationType === 'usdt-transfer') await verifyUsdtContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })
           else await verifyContractState(tronWeb, claimed.contract_address, ownerAddress, { fetchImpl: pacedFetch, env })

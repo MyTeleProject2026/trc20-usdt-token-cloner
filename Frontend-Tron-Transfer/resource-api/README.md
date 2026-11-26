@@ -51,7 +51,7 @@ Sponsor operations use a two-phase local-signing protocol:
 
 The legacy one-step endpoint `POST /api/sponsor/operations` returns HTTP 410 and cannot invoke a server-side signer. The Resource API does not use `SPONSOR_MAINNET_PRIVATE_KEY`, `SPONSOR_SIGNER_URL`, or a remote signer service.
 
-Supported Sponsor operations are `stake`, `delegate`, `undelegate`, `unstake`, `withdraw`, and a bounded Sponsor-to-Owner native TRX `topup`. Sponsor operations cannot sign Owner TRӾ contract transactions.
+Supported Sponsor operations are `stake`, `delegate`, `undelegate`, `unstake`, `withdraw`, and a manual Sponsor-to-Owner native TRX `topup`. Manual stake and top-up amounts have no fixed application-level business cap. Each requested amount is constrained by the Sponsor's fresh confirmed TRX balance, the protected liquid reserve, the transaction's current Bandwidth/fee preflight, available stake/delegation/unfreeze state and TRON protocol rules. The amount and recipient are reviewed and signed locally for every operation; no automatic spending is enabled. Sponsor operations cannot sign Owner TRӾ contract transactions.
 
 ## Sponsor API endpoints
 
@@ -95,10 +95,9 @@ Configure these only on the existing Resource API service in Render. Never put s
 - `SPONSOR_TRANSACTION_ENGINE_ENABLED=true` and `SPONSOR_MAINNET_BROADCAST_ENABLED=true` — both must be explicitly enabled before local-signing operations can execute. Keep both false until release approval.
 - `SPONSOR_WRITES_RELEASE_ENABLED=true` — separate explicit Owner-admin release gate. Keep false until the approved production database, backup/restore, local signer and Mainnet acceptance checks pass; keep it true while Sponsor writes are enabled.
 - `SPONSOR_LIQUID_RESERVE_TRX` — protected liquid reserve; defaults to 2 TRX.
-- `SPONSOR_STAKING_ENABLED=true` — explicit Stake 2.0 enablement.
-- `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` — maximum single stake amount; defaults to zero (disabled).
-- `SPONSOR_MAX_OWNER_TOPUP_TRX` — separate maximum Owner top-up; if omitted, the configured stake cap is used.
-- `SPONSOR_MAX_TX_FEE_SUN` — maximum authorized Bandwidth-shortfall fee in SUN; defaults to zero, so uncovered transactions are blocked.
+- Manual Stake 2.0 and Sponsor-to-Owner top-up availability follows the guarded transaction-engine, Mainnet-broadcast and Sponsor-ledger release gates. There is no separate fixed stake or top-up business cap.
+- `SPONSOR_MAX_AUTOMATIC_STAKE_TRX` and `SPONSOR_MAX_OWNER_TOPUP_TRX` are legacy settings and are ignored by the manual amount policy; remove them from the existing Render service after deploying this revision.
+- Sponsor Bandwidth fees are derived from the live Mainnet `getTransactionFee` parameter and the exact transaction size. The legacy `SPONSOR_MAX_TX_FEE_SUN` setting is ignored; the actual estimated fee is allowed only when the fresh Sponsor balance covers principal, protected reserve and fee.
 
 There is no Sponsor private-key environment variable in the local-vault architecture. Remove any obsolete `SPONSOR_MAINNET_PRIVATE_KEY`, `SPONSOR_SIGNER_URL` or remote-signer HMAC secret from the existing Render service only after confirming the deployed production revision no longer depends on the old signer. This feature branch has not been deployed.
 
@@ -108,7 +107,7 @@ For read-only account-resource, account-balance and chain-parameter queries, the
 
 Signed transaction broadcast, transaction-history REST queries, Owner transaction preparation/verification, and Sponsor transaction preparation/verification continue to use the existing TronGrid Mainnet path. Tatum and TronGrid here are blockchain RPC/data connectivity only—not Energy/Bandwidth suppliers, fee sponsors, wallet custodians, or funding sources. The platform's own Sponsor wallet stakes its TRX, delegates its own Energy/Bandwidth directly to the configured Owner wallet, and can explicitly transfer its own TRX to Owner. No third-party resource provider or external Sponsor is configured.
 
-TRON does not combine free Bandwidth and staked/delegated Bandwidth into one single-transaction allowance. The preflight uses the more conservative single-source coverage rule. The fee cap defaults to zero, so a transaction that needs an uncovered TRX fee is blocked. A provider API key does not grant Energy, Bandwidth or transaction authorization.
+TRON does not combine free Bandwidth and staked/delegated Bandwidth into one single-transaction allowance. The preflight uses the more conservative single-source coverage rule. Any uncovered Bandwidth is priced from the live Mainnet `getTransactionFee` parameter and the transaction's exact byte size; the actual estimated fee must fit within the Sponsor balance after the requested principal and protected reserve. There is no fixed application-level Sponsor transaction-fee cap. A provider API key does not grant Energy, Bandwidth or transaction authorization.
 
 There is no protocol free Energy quota. This code does not claim or automate free Energy grants, free Bandwidth grants, or independent fee sponsorship. Resource estimates are not guarantees. Sponsor resource actions require explicit per-operation approval; no unattended scheduler is enabled.
 
@@ -129,7 +128,8 @@ Required Owner/deployment configuration includes:
 - `TRAX_CREATION_BYTECODE_SHA256`
 - `TRAX_RUNTIME_BYTECODE_SHA256`
 - `TRAX_DEPLOYMENT_ARTIFACT_SHA256`
-- `OWNER_MAX_FEE_LIMIT_SUN` and `TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN`
+
+The Owner selects a fee-limit ceiling per operation. The Resource API validates that value against the live Mainnet `getMaxFeeLimit` chain parameter and the fresh operation-specific Energy/Bandwidth preflight; there is no fixed application-level 150/500 TRX fee cap. `OWNER_MAX_FEE_LIMIT_SUN` and `TRAX_DEPLOYMENT_MAX_FEE_LIMIT_SUN` are legacy settings and are ignored by this code path. The selected fee limit is a ceiling, not a prepaid fee, and the existing zero-TRX-burn policy still blocks signing when the live resource budget requires TRX fallback.
 
 Owner operation and deployment ledger durability flags and execution acknowledgements must remain disabled until migrations, backup/restore, artifact identity, contract state, wallet identity, Energy, Bandwidth and zero-TRX-burn preflight have been independently accepted. CI success does not authorize a Mainnet signature or broadcast.
 
