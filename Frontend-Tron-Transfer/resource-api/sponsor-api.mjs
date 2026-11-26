@@ -541,6 +541,7 @@ export function createSponsorResourceApi({
           sponsorWritesPaused,
           ledgerDurabilityVerified,
           ownerAddressMatches,
+          ownerWalletEnrolled,
           sponsorIndependent,
           sponsorAddressMatches,
           sponsorWalletEnrolled,

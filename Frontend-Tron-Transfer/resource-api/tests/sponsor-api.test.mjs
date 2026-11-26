@@ -1333,6 +1333,8 @@ test('production acceptance verifies Owner and Sponsor enrollment before Sponsor
   const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256 })
   const result = await call(api, 'GET', '/api/acceptance/production')
   assert.equal(result.status, 200)
+  assert.equal(result.payload.ownerWalletEnrolled, true)
+  assert.equal(result.payload.sponsorWalletEnrolled, true)
   assert.equal(result.payload.acceptance.checks.find(check => check.id === 'owner-wallet-enrolled').state, 'passed')
   assert.equal(result.payload.acceptance.checks.find(check => check.id === 'sponsor-wallet-enrolled').state, 'passed')
   assert.equal(result.payload.acceptance.checks.find(check => check.id === 'ledger-schema-and-control-row').state, 'blocked')
