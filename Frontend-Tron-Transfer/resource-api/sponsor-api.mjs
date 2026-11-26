@@ -633,7 +633,7 @@ export function createSponsorResourceApi({
     // Owner-only, read-only Sponsor audit. Return operation metadata and signer
     // acceptance facts, never prepared or signed transaction payloads.
     if (req.method === 'GET' && path === '/api/sponsor/audit') {
-      if (!(await verifyAdminAuthorization(req))) {
+      if (!(await verifyAdminReadAuthorization(req))) {
         return reply(res, 401, { success: false, error: 'admin-authorization-required' }, origin)
       }
       if (!databaseTargetIdentityMatches(env)) {
