@@ -11,6 +11,8 @@ const CHALLENGE_TTL_MS = 5 * 60_000
 const INTENT_TTL_MS = 5 * 60_000
 const IDEMPOTENCY = /^[A-Za-z0-9._:-]{24,128}$/
 const TXID = /^[0-9a-f]{64}$/i
+const SPONSOR_LEDGER_MIGRATION_VERSION = '20261126_sponsor_operations_ledger.sql'
+const SPONSOR_LEDGER_MIGRATION_SHA256 = 'cb2f2a8e1eba285dc196dbc904c68996bdaf64b9c11d80bd56a87a5866d5d32a'
 const CONFIRMATION = 'CONFIRM TRON MAINNET SPONSOR TRANSACTION'
 const challenges = new Map()
 const intents = new Map()
@@ -240,6 +242,13 @@ async function assertSchema(db) {
       EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column,
       EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column
   `)
+  const migration = await db.query(
+    'SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1',
+    [SPONSOR_LEDGER_MIGRATION_VERSION],
+  )
+  if (!migration.rows?.length || String(migration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_LEDGER_MIGRATION_SHA256) {
+    throw new Error('sponsor-ledger-migration-checksum-not-verified')
+  }
   if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
     || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true) {
     throw new Error('sponsor-ledger-schema-not-initialized')
@@ -453,13 +462,21 @@ export function createSponsorResourceApi({
                 || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true) {
                 databaseStatus = 'schema-missing'
               } else {
-                const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
-                if (!control.rows?.length) {
-                  databaseStatus = 'control-row-missing'
+                const migration = await db.query(
+                  'SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1',
+                  [SPONSOR_LEDGER_MIGRATION_VERSION],
+                )
+                if (!migration.rows?.length || String(migration.rows[0].checksum).trim().toLowerCase() !== SPONSOR_LEDGER_MIGRATION_SHA256) {
+                  databaseStatus = 'migration-checksum-unverified'
                 } else {
-                  sponsorWritesPaused = control.rows[0].writes_paused === true
-                  databaseReady = true
-                  databaseStatus = 'ready'
+                  const control = await db.query('SELECT writes_paused FROM public.tron_transfer_sponsor_control WHERE id=1')
+                  if (!control.rows?.length) {
+                    databaseStatus = 'control-row-missing'
+                  } else {
+                    sponsorWritesPaused = control.rows[0].writes_paused === true
+                    databaseReady = true
+                    databaseStatus = 'ready'
+                  }
                 }
               }
             }
@@ -475,6 +492,7 @@ export function createSponsorResourceApi({
           { id: 'ledger-database-configured', state: dbConfigured ? 'passed' : 'blocked' },
           { id: 'database-target-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked', detail: databaseStatus },
+          { id: 'sponsor-ledger-migration-checksum', state: databaseStatus === 'ready' ? 'passed' : 'blocked' },
           { id: 'ledger-durability-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
           { id: 'writes-remain-paused-until-release', state: sponsorWritesPaused ? 'passed' : 'blocked' },
           { id: 'owner-session-for-guarded-administration', state: adminConfigured ? 'passed' : 'blocked' },
@@ -491,6 +509,7 @@ export function createSponsorResourceApi({
           { id: 'sponsor-wallet-enrolled', state: sponsorWalletEnrolled ? 'passed' : 'blocked' },
           { id: 'approved-database-identity', state: databaseIdentityMatches ? 'passed' : 'blocked' },
           { id: 'sponsor-ledger-schema-and-control-row', state: databaseReady ? 'passed' : 'blocked' },
+          { id: 'sponsor-ledger-migration-checksum', state: databaseStatus === 'ready' ? 'passed' : 'blocked' },
           { id: 'backup-and-restore-attestation', state: ledgerDurabilityVerified ? 'passed' : 'blocked' },
           { id: 'sponsor-local-signer', state: localSignerReady && readiness.clientSigningAvailable === true ? 'passed' : 'blocked' },
           { id: 'mainnet-transaction-engine', state: readiness.enabled === true && readiness.broadcastAvailable === true ? 'passed' : 'blocked' },
