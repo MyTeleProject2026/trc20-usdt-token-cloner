@@ -868,7 +868,7 @@ test('signed-not-broadcast operation recovers after API restart against solidifi
   const keyHash = (await import('node:crypto')).createHash('sha256').update(key).digest('hex')
   const row = {
     idempotency_key_hash: keyHash, operation: 'delegate', resource: 'ENERGY', amount_sun: '1000000',
-    sponsor_address: SPONSOR, owner_address: OWNER, status: 'signed-not-broadcast',
+    sponsor_address: SPONSOR, owner_address: OWNER, recipient_address: OWNER, status: 'signed-not-broadcast',
     transaction_id: 'c'.repeat(64), result_code: 'broadcast-not-attempted', confirmation_block: null,
   }
   const updates = []
@@ -918,7 +918,7 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
   const keyHash = (await import('node:crypto')).createHash('sha256').update(key).digest('hex')
   const row = {
     idempotency_key_hash: keyHash, operation: 'topup', resource: 'TRX', amount_sun: '1000000',
-    sponsor_address: SPONSOR, owner_address: OWNER, status: 'broadcast-unknown',
+    sponsor_address: SPONSOR, owner_address: OWNER, recipient_address: OWNER, status: 'broadcast-unknown',
     transaction_id: 'd'.repeat(64), result_code: 'broadcast-outcome-unknown', confirmation_block: null,
   }
   const updates = []
@@ -1152,7 +1152,7 @@ test('Sponsor local-signing API commits the signed transaction before a single b
           if (sql.includes('SET prepared_transaction=')) { transactionState = 'prepared'; timeline.push('persist-prepared'); return { rowCount: 1, rows: [{ id: 1 }] } }
           if (sql.includes('SELECT operation,resource,amount_sun')) return { rowCount: 1, rows: [{
             operation: 'stake', resource: 'ENERGY', amount_sun: '1000000', sponsor_address: SPONSOR,
-            owner_address: OWNER, status: 'reserved', prepared_transaction: transaction,
+            owner_address: OWNER, recipient_address: OWNER, status: 'reserved', prepared_transaction: transaction,
           }] }
           if (sql.includes('SET status=\'signed-not-broadcast\'')) { persistedTransactionId = params[1]; persistedSignedPayload = JSON.parse(params[2]); transactionState = 'signed'; timeline.push('persist-signed'); return { rowCount: 1, rows: [{ id: 1 }] } }
           if (sql.includes('SELECT status,transaction_id')) return { rowCount: 1, rows: [{ status: 'signed-not-broadcast', transaction_id: transaction.txID }] }
