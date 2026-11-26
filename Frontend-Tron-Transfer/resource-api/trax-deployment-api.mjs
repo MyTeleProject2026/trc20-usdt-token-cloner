@@ -132,9 +132,10 @@ export function createTRAXDeploymentApi({
     const readinessPath = url.pathname === '/api/owner/deployment/readiness'
     const preparePath = url.pathname === '/api/owner/deployment/prepare'
     const confirmPath = url.pathname === '/api/owner/deployment/confirm'
+    const broadcastPath = url.pathname === '/api/owner/deployment/broadcast'
     const statusMatch = url.pathname.match(/^\/api\/owner\/deployment\/([0-9a-f-]{36})$/i)
     const statusPath = Boolean(statusMatch)
-    if (!readinessPath && !preparePath && !confirmPath && !statusPath) return false
+    if (!readinessPath && !preparePath && !confirmPath && !broadcastPath && !statusPath) return false
     if (req.method !== (readinessPath || statusPath ? 'GET' : 'POST')) return send(res, 405, { error: 'METHOD_NOT_ALLOWED' }, origin)
     const session = await authenticateManagedSession(req, { requireCsrf: !readinessPath && !statusPath })
     if (!session?.address || !OWNER.test(session.address) || session.address !== env.TRON_OWNER_ADDRESS) {
@@ -183,7 +184,7 @@ export function createTRAXDeploymentApi({
       // Keep signed transaction payloads server-side. Only a still-prepared
       // unsigned transaction is returned so the authenticated Owner can approve it in the encrypted local Owner Wallet.
       const { unsigned_transaction: _unsignedTransaction, signed_transaction: _signedTransaction, ...publicRow } = row
-      if (['signed','broadcast-unknown','broadcast'].includes(row.state)) {
+      if (['broadcast-unknown','broadcast'].includes(row.state)) {
         try {
           const artifactNow = await artifactLoader({ env })
           if (artifactNow.artifactSha256 !== row.artifact_sha256) fail('TRAX_DEPLOYMENT_ARTIFACT_CHANGED', 409)
@@ -225,6 +226,7 @@ export function createTRAXDeploymentApi({
         success: true,
         deployment: publicRow,
         unsignedTransaction: row.state === 'prepared' ? row.unsigned_transaction : null,
+        broadcastApproval: row.state === 'signed' ? { required: true, transactionId: row.transaction_id, confirmationPhrase: 'BROADCAST TRӾ MAINNET ' + String(row.transaction_id || '').slice(0, 12).toUpperCase() } : null,
         recovery: { available: false, automaticRebroadcast: false },
       }, origin)
     }
@@ -316,41 +318,12 @@ export function createTRAXDeploymentApi({
           RETURNING operation_id,state,transaction_id
         `, [operationId, JSON.stringify(signed), session.address])
         if (!persisted.rows?.[0]) fail('TRAX_DEPLOYMENT_SIGNED_TRANSACTION_NOT_PERSISTED', 503)
-        const beforeBroadcast = await db.query(`
-          UPDATE public.tron_transfer_deployments
-          SET state='broadcast-unknown',contract_address=$2,updated_at=now()
-          WHERE operation_id=$1 AND owner_address=$3 AND state='signed'
-          RETURNING operation_id,state,transaction_id
-        `, [operationId, predictedAddress, session.address])
-        if (!beforeBroadcast.rows?.[0]) fail('TRAX_DEPLOYMENT_BROADCAST_INTENT_NOT_PERSISTED', 503)
-        // The durable broadcast-unknown state is committed before the network call.
-        // If the response is lost or the process crashes, recovery checks this txID;
-        // it never creates a replacement transaction or automatically rebroadcasts.
-        let broadcast
-        try { broadcast = await broadcastDeployment(tronWeb, signed) } catch (error) {
-          await db.query(
-            "UPDATE public.tron_transfer_deployments SET failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",
-            [operationId, String(error?.code || 'BROADCAST_RESPONSE_UNKNOWN').slice(0,120)],
-          ).catch(() => {})
-          return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast-unknown', transactionId: unsigned.txID, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'Broadcast response was ambiguous. The original transaction ID is persisted; do not submit a second deployment.' }, origin)
-        }
-        if (broadcast?.txid && String(broadcast.txid).toLowerCase() !== String(unsigned.txID).toLowerCase()) {
-          await db.query("UPDATE public.tron_transfer_deployments SET failure_code='BROADCAST_TXID_MISMATCH',updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'", [operationId]).catch(() => {})
-          return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast-unknown', transactionId: unsigned.txID, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'Broadcast returned a different transaction ID. Preserve the original ID and reconcile it against solidified Mainnet.' }, origin)
-        }
-        if (broadcast?.result !== true) {
-          const message = String(broadcast?.message || broadcast?.code || 'NODE_REJECTED_BROADCAST').slice(0,180)
-          await db.query(
-            "UPDATE public.tron_transfer_deployments SET failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",
-            [operationId, message],
-          ).catch(() => {})
-          return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast-unknown', transactionId: unsigned.txID, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'Node response did not confirm acceptance. Preserve the transaction ID and reconcile against solidified Mainnet before any further action.' }, origin)
-        }
-        await db.query(
-          "UPDATE public.tron_transfer_deployments SET state='broadcast',broadcast_at=now(),failure_code=NULL,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'",
-          [operationId],
-        )
-        return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast', transactionId: unsigned.txID, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'Mainnet accepted the original transaction. Solidified receipt and runtime verification are still pending.' }, origin)
+        return send(res, 200, {
+          success: true,
+          deployment: { operationId, state: 'signed', transactionId: unsigned.txID, predictedContractAddress: predictedAddress },
+          broadcastApproval: { required: true, transactionId: unsigned.txID, confirmationPhrase: 'BROADCAST TRӾ MAINNET ' + String(unsigned.txID).slice(0, 12).toUpperCase() },
+          message: 'The local Owner signature was verified and durably saved. Nothing was broadcast. Review the exact transaction ID and fee cap, then use the separate transaction-specific broadcast approval when ready.',
+        }, origin)
       } catch (error) {
         await db.query(
           "UPDATE public.tron_transfer_deployments SET state='failed',failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='confirming'",
@@ -358,6 +331,68 @@ export function createTRAXDeploymentApi({
         ).catch(() => {})
         const status = Number.isInteger(error?.status) ? error.status : 503
         return send(res, status, { error: error?.code || 'TRAX_DEPLOYMENT_CONFIRMATION_FAILED', message: String(error?.message || 'Deployment confirmation failed').slice(0,240) }, origin)
+      }
+    }
+    if (broadcastPath) {
+      if (!db || !ledgerReady) return send(res, 503, { error: 'TRAX_DEPLOYMENT_LEDGER_NOT_READY' }, origin)
+      if (!mainnetEnabled()) return send(res, 423, { error: 'TRAX_DEPLOYMENT_EXECUTION_GATES_LOCKED', message: 'Mainnet broadcast requires explicit execution enablement and verified ledger durability, backup and restore gates.' }, origin)
+      const body = await readBody(req)
+      const operationId = String(body.operationId || '')
+      const intentSha256 = String(body.intentSha256 || '')
+      const transactionId = String(body.transactionId || '').toLowerCase()
+      const confirmationPhrase = String(body.confirmationPhrase || '')
+      if (!/^[0-9a-f-]{36}$/i.test(operationId) || !/^[0-9a-f]{64}$/.test(intentSha256) || !TXID.test(transactionId)
+        || confirmationPhrase !== 'BROADCAST TRӾ MAINNET ' + transactionId.slice(0, 12).toUpperCase()) {
+        return send(res, 400, { error: 'TRAX_DEPLOYMENT_TRANSACTION_SPECIFIC_APPROVAL_INVALID' }, origin)
+      }
+      try {
+        const selected = await db.query('SELECT operation_id,owner_address,intent,intent_sha256,artifact_sha256,creation_bytecode_sha256,runtime_bytecode_sha256,transaction_id,unsigned_transaction,signed_transaction,state FROM public.tron_transfer_deployments WHERE operation_id=$1 AND owner_address=$2', [operationId, session.address])
+        const row = selected.rows?.[0]
+        if (!row) return send(res, 404, { error: 'TRAX_DEPLOYMENT_NOT_FOUND' }, origin)
+        if (row.state !== 'signed' || row.intent_sha256 !== intentSha256 || String(row.transaction_id || '').toLowerCase() !== transactionId) {
+          return send(res, 409, { error: 'TRAX_DEPLOYMENT_NOT_AWAITING_EXPLICIT_BROADCAST_APPROVAL', state: row.state, automaticRebroadcast: false }, origin)
+        }
+        const artifactNow = await artifactLoader({ env })
+        if (artifactNow.artifactSha256 !== row.artifact_sha256 || artifactNow.creationBytecodeSha256 !== row.creation_bytecode_sha256 || artifactNow.runtimeBytecodeSha256 !== row.runtime_bytecode_sha256) fail('TRAX_DEPLOYMENT_ARTIFACT_CHANGED', 409)
+        const tronWeb = makeTronWeb({ fullHost: mainnetHost(env), headers: rpcHeaders(env) })
+        const signed = row.signed_transaction, unsigned = row.unsigned_transaction
+        if (!signed || !unsigned || String(signed.txID || '').toLowerCase() !== transactionId || String(unsigned.txID || '').toLowerCase() !== transactionId
+          || String(signed.raw_data_hex || '').toLowerCase() !== String(unsigned.raw_data_hex || '').toLowerCase()
+          || !Array.isArray(signed.signature) || signed.signature.length !== 1 || !/^[0-9a-f]{130}$/i.test(String(signed.signature[0] || ''))) fail('TRAX_DEPLOYMENT_SIGNED_TRANSACTION_INVALID', 409)
+        assertIntegrity(tronWeb, unsigned, 'Persisted unsigned TRӾ deployment transaction')
+        assertIntegrity(tronWeb, signed, 'Persisted signed TRӾ deployment transaction')
+        const contract = unsigned.raw_data?.contract?.[0], value = contract?.parameter?.value || {}, newContract = value.new_contract || {}
+        if (contract?.type !== 'CreateSmartContract' || String(value.owner_address || '').toLowerCase() !== tronWeb.address.toHex(session.address).toLowerCase()
+          || String(newContract.bytecode || '').replace(/^0x/i, '').toLowerCase() !== artifactNow.bytecode.toLowerCase()
+          || JSON.stringify(newContract.abi?.entrys || []) !== JSON.stringify(artifactNow.abi) || Number(value.call_value || 0) !== 0
+          || Number(unsigned.raw_data?.fee_limit || 0) !== Number(row.intent?.feeLimitSun)
+          || String(unsigned.txID || '').toLowerCase() !== sha256(Buffer.from(String(unsigned.raw_data_hex), 'hex'))
+          || Number(unsigned.raw_data?.expiration || 0) <= Date.now() + 5000) fail('TRAX_DEPLOYMENT_PERSISTED_TRANSACTION_INVALID', 409)
+        await verifySigner(tronWeb, signed, session.address)
+        await verifyPermission(tronWeb, signed, session.address)
+        const [freshEstimate, freshSnapshot] = await Promise.all([estimateEnergy(tronWeb, session.address, artifactNow), readResources(tronWeb, session.address)])
+        const freshBudget = calculateBudget({ energyRequired: freshEstimate.energyUsed, resourceSnapshot: resourceFields(freshSnapshot), rawDataHex: signed.raw_data_hex,
+          feeLimitSun: String(row.intent.feeLimitSun), safetyMarginBps: 12500, transactionLabel: 'TRӾ deployment final transaction-specific broadcast approval check' })
+        assertBudget(freshBudget)
+        const predictedAddress = predictAddress(tronWeb, session.address, transactionId)
+        const claimed = await db.query("UPDATE public.tron_transfer_deployments SET state='broadcast-unknown',contract_address=$2,updated_at=now() WHERE operation_id=$1 AND owner_address=$3 AND intent_sha256=$4 AND transaction_id=$5 AND state='signed' RETURNING operation_id,state,transaction_id",
+          [operationId, predictedAddress, session.address, intentSha256, transactionId])
+        if (!claimed.rows?.[0]) fail('TRAX_DEPLOYMENT_BROADCAST_APPROVAL_ALREADY_CONSUMED', 409)
+        let broadcast
+        try { broadcast = await broadcastDeployment(tronWeb, signed) } catch (error) {
+          await db.query("UPDATE public.tron_transfer_deployments SET failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'", [operationId, String(error?.code || 'BROADCAST_RESPONSE_UNKNOWN').slice(0,120)]).catch(() => {})
+          return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast-unknown', transactionId, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'Broadcast response is ambiguous. The original transaction ID is saved; reconcile it before any further action.' }, origin)
+        }
+        if ((broadcast?.txid && String(broadcast.txid).toLowerCase() !== transactionId) || broadcast?.result !== true) {
+          const code = broadcast?.txid && String(broadcast.txid).toLowerCase() !== transactionId ? 'BROADCAST_TXID_MISMATCH' : String(broadcast?.message || broadcast?.code || 'NODE_REJECTED_BROADCAST').slice(0,120)
+          await db.query("UPDATE public.tron_transfer_deployments SET failure_code=$2,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'", [operationId, code]).catch(() => {})
+          return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast-unknown', transactionId, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'The node did not confirm acceptance. Preserve this transaction ID and reconcile solidified Mainnet before any retry.' }, origin)
+        }
+        await db.query("UPDATE public.tron_transfer_deployments SET state='broadcast',broadcast_at=now(),failure_code=NULL,updated_at=now() WHERE operation_id=$1 AND state='broadcast-unknown'", [operationId])
+        return send(res, 202, { success: true, deployment: { operationId, state: 'broadcast', transactionId, contractAddress: predictedAddress }, recovery: { available: true, automaticRebroadcast: false }, message: 'The explicitly approved transaction was accepted by Mainnet. Solidified receipt and runtime verification are pending.' }, origin)
+      } catch (error) {
+        const status = Number.isInteger(error?.status) ? error.status : 503
+        return send(res, status, { error: error?.code || 'TRAX_DEPLOYMENT_BROADCAST_FAILED', message: String(error?.message || 'TRӾ deployment broadcast approval failed').slice(0,240) }, origin)
       }
     }
     if (!ready) return send(res, 503, { error: artifactError || 'TRAX_DEPLOYMENT_PREPARATION_GATES_BLOCKED' }, origin)

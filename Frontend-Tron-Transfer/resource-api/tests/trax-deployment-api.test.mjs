@@ -99,7 +99,7 @@ test('deployment confirmation refuses to claim an operation without a local Owne
  assert.equal(replies[0].payload.error,'TRAX_DEPLOYMENT_OWNER_SIGNATURE_REQUIRED')
 })
 
-test('deployment confirmation persists signed payload and broadcast-unknown state before network broadcast', async()=>{
+test('deployment confirmation persists verified local signature without broadcasting', async()=>{
  const state={value:'prepared'}
  const events=[]
  const artifact={contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}
@@ -125,12 +125,14 @@ test('deployment confirmation persists signed payload and broadcast-unknown stat
   broadcastDeployment:async()=>{events.push('broadcast');assert.equal(state.value,'broadcast-unknown');return {result:true}},
  })
  await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT',signedTransaction:signed}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
- assert.deepEqual(events,['persist-signed','persist-broadcast-unknown','broadcast'])
- assert.equal(state.value,'broadcast')
- assert.equal(replies[0].status,202)
+ assert.deepEqual(events,['persist-signed'])
+ assert.equal(state.value,'signed')
+ assert.equal(replies[0].status,200)
+ assert.equal(replies[0].payload.broadcastApproval.required,true)
+ assert.match(replies[0].payload.broadcastApproval.confirmationPhrase,/^BROADCAST TRӾ MAINNET /)
 })
 
-test('deployment broadcast ambiguity is retained without automatic rebroadcast', async()=>{
+test('signing stage never attempts a broadcast, even when execution gates are enabled', async()=>{
  const state={value:'prepared'}, events=[]
  const artifact={contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}
  const rawDataHex='bb'.repeat(32), txID=createHash('sha256').update(Buffer.from(rawDataHex,'hex')).digest('hex')
@@ -152,12 +154,38 @@ test('deployment broadcast ambiguity is retained without automatic rebroadcast',
   broadcastDeployment:async()=>{events.push('broadcast-attempt');throw new Error('socket reset')},
  })
  await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT',signedTransaction:signed}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
- assert.deepEqual(events,['signed','unknown','broadcast-attempt'])
- assert.equal(state.value,'broadcast-unknown')
- assert.equal(replies[0].status,202)
- assert.equal(replies[0].payload.recovery.automaticRebroadcast,false)
+ assert.deepEqual(events,['signed'])
+ assert.equal(state.value,'signed')
+ assert.equal(replies[0].status,200)
+ assert.equal(replies[0].payload.broadcastApproval.required,true)
+ assert.equal(events.includes('broadcast-attempt'),false)
 })
 
+
+test('broadcast endpoint requires exact transaction-specific approval and only broadcasts the persisted signed transaction', async()=>{
+ const events=[]
+ const artifact={contractName:'Restricted1TRAX',compiler:'solc 0.8.25',artifactSha256:'4'.repeat(64),creationBytecodeSha256:'2'.repeat(64),runtimeBytecodeSha256:'3'.repeat(64),sourceSha256:'1'.repeat(64),abi:[],bytecode:'6000',deployedBytecode:'6001'}
+ const rawDataHex='bb'.repeat(32), txID=createHash('sha256').update(Buffer.from(rawDataHex,'hex')).digest('hex')
+ const unsigned={txID,raw_data_hex:rawDataHex,raw_data:{expiration:Date.now()+120000,fee_limit:1000000,contract:[{type:'CreateSmartContract',parameter:{value:{owner_address:'41'+'11'.repeat(20),new_contract:{bytecode:'6000'}}}}]}}
+ const signed={...unsigned,signature:['c'.repeat(130)]}
+ const row={operation_id:'123e4567-e89b-42d3-a456-426614174000',owner_address:owner,intent:{feeLimitSun:'1000000'},intent_sha256:'d'.repeat(64),artifact_sha256:'4'.repeat(64),creation_bytecode_sha256:'2'.repeat(64),runtime_bytecode_sha256:'3'.repeat(64),transaction_id:txID,unsigned_transaction:unsigned,signed_transaction:signed,state:'signed'}
+ const db={async query(sql){if(sql.includes('to_regclass'))return {rows:[{deployments_table:'tron_transfer_deployments'}]};if(sql.includes('SELECT operation_id,owner_address,intent,intent_sha256'))return {rows:[row]};if(sql.includes("SET state='broadcast-unknown'")){events.push('persist-broadcast-intent');return {rows:[{operation_id:row.operation_id}]}}if(sql.includes("SET state='broadcast'")){events.push('persist-broadcast');return {rows:[]}}return {rows:[]}}}
+ const {api,replies}=make({
+  env:{TRAX_DEPLOYMENT_EXECUTION_ENABLED:'true',TRAX_DEPLOYMENT_MAINNET_ACK:'CONFIRM_ARTIFACT_PINNED_TRAX_DEPLOYMENT',TRAX_DEPLOYMENT_LEDGER_DURABLE:'true',TRAX_DEPLOYMENT_LEDGER_BACKUP_VERIFIED:'true',TRAX_DEPLOYMENT_LEDGER_RESTORE_TESTED:'true'},
+  database:db,artifactLoader:async()=>artifact,tronWebFactory:()=>({address:{toHex:()=> '41'+'11'.repeat(20)}}),
+  assertIntegrity:()=>true,predictAddress:()=> 'T'+'A'.repeat(33),estimateEnergy:async()=>({energyUsed:1}),readResources:async()=>({}),calculateBudget:()=>({}),assertBudget:()=>true,
+  verifySigner:async()=>events.push('verify-signer'),verifyPermission:async()=>events.push('verify-permission'),
+  broadcastDeployment:async(_client,tx)=>{assert.equal(tx.txID,txID);events.push('broadcast');return {result:true,txid:txID}},
+ })
+ const url=new URL('https://api.test/api/owner/deployment/broadcast')
+ await api.handle(req('POST',{operationId:row.operation_id,intentSha256:row.intent_sha256,transactionId:txID,confirmationPhrase:'BROADCAST TRӾ MAINNET WRONG000000'}),res(),url,null)
+ assert.equal(replies[0].status,400)
+ assert.equal(events.length,0)
+ await api.handle(req('POST',{operationId:row.operation_id,intentSha256:row.intent_sha256,transactionId:txID,confirmationPhrase:'BROADCAST TRӾ MAINNET '+txID.slice(0,12).toUpperCase()}),res(),url,null)
+ assert.equal(replies[1].status,202)
+ assert.equal(replies[1].payload.deployment.state,'broadcast')
+ assert.deepEqual(events,['verify-signer','verify-permission','persist-broadcast-intent','broadcast','persist-broadcast'])
+})
 
 test('deployment recovery verifies only the original txID and persists solidified confirmation', async()=>{
  const events=[]
@@ -206,8 +234,10 @@ test('deployment confirmation verifies recovered signature and live permission b
   broadcastDeployment:async()=>{events.push('broadcast');return {result:true}},
  })
  await api.handle(req('POST',{operationId:'123e4567-e89b-42d3-a456-426614174000',intentSha256:'d'.repeat(64),confirmationPhrase:'CONFIRM TRӾ MAINNET DEPLOYMENT',signedTransaction:signed}),res(),new URL('https://api.test/api/owner/deployment/confirm'),null)
- assert.deepEqual(events,['verify-signature','verify-permission','persist-signed','persist-broadcast-unknown','broadcast'])
- assert.equal(replies[0].status,202)
+ assert.deepEqual(events,['verify-signature','verify-permission','persist-signed'])
+ assert.equal(replies[0].status,200)
+ assert.equal(replies[0].payload.deployment.state,'signed')
+ assert.equal(events.includes('broadcast'),false)
 })
 
 test('deployment status exposes only the unsigned transaction while prepared and never exposes signed payloads', async()=>{
