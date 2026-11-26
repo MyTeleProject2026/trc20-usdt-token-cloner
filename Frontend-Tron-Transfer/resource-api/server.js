@@ -323,6 +323,11 @@ export function createServer({ env = process.env, allowedAddress = env.TRON_OWNE
     env, send, fetchImpl,
     authenticateOwnerSession: (req, options) => ownerWalletAuthApi.authenticateRequest(req, options),
     authenticateSponsorSession: (req, options) => sponsorWalletAuthApi.authenticateRequest(req, options),
+    recordAcceptance: async ({ role, ...details }) => {
+      if (role === 'owner') return ownerWalletAuthApi.recordSignerAcceptance(details)
+      if (role === 'sponsor') return sponsorWalletAuthApi.recordSignerAcceptance(details)
+      return false
+    },
   })
   const sponsorApi = createSponsorResourceApi({
     env, allowedAddress, fetchImpl,
