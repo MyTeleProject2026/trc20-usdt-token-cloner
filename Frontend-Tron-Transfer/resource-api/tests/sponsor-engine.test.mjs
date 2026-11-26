@@ -73,7 +73,7 @@ function fixture({ bandwidth = 600, stakedBandwidth = 0, balance = 10_000_000n, 
     ok: true,
     json: async () => url.endsWith('gettransactioninfobyid')
       ? { id: TXID, blockNumber: 123, receipt: { result: 'SUCCESS' } }
-      : { txID: TXID, raw_data: { contract: [{ type: 'FreezeBalanceV2Contract', parameter: { value: { owner_address: sponsorHex, resource: 1, frozen_balance: '1000000' } } }] } },
+      : { txID: TXID, raw_data: transaction.raw_data },
   })
   const engine = createSponsorTransactionEngine({
     env: configuredEnv(envOverrides),
