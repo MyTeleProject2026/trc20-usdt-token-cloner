@@ -107,8 +107,6 @@ export function createSponsorTransactionEngine({
     const addressesIndependent = ownerAddressValid && sponsorAddressValid && ownerAddress !== sponsorAddress
     const enabled = env.SPONSOR_TRANSACTION_ENGINE_ENABLED === 'true'
       && env.SPONSOR_MAINNET_BROADCAST_ENABLED === 'true'
-    const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
-    const feeCapValid = maxFeeRaw === '0' || positiveSun(String(maxFeeRaw)) !== null
     const reserveTrx = String(env.SPONSOR_LIQUID_RESERVE_TRX || '2')
     const reserveAmountSun = decimalTrxToSun(reserveTrx)
     const reserveValid = reserveAmountSun !== null && reserveAmountSun > 0n
@@ -117,7 +115,7 @@ export function createSponsorTransactionEngine({
     // reserve, resource/delegation state, transaction fees and protocol rules.
     const stakingEnabled = enabled
     const ownerTopupEnabled = enabled
-    const policyValid = feeCapValid && reserveValid
+    const policyValid = reserveValid
     return {
       configured: addressesIndependent && policyValid,
       signerMode: 'client-local-vault',
@@ -136,7 +134,7 @@ export function createSponsorTransactionEngine({
       ownerTopupPolicy: { enabled: ownerTopupEnabled, amountLimitMode: 'live-balance-minus-reserve' },
       feePolicy: {
         valid: policyValid,
-        maxBandwidthFeeSun: String(maxFeeRaw),
+        feeMode: 'live-chain-bandwidth-price-within-available-balance',
         protectedReserveTrx: reserveTrx,
       },
     }
@@ -227,9 +225,7 @@ export function createSponsorTransactionEngine({
       const sponsorAddress = env.SPONSOR_MAINNET_ADDRESS
       if (!ADDRESS.test(sponsorAddress || '') || sponsorAddress === recipient) throw new Error('sponsor-signer-address-mismatch')
       const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
-      const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
-      const maxFee = maxFeeRaw === '0' ? 0n : positiveSun(String(maxFeeRaw))
-      if (reserve === null || maxFee === null) throw new Error('invalid-sponsor-fee-policy')
+      if (reserve === null) throw new Error('invalid-sponsor-fee-policy')
       const balance = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
       if ((operation === 'stake' || operation === 'topup') && balance < amount + reserve) return { success: false, status: 'insufficient-balance-after-reserve' }
       if (!['stake', 'topup'].includes(operation) && balance < reserve) return { success: false, status: 'insufficient-fee-reserve' }
@@ -289,13 +285,12 @@ export function createSponsorTransactionEngine({
       const bandwidthFee = Number((chainParameters || []).find(item => item.key === 'getTransactionFee')?.value || 0)
       if (!Number.isSafeInteger(transactionBytes) || transactionBytes <= 0 || !Number.isSafeInteger(bandwidthFee) || bandwidthFee <= 0) throw new Error('mainnet-bandwidth-preflight-unavailable')
       const requiredFeeSun = BigInt(Math.max(0, transactionBytes - availableBandwidth)) * BigInt(bandwidthFee)
-      if (requiredFeeSun > maxFee) return { success: false, status: 'bandwidth-shortfall-exceeds-authorized-fee-cap' }
       const requiredBalance = (operation === 'stake' || operation === 'topup' ? amount : 0n) + reserve + requiredFeeSun
-      if (balance < requiredBalance) return { success: false, status: 'insufficient-balance-for-authorized-fee-cap' }
+      if (balance < requiredBalance) return { success: false, status: 'insufficient-balance-for-transaction-fee' }
       return {
         success: true, status: 'prepared', transaction: structuredClone(transaction),
         sponsorAddress, ownerAddress: recipient, operation, resource, amountSun: amount.toString(),
-        feePolicy: { reserveSun: reserve.toString(), maxBandwidthFeeSun: maxFee.toString(), requiredBandwidthFeeSun: requiredFeeSun.toString() },
+        feePolicy: { reserveSun: reserve.toString(), requiredBandwidthFeeSun: requiredFeeSun.toString(), feeMode: 'live-chain-bandwidth-price' },
       }
     } catch (error) {
       return { success: false, status: safeCode(error) }
@@ -356,9 +351,7 @@ export function createSponsorTransactionEngine({
       }
       const balance = BigInt(await tronWeb.trx.getBalance(sponsorAddress))
       const reserve = decimalTrxToSun(String(env.SPONSOR_LIQUID_RESERVE_TRX || '2'))
-      const maxFeeRaw = env.SPONSOR_MAX_TX_FEE_SUN ?? '0'
-      const maxFee = maxFeeRaw === '0' ? 0n : positiveSun(String(maxFeeRaw))
-      if (reserve === null || maxFee === null) throw new Error('invalid-sponsor-fee-policy')
+      if (reserve === null) throw new Error('invalid-sponsor-fee-policy')
       const resources = await tronWeb.trx.getAccountResources(sponsorAddress)
       const freeBandwidth = Math.max(0, Number(resources.freeNetLimit || 0) - Number(resources.freeNetUsed || 0))
       const stakedBandwidth = Math.max(0, Number(resources.NetLimit || 0) - Number(resources.NetUsed || 0))
@@ -367,9 +360,8 @@ export function createSponsorTransactionEngine({
       const bandwidthFee = Number((parameters || []).find(item => item.key === 'getTransactionFee')?.value || 0)
       if (!Number.isSafeInteger(bytes) || bytes <= 0 || !Number.isSafeInteger(bandwidthFee) || bandwidthFee <= 0) throw new Error('mainnet-bandwidth-preflight-unavailable')
       const bandwidthFeeSun = BigInt(Math.max(0, bytes - Math.max(freeBandwidth, stakedBandwidth))) * BigInt(bandwidthFee)
-      if (bandwidthFeeSun > maxFee) throw new Error('bandwidth-shortfall-exceeds-authorized-fee-cap')
       const principal = ['stake', 'topup'].includes(operation) ? BigInt(String(amountSun)) : 0n
-      if (balance < principal + reserve + bandwidthFeeSun) throw new Error('insufficient-balance-for-authorized-fee-cap')
+      if (balance < principal + reserve + bandwidthFeeSun) throw new Error('insufficient-balance-for-transaction-fee')
 
       const reader = tronWeb.trx.raw || tronWeb.trx
       if (operation === 'delegate') {
