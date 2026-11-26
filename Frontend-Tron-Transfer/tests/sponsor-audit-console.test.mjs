@@ -29,3 +29,11 @@ test('Sponsor audit UI never renders prepared or signed transaction payload fiel
   assert.equal(audit.includes('signed_transaction'), false)
   assert.equal(audit.includes('unsignedTransaction'), false)
 })
+
+test('Owner deployment resource preflight displays the actual Mainnet RPC providers used', async () => {
+  const panel = await read('../src/TRXMainnetPanel.jsx')
+  assert.ok(panel.includes('Mainnet RPC sources: Energy'))
+  assert.ok(panel.includes('providersUsed?.accountResources'))
+  assert.ok(panel.includes('providersUsed?.account'))
+  assert.ok(panel.includes('providersUsed?.chainParameters'))
+})
