@@ -139,12 +139,15 @@ jobs:
                     } else if (target.name === 'tronscan-explorer') {
                       validPayload = response.ok && parsed?.ok === true
                         && parsed?.explorer === 'TronScan' && parsed?.network === 'TRON Mainnet'
-                        && parsed?.reachable === true && parsed?.apiKeyConfigured === true;
+                        && parsed?.reachable === true && parsed?.probeContractIndexed === true;
+                      const apiKeyState = parsed?.apiKeyConfigured === true
+                        ? String(parsed.apiKeySource || 'configured')
+                        : 'not configured (public read-only)';
                       detail = validPayload
-                        ? 'TronScan authenticated via ' + String(parsed.apiKeySource || 'configured key') + ' · official USDT indexed=' + (parsed.probeContractIndexed === true)
-                        : !parsed?.apiKeyConfigured
-                          ? 'TRONSCAN_PRO_API_KEY is not configured on the Resource API'
-                          : 'TronScan Mainnet explorer unavailable · ' + String(parsed?.errorCode || 'invalid response');
+                        ? 'TronScan public read endpoint reachable · official USDT indexed · API key=' + apiKeyState
+                        : !parsed?.reachable
+                          ? 'TronScan Mainnet explorer unavailable · ' + String(parsed?.errorCode || 'unreachable')
+                          : 'TronScan did not confirm the official USDT reference contract';
                     } else if (target.name === 'uptime-history') {
                       const count = Array.isArray(parsed?.runs) ? parsed.runs.length : 0;
                       validPayload = response.ok && parsed?.success === true && count > 0;
