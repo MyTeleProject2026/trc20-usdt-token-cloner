@@ -99,6 +99,20 @@ test('Owner and Sponsor workspaces do not depend on injected TRON wallet provide
   }
 })
 
+test('Owner deployment readiness includes an authenticated read-only Mainnet resource preflight', async () => {
+  const api = await read('../resource-api/trax-deployment-api.mjs')
+  const panel = await read('../src/TRXMainnetPanel.jsx')
+  assert.ok(api.includes("url.pathname === '/api/owner/deployment/preflight'"))
+  assert.ok(api.includes('transactionPersisted: false'))
+  assert.ok(api.includes('walletPromptRequested: false'))
+  assert.ok(api.includes('signatureRequested: false'))
+  assert.ok(api.includes('broadcastAttempted: false'))
+  assert.ok(api.includes('allowTrxFallback: true'))
+  assert.ok(panel.includes("'/api/owner/deployment/preflight?feeLimitSun='"))
+  assert.ok(panel.includes('Refresh resource preflight'))
+  assert.ok(panel.includes('Estimated TRX fallback'))
+})
+
 test('contract administration checks the configured owner against the on-chain token owner', async () => {
   const panel = await read('../src/TRXMainnetPanel.jsx')
   for (const value of ['callMainnetView(token.owner())', 'connectedAddress', 'addressesEqual(wallet.tronWeb, wallet.tronWeb.defaultAddress?.base58, connectedAddress)']) {
