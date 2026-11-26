@@ -240,7 +240,8 @@ async function assertSchema(db) {
       to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
       to_regclass('public.tron_transfer_sponsor_control') AS control_table,
       EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column,
-      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column,
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='recipient_address') AS recipient_address_column
   `)
   const migration = await db.query(
     'SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations WHERE version=$1',
@@ -250,7 +251,8 @@ async function assertSchema(db) {
     throw new Error('sponsor-ledger-migration-checksum-not-verified')
   }
   if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
-    || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true) {
+    || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true
+    || schema.rows[0].recipient_address_column !== true) {
     throw new Error('sponsor-ledger-schema-not-initialized')
   }
   const control = await db.query(
@@ -457,10 +459,12 @@ export function createSponsorResourceApi({
                   to_regclass('public.tron_transfer_sponsor_operations') AS operations_table,
                   to_regclass('public.tron_transfer_sponsor_control') AS control_table,
                   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='prepared_transaction') AS prepared_transaction_column,
-                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column
+                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='signed_transaction') AS signed_transaction_column,
+                  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tron_transfer_sponsor_operations' AND column_name='recipient_address') AS recipient_address_column
               `)
               if (!schema.rows?.[0]?.operations_table || !schema.rows?.[0]?.control_table
-                || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true) {
+                || schema.rows[0].prepared_transaction_column !== true || schema.rows[0].signed_transaction_column !== true
+    || schema.rows[0].recipient_address_column !== true) {
                 databaseStatus = 'schema-missing'
               } else {
                 const migration = await db.query(
