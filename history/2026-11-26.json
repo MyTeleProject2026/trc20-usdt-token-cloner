@@ -2543,6 +2543,122 @@
           "checkedAt": "2026-11-26T09:58:06.052Z"
         }
       ]
+    },
+    {
+      "id": 45804740541,
+      "runNumber": 117,
+      "checkedAt": "2026-11-26T10:48:34.600Z",
+      "status": "failure",
+      "conclusion": "failure",
+      "commit": "483fb85a102250a7d05ba1929cd6e461e430e47c",
+      "event": "push",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/45804740541",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 343,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-26T10:48:34.600Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 405,
+          "detail": "healthy · TRON Mainnet",
+          "metrics": null,
+          "checkedAt": "2026-11-26T10:48:34.716Z"
+        },
+        {
+          "name": "mainnet-rpc-providers",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 4003,
+          "detail": "Tatum block 88338619 · TronGrid block 88338619",
+          "metrics": null,
+          "checkedAt": "2026-11-26T10:48:38.316Z"
+        },
+        {
+          "name": "tronscan-explorer",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1835,
+          "detail": "TronScan public read endpoint reachable · official USDT indexed · API key=TRONSCAN_PRO_API_KEY",
+          "metrics": null,
+          "checkedAt": "2026-11-26T10:48:36.147Z"
+        },
+        {
+          "name": "sponsor-readiness",
+          "ok": false,
+          "status": 200,
+          "latencyMs": 5278,
+          "detail": "Sponsor acceptance=blocked · db=ready · dbReady=true · sponsor=false · owner=true · independent=true · durable=true · adminSession=true · paused=true · signer=true · release=false · execute=false · final response latency threshold exceeded",
+          "metrics": null,
+          "checkedAt": "2026-11-26T10:48:39.591Z"
+        },
+        {
+          "name": "owner-signer-challenge-auth",
+          "ok": true,
+          "status": 401,
+          "latencyMs": 709,
+          "detail": "Owner sign-only challenge endpoint is present and rejects unauthenticated access",
+          "metrics": null,
+          "checkedAt": "2026-11-26T10:48:35.022Z"
+        },
+        {
+          "name": "sponsor-signer-challenge-auth",
+          "ok": true,
+          "status": 401,
+          "latencyMs": 403,
+          "detail": "Sponsor sign-only challenge endpoint is present and rejects unauthenticated access",
+          "metrics": null,
+          "checkedAt": "2026-11-26T10:48:34.717Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 403,
+          "detail": "valid JSON health payload",
+          "metrics": {
+            "sampledAt": "2026-11-26T10:48:34.621Z",
+            "uptimeSeconds": 191,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 99471360,
+            "heapUsedBytes": 30231936,
+            "heapTotalBytes": 33292288,
+            "eventLoopP95Ms": 20.119551,
+            "requestCount": 15,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 0,
+            "p95LatencyMs": 0
+          },
+          "checkedAt": "2026-11-26T10:48:34.717Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1410,
+          "detail": "Git-backed history served · 33 archived runs",
+          "metrics": null,
+          "checkedAt": "2026-11-26T10:48:35.725Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1302,
+          "detail": "server credential verified · CPU and memory samples received",
+          "metrics": null,
+          "checkedAt": "2026-11-26T10:48:35.617Z"
+        }
+      ]
     }
   ]
 }
