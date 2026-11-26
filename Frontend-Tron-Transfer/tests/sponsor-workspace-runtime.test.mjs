@@ -140,3 +140,9 @@ test('Sponsor first-time enrollment is independent, address-bound, and browser-o
   assert.match(source, /onClick=\{\(\) => void enrollSponsorWallet\(\)\}/)
   assert.match(source, /setSaved\(null\)/, 'status lookup failure must not be treated as proof that no account exists')
 });
+test('Sponsor pre-release checklist is distinct from live transaction execution readiness', () => {
+  assert.ok(source.includes('<h3>Sponsor pre-release readiness review</h3>'))
+  assert.ok(source.includes('Live Sponsor execution availability is reported separately above.'))
+  assert.ok(source.includes('released ledger control, approved database identity, verified durability'))
+  assert.equal(source.includes('paused-write and explicit Mainnet release gates'), false)
+})
