@@ -142,6 +142,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setUsdtWithdrawalHistory([])
     setUsdtWithdrawalBalanceAt('')
     setRecentOperations([])
+    setSponsorAudit(null)
+    setSponsorAuditState('idle')
     setDeploymentReadiness(null)
     autoReadinessCheckKeyRef.current = ''
     setDeploymentOperation(null)
