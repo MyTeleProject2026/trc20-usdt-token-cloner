@@ -57,7 +57,15 @@ function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SES
     ...(authenticateManagedSession ? { authenticateManagedSession } : {}),
     ...(authenticateOwnerAdminSession ? { authenticateOwnerAdminSession } : {}),
     engine: engine || {
-      readiness: () => ({ configured: false, enabled: false, broadcastAvailable: false, feePolicy: {} }),
+      readiness: () => ({
+        configured: false,
+        enabled: false,
+        broadcastAvailable: false,
+        clientSigningAvailable: false,
+        stakingPolicy: { enabled: false, maxStakeTrx: '0' },
+        ownerTopupPolicy: { enabled: false, maxTopupTrx: '0' },
+        feePolicy: {},
+      }),
       execute: async () => { calls.push('execute'); return { success: true } },
       reconcile: async () => ({ confirmed: false, status: 'not-solidified' }),
     },
@@ -293,6 +301,10 @@ test('Sponsor status exposes readiness but never secret values', async () => {
   assert.equal(result.payload.network, 'TRON Mainnet')
   assert.equal(result.payload.sponsorAddress, SPONSOR)
   assert.equal(result.payload.transactionExecutionAvailable, false)
+  assert.equal(result.payload.broadcastAvailable, false)
+  assert.equal(result.payload.clientSigningAvailable, false)
+  assert.equal(result.payload.stakingPolicy.enabled, false)
+  assert.equal(result.payload.ownerTopupPolicy.enabled, false)
   assert.equal(result.payload.databaseReady, false)
   assert.equal(result.payload.databaseStatus, 'not-configured')
   assert.equal(result.payload.sponsorWritesPaused, true)
