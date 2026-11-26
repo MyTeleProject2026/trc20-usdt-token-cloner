@@ -140,9 +140,9 @@ jobs:
                       const stakedBandwidth = String(parsed?.stakedBandwidthAvailable ?? '');
                       const providers = parsed?.rpc?.providersUsed || {};
                       validPayload = response.ok && parsed?.network === 'TRON Mainnet'
-                        && /^\\d+$/.test(energy)
-                        && /^\\d+$/.test(freeBandwidth)
-                        && /^\\d+$/.test(stakedBandwidth)
+                        && /^\d+$/.test(energy)
+                        && /^\d+$/.test(freeBandwidth)
+                        && /^\d+$/.test(stakedBandwidth)
                         && Boolean(providers.accountResources && providers.account && providers.chainParameters);
                       metrics = {
                         energyAvailable: energy,
