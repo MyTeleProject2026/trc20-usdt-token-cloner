@@ -324,7 +324,7 @@ jobs:
           })().catch(error => { console.error(error); process.exitCode = 1; });
           NODE
       - name: Verify production Retry-After and CORS response headers
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: bash
         run: |
           set -euo pipefail
