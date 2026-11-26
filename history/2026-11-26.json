@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-26",
+  "source": "Tron Transfer scheduled production probes",
+  "records": [
+    {
+      "id": 45727440070,
+      "runNumber": 93,
+      "checkedAt": "2026-11-26T00:15:36.840Z",
+      "status": "success",
+      "conclusion": "success",
+      "commit": "1ca1b4d74e5aebd92232db9bc2aeff90dfd7e46a",
+      "event": "push",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/45727440070",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 334,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-26T00:15:36.840Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 370,
+          "detail": "healthy · TRON Mainnet · recovered after 47425 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-26T00:16:23.984Z"
+        },
+        {
+          "name": "sponsor-readiness",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 2722,
+          "detail": "Sponsor readiness=blocked · db=schema-missing · dbReady=false · durable=false · paused=true · owner=true · independent=true · session=true · admin=false · engine=true/true · execute=false · recovered after 49905 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-26T00:16:26.465Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 257,
+          "detail": "valid JSON health payload · recovered after 49722 ms (4 attempts)",
+          "metrics": {
+            "sampledAt": "2026-11-26T00:16:26.160Z",
+            "uptimeSeconds": 11,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 112869376,
+            "heapUsedBytes": 31487544,
+            "heapTotalBytes": 35127296,
+            "eventLoopP95Ms": 20.824063,
+            "requestCount": 6,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 232,
+            "p95LatencyMs": 965
+          },
+          "checkedAt": "2026-11-26T00:16:26.282Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 700,
+          "detail": "Git-backed history served · 9 archived runs · recovered after 47420 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-26T00:16:23.981Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1252,
+          "detail": "server credential verified · CPU and memory samples received · recovered after 48597 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-26T00:16:25.159Z"
+        }
+      ]
+    }
+  ]
+}
