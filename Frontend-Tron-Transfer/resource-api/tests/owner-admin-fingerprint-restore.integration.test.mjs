@@ -8,12 +8,12 @@ import {
 
 const PROJECT_ID = 'super-water-26874320'
 const EXPECTED_BRANCH_NAME = 'tron-transfer-restore-acceptance-2026-11-26'
-const EXPECTED_SNAPSHOT_ID = 'snap-green-lab-beqjmb7l'
+const EXPECTED_SNAPSHOT_ID = 'snap-crimson-mouse-beya8lz8'
 const PRODUCTION_BRANCH_ID = 'br-proud-mud-bexgns9g'
 const SIGNER_ACCEPTANCE_MIGRATION = '20261126_wallet_signer_acceptance_audit.sql'
 const SIGNER_ACCEPTANCE_INDEX = 'tron_transfer_wallet_auth_audit_signer_acceptance'
 const SIGNER_ACCEPTANCE_EVENT = 'signer_acceptance_verified'
-const BASELINE_FINGERPRINT = 'f950a9bf0464f74fff0a039453bb2fe40f1873561ae2b0499b7837dd66bd5364'
+const BASELINE_FINGERPRINT = 'd791bd80a73d966365e717ac7f72e1525f4df1c2fac1d0096c2f8aea5c5ad8ea'
 
 const databaseUrl = process.env.OWNER_ADMIN_FINGERPRINT_TEST_DATABASE_URL
 const neonApiKey = process.env.NEON_API_KEY

@@ -168,3 +168,33 @@ The Owner and Sponsor workspaces expose a separate **Run sign-only acceptance** 
 - The API does not receive a private key, persist the signature, create a transaction, spend TRX or broadcast.
 
 A passing result proves local key control and message-signing compatibility for that wallet at that time. It does **not** prove a transaction was accepted by Mainnet, does not release Sponsor writes, and is not a substitute for separate transaction and receipt acceptance.
+
+
+## 2026-11-27 production restore verification update
+
+The 2026-11-26 production snapshot and its isolated restore were rechecked against the current production branch after the Sponsor ledger and wallet signer-audit migrations were present.
+
+- Production branch: `br-proud-mud-bexgns9g`.
+- Snapshot: `snap-crimson-mouse-beya8lz8`.
+- Restored verification branch: `br-dawn-butterfly-beel3xrt` (`tron-transfer-restore-acceptance-2026-11-26`).
+- Both Neon branches were ready and the restore branch reports that it was restored from the named snapshot.
+- The exact `OWNER_ADMIN_SCHEMA_FINGERPRINT_SQL` from `scripts/migrate-owner-admin-ledgers.mjs` returned `d791bd80a73d966365e717ac7f72e1525f4df1c2fac1d0096c2f8aea5c5ad8ea` on both production and the restored branch.
+- All 11 migration-ledger version/checksum rows matched between production and the restored branch.
+- The 11 migration records present include the Owner wallet, Owner operation, TRӾ deployment, recovery, pending-owner, Sponsor operations, signer-acceptance audit, USDT withdrawal, native TRX withdrawal and Sponsor arbitrary-TRX transfer migrations.
+- The Owner Admin, TRӾ deployment, Sponsor operations, wallet account/session, wallet-auth audit and Sponsor-control ledger row-content digests matched between the two branches.
+
+The migration runner's pinned catalog fingerprint and the isolated restore integration fixture are updated to this independently observed production/restore value and snapshot. This fixes a stale source pin; it does not run a production migration or alter production ledger rows.
+
+### Current production records (read-only check)
+
+- Owner operation rows: 0.
+- TRӾ deployment rows: 0.
+- Sponsor operation rows: 1 failed `stake / ENERGY` record, with no transaction ID.
+- Enabled wallet accounts: one Owner and one Sponsor account.
+- Wallet sessions: 49 total; one Owner session was active and unexpired at the check, and no Sponsor session was active and unexpired.
+- Wallet-auth audit: 137 rows, including successful sign-only acceptance records for both roles.
+- Sponsor control row: `writes_paused=false`. This was not changed during the restore verification.
+
+The Sponsor write-control value is intentionally reported as observed, not changed to satisfy a readiness check. The Sponsor session must be re-established in the browser for further Sponsor-local acceptance. No transaction was submitted, and no contract deployment or Sponsor write release was performed.
+
+The isolated restore integration test remains opt-in and will skip in CI unless its dedicated restore-fixture database URL, Neon API key, project ID, branch ID and branch name are configured. The direct Neon branch/schema/ledger comparisons above were performed independently using the Neon management and read-only SQL tools.
