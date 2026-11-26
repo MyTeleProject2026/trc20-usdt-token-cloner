@@ -12,7 +12,7 @@ test('Owner history workspace exposes the authenticated read-only Sponsor audit'
   assert.ok(panel.includes("wallet.authClient.apiRequest('/api/sponsor/audit?limit=50')"))
   assert.ok(panel.includes('Read-only Sponsor audit'))
   assert.ok(panel.includes('Refresh Sponsor audit'))
-  assert.ok(panel.includes('signed payloads included: No'))
+  assert.ok(panel.includes('signed transaction payloads included: No'))
   assert.ok(api.includes("path === '/api/sponsor/audit'"))
   assert.ok(api.includes('verifyAdminAuthorization(req)'))
   assert.ok(api.includes('signedTransactionPayloadsIncluded: false'))
