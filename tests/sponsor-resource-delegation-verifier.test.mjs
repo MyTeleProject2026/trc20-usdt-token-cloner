@@ -97,11 +97,11 @@ test('resource delegation verifier rejects amount, receiver, resource, and execu
     { name: 'receiver mismatch', mock: { delegation: { from: sponsorHex, to: receiverHex, frozen_balance_for_bandwidth: '10000000' } }, input: { resourceType: 'ENERGY' } },
     { name: 'failed execution', mock: { info: { blockNumber: 100, result: 'FAILED', receipt: { result: 'FAILED' } } } },
     { name: 'receipt status missing', mock: { info: { blockNumber: 100, result: 'SUCCESS' } } },
-    { name: 'locked delegation', mock: { transactionOverrides: { raw_data: { contract: [{ type: 'DelegateResourceContract', parameter: { value: { owner_address: sponsorHex, receiver_address: receiverHex, resource: 1, balance: 10000000, lock: 'true' } } }] } } },
+    { name: 'locked delegation', mock: { transactionOverrides: { raw_data: { contract: [{ type: 'DelegateResourceContract', parameter: { value: { owner_address: sponsorHex, receiver_address: receiverHex, resource: 1, balance: 10000000, lock: 'true' } } }] } } } },
     { name: 'additional contract', mock: { transactionOverrides: { raw_data: { contract: [
       { type: 'DelegateResourceContract', parameter: { value: { owner_address: sponsorHex, receiver_address: receiverHex, resource: 1, balance: 10000000, lock: false } } },
       { type: 'TransferContract', parameter: { value: {} } },
-    ] } } },
+    ] } } } },
   ]
   for (const item of cases) {
     await t.test(item.name, async () => {
