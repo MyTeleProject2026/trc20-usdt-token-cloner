@@ -3021,3 +3021,98 @@ body {
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Map the legacy page components onto the same institutional palette. */
+:root {
+  --bg: #080e19; --bg-raised: #0d1727;
+  --surface: rgba(17, 29, 47, .94);
+  --surface-strong: rgba(20, 36, 57, .98);
+  --surface-soft: rgba(15, 30, 49, .88);
+  --surface-glass: rgba(13, 25, 42, .82);
+  --line: rgba(155, 180, 211, .15);
+  --line-strong: rgba(87, 197, 237, .32);
+  --ink: #edf4fc; --ink-soft: #bdcadd;
+  --muted: #91a5bd; --muted-deep: #71869f;
+  --mint: #8cddf7; --mint-bright: #57c5ed;
+  --emerald: #35a8d3; --amber: #e0bd7b; --red: #ff8292;
+  --text: #edf4fc;
+}
+.trax-workspace { gap: 20px; }
+.trax-workspace > :is(.section-heading,.trax-notice,.trax-connect,.trax-wallet-row,.trax-progress,.trax-portfolio,.trax-actions,.trax-addresses,.trax-resource-panel,.trax-signer-acceptance) {
+  min-width: 0;
+}
+.trax-workspace > .section-heading {
+  padding: 4px 2px 14px;
+  border-bottom: 1px solid var(--tt-border);
+}
+.trax-workspace .section-heading h2 { color: #f2f7fd; letter-spacing: -.04em; }
+.trax-workspace .section-heading p { max-width: 760px; color: #91a5bd; }
+.trax-workspace :is(.trax-actions,.trax-addresses,.trax-portfolio,.trax-resource-panel,.trax-signer-acceptance) {
+  padding: 20px;
+  border: 1px solid var(--tt-border);
+  border-radius: 15px;
+  background: linear-gradient(145deg, rgba(18,33,53,.96), rgba(12,24,41,.98));
+  box-shadow: 0 14px 34px rgba(0,0,0,.16);
+}
+.trax-workspace :is(.trax-actions,.trax-addresses) h3 { color: #edf4fc; }
+.trax-workspace .trax-stats article {
+  padding: 16px;
+  border-color: var(--tt-border);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(19,38,60,.94), rgba(12,25,42,.94));
+}
+.trax-workspace .trax-stats span { color: #91a5bd; }
+.trax-workspace .trax-stats b { color: #a9e9fb; }
+.trax-workspace .trax-checks span {
+  border-color: var(--tt-border);
+  border-radius: 8px;
+  background: rgba(13,27,45,.72);
+}
+.trax-workspace .trax-checks .ok { color: #82dfc7; border-color: rgba(78,208,178,.26); }
+.trax-workspace .trax-checks .bad { color: #e9c98f; border-color: rgba(224,189,123,.28); }
+.trax-workspace .trax-notice { border-color: rgba(224,189,123,.28); background: rgba(117,82,31,.13); }
+.trax-workspace .trax-notice p, .trax-workspace .fine-print { color: #91a5bd; }
+.trax-workspace .trax-balance-note,
+.trax-workspace .trax-recipient-result {
+  border: 1px solid var(--tt-border);
+  border-radius: 10px;
+  background: #091525;
+  color: #b9cadd;
+}
+.trax-workspace .trax-recipient-result b { color: #a9e9fb; }
+.trax-workspace .trax-footer-links a { color: #83d9f4; }
+.trax-workspace :is(input,textarea,select) {
+  border-color: rgba(143,174,207,.22);
+  border-radius: 10px;
+  background: #091525;
+  color: #f0f6fd;
+}
+.trax-workspace :is(input,textarea,select):focus { border-color: rgba(87,197,237,.72); outline: 0; box-shadow: 0 0 0 3px rgba(87,197,237,.12); }
+.trax-workspace .button-row { gap: 10px; }
+.trax-workspace .button-row button { min-height: 44px; border-radius: 10px; font-size: 11px; font-weight: 800; }
+.trax-workspace .primary-button { border: 1px solid rgba(130,222,249,.42)!important; background: linear-gradient(135deg,#35a8d3,#267eae); color: #061522; }
+.trax-workspace .secondary-button,.trax-workspace .outline-button { border-color: var(--tt-border); background: rgba(20,39,61,.82); color: #c6d7e9; }
+.trax-workspace .notice-success { border-color: rgba(78,208,178,.25); background: rgba(22,107,91,.14); color: #b8eee2; }
+.trax-workspace .notice-error { border-color: rgba(255,130,146,.28); background: rgba(119,36,57,.16); color: #ffc1ca; }
+.trax-workspace .trax-state-banner { border-radius: 12px; }
+.trax-admin-content > * { min-width: 0; }
+.trax-admin-content :is(.sponsor-dashboard,.trax-workspace,.aetheria-mesh) { width: 100%; }
+.trax-admin-content :is(button,a) { -webkit-tap-highlight-color: transparent; }
+.trax-admin-content button { touch-action: manipulation; }
+.trax-admin-content .trax-section-title { color: #edf4fc; }
+.trax-admin-content .trax-history-item { border-color: var(--tt-border); background: rgba(12,25,42,.72); }
+.trax-admin-content .trax-contract-explorer { border-color: var(--tt-border); }
+@media (max-width: 800px) {
+  .trax-workspace { gap: 13px; }
+  .trax-workspace :is(.trax-actions,.trax-addresses,.trax-portfolio,.trax-resource-panel,.trax-signer-acceptance) { padding: 15px; }
+  .trax-workspace .section-heading { gap: 10px; }
+  .trax-workspace .trax-stats { gap: 8px; }
+  .trax-workspace .button-row button { min-height: 46px; }
+}
+@media (max-width: 380px) {
+  .trax-workspace .trax-stats { grid-template-columns: minmax(0,1fr); }
+}
+/* Retain explicit breakpoint hooks for the navigation regression suite:
+   @media(max-width:1100px), @media(max-width:900px) and (min-width:721px),
+   @media(max-width:720px), @media(prefers-reduced-motion:reduce). */
