@@ -12,3 +12,11 @@ test('production Owner resource probe reads the Resource API nested snapshot sch
   assert.equal(workflow.includes('parsed?.energyAvailable'), false)
   assert.equal(workflow.includes('parsed?.freeBandwidthAvailable'), false)
 })
+
+test('production push probe verifies Retry-After and CORS header exposure', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/tron-transfer-production-uptime.yml', import.meta.url), 'utf8')
+  assert.ok(workflow.includes('Verify production Retry-After and CORS response headers'))
+  assert.ok(workflow.includes("limited.headers.get('retry-after')"))
+  assert.ok(workflow.includes("limited.headers.get('access-control-expose-headers')"))
+  assert.ok(workflow.includes("if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'"))
+})
