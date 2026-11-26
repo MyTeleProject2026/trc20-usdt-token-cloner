@@ -957,7 +957,7 @@ export function createSponsorResourceApi({
         const result = await engine.submitSigned({
           signedTransaction: body.signedTransaction,
           preparedTransaction: row.prepared_transaction,
-          operation: row.operation, resource: row.resource, amountSun: row.amount_sun, ownerAddress: row.recipient_address,
+          operation: row.operation, resource: row.resource, amountSun: row.amount_sun, ownerAddress: row.recipient_address || row.owner_address,
           onSigned: async transactionId => {
             if (!TXID.test(transactionId || '') || transactionId !== row.prepared_transaction.txID) throw new Error('signed-transaction-id-mismatch')
             const saved = await client.query(
@@ -1097,7 +1097,7 @@ export function createSponsorResourceApi({
         if (row.transaction_id && ['signed-not-broadcast', 'broadcast-unknown'].includes(row.status)) {
           reconciliation = await engine.reconcile({
             transactionId: row.transaction_id, operation: row.operation, resource: row.resource,
-            amountSun: row.amount_sun, sponsorAddress: row.sponsor_address, ownerAddress: row.recipient_address,
+            amountSun: row.amount_sun, sponsorAddress: row.sponsor_address, ownerAddress: row.recipient_address || row.owner_address,
           })
           const confirmed = reconciliation.confirmed === true
           const solidifiedFailure = reconciliation.status === 'solidified-execution-failed'
