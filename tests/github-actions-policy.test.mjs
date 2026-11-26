@@ -70,3 +70,18 @@ test('production smoke monitors the existing Tron Transfer frontend and Resource
   assert.match(source, /data\.status !== "ok"/)
   assert.doesNotMatch(source, /trc20-usdt-token-cloner-api|nile|testnet/i)
 })
+
+test('production uptime probe verifies independent Mainnet RPCs and current Sponsor acceptance fields', async () => {
+  const source = await readFile(new URL('tron-transfer-production-uptime.yml', workflowsDirectory), 'utf8')
+  assert.match(source, /api\/mainnet\/provider-health/)
+  assert.match(source, /api\/mainnet\/explorer-health/)
+  assert.match(source, /parsed\?\.apiKeyConfigured === true/)
+  assert.match(source, /TRONSCAN_PRO_API_KEY/)
+  assert.match(source, /providerPriority\?\.\[0\] === 'tatum'/)
+  assert.match(source, /provider\?\.id === 'tatum'/)
+  assert.match(source, /provider\?\.id === 'trongrid'/)
+  assert.match(source, /ownerAdminSessionConfiguredForLedgerRelease/)
+  assert.match(source, /sponsorWalletEnrolled/)
+  assert.match(source, /writesReleaseAvailable/)
+  assert.doesNotMatch(source, /adminTokenRequired|adminTokenConfigured/)
+})
