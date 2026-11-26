@@ -501,6 +501,7 @@ export function createOwnerOperationApi({
       fail('OWNER_SOLIDIFIED_RECEIPT_INTENT_MISMATCH', 409)
     }
     const blockNumber = Number(info?.blockNumber)
+    if (!Number.isSafeInteger(blockNumber) || blockNumber <= 0) return { solidified: false, status: 'not-solidified' }
     const contracts = transaction?.raw_data?.contract
     if (contractAddress === 'TRX') {
       if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== 'TransferContract') return { solidified: false, status: 'native-transfer-transaction-not-found-or-invalid' }
