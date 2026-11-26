@@ -32,6 +32,7 @@ jobs:
           const targets = [
             { name: 'owner-admin-frontend', url: 'https://tron-transfer.onrender.com/', expectJson: false },
             { name: 'resource-api-health', url: 'https://tron-transfer-resource-api.onrender.com/health', expectJson: true, expectedNetwork: 'TRON Mainnet' },
+            { name: 'owner-mainnet-resource-readiness', url: 'https://tron-transfer-resource-api.onrender.com/v1/resources/TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp', expectJson: true, expectedNetwork: 'TRON Mainnet' },
             { name: 'mainnet-rpc-providers', url: 'https://tron-transfer-resource-api.onrender.com/api/mainnet/provider-health', expectJson: true },
             { name: 'tronscan-explorer', url: 'https://tron-transfer-resource-api.onrender.com/api/mainnet/explorer-health', expectJson: true },
             { name: 'sponsor-readiness', url: 'https://tron-transfer-resource-api.onrender.com/api/sponsor/status', expectJson: true },
@@ -133,6 +134,29 @@ jobs:
                           + ' · release=' + flags.writesReleaseAvailable
                           + ' · execute=' + flags.transactionExecutionAvailable
                         : 'Sponsor status endpoint returned an invalid acceptance payload';
+                    } else if (target.name === 'owner-mainnet-resource-readiness') {
+                      const energy = String(parsed?.energyAvailable ?? '');
+                      const freeBandwidth = String(parsed?.freeBandwidthAvailable ?? '');
+                      const stakedBandwidth = String(parsed?.stakedBandwidthAvailable ?? '');
+                      const providers = parsed?.rpc?.providersUsed || {};
+                      validPayload = response.ok && parsed?.network === 'TRON Mainnet'
+                        && /^\\d+$/.test(energy)
+                        && /^\\d+$/.test(freeBandwidth)
+                        && /^\\d+$/.test(stakedBandwidth)
+                        && Boolean(providers.accountResources && providers.account && providers.chainParameters);
+                      metrics = {
+                        energyAvailable: energy,
+                        freeBandwidthAvailable: freeBandwidth,
+                        stakedBandwidthAvailable: stakedBandwidth,
+                        accountResourcesProvider: String(providers.accountResources || 'unknown'),
+                        accountProvider: String(providers.account || 'unknown'),
+                        chainParametersProvider: String(providers.chainParameters || 'unknown'),
+                      };
+                      detail = validPayload
+                        ? 'Energy=' + energy + ' · free Bandwidth=' + freeBandwidth
+                          + ' · staked Bandwidth=' + stakedBandwidth
+                          + ' · RPC=' + providers.accountResources + '/' + providers.account + '/' + providers.chainParameters
+                        : 'Owner Mainnet resource snapshot unavailable or missing provider provenance';
                     } else if (target.name === 'mainnet-rpc-providers') {
                       const providers = Array.isArray(parsed?.providers) ? parsed.providers : [];
                       const tatum = providers.find(provider => provider?.id === 'tatum');
