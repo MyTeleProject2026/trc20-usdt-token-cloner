@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { createHash } from 'node:crypto'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { registerSponsorLedgerMigration } from '../scripts/register-sponsor-ledger-migration.mjs'
@@ -23,4 +24,13 @@ test('versioned Sponsor ledger migration preserves the paused write-control row'
   assert.match(sql, /writes_paused BOOLEAN NOT NULL DEFAULT TRUE/)
   assert.match(sql, /VALUES \(1, TRUE, 'schema-bootstrap-requires-explicit-cutover'\)/)
   assert.match(sql, /ON CONFLICT \(id\) DO NOTHING/)
+})
+
+
+test('Sponsor API pinned migration checksum matches the versioned SQL migration byte-for-byte', async () => {
+  const sql = await readFile(new URL('../migrations/20261126_sponsor_operations_ledger.sql', import.meta.url))
+  const api = await readFile(new URL('../sponsor-api.mjs', import.meta.url), 'utf8')
+  const pinned = api.match(/SPONSOR_LEDGER_MIGRATION_SHA256 = '([0-9a-f]{64})'/)?.[1]
+  assert.ok(pinned, 'Sponsor API must pin the ledger migration checksum')
+  assert.equal(createHash('sha256').update(sql).digest('hex'), pinned)
 })
