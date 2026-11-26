@@ -16,7 +16,7 @@ test('local signer acceptance requests a role-bound challenge and sends only the
       calls.push({ method: 'POST', challengeId, signed })
       return {
         success: true, verified: true, role: 'owner', address,
-        verifiedAt: '2026-11-26T02:20:00.000Z',
+        verifiedAt: '2026-11-26T02:20:00.000Z', auditRecorded: true,
         transactionCreated: false, broadcast: false, signatureStored: false, privateKeyReceived: false,
       }
     },
@@ -29,6 +29,7 @@ test('local signer acceptance requests a role-bound challenge and sends only the
   }
   const result = await runLocalSignerAcceptance({ authClient, tronWeb, address, role: 'owner' })
   assert.equal(result.verified, true)
+  assert.equal(result.auditRecorded, true)
   assert.equal(result.broadcast, false)
   assert.equal('signature' in result, false)
   assert.equal(calls.length, 2)
@@ -59,4 +60,6 @@ test('Owner and Sponsor workspaces expose separate sign-only acceptance actions'
   assert.match(sponsor, /Run sign-only acceptance/)
   assert.match(owner, /no transaction, fee or broadcast occurred/i)
   assert.match(sponsor, /no transaction is created or broadcast/i)
+  assert.match(owner, /Saved to the Owner security audit log/)
+  assert.match(sponsor, /Saved to the Sponsor security audit log/)
 })
