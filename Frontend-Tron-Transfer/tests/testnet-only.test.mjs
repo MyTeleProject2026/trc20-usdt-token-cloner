@@ -111,6 +111,7 @@ test('Owner deployment readiness includes an authenticated read-only Mainnet res
   assert.ok(panel.includes("'/api/owner/deployment/preflight?feeLimitSun='"))
   assert.ok(panel.includes('Refresh resource preflight'))
   assert.ok(panel.includes('Estimated TRX fallback'))
+  assert.ok(panel.includes('deploymentResourcePreflight?.zeroTrxBurnReady === true'))
 })
 
 test('contract administration checks the configured owner against the on-chain token owner', async () => {
