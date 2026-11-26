@@ -46,7 +46,7 @@ test('Owner Admin Home mounts AETHERIA directly and removes the former monitor r
   assert.ok(app.includes("import AetheriaMcpMesh from './AetheriaMcpMesh.jsx'"))
   assert.ok(app.includes("activePage === 'home' ? <AetheriaMcpMesh"))
   assert.doesNotMatch(app, /PlatformMonitor|RuntimeObservatory/)
-  assert.ok(mobileNav.includes("const primaryIds = ['home', 'issuance', 'credits', 'transfers']"))
+  assert.ok(mobileNav.includes("const primaryIds = ['home', 'portfolio', 'issuance', 'transfers']"))
   assert.doesNotMatch(mobileNav, /overview/)
 })
 

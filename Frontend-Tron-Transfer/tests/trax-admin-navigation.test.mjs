@@ -15,7 +15,7 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
   assert.ok(sidebar.includes('collapsed'))
   assert.ok(sidebar.includes('Expand sidebar'))
   assert.ok(sidebar.includes('Collapse sidebar'))
-  assert.ok(mobile.includes("const primaryIds = ['home', 'issuance', 'credits', 'transfers']"))
+  assert.ok(mobile.includes("const primaryIds = ['home', 'portfolio', 'issuance', 'transfers']"))
   assert.ok(mobile.includes('More workspace'))
   assert.ok(mobile.includes('role="dialog"'))
 })

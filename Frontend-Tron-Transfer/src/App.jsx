@@ -8,6 +8,7 @@ import SponsorWalletManager from './SponsorWalletManager.jsx'
 import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 import OwnerAccountSecurity from './OwnerAccountSecurity.jsx'
 import PWAInstallButton from './PWAInstallButton.jsx'
+import './owner-admin-redesign.css'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 
 const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
@@ -24,23 +25,23 @@ class SponsorWorkspaceErrorBoundary extends React.Component {
 }
 
 const NAV_ITEMS = [
-  { id: 'sponsor', label: 'Sponsor overview', shortLabel: 'Overview', description: 'Independent Sponsor wallet · live capacity and execution readiness', icon: ShieldCheck },
-  { id: 'sponsor-resources', label: 'Resource markets', shortLabel: 'Resources', description: 'Energy, Bandwidth, staking and delegation controls', icon: Activity },
-  { id: 'sponsor-automation', label: 'Automation & limits', shortLabel: 'Automation', description: 'Owner resource targets, preflight and guarded automation', icon: Network },
-  { id: 'sponsor-activity', label: 'Activity & audit', shortLabel: 'Activity', description: 'Sponsor operations, wallet transactions and verification history', icon: History },
-  { id: 'home', label: 'AETHERIA MCP Mesh', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
-  { id: 'portfolio', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
-  { id: 'deploy', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
-  { id: 'issuance', label: 'Owner issuance', shortLabel: 'Issue', description: 'Mint new TRӾ to a recipient address', icon: Coins },
-  { id: 'credits', label: 'External credits', shortLabel: 'Credits', description: 'Single-address TRӾ credit issuance', icon: ArrowDownToLine },
-  { id: 'batch', label: 'Batch credits', description: 'Issue credits to up to 50 addresses', icon: Layers3 },
-  { id: 'pause', label: 'Emergency pause', description: 'Pause or resume token transfers', icon: PauseCircle },
-  { id: 'minting', label: 'Minting authorization', description: 'Enable or disable owner issuance', icon: ShieldCheck },
-  { id: 'transfers', label: 'Token transfers', shortLabel: 'Transfer', description: 'Transfer existing owner-held TRӾ', icon: ArrowLeftRight },
-  { id: 'withdraw', label: 'Withdraw', shortLabel: 'Withdraw', description: 'Send official USDT from the Owner wallet', icon: ArrowDownToLine },
-  { id: 'ownership', label: 'Ownership transfer', description: 'Two-step owner handoff', icon: Wallet },
-  { id: 'history', label: 'Credit history', description: 'Confirmed on-chain OwnerCredit events', icon: History },
-  { id: 'balance', label: 'External balance lookup', description: 'Read any address token balance', icon: Blocks },
+  { id: 'sponsor', group: 'Sponsor console', label: 'Sponsor overview', shortLabel: 'Overview', description: 'Independent Sponsor wallet · live capacity and execution readiness', icon: ShieldCheck },
+  { id: 'sponsor-resources', group: 'Sponsor console', label: 'Resource markets', shortLabel: 'Resources', description: 'Energy, Bandwidth, staking and delegation controls', icon: Activity },
+  { id: 'sponsor-automation', group: 'Sponsor controls', label: 'Automation & limits', shortLabel: 'Automation', description: 'Owner resource targets, preflight and guarded automation', icon: Network },
+  { id: 'sponsor-activity', group: 'Sponsor controls', label: 'Activity & audit', shortLabel: 'Activity', description: 'Sponsor operations, wallet transactions and verification history', icon: History },
+  { id: 'home', group: 'Overview', label: 'Overview', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
+  { id: 'portfolio', group: 'Overview', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
+  { id: 'deploy', group: 'Token administration', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
+  { id: 'issuance', group: 'Token administration', label: 'Owner issuance', shortLabel: 'Issue', description: 'Mint new TRӾ to a recipient address', icon: Coins },
+  { id: 'credits', group: 'Token administration', label: 'External credits', shortLabel: 'Credits', description: 'Single-address TRӾ credit issuance', icon: ArrowDownToLine },
+  { id: 'batch', group: 'Token administration', label: 'Batch credits', description: 'Issue credits to up to 50 addresses', icon: Layers3 },
+  { id: 'pause', group: 'Token administration', label: 'Emergency pause', description: 'Pause or resume token transfers', icon: PauseCircle },
+  { id: 'minting', group: 'Token administration', label: 'Minting authorization', description: 'Enable or disable owner issuance', icon: ShieldCheck },
+  { id: 'transfers', group: 'Transfers & records', label: 'Token transfers', shortLabel: 'Transfer', description: 'Transfer existing owner-held TRӾ', icon: ArrowLeftRight },
+  { id: 'withdraw', label: 'Withdraw', group: 'Transfers & records', shortLabel: 'Withdraw', description: 'Send official USDT from the Owner wallet', icon: ArrowDownToLine },
+  { id: 'ownership', group: 'Security & audit', label: 'Ownership transfer', description: 'Two-step owner handoff', icon: Wallet },
+  { id: 'history', group: 'Transfers & records', label: 'Credit history', description: 'Confirmed on-chain OwnerCredit events', icon: History },
+  { id: 'balance', group: 'Transfers & records', label: 'External balance lookup', description: 'Read any address token balance', icon: Blocks },
 ]
 
 
