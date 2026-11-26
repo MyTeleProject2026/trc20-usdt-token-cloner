@@ -74,6 +74,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const autoReadinessCheckKeyRef = useRef('')
   const [deploymentOperation, setDeploymentOperation] = useState(null)
   const [deploymentConfirmationPhrase, setDeploymentConfirmationPhrase] = useState('')
+  const [broadcastConfirmationPhrase, setBroadcastConfirmationPhrase] = useState('')
   const [deploymentExecutionEnabled, setDeploymentExecutionEnabled] = useState(false)
   const [recentOperations, setRecentOperations] = useState([])
   const [ownerDepositHistory, setOwnerDepositHistory] = useState({ transactions: [], tokenTransfers: [], transactionsAvailable: false, tokenTransfersAvailable: false })
@@ -257,7 +258,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     const deployment = result.deployment || {}
     setDeploymentOperation({ operationId: result.operationId || deployment.operation_id, intentSha256: result.intentSha256 || deployment.intent_sha256, unsignedTransaction: result.unsignedTransaction || deployment.unsignedTransaction || null, state: deployment.state || 'prepared', transactionId: deployment.transaction_id || deployment.transactionId, contractAddress: deployment.contract_address || deployment.contractAddress || '', confirmationPhrase: result.confirmationPhrase || 'CONFIRM TRӾ MAINNET DEPLOYMENT', executionEnabled: deploymentExecutionEnabled })
     setDeploymentConfirmationPhrase('')
-    setNotice('The exact unsigned CreateSmartContract transaction and artifact fingerprints are persisted. No signature was requested yet; the separate confirmation will open local Owner vault for Owner approval.')
+    setBroadcastConfirmationPhrase('')
+    setNotice('The exact unsigned CreateSmartContract transaction and artifact fingerprints are persisted. No signature or broadcast was requested yet; the separate confirmation will open local Owner vault for Owner approval.')
     return result
   })
 
@@ -275,9 +277,25 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     let result
     try { result = await wallet.authClient.apiRequest('/api/owner/deployment/confirm', { method: 'POST', csrf: true, body: { operationId: deploymentOperation.operationId, intentSha256: deploymentOperation.intentSha256, confirmationPhrase: deploymentOperation.confirmationPhrase, signedTransaction } }) }
     catch (requestError) { const recovered = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId).catch(() => null); if (recovered?.deployment) setDeploymentOperation(current => ({ ...current, ...recovered.deployment, unsignedTransaction: recovered.unsignedTransaction || current?.unsignedTransaction || null, executionEnabled: deploymentExecutionEnabled })); throw requestError }
-    setDeploymentOperation(current => ({ ...current, ...(result.deployment || {}), executionEnabled: deploymentExecutionEnabled }))
+    setDeploymentOperation(current => ({ ...current, ...(result.deployment || {}), broadcastApproval: result.broadcastApproval || null, executionEnabled: deploymentExecutionEnabled }))
     setDeploymentConfirmationPhrase('')
-    setNotice(result.message || 'The local Owner vault signed the transaction. The Resource API verified the signature, persisted it, and submitted the original transaction for Mainnet confirmation.')
+    setBroadcastConfirmationPhrase(result.broadcastApproval?.confirmationPhrase || '')
+    setNotice(result.message || 'The local Owner signature was verified and durably saved. No Mainnet broadcast was attempted.')
+    return result
+  })
+
+  const broadcastApprovedDeployment = () => run('Submitting explicitly approved TRӾ Mainnet deployment', async () => {
+    const approval = deploymentOperation?.broadcastApproval
+    if (!deploymentOperation?.operationId || !deploymentOperation?.intentSha256 || !approval?.transactionId) throw new Error('A locally signed deployment awaiting explicit broadcast approval is required.')
+    if (!deploymentExecutionEnabled) throw new Error('Mainnet broadcast remains locked by the independent production safety gates.')
+    if (broadcastConfirmationPhrase !== approval.confirmationPhrase) throw new Error('Type the exact transaction-specific broadcast phrase shown below.')
+    const result = await wallet.authClient.apiRequest('/api/owner/deployment/broadcast', { method: 'POST', csrf: true, body: {
+      operationId: deploymentOperation.operationId, intentSha256: deploymentOperation.intentSha256,
+      transactionId: approval.transactionId, confirmationPhrase: broadcastConfirmationPhrase,
+    } })
+    setDeploymentOperation(current => ({ ...current, ...(result.deployment || {}), broadcastApproval: null, executionEnabled: deploymentExecutionEnabled }))
+    setBroadcastConfirmationPhrase('')
+    setNotice(result.message || 'The transaction-specific broadcast approval was processed. Reconcile the original transaction ID; never create a replacement deployment.')
     return result
   })
 
@@ -285,7 +303,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     if (!deploymentOperation?.operationId) throw new Error('Prepare or recover a deployment operation first.')
     const result = await wallet.authClient.apiRequest('/api/owner/deployment/' + deploymentOperation.operationId)
     const deployment = result.deployment || {}
-    setDeploymentOperation(current => ({ ...current, ...deployment, unsignedTransaction: result.unsignedTransaction || current?.unsignedTransaction || null, executionEnabled: deploymentExecutionEnabled }))
+    setDeploymentOperation(current => ({ ...current, ...deployment, unsignedTransaction: result.unsignedTransaction || current?.unsignedTransaction || null, broadcastApproval: result.broadcastApproval || null, executionEnabled: deploymentExecutionEnabled }))
+    setBroadcastConfirmationPhrase(result.broadcastApproval?.confirmationPhrase || '')
     const deployedAddress = deployment.contractAddress || deployment.contract_address
     const transactionId = deployment.transactionId || deployment.transaction_id
     if (deployment.state === 'confirmed' && deployedAddress) { setTokenAddress(deployedAddress); setLastTx(transactionId || ''); setSnapshot(null); setNotice('TRӾ deployment is solidified. The backend verified the exact transaction, runtime bytecode, Owner and token metadata.') }
@@ -636,7 +655,12 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
           </div>
         </>}
         <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}><Rocket size={15}/> Prepare deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
-        {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span><label>Type confirmation phrase<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Confirm with local Owner vault</button><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshDeploymentStatus}><RefreshCw size={15}/> Reconcile status</button></div>{!deploymentExecutionEnabled && <p className="fine-print">Signing and broadcast remain locked until database durability, backup/restore and independent production acceptance gates pass. local Owner vault must approve the exact prepared transaction before the Resource API can verify and broadcast it.</p>}</div>}
+        {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.predictedContractAddress || deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span>
+          {deploymentOperation.state === 'prepared' && <><label>Type exact signing confirmation phrase: {deploymentOperation.confirmationPhrase}<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Sign exact transaction with local Owner vault</button></>}
+          {deploymentOperation.state === 'signed' && <><p className="fine-print">Owner signature verified and stored. No transaction has been broadcast. This second approval is bound to the exact transaction ID above.</p><label>Type transaction-specific broadcast phrase: {deploymentOperation.broadcastApproval?.confirmationPhrase}<input value={broadcastConfirmationPhrase} onChange={event => setBroadcastConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.broadcastApproval?.confirmationPhrase}/></label><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || !deploymentOperation.broadcastApproval || broadcastConfirmationPhrase !== deploymentOperation.broadcastApproval.confirmationPhrase} onClick={broadcastApprovedDeployment}>Broadcast this exact approved transaction</button></>}
+          <div className="button-row"><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshDeploymentStatus}><RefreshCw size={15}/> Reconcile status</button></div>
+          {!deploymentExecutionEnabled && <p className="fine-print">Signing and broadcast remain locked until database durability, backup/restore and independent production acceptance gates pass. A separate transaction-specific phrase is required before any broadcast.</p>}
+        </div>}
       </div>}
       {show('portfolio') && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Refresh Mainnet state</button></div>}
       {!show('portfolio', 'deploy', 'withdraw') && tokenAddress && <div className="trax-deploy-actions"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refresh}><RefreshCw size={15}/> Refresh contract state</button></div>}
