@@ -71,6 +71,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [lastTx, setLastTx] = useState('')
   const [step, setStep] = useState('')
   const [deploymentReadiness, setDeploymentReadiness] = useState(null)
+  const autoReadinessCheckKeyRef = useRef('')
+  const autoContractReadKeyRef = useRef('')
   const [deploymentOperation, setDeploymentOperation] = useState(null)
   const [deploymentConfirmationPhrase, setDeploymentConfirmationPhrase] = useState('')
   const [deploymentExecutionEnabled, setDeploymentExecutionEnabled] = useState(false)
@@ -232,6 +234,26 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     setNotice(result.readyForPreparation ? 'Artifact pins and durable deployment ledger are ready. Preparation creates only an unsigned Mainnet transaction; execution remains ' + (result.executionEnabled ? 'enabled by configured gates.' : 'locked by production execution gates.') : 'Deployment preparation is blocked: ' + String(result.blocker || 'artifact, database, backup or restore gates are incomplete') + '. No transaction was signed or broadcast.')
     return result
   })
+
+  // Entering the deployment page performs read-only checks only. It never
+  // prepares, signs, or broadcasts a transaction.
+  useEffect(() => {
+    if (!walletReady || activePage !== 'deploy' || typeof wallet?.authClient?.apiRequest !== 'function') return
+    const key = [connectedAddress, feeCapSun, tokenAddress].join(':')
+    if (autoReadinessCheckKeyRef.current === key) return
+    autoReadinessCheckKeyRef.current = key
+    void checkDeploymentReadiness()
+  }, [walletReady, activePage, connectedAddress, feeCapSun, tokenAddress, wallet?.authClient])
+
+  // If an address is already saved, verify its on-chain contract metadata and
+  // owner state automatically when the Owner opens the deployment page.
+  useEffect(() => {
+    if (!walletReady || activePage !== 'deploy' || !tokenAddress) return
+    const key = [connectedAddress, tokenAddress].join(':')
+    if (autoContractReadKeyRef.current === key) return
+    autoContractReadKeyRef.current = key
+    void refresh()
+  }, [walletReady, activePage, connectedAddress, tokenAddress])
 
   const deployToken = () => run('Preparing exact artifact-pinned TRӾ deployment transaction', async () => {
     if (!walletReady || !deploymentReady || typeof wallet?.authClient?.apiRequest !== 'function') throw new Error('Run a successful, unexpired backend deployment readiness check first.')
@@ -606,7 +628,17 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <p className="fine-print">The fee limit is a network ceiling, not a prepaid fee. Energy and Bandwidth are used first; any shortfall can still burn TRX. Zero-TRX-burn protection remains active, and the application will block signing when its resource preflight detects a shortfall.</p>
       {show('deploy') && <div className="trax-deploy-actions">
         <div className="trax-step-card"><b>Deployment checklist</b><span>1. Confirm the connected owner address.</span><span>2. Run a live read-only resource, permission and Energy preflight.</span><span>3. The backend pins source, creation bytecode, runtime bytecode and manifest; preparation is unsigned and execution remains gated.</span><span>4. The local Owner vault signs the exact prepared transaction; the Resource API verifies the signer, persists before broadcast, and verifies the solidified receipt, runtime, Owner and metadata.</span></div>
-        {deploymentReadiness && <div className={'trax-state-banner' + (deploymentReady ? ' success' : '')}><b>{deploymentReady ? 'Artifact and ledger readiness passed · expires in 60 seconds' : 'Deployment readiness blocked'}</b><span>{deploymentReadiness.blocker || ('Execution: ' + (deploymentReadiness.executionEnabled ? 'enabled by server gates' : 'locked') + ' · Backup: ' + (deploymentReadiness.gates?.backupVerified ? 'verified' : 'not verified') + ' · Restore test: ' + (deploymentReadiness.gates?.restoreTested ? 'verified' : 'not verified'))}</span></div>}
+        {deploymentReadiness && <>
+          <div className={'trax-state-banner' + (deploymentReadiness.readyForPreparation ? ' success' : '')}>
+            <b>{deploymentReadiness.readyForPreparation ? 'Artifact and deployment-ledger preflight passed' : 'Deployment readiness blocked'}</b>
+            <span>{deploymentReadiness.blocker || 'No blocker reported'} · Execution {deploymentReadiness.executionEnabled ? 'enabled by server configuration' : 'locked'} · This check is read-only.</span>
+          </div>
+          <div className="trax-step-card">
+            <b>Owner deployment gate results</b>
+            {Object.entries(deploymentReadiness.gates || {}).map(([key, value]) => <span key={key}>{key.replace(/([A-Z])/g, ' $1').replace(/^./, letter => letter.toUpperCase())}: <strong>{value === true ? 'Passed' : 'Blocked'}</strong></span>)}
+            {deploymentReadiness.artifact?.artifactSha256 && <span>Artifact fingerprint: {deploymentReadiness.artifact.artifactSha256.slice(0, 16)}…</span>}
+          </div>
+        </>}
         <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy || !feeCapSun} onClick={checkDeploymentReadiness}><ShieldCheck size={15}/> {deploymentReady ? 'Recheck deployment readiness' : 'Check deployment readiness'}</button><button type="button" className="primary-button" disabled={!walletReady || busy || !feeCapSun || !deploymentReady} onClick={deployToken}><Rocket size={15}/> Prepare deployment</button><button type="button" className="outline-button" disabled={!walletReady || busy || !tokenAddress} onClick={refresh}><RefreshCw size={15}/> Verify contract state</button>{Boolean(tokenAddress) && <button type="button" className="outline-button" disabled={busy} onClick={() => { if (window.confirm('Clear only this browser’s saved contract address? This does not delete the on-chain contract.')) clearSavedTokenAddress() }}>Clear saved address</button>}</div>
         {deploymentOperation && <div className="trax-state-banner"><b>Deployment operation: {deploymentOperation.state}</b><span>Transaction ID: {deploymentOperation.transactionId || deploymentOperation.transaction_id || 'Not signed yet'} · Predicted contract: {deploymentOperation.contractAddress || deploymentOperation.contract_address || 'Pending'}</span><label>Type confirmation phrase<input value={deploymentConfirmationPhrase} onChange={event => setDeploymentConfirmationPhrase(event.target.value)} autoComplete="off" spellCheck="false" placeholder={deploymentOperation.confirmationPhrase}/></label><div className="button-row"><button type="button" className="primary-button" disabled={!walletReady || !deploymentExecutionEnabled || busy || deploymentConfirmationPhrase !== deploymentOperation.confirmationPhrase} onClick={confirmDeployment}>Confirm with local Owner vault</button><button type="button" className="outline-button" disabled={!walletReady || busy} onClick={refreshDeploymentStatus}><RefreshCw size={15}/> Reconcile status</button></div>{!deploymentExecutionEnabled && <p className="fine-print">Signing and broadcast remain locked until database durability, backup/restore and independent production acceptance gates pass. local Owner vault must approve the exact prepared transaction before the Resource API can verify and broadcast it.</p>}</div>}
       </div>}
