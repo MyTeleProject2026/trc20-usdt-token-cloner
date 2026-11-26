@@ -251,7 +251,10 @@ test('Owner native TRX withdrawal prepares a TransferContract through the guarde
     release() {},
   }
   const database = {
-    async query(sql) { assert.match(sql, /to_regclass/); return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] } },
+    async query(sql, params = []) {
+      if (sql.includes('SELECT checksum')) return { rows: [{ checksum: 'fc3ff5c770cc069dbfb810968a1b41072f079beb3de1f22a2672f8a38d0b5663' }] }
+      assert.match(sql, /to_regclass/); return { rows: [{ operations_table: 'tron_transfer_owner_operations' }] }
+    },
     async connect() { return dbClient },
   }
   const replies = []
