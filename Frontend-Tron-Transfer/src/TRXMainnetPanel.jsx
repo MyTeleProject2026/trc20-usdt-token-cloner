@@ -697,7 +697,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
 
   return <section className="trax-workspace">
     <div className="section-heading">
-      <div><span className="eyebrow">TRON TRANSFER · OWNER WORKSPACE · MAINNET</span><h2>{show('withdraw') ? 'Official USDT withdrawal' : 'TRӾ token control center'}</h2><p>{show('withdraw') ? 'Transfer official TRC-20 USDT from the existing Owner wallet using its encrypted local signer and the shared durable Owner operation ledger.' : 'Manage the existing TRӾ TRC-20 contract. Writes require a backend-managed Owner session, exact-intent confirmation and a fresh Mainnet preflight.'}</p></div>
+      <div><span className="eyebrow">TRON TRANSFER · OWNER WORKSPACE · MAINNET</span><h2>{show('withdraw') ? 'Owner wallet withdrawals' : 'TRӾ token control center'}</h2><p>{show('withdraw') ? 'Transfer official TRC-20 USDT from the existing Owner wallet using its encrypted local signer and the shared durable Owner operation ledger.' : 'Manage the existing TRӾ TRC-20 contract. Writes require a backend-managed Owner session, exact-intent confirmation and a fresh Mainnet preflight.'}</p></div>
       <div className="panel-icon" aria-label={show('withdraw') ? 'Official USDT' : 'TRӾ token'}>{show('withdraw') ? <Coins/> : <TraxTokenMark/>}<small>{show('withdraw') ? 'USDT / TRC20' : 'TRӾ / TRӾ'}</small></div>
     </div>
 
@@ -788,6 +788,23 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         {snapshot && <div className="trax-checks"><span className={snapshot.valid ? 'ok' : 'bad'}>{snapshot.valid ? '✓' : '!'} {snapshot.name} / {snapshot.symbol} / {snapshot.decimals} decimals</span><span className={snapshot.ownerValid ? 'ok' : 'bad'}>{snapshot.ownerValid ? '✓' : '!'} On-chain owner matches wallet</span><span className="bad">! No backing or redemption</span></div>}
       </div>
     </>}
+
+    {show('withdraw') && <div className="trax-actions" aria-label="Native TRX withdrawal">
+      <h3>Send native TRX · Owner Wallet</h3>
+      <p className="fine-print">Native TRX Mainnet transfer from the Owner's encrypted local vault to any valid TRON Mainnet address. This is not a TRӾ or USDT token transfer. Each operation is prepared, balance-reserved, reviewed, locally signed and reconciled independently. Bandwidth fallback must fit the fee budget selected for this operation.</p>
+      <div className="trax-stats">
+        <article><span>Owner native TRX balance</span><b>{usdtWithdrawalTrxBalanceSun === null ? 'Not refreshed' : formatTokenUnits(usdtWithdrawalTrxBalanceSun) + ' TRX'}</b><small>{nativeTrxBalanceAt ? 'Read at ' + new Date(nativeTrxBalanceAt).toLocaleString() : 'Live Mainnet balance required'}</small></article>
+        <article><span>Reserved for prepared / unresolved TRX sends</span><b>{formatTokenUnits(nativeTrxReservedBalanceSun)} TRX</b><small>Active Owner transfer reservations</small></article>
+        <article><span>Available native TRX</span><b>{nativeTrxAvailableBalanceSun === null ? 'Not calculated' : formatTokenUnits(nativeTrxAvailableBalanceSun) + ' TRX'}</b><small>Balance minus active reservations</small></article>
+        <article><span>Network</span><b>TRON Mainnet</b><small>No testnet or alternate chain</small></article>
+      </div>
+      <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refreshOwnerNativeTrxBalance}><RefreshCw size={14}/> Refresh native TRX balance</button></div>
+      <label>Recipient TRON Mainnet address<input value={nativeTrxWithdrawalRecipient} onChange={event => setNativeTrxWithdrawalRecipient(event.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
+      <label>Withdrawal amount (TRX)<input value={nativeTrxWithdrawalAmount} onChange={event => setNativeTrxWithdrawalAmount(event.target.value)} inputMode="decimal" placeholder="0.000001"/></label>
+      <div className="trax-balance-note">Six decimal places · Requested base units: {(() => { try { return parseTokenUnits(nativeTrxWithdrawalAmount) } catch { return '—' } })()}</div>
+      <button type="button" className="primary-button" disabled={!walletReady || busy || !nativeTrxWithdrawalRecipient.trim() || !nativeTrxWithdrawalAmount.trim() || !feeCapSun} onClick={prepareNativeTrxWithdrawal}><ArrowUpRight size={15}/> Review native TRX withdrawal</button>
+      <div className="trax-history"><h4>Recent native TRX withdrawals</h4>{!nativeTrxWithdrawalHistory.length ? <p className="fine-print">No native TRX withdrawals are recorded in the Owner operation ledger yet.</p> : <div className="transaction-list">{nativeTrxWithdrawalHistory.map(item => <article className="transaction-row" key={item.operationId}><div><b>{formatTokenUnits(item.args?.[1] || '0')} TRX</b><span>To {item.args?.[0] || 'Unknown recipient'}</span></div><div><b>{String(item.state || 'unknown').replaceAll('-', ' ')}</b><span>{item.blockNumber ? 'Solidified block ' + item.blockNumber : item.transactionId ? 'Transaction submitted' : 'No transaction broadcast'}</span></div><div>{item.transactionId ? <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">{item.transactionId.slice(0, 12)}… <ExternalLink size={11}/></a> : <span>{item.failureCode || 'Awaiting transaction'}</span>}</div></article>)}</div>}</div>
+    </div>}
 
     {show('withdraw') && <div className="trax-actions" aria-label="Official USDT withdrawal">
       <h3>Withdraw official USDT · TRC20</h3>
@@ -889,16 +906,17 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     </div>}
 
     {pendingOperation && <div className="trax-actions" role="region" aria-label="Review Owner Mainnet operation">
-      <h3>{pendingOperation.operationType === 'usdt-transfer' ? 'Review official USDT Mainnet withdrawal' : 'Review guarded TRӾ Mainnet operation'}</h3>
+      <h3>{pendingOperation.operationType === 'trx-transfer' ? 'Review native TRX Mainnet withdrawal' : pendingOperation.operationType === 'usdt-transfer' ? 'Review official USDT Mainnet withdrawal' : 'Review guarded TRӾ Mainnet operation'}</h3>
       <p><b>{pendingOperation.summary || pendingOperation.operationType}</b></p>
       <p className="fine-print">Operation ID: {pendingOperation.operationId}</p>
       <p className="fine-print">Exact intent SHA-256: {pendingOperation.intentSha256}</p>
       {pendingOperation.operationType === 'usdt-transfer' && <p><b>{formatTokenUnits(pendingOperation.args?.[1] || '0')} USDT</b> to {pendingOperation.args?.[0]}</p>}
+      {pendingOperation.operationType === 'trx-transfer' && <p><b>{formatTokenUnits(pendingOperation.args?.[1] || '0')} TRX</b> to {pendingOperation.args?.[0]}</p>}
       <details><summary>Inspect exact contract method and arguments</summary>
         {pendingOperation.operationType === 'batch-credit' && Array.isArray(pendingOperation.args?.[0]) && <ol>{pendingOperation.args[0].map((address, index) => <li key={address + ':' + index}>{address} · {formatTokenUnits(pendingOperation.args?.[1]?.[index] || '0')} TRӾ · reference {pendingOperation.args?.[2]?.[index]}</li>)}</ol>}
         <pre>{JSON.stringify({ method: pendingOperation.method, args: pendingOperation.args, feeLimitSun: pendingOperation.feeLimitSun || pendingOperation.preflight?.feeLimitSun }, null, 2)}</pre>
       </details>
-      <p className="fine-print">TRON Mainnet · Owner / fee payer: {pendingOperation.ownerAddress} · Contract: {pendingOperation.contractAddress}</p>
+      <p className="fine-print">TRON Mainnet · Owner / fee payer: {pendingOperation.ownerAddress} · {pendingOperation.contractAddress === 'TRX' ? 'Asset: native TRX' : 'Contract: ' + pendingOperation.contractAddress}</p>
       {pendingOperation.preflight && <div className="trax-checks">
         <span>Energy required: {pendingOperation.preflight.requiredEnergyWithSafetyMargin || pendingOperation.preflight.estimatedEnergy}</span>
         <span>Energy available: {pendingOperation.preflight.availableEnergy}</span>
