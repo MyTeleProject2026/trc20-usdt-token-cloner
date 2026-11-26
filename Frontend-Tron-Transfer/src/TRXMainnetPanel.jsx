@@ -9,6 +9,7 @@ import { calculatePortfolioValue, fetchTRXReferencePrice } from './trax-pricing.
 import TRAXOwnershipControls from './TRAXOwnershipControls.jsx'
 import TRAXCreditHistory from './TRAXCreditHistory.jsx'
 import WalletDepositPanel from './WalletDepositPanel.jsx'
+import { runLocalSignerAcceptance } from './lib/local-signer-acceptance.mjs'
 import './trax-mainnet.css'
 
 const DEFAULT_RECIPIENT = ''
@@ -64,6 +65,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [referencePrice, setReferencePrice] = useState(null)
   const [feeCap, setFeeCap] = useState(DEFAULT_FEE_CAP)
   const [busy, setBusy] = useState(false)
+  const [ownerSignerAcceptance, setOwnerSignerAcceptance] = useState(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [lastTx, setLastTx] = useState('')
@@ -120,6 +122,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   useEffect(() => {
     if (walletReady) return
     setPendingOperation(null)
+    setOwnerSignerAcceptance(null)
     setConfirmationPhrase('')
     setUsdtWithdrawalBalance(null)
     setUsdtWithdrawalTrxBalanceSun(null)
@@ -173,6 +176,20 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       return null
     } finally { setBusy(false); setStep('') }
   }, [])
+
+  const verifyOwnerLocalSigner = () => run('Running local Owner sign-only acceptance', async () => {
+    setOwnerSignerAcceptance(null)
+    const signer = await getOwnerSigner()
+    const result = await runLocalSignerAcceptance({
+      authClient: wallet?.authClient,
+      tronWeb: signer,
+      address: connectedAddress,
+      role: 'owner',
+    })
+    setOwnerSignerAcceptance(result)
+    setNotice('Owner local signer acceptance passed for ' + shorten(connectedAddress) + '. The one-time message signature was verified by the Resource API; no transaction, fee or broadcast occurred.')
+    return result
+  })
 
   const getToken = useCallback(async () => {
     if (!walletReady) throw new Error('Unlock the configured local Owner Wallet and authenticate the Owner session first.')
@@ -566,6 +583,16 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     {!show('withdraw') && <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>}
 
     {!walletReady ? <div className="trax-connect"><p>{wallet?.managedSession && connectedAddress ? 'Owner password session restored. Unlock the local Owner vault matching the authenticated Owner account (' + shorten(connectedAddress) + ') to review and approve Mainnet transactions.' : connectedAddress ? 'The local Owner vault must match the authenticated Owner session before Mainnet actions are enabled.' : 'Sign in to the configured backend Owner account to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> {wallet?.managedSession ? 'Unlock matching local Owner vault' : 'Unlock Owner Wallet'}</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
+
+    {walletReady && <div className="trax-signer-acceptance" role="region" aria-label="Owner local signer acceptance">
+      <div>
+        <span className="eyebrow">LOCAL SIGNER · SIGN-ONLY</span>
+        <b>Owner vault key-control check</b>
+        <p>Signs a one-time, session-bound Mainnet message locally and asks the API to verify the recovered Owner address. No transaction is created or broadcast.</p>
+        {ownerSignerAcceptance && <small className="trax-signer-acceptance-result" role="status">Verified {new Date(ownerSignerAcceptance.verifiedAt).toLocaleString()} · {shorten(ownerSignerAcceptance.address)}</small>}
+      </div>
+      <button type="button" className="outline-button" disabled={busy} onClick={() => void verifyOwnerLocalSigner()}>Run sign-only acceptance</button>
+    </div>}
 
     {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/><div>{error}{typeof onNavigate === 'function' && /resource|energy|bandwidth|zero.TRX|deployment readiness/i.test(error) && <p><button type="button" className="outline-button" onClick={() => onNavigate('sponsor-automation')}>Open Sponsor resource provisioning</button></p>}</div></div>}
     {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
