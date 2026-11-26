@@ -1334,3 +1334,23 @@ test('production acceptance verifies Owner and Sponsor enrollment before Sponsor
   assert.equal(result.payload.sponsorWritesPaused, true)
   assert.equal(result.payload.transactionExecutionAvailable, false)
 })
+
+
+test('Sponsor readiness fails closed when the versioned ledger migration checksum is missing', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      throw new Error('status endpoint must remain read-only')
+    },
+  }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, migrationChecksum: null })
+  const result = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.databaseReady, false)
+  assert.equal(result.payload.databaseStatus, 'migration-checksum-unverified')
+  assert.equal(result.payload.sponsorWritesPaused, true)
+  assert.equal(result.payload.transactionExecutionAvailable, false)
+})
