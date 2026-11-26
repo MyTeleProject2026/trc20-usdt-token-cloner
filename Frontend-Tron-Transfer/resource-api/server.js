@@ -282,7 +282,10 @@ function observatoryRateLimitIp(req) {
   return req.socket?.remoteAddress || 'unknown'
 }
 
-function send(res, status, payload, origin) {
+export function send(res, status, payload, origin) {
+  // Async handlers can race with a disconnected client or a completed response.
+  // Never attempt a second write: it can crash the single Render API process.
+  if (!res || res.headersSent || res.writableEnded || res.destroyed) return false
   const headers = {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -296,6 +299,7 @@ function send(res, status, payload, origin) {
   }
   res.writeHead(status, headers)
   res.end(JSON.stringify(payload))
+  return true
 }
 
 export function createServer({ env = process.env, allowedAddress = env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || '', fetchImpl = fetch, sponsorEngine, sponsorDatabase } = {}) {
