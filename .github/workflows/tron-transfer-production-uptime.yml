@@ -141,7 +141,7 @@ jobs:
                       detail = validPayload
                         ? 'TronScan reachable · official USDT indexed=' + (parsed.probeContractIndexed === true)
                         : 'TronScan Mainnet explorer unavailable · ' + String(parsed?.errorCode || 'invalid response');
-                    }                    } else if (target.name === 'uptime-history') {
+                    } else if (target.name === 'uptime-history') {
                       const count = Array.isArray(parsed?.runs) ? parsed.runs.length : 0;
                       validPayload = response.ok && parsed?.success === true && count > 0;
                       detail = validPayload ? 'Git-backed history served · ' + count + ' archived runs' : 'history endpoint returned no valid archived records';
