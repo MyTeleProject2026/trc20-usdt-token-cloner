@@ -25,7 +25,7 @@ test('local signer acceptance requests a role-bound challenge and sends only the
     defaultAddress: { base58: address },
     isAddress: value => value === address,
     address: { toHex: value => value === address ? '41' + '11'.repeat(20) : '' },
-    trx: { signMessageV2: async message => { assert.equal(message, 'TRON Mainnet challenge'); return signature } },
+    trx: { signMessageV2: async message => { assert.equal(message, 'TRON Mainnet challenge Address: ' + address); return signature } },
   }
   const result = await runLocalSignerAcceptance({ authClient, tronWeb, address, role: 'owner' })
   assert.equal(result.verified, true)
@@ -57,6 +57,6 @@ test('Owner and Sponsor workspaces expose separate sign-only acceptance actions'
   assert.match(sponsor, /role: 'sponsor'/)
   assert.match(owner, /Run sign-only acceptance/)
   assert.match(sponsor, /Run sign-only acceptance/)
-  assert.match(owner, /No transaction, fee or broadcast occurred/)
+  assert.match(owner, /no transaction, fee or broadcast occurred/i)
   assert.match(sponsor, /no transaction is created or broadcast/i)
 })
