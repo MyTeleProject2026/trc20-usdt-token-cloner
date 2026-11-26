@@ -423,7 +423,7 @@ test('Sponsor operation history reads never bootstrap or mutate the ledger schem
     async query(sql) {
       queries.push(sql)
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.includes('SELECT operation,resource,amount_sun')) return { rowCount: 0, rows: [] }
@@ -442,7 +442,7 @@ test('Sponsor status fails closed when the ledger control row is missing', async
   const database = {
     async query(sql) {
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 0, rows: [] }
       throw new Error('status endpoint must remain read-only')
@@ -484,7 +484,7 @@ test('Sponsor status classifies database connection failures without exposing er
 test('Sponsor readiness distinguishes Sponsor execution from Owner-only ledger bootstrap', async () => {
   const database = {
     async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       throw new Error('status endpoint must not mutate the Sponsor ledger schema')
     },
@@ -615,7 +615,7 @@ test('Sponsor local transaction preparation refuses to run while the durable Mai
   const database = {
     async query(sql) {
       queries.push(sql)
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql === 'BEGIN' || sql === 'ROLLBACK') return { rowCount: 0, rows: [] }
       throw new Error('unexpected database query: ' + sql)
@@ -655,7 +655,7 @@ test('Sponsor cancellation can only close an unsigned reserved operation', async
   const database = {
     async query(sql) {
       queries.push(sql)
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.startsWith("UPDATE public.tron_transfer_sponsor_operations SET status='failed'")) return { rowCount: 1, rows: [{ id: 1 }] }
       throw new Error('unexpected database query: ' + sql)
@@ -679,7 +679,7 @@ test('legacy one-step Sponsor execution endpoint is disabled in favor of local p
   const database = {
     async query(sql) {
       queries.push(sql)
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       if (sql === 'ROLLBACK' || sql === 'BEGIN') return { rowCount: 0, rows: [] }
       throw new Error('unexpected database query: ' + sql)
@@ -723,6 +723,34 @@ test('Owner TRX top-up intent is bound to the configured Owner and TRX resource'
   assert.match(result.payload.message, /Resource: TRX/)
   assert.match(result.payload.message, /Amount \(sun\): 2500000/)
   assert.match(result.payload.message, new RegExp(OWNER))
+})
+
+test('Sponsor arbitrary-recipient TRX transfer intent binds recipient and amount to the authorization message', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  const recipientAddress = 'TSPz5ULCfd4zbMUCfF337KWyia8F1F5kYR'
+  const result = await call(api, 'POST', '/api/sponsor/intent', {
+    operation: 'transfer', resource: 'TRX', amountSun: '2500000', recipientAddress,
+    idempotencyKey: 'sponsor-arbitrary-transfer-000001',
+  }, token)
+  assert.equal(result.status, 201)
+  assert.match(result.payload.message, new RegExp(recipientAddress))
+  assert.match(result.payload.message, /Operation: transfer/)
+  assert.match(result.payload.message, /Resource: TRX/)
+  assert.match(result.payload.message, /Amount \(sun\): 2500000/)
+})
+
+test('Sponsor arbitrary-recipient transfer rejects an invalid address and Sponsor self-recipient', async () => {
+  const { api } = setup()
+  const token = await authenticated(api)
+  for (const recipientAddress of ['not-an-address', SPONSOR]) {
+    const result = await call(api, 'POST', '/api/sponsor/intent', {
+      operation: 'transfer', resource: 'TRX', amountSun: '1000000', recipientAddress,
+      idempotencyKey: 'sponsor-invalid-recipient-' + (recipientAddress === SPONSOR ? 'self' : 'bad') + '-000001',
+    }, token)
+    assert.equal(result.status, 400)
+    assert.equal(result.payload.error, 'invalid-sponsor-operation-intent')
+  }
 })
 
 test('invalid resource combinations cannot create Sponsor intents', async () => {
@@ -846,7 +874,7 @@ test('signed-not-broadcast operation recovers after API restart against solidifi
   const updates = []
   const database = {
     async query(sql, params = []) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.includes('SELECT idempotency_key_hash,operation,resource,amount_sun::text')) return { rowCount: 1, rows: [row] }
       if (sql.includes('SET status=$2,result_code=$3,confirmation_block=$4')) {
@@ -896,7 +924,7 @@ test('ambiguous Sponsor operation remains non-retryable when Mainnet reconciliat
   const updates = []
   const database = {
     async query(sql, params = []) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       if (sql.includes('SELECT idempotency_key_hash,operation,resource,amount_sun::text')) return { rowCount: 1, rows: [row] }
       if (sql.includes('SET result_code=$2,updated_at=now()')) {
@@ -931,7 +959,7 @@ test('legacy Sponsor server-signed execution endpoint is permanently disabled', 
   const timeline = []
   const database = {
     async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       throw new Error('unexpected database query: ' + sql)
     },
@@ -995,7 +1023,7 @@ test('Sponsor readiness coalesces simultaneous status refreshes into one databas
       queryCount += 1
       await new Promise(resolve => setTimeout(resolve, 20))
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       throw new Error('unexpected Sponsor status query')
@@ -1050,7 +1078,7 @@ test('managed Sponsor session cannot invoke the legacy server signer endpoint', 
   const database = {
     async query(sql) {
       if (sql.includes('to_regclass')) {
-        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+        return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       if (sql === 'BEGIN') return { rowCount: 0, rows: [] }
@@ -1108,7 +1136,7 @@ test('Sponsor local-signing API commits the signed transaction before a single b
   }
   const database = {
     async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: false }] }
       throw new Error('unexpected pool query: ' + sql)
     },
@@ -1358,7 +1386,7 @@ test('production acceptance verifies Owner and Sponsor enrollment before Sponsor
 test('Sponsor readiness fails closed when the versioned ledger migration checksum is missing', async () => {
   const database = {
     async query(sql) {
-      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true }] }
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
       if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
       throw new Error('status endpoint must remain read-only')
     },
