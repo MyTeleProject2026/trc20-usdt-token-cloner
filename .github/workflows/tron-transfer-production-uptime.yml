@@ -41,6 +41,7 @@ jobs:
             { name: 'uptime-history', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/uptime-history', expectJson: true },
             { name: 'render-metrics', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/render-metrics', expectJson: true },
           ];
+          const resourceProbes = [];
           (async () => {
             // Probe targets concurrently so one sleeping Render service does
             // not consume the retry budget of the other endpoints.
@@ -149,6 +150,55 @@ jobs:
                           + ' · blockedAcceptance=' + (blockedAcceptance.join(',') || 'none')
                           + ' · blockedRelease=' + (blockedRelease.join(',') || 'none')
                         : 'Sponsor status endpoint returned an invalid acceptance payload';
+                      if (validPayload) {
+                        const wallets = [
+                          { name: 'owner-mainnet-resources', address: parsed?.ownerAddress },
+                          { name: 'sponsor-mainnet-resources', address: parsed?.sponsorAddress },
+                        ];
+                        const walletResults = await Promise.all(wallets.map(async wallet => {
+                          const startedAt = Date.now();
+                          const validAddress = typeof wallet.address === 'string' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(wallet.address);
+                          if (!validAddress) return {
+                            name: wallet.name, url: 'https://tron-transfer-resource-api.onrender.com/v1/resources/[wallet]',
+                            ok: false, status: 0, latencyMs: Date.now() - startedAt,
+                            detail: 'configured public wallet address is missing or invalid',
+                            checkedAt: new Date().toISOString(),
+                          };
+                          try {
+                            const response = await fetch('https://tron-transfer-resource-api.onrender.com/v1/resources/' + encodeURIComponent(wallet.address), {
+                              headers: { accept: 'application/json' },
+                              signal: AbortSignal.timeout(15000),
+                              redirect: 'error',
+                            });
+                            const resource = await response.json().catch(() => ({}));
+                            const energy = Number(resource?.energy?.available);
+                            const bandwidth = Number(resource?.bandwidth?.maxSingleTransactionAvailable);
+                            let balanceNonzero = false;
+                            try { balanceNonzero = BigInt(String(resource?.balanceSun || '0')) > 0n; } catch {}
+                            const valid = response.ok && resource?.network === 'TRON Mainnet'
+                              && Number.isFinite(energy) && energy >= 0
+                              && Number.isFinite(bandwidth) && bandwidth >= 0;
+                            return {
+                              name: wallet.name, url: 'https://tron-transfer-resource-api.onrender.com/v1/resources/[wallet]',
+                              ok: valid, status: response.status, latencyMs: Date.now() - startedAt,
+                              detail: valid
+                                ? 'Mainnet resource read passed · Energy=' + (energy > 0 ? 'nonzero' : 'zero')
+                                  + ' · single-source Bandwidth=' + (bandwidth > 0 ? 'nonzero' : 'zero')
+                                  + ' · TRX balance=' + (balanceNonzero ? 'nonzero' : 'zero')
+                                : 'Mainnet resource read failed or returned an invalid resource payload',
+                              checkedAt: new Date().toISOString(),
+                            };
+                          } catch (error) {
+                            return {
+                              name: wallet.name, url: 'https://tron-transfer-resource-api.onrender.com/v1/resources/[wallet]',
+                              ok: false, status: 0, latencyMs: Date.now() - startedAt,
+                              detail: String(error && error.message || error).slice(0, 180),
+                              checkedAt: new Date().toISOString(),
+                            };
+                          }
+                        }));
+                        resourceProbes.push(...walletResults);
+                      }
                     } else if (target.name === 'mainnet-rpc-providers') {
                       const providers = Array.isArray(parsed?.providers) ? parsed.providers : [];
                       const tatum = providers.find(provider => provider?.id === 'tatum');
@@ -241,6 +291,7 @@ jobs:
               interval: '5 minutes (best effort; GitHub scheduled execution is not real-time guaranteed)',
               results,
             }, null, 2) + '\n');
+            results.push(...resourceProbes);
             const failed = results.filter(item => !item.ok);
             const summary = [
               '## Tron Transfer production probe',
