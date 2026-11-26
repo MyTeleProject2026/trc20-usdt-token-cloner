@@ -299,7 +299,17 @@ export function send(res, status, payload, origin) {
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     headers['access-control-allow-origin'] = origin
     headers['access-control-allow-credentials'] = 'true'
+    headers['access-control-expose-headers'] = 'Retry-After'
     headers.vary = 'Origin'
+  }
+  // Publish the server's existing retryAfterSeconds contract as a standard
+  // HTTP header so browser clients can honor cooldowns without parsing errors.
+  const retryAfterSeconds = Number(payload?.retryAfterSeconds)
+  if ((status === 429 || status === 503)
+    && Number.isSafeInteger(retryAfterSeconds)
+    && retryAfterSeconds > 0
+    && retryAfterSeconds <= 86_400) {
+    headers['retry-after'] = String(retryAfterSeconds)
   }
   res.writeHead(status, headers)
   res.end(JSON.stringify(payload))
