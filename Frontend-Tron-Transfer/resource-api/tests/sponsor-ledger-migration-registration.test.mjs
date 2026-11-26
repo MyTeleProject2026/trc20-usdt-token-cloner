@@ -2,7 +2,7 @@ import test from 'node:test'
 import { createHash } from 'node:crypto'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { registerSponsorLedgerMigration } from '../scripts/register-sponsor-ledger-migration.mjs'
+import { ownerAdminDatabaseIdentityFingerprint, registerSponsorLedgerMigration } from '../scripts/register-sponsor-ledger-migration.mjs'
 
 test('Sponsor ledger migration registrar refuses an unpinned production database identity', async () => {
   await assert.rejects(
@@ -33,4 +33,16 @@ test('Sponsor API pinned migration checksum matches the versioned SQL migration 
   const pinned = api.match(/SPONSOR_LEDGER_MIGRATION_SHA256 = '([0-9a-f]{64})'/)?.[1]
   assert.ok(pinned, 'Sponsor API must pin the ledger migration checksum')
   assert.equal(createHash('sha256').update(sql).digest('hex'), pinned)
+})
+
+
+test('Sponsor migration registrar uses the exact Owner Admin fingerprint algorithm', () => {
+  const url = 'postgresql://neondb_owner:placeholder@ep-curly-cherry-bej1ybw8-pooler.c-9.us-east-2.aws.neon.tech/Tron%20Transfer%20Resource%20Database?sslmode=require'
+  const identity = JSON.stringify({
+    hostname: 'ep-curly-cherry-bej1ybw8-pooler.c-9.us-east-2.aws.neon.tech',
+    port: '5432',
+    database: 'Tron Transfer Resource Database',
+    username: 'neondb_owner',
+  })
+  assert.equal(ownerAdminDatabaseIdentityFingerprint(url), createHash('sha256').update(identity).digest('hex'))
 })
