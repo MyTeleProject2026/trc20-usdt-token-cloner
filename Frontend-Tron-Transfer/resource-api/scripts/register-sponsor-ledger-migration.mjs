@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import pg from 'pg'
 import { databaseIdentity, normalizePostgresTlsMode } from './sponsor-ledger-database-identity.mjs'
 
