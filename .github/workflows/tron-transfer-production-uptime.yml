@@ -32,6 +32,8 @@ jobs:
           const targets = [
             { name: 'owner-admin-frontend', url: 'https://tron-transfer.onrender.com/', expectJson: false },
             { name: 'resource-api-health', url: 'https://tron-transfer-resource-api.onrender.com/health', expectJson: true, expectedNetwork: 'TRON Mainnet' },
+            { name: 'mainnet-rpc-providers', url: 'https://tron-transfer-resource-api.onrender.com/api/mainnet/provider-health', expectJson: true },
+            { name: 'tronscan-explorer', url: 'https://tron-transfer-resource-api.onrender.com/api/mainnet/explorer-health', expectJson: true },
             { name: 'sponsor-readiness', url: 'https://tron-transfer-resource-api.onrender.com/api/sponsor/status', expectJson: true },
             { name: 'runtime-observatory', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/snapshot', expectJson: true },
             { name: 'uptime-history', url: 'https://tron-transfer-resource-api.onrender.com/api/observatory/uptime-history', expectJson: true },
@@ -96,44 +98,50 @@ jobs:
                         ledgerDurabilityVerified: parsed?.ledgerDurabilityVerified === true,
                         ownerAddressMatches: parsed?.ownerAddressMatches === true,
                         sponsorIndependent: parsed?.sponsorIndependent === true,
+                        sponsorWalletEnrolled: parsed?.sponsorWalletEnrolled === true,
                         sessionAuthenticationConfigured: parsed?.sessionAuthenticationConfigured === true,
-                        engineConfigured: parsed?.engineConfigured === true,
-                        engineEnabled: parsed?.engineEnabled === true,
-                        adminTokenRequired: parsed?.adminTokenRequired === true,
-                        adminTokenConfigured: parsed?.adminTokenConfigured === true,
+                        ownerAdminSessionConfigured: parsed?.ownerAdminSessionConfiguredForLedgerRelease === true,
+                        localSignerReady: parsed?.localSignerReady === true,
+                        writesReleaseAvailable: parsed?.writesReleaseAvailable === true,
                         transactionExecutionAvailable: parsed?.transactionExecutionAvailable === true,
                       };
-                      const readinessGates = [
-                        flags.databaseConfigured,
-                        flags.databaseReady,
-                        !flags.sponsorWritesPaused,
-                        flags.ledgerDurabilityVerified,
-                        flags.ownerAddressMatches,
-                        flags.sponsorIndependent,
-                        flags.sessionAuthenticationConfigured,
-                        flags.engineConfigured,
-                        flags.adminTokenRequired,
-                        flags.adminTokenConfigured,
-                      ];
-                      const readiness = !readinessGates.every(Boolean)
-                        ? 'blocked'
-                        : flags.transactionExecutionAvailable ? 'ready' : 'execution-disabled';
-                      validPayload = response.ok && parsed?.success === true;
+                      const acceptanceState = String(parsed?.acceptance?.state || 'unknown').slice(0, 40);
+                      validPayload = response.ok && parsed?.success === true
+                        && parsed?.acceptance?.version === 1 && Array.isArray(parsed?.acceptance?.checks);
                       const databaseStatus = String(parsed?.databaseStatus || 'unknown').slice(0, 32);
                       detail = validPayload
-                        ? 'Sponsor readiness=' + readiness
+                        ? 'Sponsor acceptance=' + acceptanceState
                           + ' · db=' + databaseStatus
                           + ' · dbReady=' + flags.databaseReady
-                          + ' · durable=' + flags.ledgerDurabilityVerified
-                          + ' · paused=' + flags.sponsorWritesPaused
+                          + ' · sponsor=' + flags.sponsorWalletEnrolled
                           + ' · owner=' + flags.ownerAddressMatches
                           + ' · independent=' + flags.sponsorIndependent
-                          + ' · session=' + flags.sessionAuthenticationConfigured
-                          + ' · admin=' + flags.adminTokenConfigured
-                          + ' · engine=' + flags.engineConfigured + '/' + flags.engineEnabled
+                          + ' · durable=' + flags.ledgerDurabilityVerified
+                          + ' · adminSession=' + flags.ownerAdminSessionConfigured
+                          + ' · paused=' + flags.sponsorWritesPaused
+                          + ' · signer=' + flags.localSignerReady
+                          + ' · release=' + flags.writesReleaseAvailable
                           + ' · execute=' + flags.transactionExecutionAvailable
-                        : 'Sponsor status endpoint returned an invalid readiness payload';
-                    } else if (target.name === 'uptime-history') {
+                        : 'Sponsor status endpoint returned an invalid acceptance payload';
+                    } else if (target.name === 'mainnet-rpc-providers') {
+                      const providers = Array.isArray(parsed?.providers) ? parsed.providers : [];
+                      const tatum = providers.find(provider => provider?.id === 'tatum');
+                      const trongrid = providers.find(provider => provider?.id === 'trongrid');
+                      const bothReachable = tatum?.configured === true && tatum?.reachable === true
+                        && trongrid?.configured === true && trongrid?.reachable === true;
+                      validPayload = response.ok && parsed?.network === 'TRON Mainnet' && bothReachable;
+                      detail = validPayload
+                        ? 'Tatum block ' + tatum.blockNumber + ' · TronGrid block ' + trongrid.blockNumber
+                        : 'Independent RPC check failed · Tatum=' + (tatum?.reachable ? 'reachable' : 'unavailable')
+                          + ' · TronGrid=' + (trongrid?.reachable ? 'reachable' : 'unavailable');
+                    } else if (target.name === 'tronscan-explorer') {
+                      validPayload = response.ok && parsed?.ok === true
+                        && parsed?.explorer === 'TronScan' && parsed?.network === 'TRON Mainnet'
+                        && parsed?.reachable === true;
+                      detail = validPayload
+                        ? 'TronScan reachable · official USDT indexed=' + (parsed.probeContractIndexed === true)
+                        : 'TronScan Mainnet explorer unavailable · ' + String(parsed?.errorCode || 'invalid response');
+                    }                    } else if (target.name === 'uptime-history') {
                       const count = Array.isArray(parsed?.runs) ? parsed.runs.length : 0;
                       validPayload = response.ok && parsed?.success === true && count > 0;
                       detail = validPayload ? 'Git-backed history served · ' + count + ' archived runs' : 'history endpoint returned no valid archived records';
