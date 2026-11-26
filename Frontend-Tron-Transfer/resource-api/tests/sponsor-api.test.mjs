@@ -22,7 +22,7 @@ function request(method, path, body, token, ownerSessionFixture, client = {}) {
 function response() {
   return { status: 0, payload: null }
 }
-function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SESSION_FIXTURE, databaseUrl = '', expectedDatabaseIdentitySha256 = '', migrationChecksum = SPONSOR_LEDGER_MIGRATION_SHA256, authenticateManagedSession = null, authenticateOwnerAdminSession = async req => req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null } = {}) {
+function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SESSION_FIXTURE, databaseUrl = '', expectedDatabaseIdentitySha256 = '', migrationChecksum = SPONSOR_LEDGER_MIGRATION_SHA256, recipientMigrationChecksum = 'b03b9abd49bc255158ed9ea61baa51690dea66f2d66374ac97c8fe5373443239', authenticateManagedSession = null, authenticateOwnerAdminSession = async req => req.headers?.['x-test-owner-admin-session'] === 'valid' ? { address: OWNER } : null } = {}) {
   let clock = Date.now()
   const env = {
     SPONSOR_SESSION_SECRET: SECRET,
@@ -40,7 +40,8 @@ function setup({ database = null, engine = null, ownerSessionFixture = OWNER_SES
   const wrapDatabaseClient = client => ({
     query: async (sql, values) => {
       if (String(sql).includes('SELECT checksum FROM public.tron_transfer_owner_admin_schema_migrations')) {
-        return migrationChecksum ? { rowCount: 1, rows: [{ checksum: migrationChecksum }] } : { rowCount: 0, rows: [] }
+        const checksum = values?.[0] === '20261128_sponsor_arbitrary_trx_transfer.sql' ? recipientMigrationChecksum : migrationChecksum
+        return checksum ? { rowCount: 1, rows: [{ checksum }] } : { rowCount: 0, rows: [] }
       }
       return client.query(sql, values)
     },
@@ -1386,6 +1387,23 @@ test('production acceptance verifies Owner and Sponsor enrollment before Sponsor
   assert.equal(result.payload.transactionExecutionAvailable, false)
 })
 
+
+test('Sponsor readiness fails closed when the arbitrary-recipient transfer migration checksum is missing', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('to_regclass')) return { rowCount: 1, rows: [{ operations_table: 'tron_transfer_sponsor_operations', control_table: 'tron_transfer_sponsor_control', prepared_transaction_column: true, signed_transaction_column: true, recipient_address_column: true }] }
+      if (sql.includes('SELECT writes_paused')) return { rowCount: 1, rows: [{ writes_paused: true }] }
+      throw new Error('status endpoint must remain read-only')
+    },
+  }
+  const databaseUrl = 'postgres://test_user:test_password@ep-test.ap-southeast-1.aws.neon.tech/sponsor?sslmode=require'
+  const expectedDatabaseIdentitySha256 = sponsorDatabaseConnectionInfo({ DATABASE_URL: databaseUrl }).identityFingerprint
+  const { api } = setup({ database, databaseUrl, expectedDatabaseIdentitySha256, recipientMigrationChecksum: null })
+  const result = await call(api, 'GET', '/api/sponsor/status')
+  assert.equal(result.status, 200)
+  assert.equal(result.payload.databaseStatus, 'recipient-migration-checksum-unverified')
+  assert.equal(result.payload.transactionExecutionAvailable, false)
+})
 
 test('Sponsor readiness fails closed when the versioned ledger migration checksum is missing', async () => {
   const database = {
