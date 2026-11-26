@@ -1,0 +1,54 @@
+{
+  "name": "Tron Transfer Owner Admin",
+  "short_name": "Tron Transfer",
+  "description": "TRON Mainnet Owner and Sponsor administration for the TRӾ token.",
+  "id": "/",
+  "start_url": "/#/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
+  "background_color": "#080d18",
+  "theme_color": "#080d18",
+  "categories": [
+    "finance",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "/trax-token-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Owner portfolio",
+      "short_name": "Portfolio",
+      "url": "/#/portfolio",
+      "icons": [
+        {
+          "src": "/trax-token-mark.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "TRӾ Deploy & verify",
+      "short_name": "TRӾ Deploy",
+      "url": "/#/deploy",
+      "icons": [
+        {
+          "src": "/trax-token-mark.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ]
+}
