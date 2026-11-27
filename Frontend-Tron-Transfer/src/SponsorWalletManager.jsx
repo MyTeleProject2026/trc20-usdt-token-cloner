@@ -793,7 +793,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       if (account.address === ownerAddress || account.address !== managedSponsorAddress) {
         throw new Error('Imported Sponsor Wallet must match the authenticated independent Sponsor Mainnet account.')
       }
-      const localVaultPassword = globalThis.crypto?.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('')
+      const localVaultPassword = sharedOwnerPassword || globalThis.crypto?.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('')
       await saveSponsorWalletVault(account, localVaultPassword)
       await saveSponsorDeviceWallet(account).catch(() => {})
       setDeviceUnlockReady(await hasSponsorDeviceWallet())
@@ -898,7 +898,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setVaultPassword('')
     setUnlockPassword('')
     setWallet(null)
-    setManagedSponsorAddress('')
     setVaultSaved(hasSavedSponsorWallet())
     setReplacing(false)
     setSaved(true)

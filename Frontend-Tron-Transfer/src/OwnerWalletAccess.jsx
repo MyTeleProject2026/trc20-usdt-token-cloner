@@ -146,7 +146,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       if (!expectedOwnerAddress || account.address !== expectedOwnerAddress) throw new Error('Imported address does not match the configured Owner Wallet. Expected ' + (expectedOwnerAddress || 'an unconfigured address') + '.')
       const ownerSession = await ownerAuth.session()
       if (!ownerSession?.success || ownerSession.address !== expectedOwnerAddress) throw new Error('OWNER_ADMIN_SESSION_REQUIRED')
-      const localVaultPassword = globalThis.crypto?.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('')
+      const localVaultPassword = vaultPassword || globalThis.crypto?.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('')
       await saveOwnerWalletVault(account, localVaultPassword)
       await saveOwnerDeviceWallet(account).catch(() => {})
       setSaved(true); setCredential(''); setKeystorePassword('')
