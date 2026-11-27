@@ -1,5 +1,6 @@
 import { TronWeb } from 'tronweb'
 import { Wallet } from 'ethers'
+import { saveDeviceWallet, unlockDeviceWallet, hasDeviceWallet, removeDeviceWallet } from './lib/device-wallet-vault.mjs'
 
 const STORAGE_KEY = 'tron-transfer.sponsor-wallet.v1'
 const PBKDF2_ITERATIONS = 310000
@@ -211,3 +212,17 @@ export async function signSponsorTransaction(account, unsignedTransaction, { tro
   if (recovered !== derivedAddress) throw new Error('Local Sponsor transaction signature does not match the unlocked Sponsor address.')
   return signed
 }
+
+export async function saveSponsorDeviceWallet(account) {
+  const privateKey = normalizePrivateKey(account?.privateKey)
+  const address = createSponsorTronWeb().address.fromPrivateKey(privateKey)
+  if (address !== account?.address) throw new Error('Sponsor device wallet address integrity check failed.')
+  return saveDeviceWallet('sponsor', { address, privateKey, network: 'mainnet' })
+}
+export async function unlockSponsorDeviceWallet() {
+  const account = await unlockDeviceWallet('sponsor')
+  if (createSponsorTronWeb().address.fromPrivateKey(account.privateKey) !== account.address) throw new Error('Sponsor device wallet address integrity check failed.')
+  return account
+}
+export async function hasSponsorDeviceWallet() { return hasDeviceWallet('sponsor') }
+export async function removeSponsorDeviceWallet() { return removeDeviceWallet('sponsor') }
