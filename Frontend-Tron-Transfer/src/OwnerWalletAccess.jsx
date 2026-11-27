@@ -3,7 +3,8 @@ import './owner-wallet-access.css'
 import { KeyRound, LockKeyhole, ShieldCheck, Upload } from 'lucide-react'
 import {
   createOwnerTronWeb, deriveOwnerAccount, getSavedOwnerWalletAddress, hasSavedOwnerWallet,
-  removeSavedOwnerWallet, saveOwnerWalletVault, unlockOwnerWalletVault, migrateOwnerWalletVault,\n  saveOwnerDeviceWallet, unlockOwnerDeviceWallet, hasOwnerDeviceWallet, removeOwnerDeviceWallet,
+  removeSavedOwnerWallet, saveOwnerWalletVault, unlockOwnerWalletVault, migrateOwnerWalletVault,
+  saveOwnerDeviceWallet, unlockOwnerDeviceWallet, hasOwnerDeviceWallet, removeOwnerDeviceWallet,
 } from './owner-wallet-vault.mjs'
 import { createManagedWalletAuthClient, OWNER_ADMIN_LOGIN_EMAIL } from './managed-wallet-auth-client.mjs'
 
