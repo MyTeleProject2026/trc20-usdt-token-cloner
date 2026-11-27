@@ -53,7 +53,16 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       setEnrolled(Boolean(status.enrolled))
       if (session?.success && session.role === 'owner' && session.address === configuredOwnerAddress) {
         setAuthenticated(true)
-        setMessage('Owner application session is active. Unlock the encrypted local Owner Wallet to enable local signing.')
+        setMessage('Owner Admin session restored. Checking this browser’s protected device wallet…')
+        if (hasSavedOwnerWallet() && !replace && await hasOwnerDeviceWallet()) {
+          try {
+            const account = await unlockOwnerDeviceWallet()
+            if (active && account.address === configuredOwnerAddress) { await activate(account, '', configuredOwnerAddress); return }
+            if (active) throw new Error('Saved device wallet does not match the authenticated Owner account.')
+          } catch (deviceError) {
+            if (active) setMessage('Owner Admin session is active. Device unlock needs recovery: ' + deviceError.message)
+          }
+        } else if (active) setMessage('Owner Admin session is active. Complete one-time wallet recovery or import to enroll this browser for passwordless unlock.')
       } else {
         setMessage(status.enrolled
           ? 'Sign in to the configured Owner application account, then unlock the independent local Owner Wallet.'
@@ -95,9 +104,12 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       setMessage('Owner Admin authenticated. Activating the configured Owner wallet without a second password prompt.')
       if (saved && !replace) {
         try {
-          const account = vaultMigrationRequired
-            ? await migrateOwnerWalletVault(legacyVaultPassword, authPassword)
-            : await unlockOwnerWalletVault(authPassword)
+          const account = await hasOwnerDeviceWallet()
+            ? await unlockOwnerDeviceWallet()
+            : vaultMigrationRequired
+              ? await migrateOwnerWalletVault(legacyVaultPassword, authPassword)
+              : await unlockOwnerWalletVault(authPassword)
+          await saveOwnerDeviceWallet(account).catch(() => {})
           await activate(account, authPassword)
           return
         } catch (vaultError) {
@@ -151,9 +163,11 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       if (authenticatedOwner.address !== expectedOwnerAddress) throw new Error('OWNER_ADMIN_REAUTHENTICATION_FAILED')
       let account
       try {
-        account = vaultMigrationRequired
-          ? await migrateOwnerWalletVault(legacyVaultPassword, unlockPassword)
-          : await unlockOwnerWalletVault(unlockPassword)
+        account = await hasOwnerDeviceWallet()
+          ? await unlockOwnerDeviceWallet()
+          : vaultMigrationRequired
+            ? await migrateOwnerWalletVault(legacyVaultPassword, unlockPassword)
+            : await unlockOwnerWalletVault(unlockPassword)
       } catch (cause) {
         if (!vaultMigrationRequired) {
           setVaultMigrationRequired(true)
@@ -161,6 +175,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         }
         throw cause
       }
+      await saveOwnerDeviceWallet(account).catch(() => {})
       await activate(account, unlockPassword)
       setUnlockPassword(''); setLegacyVaultPassword(''); setVaultMigrationRequired(false)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Owner Wallet unlock failed.') }

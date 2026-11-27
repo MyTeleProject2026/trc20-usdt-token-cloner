@@ -41,13 +41,22 @@ test('Sponsor workspace render errors are contained by an application error boun
   assert.doesNotMatch(app, /No transaction was submitted/)
 })
 
-test('Sponsor workspace reuses the paired Owner Admin session without a second password prompt', () => {
+test('Sponsor workspace reuses the paired Owner Admin session and a role-specific device key without a second password', () => {
   assert.match(source, /ownerAdminPassword: sharedOwnerPassword/)
   assert.match(source, /sponsorAuth\.session\(\)/)
-  assert.match(source, /unlockSponsorWalletVault\(sharedOwnerPassword\)/)
+  assert.match(source, /ownerAuth\.session\(\)/)
+  assert.match(source, /unlockSponsorDeviceWallet\(\)/)
+  assert.match(source, /saveSponsorDeviceWallet\(account\)/)
   assert.match(source, /Sponsor workspace automatically authorized/)
-  assert.match(source, /if \(!workspaceActive\) \{\s*setOwnerAdminPassword\(''\)\s*setOwnerAdminReady\(false\)/)
-  assert.match(source, /\[sharedOwnerPassword, workspaceActive\]/)
+  assert.match(source, /deviceUnlockReady/)
+  assert.doesNotMatch(source, /Owner account password<input/)
+})
+
+test('Switching between Owner and Sponsor workspaces retains the paired sessions; explicit Owner logout clears Sponsor signer', () => {
+  assert.match(source, /Workspace navigation is not logout/)
+  assert.match(source, /tron-transfer:owner-session-ended/)
+  assert.match(source, /autoRestoreBlocked\.current = true/)
+  assert.doesNotMatch(source, /if \(wallet\?\.address\) lockWallet\('manual'\)\s*if \(!wallet\?\.address && managedSponsorAddress\) lockWallet\('manual'\)/)
 })
 
 test('Sponsor TronWeb instance is initialized before any effect dependency reads it', () => {
@@ -71,14 +80,12 @@ test('Owner Admin password recovery and Sponsor session controls stay inside the
   assert.ok(source.includes("activePage === \"sponsor\" && wallet"))
 })
 
-test('Sponsor local signer is locked immediately when leaving the Sponsor workspace', () => {
-  const lockOnExit = source.indexOf("if (workspaceActive) return\n    if (wallet?.address) lockWallet('manual')")
-  const idleEffect = source.indexOf("if (!wallet?.address || !workspaceActive) return undefined")
-  const lockCallback = source.indexOf("setWallet(null)")
-  assert.notEqual(lockOnExit, -1, 'switching to Owner workspace must revoke Sponsor access')
-  assert.notEqual(idleEffect, -1, 'idle timer must not remain active outside Sponsor workspace')
-  assert.notEqual(lockCallback, -1, 'locking must clear the in-memory Sponsor signer')
-  assert.ok(lockOnExit < idleEffect, 'workspace-exit lock must be registered before idle monitoring')
+test('Sponsor local signer remains available across workspace switches and is cleared on Owner logout', () => {
+  assert.match(source, /Workspace navigation is not logout/)
+  assert.match(source, /tron-transfer:owner-session-ended/)
+  assert.match(source, /const lockWallet = useCallback/)
+  assert.match(source, /setWallet\(null\)/)
+  assert.match(source, /if \(!wallet\?\.address \|\| !workspaceActive\) return undefined/)
 })
 
 test('Sponsor lock clears local key-import, keystore and password inputs', () => {

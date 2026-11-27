@@ -387,11 +387,12 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       setManagedSponsorAddress(session.address)
       setVaultSaved(hasSavedSponsorWallet())
       setAuthCsrfToken(session.csrfToken || '')
+      if (wallet?.address === session.address) return
       setWallet(null)
       setSnapshot(null)
     }).catch(() => {})
     return () => { active = false }
-  }, [workspaceActive, sponsorAuth, ownerAuth])
+  }, [workspaceActive, sponsorAuth, ownerAuth, wallet?.address])
 
   async function loginOwnerAdmin() {
     if (busy) return
@@ -881,7 +882,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       automatic ? 'Sponsor Wallet automatically locked' : 'Sponsor Wallet locked',
       automatic
         ? (reason === 'background' ? 'Session locked after the page remained hidden for 60 seconds.' : 'Session locked after 5 minutes without user activity.')
-        : 'Local Sponsor signer cleared from memory and managed session revoked; encrypted backup retained.',
+        : 'Local Sponsor signer cleared from memory; the paired application session remains available for device unlock.',
     )
     setOwnerAdminReady(false)
     setOwnerAdminCsrfToken('')
@@ -913,8 +914,8 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       automatic ? 'info' : 'success',
       automatic ? 'Sponsor Wallet session auto-locked' : 'Sponsor Wallet locked',
       automatic
-        ? 'The Sponsor signer was cleared and the session revoked. Sign in and unlock the encrypted local vault again.'
-        : 'The local Sponsor signer was cleared and the managed session revoked; the encrypted backup remains.',
+        ? 'The Sponsor signer was cleared. Sign in to Owner Admin again to restore paired access.'
+        : 'The local Sponsor signer was cleared; the paired application session remains available for passwordless device unlock.',
     )
   }, [wallet?.address, recordSecurityEvent, notify, sponsorAuth, managedSponsorAddress])
 
