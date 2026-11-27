@@ -57,8 +57,8 @@ test('Sponsor TronWeb instance is initialized before any effect dependency reads
 
 
 test('Sponsor password recovery and account session controls stay inside the existing workspace',()=>{
-  assert.ok(source.includes('sponsorAuth.recoverPassword(authRecoveryToken.trim(), authPassword)'))
-  assert.ok(source.includes('sponsorAuth.changePassword(currentSponsorPassword, newSponsorPassword)'))
+  assert.ok(source.includes('ownerAuth.recoverPassword(authRecoveryToken.trim(), authPassword)'))
+  assert.ok(source.includes('ownerAuth.changePassword(currentSponsorPassword, newSponsorPassword)'))
   assert.ok(source.includes('sponsorAuth.sessions()'))
   assert.ok(source.includes('sponsorAuth.revokeSession(sessionId)'))
   assert.ok(source.includes('sponsorAuth.revokeOtherSessions()'))
@@ -137,7 +137,9 @@ test('Sponsor first-time enrollment is independent, address-bound, and browser-o
   assert.match(enrollment, /session\?\.address !== configuredSponsor/)
   assert.match(enrollment, /setAuthInitialPassword\(''\)/)
   assert.match(enrollment, /setAuthConfirmPassword\(''\)/)
-  assert.doesNotMatch(enrollment, /ensureOwnerAdmin|ownerAuth\.login|ownerAdminPassword/)
+  assert.match(enrollment, /ownerAuth\.login\(authPassword, OWNER_ADMIN_LOGIN_EMAIL\)/)
+  assert.match(enrollment, /sponsorAuth\.enroll\(authPassword, '', authInitialPassword\)/)
+  assert.match(enrollment, /SPONSOR_ENROLLED_ADDRESS_MISMATCH/)
   assert.match(source, /saved === false \? <>[\s\S]*Existing Sponsor password/)
   assert.doesNotMatch(source, /One-time Sponsor enrollment token/)
   assert.match(source, /onClick=\{\(\) => void enrollSponsorWallet\(\)\}/)
