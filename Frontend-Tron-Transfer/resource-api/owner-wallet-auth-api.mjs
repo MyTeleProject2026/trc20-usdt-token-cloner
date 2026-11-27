@@ -107,11 +107,14 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
       && sponsorAddress && sponsorAddress === report.sponsor.address
       && sponsorAddress !== report?.owner?.address)
     if (sponsorAuthorized) {
-      if (passwordVerifier?.password_hash && passwordVerifier?.password_salt) {
+      const sponsorPasswordHash = passwordVerifier?.password_hash || passwordVerifier?.passwordHash
+      const sponsorPasswordSalt = passwordVerifier?.password_salt || passwordVerifier?.passwordSalt
+      const sponsorPasswordAlgorithm = passwordVerifier?.password_algorithm || passwordVerifier?.passwordAlgorithm || 'scrypt'
+      const sponsorPasswordParams = passwordVerifier?.password_params || passwordVerifier?.passwordParams || {}
+      if (sponsorPasswordHash && sponsorPasswordSalt) {
         await db.query("UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1,password_salt=$2,password_algorithm=$3,password_params=$4::jsonb,failed_attempts=0,locked_until=NULL,password_changed_at=now(),updated_at=now() WHERE wallet_role='sponsor' AND enabled=true", [
-          passwordVerifier.password_hash, passwordVerifier.password_salt,
-          passwordVerifier.password_algorithm || 'scrypt',
-          JSON.stringify(passwordVerifier.password_params || {}),
+          sponsorPasswordHash, sponsorPasswordSalt, sponsorPasswordAlgorithm,
+          JSON.stringify(sponsorPasswordParams),
         ])
       }
       await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['sponsor', secret.tokenHash, digest(sponsorCsrf)])
@@ -319,7 +322,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
                   failed_attempts=0,locked_until=NULL,updated_at=now()
               WHERE wallet_role='owner'
             `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
-            await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='owner' AND revoked_at IS NULL")
+            await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role IN ('owner','sponsor') AND revoked_at IS NULL")
             await audit(client, 'password_changed', 'success', { source: 'authenticated-change' })
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
@@ -359,7 +362,8 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
               RETURNING wallet_address
             `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
             if (!accountUpdate.rowCount) throw Object.assign(new Error('OWNER_ACCOUNT_NOT_AVAILABLE'), { status: 503 })
-            await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='owner' AND revoked_at IS NULL")
+            await client.query("UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1,password_salt=$2,password_algorithm='scrypt',password_params=$3::jsonb,failed_attempts=0,locked_until=NULL,password_changed_at=now(),updated_at=now() WHERE wallet_role='sponsor' AND enabled=true", [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
+            await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role IN ('owner','sponsor') AND revoked_at IS NULL")
             await audit(client, 'password_changed', 'success', { source: 'one-time-recovery-token' })
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
