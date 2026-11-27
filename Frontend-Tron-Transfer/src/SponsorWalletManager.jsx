@@ -180,6 +180,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [wallet, setWallet] = useState(null)
   const [managedSponsorAddress, setManagedSponsorAddress] = useState('')
   const [vaultSaved, setVaultSaved] = useState(() => hasSavedSponsorWallet())
+  const [deviceUnlockReady, setDeviceUnlockReady] = useState(false)
   const [replacing, setReplacing] = useState(false)
   const [mode, setMode] = useState('private-key')
   const [credential, setCredential] = useState('')
@@ -262,6 +263,12 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }
 
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
+
+  useEffect(() => {
+    let active = true
+    void hasSponsorDeviceWallet().then(value => { if (active) setDeviceUnlockReady(value) }).catch(() => { if (active) setDeviceUnlockReady(false) })
+    return () => { active = false }
+  }, [vaultSaved])
 
   // Restore the paired Sponsor role using its own non-exportable device key.
   // The Owner password is used only once to enroll an older Sponsor vault.
@@ -785,11 +792,13 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       if (account.address === ownerAddress || account.address !== managedSponsorAddress) {
         throw new Error('Imported Sponsor Wallet must match the authenticated independent Sponsor Mainnet account.')
       }
-      const localVaultPassword = vaultPassword || sharedOwnerPassword || (globalThis.crypto?.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join(''))
+      const localVaultPassword = globalThis.crypto?.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('')
       await saveSponsorWalletVault(account, localVaultPassword)
       await saveSponsorDeviceWallet(account).catch(() => {})
+      setDeviceUnlockReady(await hasSponsorDeviceWallet())
       setWallet(account)
       setVaultSaved(true)
+      setDeviceUnlockReady(await hasSponsorDeviceWallet())
       setReplacing(false)
       setCredential(''); setKeystorePassword(''); setVaultPassword('')
       window.dispatchEvent(new Event('tron-transfer:sponsor-device-ready'))
@@ -858,7 +867,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     try { removeSavedSponsorWallet(); void removeSponsorDeviceWallet().catch(() => {}) }
     catch (error) { notify('error', 'Could not remove local backup', error instanceof Error ? error.message : 'Browser storage is unavailable.'); return }
     recordSecurityEvent(managedSponsorAddress || getSavedSponsorWalletAddress(), 'Sponsor Wallet backup removed', 'Encrypted local vault removed; on-chain funds were not changed.')
-    setVaultSaved(false); setReplacing(true); setWallet(null)
+    setVaultSaved(false); setDeviceUnlockReady(false); setReplacing(true); setWallet(null)
     setUnlockPassword(''); setCredential(''); setKeystorePassword(''); setVaultPassword('')
     notify('success', 'Local Sponsor backup removed', 'No on-chain account or funds were changed.')
   }
@@ -1380,7 +1389,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
     </section>}
 
     {activePage === 'sponsor' && !wallet && !managedSponsorAddress && <section className="sponsor-card sponsor-unlock-card">
-      <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Workspace Login</h3><p>Authenticate the independent Sponsor account first. Then unlock or import its separate encrypted local wallet vault.</p></div></div>
+      <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Sponsor Workspace</h3><p>Owner Admin sign-in establishes the paired Sponsor role session automatically. No separate Sponsor login is needed.</p></div></div>
       {saved === null ? <p className="sponsor-warning">Sponsor enrollment status could not be verified. Refresh the Sponsor workspace before entering credentials.</p> : saved === false ? <>
         <label className="sponsor-field">Existing Sponsor password<input type="password" value={authInitialPassword} onChange={event => setAuthInitialPassword(event.target.value)} autoComplete="current-password" minLength={12}/></label>
         <label className="sponsor-field">New Sponsor account password<input type="password" value={authPassword} onChange={event => setAuthPassword(event.target.value)} autoComplete="new-password" minLength={8}/><small>Minimum 8 characters. This password protects application access; it is separate from the local wallet-vault password.</small></label>
@@ -1392,7 +1401,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         {authRecoveryMode && <label className="sponsor-field">Confirm new Sponsor password<input type="password" value={authRecoveryConfirmPassword} onChange={event => setAuthRecoveryConfirmPassword(event.target.value)} autoComplete="new-password" minLength={8}/></label>}
         <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || authPassword.length < 8 || (authRecoveryMode && (authRecoveryToken.length < 32 || authRecoveryConfirmPassword !== authPassword))} onClick={() => void (authRecoveryMode ? recoverSponsorPassword() : loginSponsorWallet())}>{busy ? 'Working…' : authRecoveryMode ? 'Recover Owner Admin password' : 'Login to Sponsor Workspace'}</button>{!authRecoveryMode && <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => {setAuthRecoveryMode(true);setAuthPassword('');setAuthRecoveryToken('');setAuthRecoveryConfirmPassword('')}}>Recover password</button>}{authRecoveryMode && <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => {setAuthRecoveryMode(false);setAuthPassword('');setAuthRecoveryToken('');setAuthRecoveryConfirmPassword('')}}>Back to Owner Admin login</button>}</div>
       </>}
-      <p className="sponsor-security-note"><ShieldCheck/> The Owner Admin password authorizes both application workspaces. Owner and Sponsor private keys remain independently encrypted in this browser and are never sent to the Resource API.</p>
+      <p className="sponsor-security-note"><ShieldCheck/> Owner Admin is the single application sign-in. Owner and Sponsor private keys remain separate and encrypted locally; neither is sent to the Resource API.</p>
     </section>}
     
     {activePage === 'sponsor' && managedSponsorAddress && !wallet && (!vaultSaved || replacing) && <section className="sponsor-card">
@@ -1401,17 +1410,16 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       <div className="sponsor-import-tabs">{[['private-key','Private key'],['keystore','V3 Keystore JSON'],['mnemonic','Mnemonic phrase']].map(([id,label]) => <button key={id} type="button" className={mode === id ? 'active' : ''} onClick={() => {setMode(id);setCredential('')}}>{label}</button>)}</div>
       {mode === 'keystore' ? <label className="sponsor-field">Keystore JSON<input type="file" accept=".json,application/json" onChange={async event => {const file=event.target.files?.[0];if(file){try{setCredential(await file.text())}catch{notify('error','Keystore read failed','Could not read the selected file.')}}}}/><small>Standard V3-compatible keystore JSON.</small></label> : <label className="sponsor-field">{mode === 'private-key' ? 'Sponsor private key' : 'Sponsor recovery mnemonic'}<textarea value={credential} onChange={event => setCredential(event.target.value)} rows={mode === 'mnemonic' ? 3 : 2} autoComplete="off" spellCheck="false"/></label>}
       {mode === 'keystore' && <label className="sponsor-field">Keystore password<input type="password" value={keystorePassword} onChange={event => setKeystorePassword(event.target.value)} autoComplete="off"/></label>}
-      <label className="sponsor-field">Owner Admin application password<input type="password" value={vaultPassword} onChange={event => setVaultPassword(event.target.value)} minLength={8} autoComplete="current-password"/><small>This same password encrypts the local Sponsor vault. The Sponsor private key remains separate and local.</small></label>
-      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || !credential.trim() || vaultPassword.length < 8} onClick={() => void importWallet()}>{busy ? 'Encrypting…' : 'Import & encrypt Sponsor Wallet'}</button>{replacing && <button type="button" className="sponsor-secondary" onClick={() => {setReplacing(false);setVaultSaved(hasSavedSponsorWallet());setCredential('');setVaultPassword('')}}>Cancel replacement</button>}</div>
+      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || !credential.trim()} onClick={() => void importWallet()}>{busy ? 'Encrypting…' : 'Import & encrypt Sponsor Wallet'}</button>{replacing && <button type="button" className="sponsor-secondary" onClick={() => {setReplacing(false);setVaultSaved(hasSavedSponsorWallet());setCredential('');setVaultPassword('')}}>Cancel replacement</button>}</div>
       <p className="sponsor-security-note"><ShieldCheck/> Never paste credentials into chat. The private key is not sent to the Resource API. Sponsor transaction writes remain disabled until production database durability, backup/restore, live resource preflight, independent security review and explicit Mainnet release approval are accepted.</p>
     </section>}
 
     {activePage === 'sponsor' && managedSponsorAddress && !wallet && vaultSaved && !replacing && <section className="sponsor-card sponsor-unlock-card">
       <div className="sponsor-card-heading"><LockKeyhole/><div><h3>Encrypted Sponsor Wallet saved</h3><p>Unlock the separate local vault for the authenticated Sponsor account.</p></div></div>
-      <p className="sponsor-muted">Authenticated Sponsor address: <b>{managedSponsorAddress}</b> · Saved vault: <b>{getSavedSponsorWalletAddress()}</b></p>
-      <label className="sponsor-field">Owner Admin application password<input type="password" value={unlockPassword} onChange={event => setUnlockPassword(event.target.value)} minLength={8} autoComplete="current-password"/></label>
+      <p className="sponsor-muted">Authenticated Sponsor address: <b>{managedSponsorAddress}</b> · Saved vault: <b>{getSavedSponsorWalletAddress()}</b> · {deviceUnlockReady ? 'This browser is enrolled for passwordless device unlock.' : 'One-time device enrollment is pending.'}</p>
+      {!deviceUnlockReady && <label className="sponsor-field">Previous local vault password<input type="password" value={unlockPassword} onChange={event => setUnlockPassword(event.target.value)} minLength={8} autoComplete="current-password"/><small>Only required to recover an older vault or after this browser loses its protected device key.</small></label>}
       {vaultMigrationRequired && <label className="sponsor-field">Previous Sponsor vault password (one-time migration)<input type="password" value={legacyVaultPassword} onChange={event => setLegacyVaultPassword(event.target.value)} autoComplete="current-password"/></label>}
-      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || !unlockPassword} onClick={() => void unlockWallet()}><UnlockKeyhole size={16}/>{busy ? 'Unlocking…' : 'Unlock Sponsor Wallet'}</button><button type="button" className="sponsor-secondary" onClick={beginReplace}>Replace / import another</button></div>
+      <div className="sponsor-actions"><button type="button" className="sponsor-primary" disabled={busy || (!deviceUnlockReady && !unlockPassword)} onClick={() => void unlockWallet()}><UnlockKeyhole size={16}/>{busy ? 'Unlocking…' : 'Unlock Sponsor Wallet'}</button><button type="button" className="sponsor-secondary" onClick={beginReplace}>Replace / import another</button></div>
       <button type="button" className="sponsor-danger-link" onClick={removeVault}>Remove encrypted local backup</button>
     </section>}
 

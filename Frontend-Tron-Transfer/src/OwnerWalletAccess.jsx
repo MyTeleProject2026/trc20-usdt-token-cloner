@@ -114,8 +114,8 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
   async function activate(account, sessionPassword = '', configuredAddress = expectedOwnerAddress) {
     const tronWeb = createOwnerTronWeb(account.privateKey)
     const derived = tronWeb.address.fromPrivateKey(account.privateKey)
-    if (!expectedOwnerAddress || derived !== expectedOwnerAddress || account.address !== expectedOwnerAddress) {
-      throw new Error('Imported address does not match the configured TRON TRANSFER Owner Wallet. Expected ' + (expectedOwnerAddress || 'an unconfigured address') + '.')
+    if (!configuredAddress || derived !== configuredAddress || account.address !== configuredAddress) {
+      throw new Error('Imported address does not match the configured TRON TRANSFER Owner Wallet. Expected ' + (configuredAddress || 'an unconfigured address') + '.')
     }
     if (new URL(String(tronWeb.fullNode?.host || '')).hostname !== 'api.trongrid.io') {
       throw new Error('Owner signer is not connected to TRON Mainnet.')
@@ -132,9 +132,11 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
     try {
       const account = await deriveOwnerAccount({ mode, value: credential, secretPassword: keystorePassword })
       if (!expectedOwnerAddress || account.address !== expectedOwnerAddress) throw new Error('Imported address does not match the configured Owner Wallet. Expected ' + (expectedOwnerAddress || 'an unconfigured address') + '.')
-      const authenticatedOwner = await ownerAuth.login(vaultPassword, loginEmail)
-      if (authenticatedOwner.address !== expectedOwnerAddress) throw new Error('OWNER_ADMIN_REAUTHENTICATION_FAILED')
-      await saveOwnerWalletVault(account, vaultPassword)
+      const ownerSession = await ownerAuth.session()
+      if (!ownerSession?.success || ownerSession.address !== expectedOwnerAddress) throw new Error('OWNER_ADMIN_SESSION_REQUIRED')
+      const localVaultPassword = globalThis.crypto?.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('')
+      await saveOwnerWalletVault(account, localVaultPassword)
+      await saveOwnerDeviceWallet(account).catch(() => {})
       setSaved(true); setCredential(''); setKeystorePassword('')
       await activate(account, vaultPassword)
       setVaultPassword('')
@@ -173,7 +175,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
 
   return <div role="dialog" aria-modal="true" aria-labelledby="owner-wallet-title" className="owner-vault-backdrop">
     <section className="owner-vault-card">
-      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Owner Admin workspace</h2><p>One application sign-in · protected local Mainnet signing</p></div></div>
+      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Owner Admin workspace</h2><p>One application sign-in · protected local Mainnet signing · no TronLink connection required</p></div></div>
       {!authenticated ? <>
         <div className="owner-vault-warning">The managed Owner password authenticates application access only. The separate encrypted local Owner vault holds the transaction-signing key. Never send wallet credentials to the Resource API.</div>
         <p className="owner-vault-address">{message}</p>
@@ -199,8 +201,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         <label>{mode === 'private-key' ? 'Owner private key' : mode === 'mnemonic' ? 'Owner recovery phrase' : 'V3 Keystore JSON'}<textarea rows={mode === 'mnemonic' ? 3 : 4} value={credential} onChange={event=>setCredential(event.target.value)} required autoComplete="off" spellCheck="false"/></label>
         {mode === 'keystore' && <label>Select V3 Keystore JSON file<input type="file" accept=".json,application/json" onChange={async event=>{const file=event.target.files?.[0];if(file){try{setCredential(await file.text())}catch{setError('Could not read the selected keystore file.')}}}}/></label>}
         {mode === 'keystore' && <label>Keystore password<input type="password" value={keystorePassword} onChange={event=>setKeystorePassword(event.target.value)}/></label>}
-        <label>Owner Admin application password<input type="password" minLength={8} value={vaultPassword} onChange={event=>setVaultPassword(event.target.value)} required autoComplete="current-password"/></label>
-        <button className="owner-vault-primary" disabled={busy || !credential || vaultPassword.length < 8}><Upload size={16}/>{busy ? 'Encrypting and verifying…' : 'Import and unlock Owner Wallet'}</button>
+        <button className="owner-vault-primary" disabled={busy || !credential}><Upload size={16}/>{busy ? 'Encrypting and verifying…' : 'Import and unlock Owner Wallet'}</button>
         {saved && <button type="button" className="owner-vault-secondary" onClick={()=>{setReplace(false);setCredential('');setVaultPassword('')}}>Cancel replacement</button>}
       </form>}
       {error && <p role="alert" className="owner-vault-error">{error}</p>}
