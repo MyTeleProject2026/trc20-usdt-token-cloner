@@ -201,6 +201,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [newSponsorPassword, setNewSponsorPassword] = useState('')
   const [confirmSponsorPassword, setConfirmSponsorPassword] = useState('')
   const [authCsrfToken, setAuthCsrfToken] = useState('')
+  const [ownerAdminCsrfToken, setOwnerAdminCsrfToken] = useState('')
   const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
   const ownerAuth = useMemo(() => createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: RESOURCE_API }), [])
   const [saved, setSaved] = useState(null)
