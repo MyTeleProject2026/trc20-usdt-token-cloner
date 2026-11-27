@@ -6,7 +6,7 @@ import { Wallet } from 'ethers'
 import {
   createSponsorTronWeb, deriveSponsorAccount, getSavedSponsorWalletAddress,
   hasSavedSponsorWallet, removeSavedSponsorWallet, saveSponsorWalletVault,
-  unlockSponsorWalletVault, signSponsorTransaction,
+  unlockSponsorWalletVault, signSponsorTransaction, migrateSponsorWalletVault,
 } from '../src/sponsor-wallet-vault.mjs'
 
 const vault = await readFile(new URL('../src/sponsor-wallet-vault.mjs', import.meta.url), 'utf8')
@@ -206,4 +206,56 @@ test('Sponsor vault rejects a returned signature if recovery identifies a differ
     signedTransactionFixture({ ownerAddress: ownerHex }),
     { tronWebFactory: () => fakeTronWeb },
   ), /does not match/)
+})
+
+
+test('Sponsor vault migration verifies the shared credential, rejects a wrong legacy password, and restores after an interrupted local write', async () => {
+  const priorStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const priorCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+  const values = new Map()
+  let interruptNextWrite = false
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto })
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: key => values.has(key) ? values.get(key) : null,
+      setItem: (key, value) => {
+        values.set(key, String(value))
+        if (interruptNextWrite) {
+          interruptNextWrite = false
+          throw new Error('simulated-sponsor-vault-write-interruption')
+        }
+      },
+      removeItem: key => values.delete(key),
+    },
+  })
+  try {
+    const account = await deriveSponsorAccount({ mode: 'private-key', value: '1'.repeat(64) })
+    const oldPassword = 'old-sponsor-vault-password'
+    const newPassword = 'Abc123!@'
+    await saveSponsorWalletVault(account, oldPassword)
+    const original = values.get('tron-transfer.sponsor-wallet.v1')
+
+    await assert.rejects(migrateSponsorWalletVault('wrong-old-password', newPassword), /Unable to unlock the Sponsor Wallet/)
+    assert.equal(values.get('tron-transfer.sponsor-wallet.v1'), original)
+    assert.equal((await unlockSponsorWalletVault(oldPassword)).address, account.address)
+
+    interruptNextWrite = true
+    await assert.rejects(migrateSponsorWalletVault(oldPassword, newPassword), /simulated-sponsor-vault-write-interruption/)
+    assert.equal(values.get('tron-transfer.sponsor-wallet.v1'), original)
+    const restored = await unlockSponsorWalletVault(oldPassword)
+    assert.equal(restored.address, account.address)
+    assert.equal(restored.privateKey, account.privateKey)
+
+    const migrated = await migrateSponsorWalletVault(oldPassword, newPassword)
+    assert.equal(migrated.address, account.address)
+    assert.equal(migrated.privateKey, account.privateKey)
+    await assert.rejects(unlockSponsorWalletVault(oldPassword), /Unable to unlock the Sponsor Wallet/)
+    assert.equal((await unlockSponsorWalletVault(newPassword)).address, account.address)
+  } finally {
+    if (priorStorage) Object.defineProperty(globalThis, 'localStorage', priorStorage)
+    else delete globalThis.localStorage
+    if (priorCrypto) Object.defineProperty(globalThis, 'crypto', priorCrypto)
+    else delete globalThis.crypto
+  }
 })
