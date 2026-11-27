@@ -84,7 +84,7 @@ async function verifyRestoredBranchIdentity(parsedUrl) {
   return { endpointId, branchId: branch.id }
 }
 
-test('Owner Admin fingerprint matches the post-signer production baseline on an identity-verified Neon restore', {
+test('Owner Admin fingerprint matches the pre-session-group restore snapshot baseline', {
   skip: configured ? false : 'Set the five OWNER_ADMIN_FINGERPRINT_TEST_* / NEON_API_KEY variables to run the isolated restore integration test.',
   timeout: 60000,
 }, async () => {
@@ -139,7 +139,7 @@ test('Owner Admin fingerprint matches the post-signer production baseline on an 
 
     const actualFingerprint = await getOwnerAdminSchemaFingerprint(client)
     assert.equal(actualFingerprint, BASELINE_FINGERPRINT, 'The restored branch does not match the independently verified production fingerprint.')
-    assert.equal(actualFingerprint, OWNER_ADMIN_SCHEMA_FINGERPRINT, 'The committed migration runner baseline fingerprint has changed.')
+    assert.notEqual(OWNER_ADMIN_SCHEMA_FINGERPRINT, BASELINE_FINGERPRINT, 'The live migration runner fingerprint must include the later paired-session group column.')
     assert.deepEqual(identity, { endpointId: parsedUrl.hostname.split('.')[0], branchId })
 
   } finally {
