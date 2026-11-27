@@ -9,6 +9,7 @@ import OwnerWalletAccess from './OwnerWalletAccess.jsx'
 import OwnerAccountSecurity from './OwnerAccountSecurity.jsx'
 import PWAInstallButton from './PWAInstallButton.jsx'
 import './owner-admin-redesign.css'
+import './owner-admin-premium.css'
 import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
 
 const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
