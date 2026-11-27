@@ -16,7 +16,7 @@ function fakeDatabase() {
     async query(sql, params = []) {
       if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(sql.trim())) return { rowCount: 0, rows: [] }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_auth_audit')) { state.audit.push(params); return { rowCount: 1, rows: [] } }
-      if (sql.includes('SELECT s.session_id,s.session_group_id,a.wallet_address')) return { rows: state.ownerSession && state.ownerSession.token_hash===params[0] && !state.ownerSession.revoked_at && Date.parse(state.ownerSession.expires_at)>Date.now() ? [{session_id:state.ownerSession.session_id,session_group_id:state.ownerSession.session_group_id,wallet_address:state.ownerSession.wallet_address}] : [] }
+      if (sql.includes('SELECT s.session_id,s.session_group_id,a.wallet_address')) return { rows: state.ownerSession && state.ownerSession.token_hash===params[0] && !state.ownerSession.revoked_at && Date.parse(state.ownerSession.expires_at)>Date.now() ? [{session_id:state.ownerSession.session_id,session_group_id:state.ownerSession.session_group_id,wallet_address:state.ownerSession.wallet_address,password_hash:state.ownerSession.password_hash,password_salt:state.ownerSession.password_salt,password_algorithm:state.ownerSession.password_algorithm,password_params:state.ownerSession.password_params}] : [] }
       if (sql.includes('SELECT wallet_address FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [{ wallet_address: state.account.wallet_address }] : [] }
       if (sql.includes('SELECT 1 FROM public.tron_transfer_wallet_accounts')) return { rowCount: state.account ? 1 : 0, rows: state.account ? [{}] : [] }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_accounts')) {
@@ -70,14 +70,15 @@ test('Sponsor enrollment requires the authenticated Owner Admin session and pair
   const db = fakeDatabase()
   const api = createSponsorWalletAuthApi({ env: { TRON_SPONSOR_ENROLLMENT_TOKEN: bootstrap }, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) }, identityReport })
   const denied = response()
-  await api.handle(request('POST', {}, { password: 'a sufficiently long sponsor password 123' }), denied, new URL('https://api.test/api/wallet-auth/sponsor/enroll'), 'https://tron-transfer.onrender.com')
+  await api.handle(request('POST', {}, { password: 'shared Owner Admin password 123' }), denied, new URL('https://api.test/api/wallet-auth/sponsor/enroll'), 'https://tron-transfer.onrender.com')
   assert.equal(denied.status, 403)
   assert.equal(db.state.account, null)
 
   const ownerSecrets=createWalletSessionSecrets()
   const groupId='00000000-0000-4000-8000-000000000123'
   const expiresAt=new Date(Date.now()+8*60*60*1000).toISOString()
-  db.state.ownerSession={session_id:1,token_hash:ownerSecrets.tokenHash,session_group_id:groupId,wallet_address:identityReport.owner.address,revoked_at:null,expires_at:expiresAt}
+  const ownerVerifier=await hashWalletPassword('shared Owner Admin password 123')
+  db.state.ownerSession={session_id:1,token_hash:ownerSecrets.tokenHash,session_group_id:groupId,wallet_address:identityReport.owner.address,password_hash:ownerVerifier.passwordHash,password_salt:ownerVerifier.passwordSalt,password_algorithm:ownerVerifier.passwordAlgorithm,password_params:ownerVerifier.passwordParams,revoked_at:null,expires_at:expiresAt}
   db.state.sessions.push({session_id:1,wallet_role:'owner',token_hash:ownerSecrets.tokenHash,csrf_hash:ownerSecrets.csrfHash,session_group_id:groupId,revoked_at:null,expires_at:expiresAt})
 
   const noOwnerSession=response()
@@ -92,6 +93,9 @@ test('Sponsor enrollment requires the authenticated Owner Admin session and pair
   assert.match(enrolled.headers['set-cookie'][0], /Path=\\/; HttpOnly; Secure; SameSite=None/)
   const sponsorSession=db.state.sessions.find(x=>x.wallet_role==='sponsor')
   assert.equal(sponsorSession.session_group_id,groupId)
+  assert.equal(db.state.account.password_hash,ownerVerifier.passwordHash,'Sponsor enrollment must copy the authenticated Owner Admin verifier')
+  assert.equal(db.state.account.password_salt,ownerVerifier.passwordSalt)
+  assert.deepEqual(db.state.account.password_params,ownerVerifier.passwordParams)
 
   const repeated = response()
   await api.handle(request('POST', {cookie:'tron_owner_session='+ownerSecrets.sessionToken,'x-sponsor-enrollment-token':bootstrap}, { password: 'another sufficiently long password 123' }), repeated, new URL('https://api.test/api/wallet-auth/sponsor/enroll'), 'https://tron-transfer.onrender.com')
@@ -139,7 +143,8 @@ async function createOwnerAdminPairedSponsorSession(db, api) {
   const groupId='00000000-0000-4000-8000-000000000456'
   const now=new Date().toISOString()
   const expiresAt=new Date(Date.now()+8*60*60*1000).toISOString()
-  db.state.ownerSession={session_id:1,token_hash:ownerSecrets.tokenHash,session_group_id:groupId,wallet_address:identityReport.owner.address,revoked_at:null,expires_at:expiresAt}
+  const ownerVerifier=await hashWalletPassword('shared Owner Admin password 123')
+  db.state.ownerSession={session_id:1,token_hash:ownerSecrets.tokenHash,session_group_id:groupId,wallet_address:identityReport.owner.address,password_hash:ownerVerifier.passwordHash,password_salt:ownerVerifier.passwordSalt,password_algorithm:ownerVerifier.passwordAlgorithm,password_params:ownerVerifier.passwordParams,revoked_at:null,expires_at:expiresAt}
   db.state.sessions.push({session_id:1,wallet_role:'owner',token_hash:ownerSecrets.tokenHash,csrf_hash:ownerSecrets.csrfHash,session_group_id:groupId,revoked_at:null,created_at:now,last_seen_at:now,expires_at:expiresAt})
   const enrolled=response()
   await api.handle(request('POST',{cookie:'tron_owner_session='+ownerSecrets.sessionToken,'x-sponsor-enrollment-token':bootstrap},{password:'shared Owner Admin password 123'}),enrolled,new URL('https://api.test/api/wallet-auth/sponsor/enroll'),'https://tron-transfer.onrender.com')
