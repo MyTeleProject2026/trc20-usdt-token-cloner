@@ -204,3 +204,30 @@ Then:
 - Do not say KMS signing is complete until both addresses are verified, every transaction path is integrated, signature conversion tests pass, security review passes and production acceptance is recorded.
 - Do not remove the local vault or enable Mainnet write gates before rollback, key recovery and KMS acceptance are proven.
 - Keep the TRӾ contract and all existing on-chain state unchanged.
+
+
+## 10. Further direct implementation added after this handoff was first written
+
+The existing production branch now also contains a KMS signer foundation:
+
+- `Frontend-Tron-Transfer/resource-api/kms-tron-signer.mjs`
+- `Frontend-Tron-Transfer/resource-api/tests/kms-tron-signer.test.mjs`
+- `@aws-sdk/client-kms` declared in `Frontend-Tron-Transfer/resource-api/package.json`
+- Resource API syntax-check command includes the new signer module.
+- Resource API README now describes the adapter and explicitly states it is not active in transaction routes.
+
+The adapter is disabled unless `TRON_KMS_SIGNING_ENABLED=true`, requires separate Owner/Sponsor key ARNs, checks KMS key type/usage/algorithm, derives the public-key address and compares it to the configured existing TRON identity, validates txID against SHA-256(raw_data_hex), requests KMS ECDSA signing over the 32-byte digest, parses DER, normalizes low-S, and tests recovery IDs until the signature recovers to the configured TRON address. It returns a TRON 65-byte recoverable signature only after that check.
+
+**This is not yet the complete KMS migration.** It is not called by Owner operation confirmation, TRӾ deployment, or Sponsor transaction submission. No KMS keys/credentials exist in production from this work. Existing browser-local signing remains active. Do not enable `TRON_KMS_SIGNING_ENABLED`.
+
+The adapter currently depends on the existing frontend package's `ethers` dependency for public-key/signature recovery and the Resource API's new AWS SDK KMS dependency. Confirm CI resolves both dependencies in the Render build environment. Cryptographic KMS known-answer tests against a real test key, integration into every transaction path, and independent security review are still required.
+
+Updated commits after the earlier runtime repair:
+- KMS adapter: `ce3edf05a80b36a80e2d35511eb6618805f8f866`
+- Resource API dependency/check: `735d02d4563562bfbd3d2882a44d5f08743c8486`
+- KMS unit tests: `51c75d49891aa8892c6e48cbfc3d694e2cd71f53`
+- distinct-key enforcement: `4f35a088c89e913ee9fffab3a0a48f82b144e6ce`
+- distinct-key regression test: `558649ba3dbb1ea408a88ae54ad0682fc1426657`
+- Resource API README status: `be9641dd66562c124fe8e42b54e043d0c7f595ff`
+
+Before continuing, inspect the current branch head because additional documentation commits may have advanced it.
