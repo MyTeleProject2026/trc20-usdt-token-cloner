@@ -234,6 +234,16 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const refreshInFlight = useRef(false)
   const autoRestoreBlocked = useRef(false)
 
+  const recordSecurityEvent = useCallback((address, event, detail) => {
+    if (!address) return
+    setSecurityEvents((previous) => {
+      const next = [{ event, detail, address, createdAt: new Date().toISOString() }, ...previous].slice(0, 30)
+      try { localStorage.setItem(SECURITY_KEY + ':' + address, JSON.stringify(next)) } catch { /* audit convenience is best-effort */ }
+      return next
+    })
+  }, [])
+
+
   const tronWeb = useMemo(() => wallet?.privateKey ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
   const notify = useCallback((kind, title, message) => {
@@ -605,14 +615,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   useEffect(() => { try { localStorage.setItem(TARGETS_KEY, JSON.stringify({ energy: energyTarget, bandwidth: bandwidthTarget })) } catch { /* targets are a local preference */ } }, [energyTarget, bandwidthTarget])
 
-  const recordSecurityEvent = useCallback((address, event, detail) => {
-    if (!address) return
-    setSecurityEvents((previous) => {
-      const next = [{ event, detail, address, createdAt: new Date().toISOString() }, ...previous].slice(0, 30)
-      try { localStorage.setItem(SECURITY_KEY + ':' + address, JSON.stringify(next)) } catch { /* audit convenience is best-effort */ }
-      return next
-    })
-  }, [])
+
 
   useEffect(() => {
     if (!wallet?.address) return
