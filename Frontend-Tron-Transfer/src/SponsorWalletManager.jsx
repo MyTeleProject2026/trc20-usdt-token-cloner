@@ -263,9 +263,9 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
 
   useEffect(() => {
-    if (workspaceActive && sharedOwnerPassword) setOwnerAdminPassword(sharedOwnerPassword)
-    else if (!workspaceActive) setOwnerAdminPassword('')
-  }, [sharedOwnerPassword, workspaceActive])
+    if (sharedOwnerPassword) setOwnerAdminPassword(sharedOwnerPassword)
+    else setOwnerAdminPassword('')
+  }, [sharedOwnerPassword])
 
   // The primary Owner Admin login already established the paired Sponsor role
   // session. Reuse that authenticated session and the in-memory sign-in secret
@@ -300,15 +300,13 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [workspaceActive, sharedOwnerPassword, vaultSaved, wallet, managedSponsorAddress, saved, ownerAuth, sponsorAuth, notify])
 
 
-  // Keep the shared Owner Admin credential only while the authenticated Owner
-  // application session is active. A locked Sponsor vault does not require a
-  // second password; leaving the workspace clears the transient UI copy.
+  // Clear the Owner Admin re-authentication input and UI assertion whenever Sponsor is locked or its workspace is left.
   useEffect(() => {
-    if (!workspaceActive) {
+    if (!wallet || !workspaceActive) {
       setOwnerAdminPassword('')
       setOwnerAdminReady(false)
     }
-  }, [workspaceActive])
+  }, [wallet, workspaceActive])
 
   useEffect(() => {
     if (!workspaceActive) return undefined

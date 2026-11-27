@@ -41,10 +41,13 @@ test('Sponsor workspace render errors are contained by an application error boun
   assert.doesNotMatch(app, /No transaction was submitted/)
 })
 
-test('Owner Admin re-authentication state is cleared on Sponsor wallet lock and workspace exit', () => {
-  assert.match(source, /if \(!wallet \|\| !workspaceActive\) \{\s*setOwnerAdminPassword\(''\)\s*setOwnerAdminReady\(false\)/)
-  assert.match(source, /\[wallet, workspaceActive\]/)
-  assert.match(source, /setOwnerAdminReady\(false\)/)
+test('Sponsor workspace reuses the paired Owner Admin session without a second password prompt', () => {
+  assert.match(source, /ownerAdminPassword: sharedOwnerPassword/)
+  assert.match(source, /sponsorAuth\.session\(\)/)
+  assert.match(source, /unlockSponsorWalletVault\(sharedOwnerPassword\)/)
+  assert.match(source, /Sponsor workspace automatically authorized/)
+  assert.match(source, /if \(!workspaceActive\) \{\s*setOwnerAdminPassword\(''\)\s*setOwnerAdminReady\(false\)/)
+  assert.match(source, /\[sharedOwnerPassword, workspaceActive\]/)
 })
 
 test('Sponsor TronWeb instance is initialized before any effect dependency reads it', () => {
