@@ -162,7 +162,7 @@ test('Sponsor Activity reads authenticated durable ledger records separately fro
   const api = await read('../resource-api/sponsor-api.mjs')
   assert.ok(sponsor.includes("'/api/sponsor/operations?limit=50'"))
   assert.ok(sponsor.includes("createManagedWalletAuthClient({ role: 'sponsor'"))
-  assert.ok(sponsor.includes('Sponsor Workspace Login'))
+  assert.ok(sponsor.includes('Owner Admin sign-in establishes the paired Sponsor role session automatically'))
   assert.ok(sponsor.includes('credentials: \'include\''))
   assert.ok(sponsor.includes("body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase }"))
   assert.ok(sponsor.includes('wallet?.privateKey ? createSponsorTronWeb(wallet.privateKey) : null'), 'the imported local Sponsor key must initialize only the local TronWeb signer')

@@ -95,7 +95,7 @@ test('Sponsor lock clears local key-import, keystore and password inputs', () =>
   for (const setter of ['setCredential(\'\')','setKeystorePassword(\'\')','setVaultPassword(\'\')','setUnlockPassword(\'\')','setAuthPassword(\'\')','setCurrentSponsorPassword(\'\')','setNewSponsorPassword(\'\')','setConfirmSponsorPassword(\'\')']) {
     assert.ok(lockSource.includes(setter), 'lock must clear ' + setter)
   }
-  assert.ok(source.includes('// Clear pending import/unlock credentials even when no vault has been unlocked yet.'))
+  assert.ok(source.includes('// Workspace navigation is not logout: retain paired sessions and unlocked signers in memory.'))
   assert.ok(source.includes('setCredential(\'\')'))
 })
 
@@ -127,7 +127,7 @@ test('Owner Admin authentication is retained for guarded Sponsor ledger bootstra
 
 test('Owner Admin panel explains its guarded bootstrap and write-control boundary', () => {
   assert.match(source, /Owner Admin authorization/)
-  assert.match(source, /only for ledger bootstrap and explicit Sponsor write-control actions/)
+  assert.match(source, /primary Owner Admin application session authorizes guarded Sponsor administration/)
   assert.match(source, /Sponsor transactions require only the independent Sponsor session/)
   assert.match(source, /Owner authentication boundary: \{sponsorApiStatus\?\.ownerAdminSessionConfiguredForLedgerRelease \? 'guarded bootstrap and pause\/release actions only'/)
 })

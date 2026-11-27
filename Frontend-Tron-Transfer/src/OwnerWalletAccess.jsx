@@ -190,9 +190,9 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
 
   return <div role="dialog" aria-modal="true" aria-labelledby="owner-wallet-title" className="owner-vault-backdrop">
     <section className="owner-vault-card">
-      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Owner Admin workspace</h2><p>One application sign-in · protected local Mainnet signing · no TronLink connection required</p></div></div>
+      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Owner Admin workspace</h2><p>One application sign-in · Encrypted local Mainnet signing · no TronLink connection required</p></div></div>
       {!authenticated ? <>
-        <div className="owner-vault-warning">The managed Owner password authenticates application access only. The separate encrypted local Owner vault holds the transaction-signing key. Never send wallet credentials to the Resource API.</div>
+        <div className="owner-vault-warning">The managed Owner password authenticates application access only. The separate encrypted local Owner Wallet holds the transaction-signing key. Never send wallet credentials to the Resource API.</div>
         <p className="owner-vault-address">{message}</p>
         <form onSubmit={authenticate}>
           {enrolled && !recoveryMode && <label>Owner Admin email<input type="email" autoComplete="username" value={loginEmail} onChange={event => setLoginEmail(event.target.value)} required/></label>}
