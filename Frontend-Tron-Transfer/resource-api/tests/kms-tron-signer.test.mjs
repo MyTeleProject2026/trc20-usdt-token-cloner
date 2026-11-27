@@ -54,3 +54,17 @@ test('TRON signature recovery rejects a malformed transaction digest', () => {
     expectedAddress: OWNER, tronWeb: { address: { fromHex: value => value } },
   }), /KMS_TRANSACTION_DIGEST_INVALID/)
 })
+
+test('KMS signer refuses one KMS key shared by Owner and Sponsor', () => {
+  const arn = 'arn:aws:kms:ap-southeast-1:123456789012:key/00000000-0000-0000-0000-000000000001'
+  assert.throws(() => assertKmsSignerConfiguration({
+    role: 'owner',
+    enabled: true,
+    env: {
+      TRON_OWNER_ADDRESS: OWNER,
+      SPONSOR_MAINNET_ADDRESS: SPONSOR,
+      OWNER_KMS_KEY_ARN: arn,
+      SPONSOR_KMS_KEY_ARN: arn,
+    },
+  }), error => error.code === 'KMS_ROLE_KEYS_MUST_BE_DISTINCT')
+})
