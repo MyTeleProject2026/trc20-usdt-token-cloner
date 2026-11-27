@@ -9,7 +9,8 @@ import {
 } from '../managed-wallet-auth-crypto.mjs'
 
 test('wallet password policy rejects weak, oversized, and control-character passwords', () => {
-  assert.equal(validateWalletPassword('short'), false)
+  assert.equal(validateWalletPassword('1234567'), false)
+  assert.equal(validateWalletPassword('12345678'), true)
   assert.equal(validateWalletPassword('long-enough-password-123'), true)
   assert.equal(validateWalletPassword('valid-password\n-invalid'), false)
   assert.equal(validateWalletPassword('x'.repeat(1025)), false)

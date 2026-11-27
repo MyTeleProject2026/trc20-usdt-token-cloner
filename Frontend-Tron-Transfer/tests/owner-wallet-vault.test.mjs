@@ -48,6 +48,10 @@ test('encrypts Owner Wallet locally, preserves address integrity and rejects wro
     assert.equal(restored.address, account.address)
     assert.equal(restored.privateKey, PRIVATE_KEY)
     await assert.rejects(unlockOwnerWalletVault('incorrect-password'), /Unable to unlock the Owner Wallet/)
+    await saveOwnerWalletVault(account, 'Abc123!@')
+    const eightCharacterVault = await unlockOwnerWalletVault('Abc123!@')
+    assert.equal(eightCharacterVault.address, account.address)
+    assert.equal(eightCharacterVault.privateKey, PRIVATE_KEY)
     removeSavedOwnerWallet()
     assert.equal(getSavedOwnerWalletAddress(), '')
   } finally {
@@ -58,7 +62,7 @@ test('encrypts Owner Wallet locally, preserves address integrity and rejects wro
 
 test('refuses weak vault passwords and mismatched imported addresses', async () => {
   const account = await deriveOwnerAccount({ mode: 'private-key', value: PRIVATE_KEY })
-  await assert.rejects(saveOwnerWalletVault(account, 'short'), /at least 12 characters/)
+  await assert.rejects(saveOwnerWalletVault(account, 'short'), /at least 8 characters/)
   await assert.rejects(saveOwnerWalletVault({ ...account, address: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp' }, 'owner-vault-password-strong'), /does not match/)
 })
 

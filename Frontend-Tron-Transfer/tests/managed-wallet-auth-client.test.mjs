@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createManagedWalletAuthClient } from '../src/managed-wallet-auth-client.mjs'
+import { createManagedWalletAuthClient, OWNER_ADMIN_LOGIN_EMAIL } from '../src/managed-wallet-auth-client.mjs'
 
 function response(status, payload) {
   return { ok: status >= 200 && status < 300, status, async json() { return payload } }
@@ -34,6 +34,17 @@ test('enrollment token is sent only in the role-specific header, never the body 
   assert.equal(call.options.headers['x-owner-enrollment-token'], 'one-time-enrollment-secret')
   assert.equal(call.options.body, JSON.stringify({ password: 'a sufficiently long password' }))
   assert.equal(call.url.includes('one-time-enrollment-secret'), false)
+})
+
+test('Owner login normalizes and submits the configured email identifier with the password', async () => {
+  let call
+  const api = createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: 'https://api.test', fetchImpl: async (url, options) => {
+    call = { url, options }
+    return response(200, { success: true, role: 'owner' })
+  } })
+  await api.login('12345678', '  ' + OWNER_ADMIN_LOGIN_EMAIL.toUpperCase() + '  ')
+  assert.equal(call.url, 'https://api.test/api/wallet-auth/owner/login')
+  assert.deepEqual(JSON.parse(call.options.body), { password: '12345678', email: OWNER_ADMIN_LOGIN_EMAIL })
 })
 
 test('logout sends CSRF proof and clears the in-memory token', async () => {

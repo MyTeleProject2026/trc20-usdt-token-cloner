@@ -10,7 +10,7 @@ const MAXMEM = 64 * 1024 * 1024
 export function validateWalletPassword(password) {
   if (typeof password !== 'string') return false
   const bytes = Buffer.byteLength(password, 'utf8')
-  return bytes >= 12 && bytes <= 1024 && !/[\u0000-\u001f\u007f]/u.test(password)
+  return bytes >= 8 && bytes <= 1024 && !/[\u0000-\u001f\u007f]/u.test(password)
 }
 
 export async function hashWalletPassword(password) {

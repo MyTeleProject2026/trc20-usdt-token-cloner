@@ -7,7 +7,7 @@ const root = new URL('../src/', import.meta.url)
 test('Owner access separates managed password authentication from encrypted local wallet signing', async () => {
   const ui = await readFile(new URL('OwnerWalletAccess.jsx', root), 'utf8')
   assert.ok(ui.includes("createManagedWalletAuthClient({ role: 'owner' })"))
-  assert.ok(ui.includes('ownerAuth.login(authPassword)'))
+  assert.ok(ui.includes('ownerAuth.login(authPassword, OWNER_ADMIN_LOGIN_EMAIL)'))
   assert.ok(ui.includes('ownerAuth.enroll(authPassword, enrollmentToken.trim(), initialAuthPassword)'))
   assert.ok(ui.includes('Existing Owner password'))
   assert.ok(ui.includes('Confirm new Owner password'))

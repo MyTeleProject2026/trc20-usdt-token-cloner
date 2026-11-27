@@ -167,7 +167,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           }
           const report = identity()
           if (!report.owner.ready || !report.sponsor.ready || !report.identitiesDistinct) { send(res, 503, { success: false, error: 'OWNER_SPONSOR_IDENTITY_SEPARATION_REQUIRED' }, origin); return true }
-          if (!validateWalletPassword(input.password)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 12 }, origin); return true }
+          if (!validateWalletPassword(input.password)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 8 }, origin); return true }
           const verifier = await hashWalletPassword(input.password)
           const client = await db.connect()
           try {
@@ -190,6 +190,12 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
         if (url.pathname === '/api/wallet-auth/owner/login' && req.method === 'POST') {
           if (!allowLoginAttempt(req)) { send(res, 429, { success: false, error: 'LOGIN_RATE_LIMITED', retryAfterSeconds: 900 }, origin); return true }
           const input = await body(req)
+          const configuredEmail = 'trontokenstudio@admin.com'
+          const presentedEmail = typeof input.email === 'string' ? input.email.trim().toLowerCase() : ''
+          if (!presentedEmail || presentedEmail !== configuredEmail) {
+            await audit(db, 'login_failed', 'denied', { reason: 'email-mismatch' })
+            send(res, 401, { success: false, error: 'INVALID_CREDENTIALS_OR_LOCKED' }, origin); return true
+          }
           const result = await db.query("SELECT * FROM public.tron_transfer_wallet_accounts WHERE wallet_role='owner' AND enabled=true")
           const account = result.rows[0]
           if (!account || (account.locked_until && Date.parse(account.locked_until) > Date.now())) {
@@ -269,7 +275,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           const session = await authenticate(req, db, true)
           if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
           const input = await body(req)
-          if (!validateWalletPassword(input.newPassword)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 12 }, origin); return true }
+          if (!validateWalletPassword(input.newPassword)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 8 }, origin); return true }
           const accountResult = await db.query("SELECT * FROM public.tron_transfer_wallet_accounts WHERE wallet_role='owner' AND enabled=true")
           const account = accountResult.rows?.[0]
           const currentValid = account && await verifyWalletPassword(input.currentPassword, {
@@ -302,7 +308,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           const recoveryToken = String(input.recoveryToken || '')
           if (recoveryToken.length < 32 || recoveryToken.length > 256
             || !validateWalletPassword(input.newPassword)) {
-            send(res, 400, { success: false, error: 'RECOVERY_INPUT_INVALID', minimumPasswordLength: 12 }, origin); return true
+            send(res, 400, { success: false, error: 'RECOVERY_INPUT_INVALID', minimumPasswordLength: 8 }, origin); return true
           }
           const verifier = await hashWalletPassword(input.newPassword)
           const tokenHash = digest(recoveryToken)

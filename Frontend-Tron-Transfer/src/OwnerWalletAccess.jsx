@@ -5,7 +5,7 @@ import {
   createOwnerTronWeb, deriveOwnerAccount, getSavedOwnerWalletAddress, hasSavedOwnerWallet,
   removeSavedOwnerWallet, saveOwnerWalletVault, unlockOwnerWalletVault,
 } from './owner-wallet-vault.mjs'
-import { createManagedWalletAuthClient } from './managed-wallet-auth-client.mjs'
+import { createManagedWalletAuthClient, OWNER_ADMIN_LOGIN_EMAIL } from './managed-wallet-auth-client.mjs'
 
 const modes = [['private-key', 'Private key'], ['keystore', 'V3 Keystore JSON'], ['mnemonic', 'Mnemonic phrase']]
 const ownerAuth = createManagedWalletAuthClient({ role: 'owner' })
@@ -15,6 +15,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
   const [expectedOwnerAddress, setExpectedOwnerAddress] = useState('')
   const [authenticated, setAuthenticated] = useState(false)
   const [authPassword, setAuthPassword] = useState('')
+  const [loginEmail, setLoginEmail] = useState(OWNER_ADMIN_LOGIN_EMAIL)
   const [initialAuthPassword, setInitialAuthPassword] = useState('')
   const [confirmAuthPassword, setConfirmAuthPassword] = useState('')
   const [enrollmentToken, setEnrollmentToken] = useState('')
@@ -72,7 +73,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       const result = recoveryMode
         ? await ownerAuth.recoverPassword(recoveryToken.trim(), authPassword)
         : enrolled
-          ? await ownerAuth.login(authPassword)
+          ? await ownerAuth.login(authPassword, loginEmail)
           : await ownerAuth.enroll(authPassword, enrollmentToken.trim(), initialAuthPassword)
       if (recoveryMode) {
         setRecoveryMode(false); setRecoveryToken(''); setConfirmRecoveryPassword('')
@@ -141,17 +142,18 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         <div className="owner-vault-warning">The managed Owner password authenticates application access only. The separate encrypted local Owner vault holds the transaction-signing key. Never send wallet credentials to the Resource API.</div>
         <p className="owner-vault-address">{message}</p>
         <form onSubmit={authenticate}>
+          {enrolled && !recoveryMode && <label>Owner Admin email<input type="email" autoComplete="username" value={loginEmail} onChange={event => setLoginEmail(event.target.value)} required/></label>}
           {!enrolled && !recoveryMode && <label>Existing Owner password<input type="password" autoComplete="current-password" value={initialAuthPassword} onChange={event => setInitialAuthPassword(event.target.value)} required/></label>}
           {recoveryMode && <label>One-time Owner recovery token<input type="password" autoComplete="off" value={recoveryToken} onChange={event => setRecoveryToken(event.target.value)} required/></label>}
-          <label>{recoveryMode || !enrolled ? 'New Owner account password' : 'Owner account password'}<input type="password" minLength={12} autoComplete={recoveryMode || !enrolled ? 'new-password' : 'current-password'} value={authPassword} onChange={event => setAuthPassword(event.target.value)} required/></label>
-          {!enrolled && !recoveryMode && <label>Confirm new Owner password<input type="password" minLength={12} autoComplete="new-password" value={confirmAuthPassword} onChange={event => setConfirmAuthPassword(event.target.value)} required/></label>}
-          {recoveryMode && <label>Confirm new Owner password<input type="password" minLength={12} autoComplete="new-password" value={confirmRecoveryPassword} onChange={event => setConfirmRecoveryPassword(event.target.value)} required/></label>}
-          <button className="owner-vault-primary" disabled={busy || authPassword.length < 12 || enrolled === null || (recoveryMode ? recoveryToken.length < 32 || confirmRecoveryPassword !== authPassword : !enrolled && (initialAuthPassword.length < 12 || confirmAuthPassword !== authPassword))}><LockKeyhole size={16}/>{busy ? 'Working…' : recoveryMode ? 'Recover Owner password' : enrolled ? 'Sign in to Owner workspace' : 'Create Owner account'}</button>
+          <label>{recoveryMode || !enrolled ? 'New Owner account password' : 'Owner account password'}<input type="password" minLength={8} autoComplete={recoveryMode || !enrolled ? 'new-password' : 'current-password'} value={authPassword} onChange={event => setAuthPassword(event.target.value)} required/></label>
+          {!enrolled && !recoveryMode && <label>Confirm new Owner password<input type="password" minLength={8} autoComplete="new-password" value={confirmAuthPassword} onChange={event => setConfirmAuthPassword(event.target.value)} required/></label>}
+          {recoveryMode && <label>Confirm new Owner password<input type="password" minLength={8} autoComplete="new-password" value={confirmRecoveryPassword} onChange={event => setConfirmRecoveryPassword(event.target.value)} required/></label>}
+          <button className="owner-vault-primary" disabled={busy || authPassword.length < 8 || enrolled === null || (recoveryMode ? recoveryToken.length < 32 || confirmRecoveryPassword !== authPassword : !enrolled && (initialAuthPassword.length < 12 || confirmAuthPassword !== authPassword))}><LockKeyhole size={16}/>{busy ? 'Working…' : recoveryMode ? 'Recover Owner password' : enrolled ? 'Sign in to Owner workspace' : 'Create Owner account'}</button>
           <div className="owner-vault-actions">{enrolled && <button type="button" onClick={() => {setRecoveryMode(value => !value);setAuthPassword('');setRecoveryToken('');setConfirmRecoveryPassword('')}}>{recoveryMode ? 'Back to Owner login' : 'Recover Owner password'}</button>}<button type="button" onClick={onClose}>Close</button></div>
         </form>
       </> : saved && !replace ? <form onSubmit={unlockWallet}>
         <p className="owner-vault-address">Saved Owner Wallet: <b>{getSavedOwnerWalletAddress()}</b></p>
-        <label>Owner vault password<input type="password" autoComplete="current-password" value={unlockPassword} onChange={event=>setUnlockPassword(event.target.value)} required/></label>
+        <label>Owner vault password<input type="password" minLength={8} autoComplete="current-password" value={unlockPassword} onChange={event=>setUnlockPassword(event.target.value)} required/></label>
         <button className="owner-vault-primary" disabled={busy || !unlockPassword}><LockKeyhole size={16}/>{busy ? 'Unlocking…' : 'Unlock Owner Wallet'}</button>
         <div className="owner-vault-actions"><button type="button" onClick={()=>setReplace(true)}>Replace wallet</button><button type="button" onClick={removeBackup}>Remove encrypted backup</button><button type="button" onClick={onClose}>Close</button></div>
       </form> : <form onSubmit={importWallet}>
@@ -160,8 +162,8 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         <label>{mode === 'private-key' ? 'Owner private key' : mode === 'mnemonic' ? 'Owner recovery phrase' : 'V3 Keystore JSON'}<textarea rows={mode === 'mnemonic' ? 3 : 4} value={credential} onChange={event=>setCredential(event.target.value)} required autoComplete="off" spellCheck="false"/></label>
         {mode === 'keystore' && <label>Select V3 Keystore JSON file<input type="file" accept=".json,application/json" onChange={async event=>{const file=event.target.files?.[0];if(file){try{setCredential(await file.text())}catch{setError('Could not read the selected keystore file.')}}}}/></label>}
         {mode === 'keystore' && <label>Keystore password<input type="password" value={keystorePassword} onChange={event=>setKeystorePassword(event.target.value)}/></label>}
-        <label>New local vault password (minimum 12 characters)<input type="password" minLength={12} value={vaultPassword} onChange={event=>setVaultPassword(event.target.value)} required autoComplete="new-password"/></label>
-        <button className="owner-vault-primary" disabled={busy || !credential || vaultPassword.length < 12}><Upload size={16}/>{busy ? 'Encrypting and verifying…' : 'Import and unlock Owner Wallet'}</button>
+        <label>New local vault password (minimum 8 characters)<input type="password" minLength={8} value={vaultPassword} onChange={event=>setVaultPassword(event.target.value)} required autoComplete="new-password"/></label>
+        <button className="owner-vault-primary" disabled={busy || !credential || vaultPassword.length < 8}><Upload size={16}/>{busy ? 'Encrypting and verifying…' : 'Import and unlock Owner Wallet'}</button>
         {saved && <button type="button" className="owner-vault-secondary" onClick={()=>{setReplace(false);setCredential('');setVaultPassword('')}}>Cancel replacement</button>}
       </form>}
       {error && <p role="alert" className="owner-vault-error">{error}</p>}

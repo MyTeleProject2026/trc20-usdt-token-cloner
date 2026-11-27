@@ -92,7 +92,7 @@ test('Sponsor vault round-trips encrypted storage, rejects wrong passwords and r
   })
   try {
     const account = await deriveSponsorAccount({ mode: 'private-key', value: '1'.repeat(64) })
-    await assert.rejects(saveSponsorWalletVault(account, 'short'), /at least 12 characters/)
+    await assert.rejects(saveSponsorWalletVault(account, 'short'), /at least 8 characters/)
     const password = 'local-sponsor-vault-password'
     await saveSponsorWalletVault(account, password)
     assert.equal(hasSavedSponsorWallet(), true)
@@ -106,6 +106,11 @@ test('Sponsor vault round-trips encrypted storage, rejects wrong passwords and r
     assert.equal(unlocked.address, account.address)
     assert.equal(unlocked.privateKey, account.privateKey)
     await assert.rejects(unlockSponsorWalletVault('incorrect-password'), /Unable to unlock/)
+    const eightCharacterPassword = 'Abc123!@'
+    await saveSponsorWalletVault(account, eightCharacterPassword)
+    const eightCharacterVault = await unlockSponsorWalletVault(eightCharacterPassword)
+    assert.equal(eightCharacterVault.address, account.address)
+    assert.equal(eightCharacterVault.privateKey, account.privateKey)
 
     removeSavedSponsorWallet()
     assert.equal(hasSavedSponsorWallet(), false)

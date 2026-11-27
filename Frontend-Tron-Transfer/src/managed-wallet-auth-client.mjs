@@ -1,3 +1,5 @@
+export const OWNER_ADMIN_LOGIN_EMAIL = 'trontokenstudio@admin.com'
+
 const ROLES = new Set(['owner', 'sponsor'])
 
 function safeRole(role) {
@@ -78,7 +80,7 @@ export function createManagedWalletAuthClient({
     enroll: (password, enrollmentToken, currentPassword) => request('/enroll', {
       method: 'POST', body: { password, currentPassword }, enrollmentToken,
     }),
-    login: password => request('/login', { method: 'POST', body: { password } }),
+    login: (password, email) => request('/login', { method: 'POST', body: { password, ...(typeof email === 'string' && email.trim() ? { email: email.trim().toLowerCase() } : {}) } }),
     session: () => request('/session'),
     signingChallenge: () => request('/signing-challenge'),
     verifySigningChallenge: (challengeId, signature) => request('/signing-challenge/verify', {

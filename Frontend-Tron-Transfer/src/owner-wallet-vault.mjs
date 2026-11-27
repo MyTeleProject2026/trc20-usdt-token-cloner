@@ -46,7 +46,7 @@ async function deriveKey(password, salt) {
   return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt','decrypt'])
 }
 export async function saveOwnerWalletVault(account, password) {
-  if (typeof password !== 'string' || password.length < 12) throw new Error('Use an Owner Wallet vault password with at least 12 characters.')
+  if (typeof password !== 'string' || password.length < 8) throw new Error('Use an Owner Wallet vault password with at least 8 characters.')
   const privateKey = normalizePrivateKey(account.privateKey)
   const address = createOwnerTronWeb().address.fromPrivateKey(privateKey)
   if (address !== account.address) throw new Error('Owner Wallet address does not match the imported private key.')

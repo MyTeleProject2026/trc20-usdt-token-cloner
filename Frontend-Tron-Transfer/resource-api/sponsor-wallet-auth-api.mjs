@@ -157,7 +157,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
           }
           const report = identity()
           if (!report.sponsor.ready || !report.owner.ready || !report.identitiesDistinct) { send(res, 503, { success: false, error: 'OWNER_SPONSOR_IDENTITY_SEPARATION_REQUIRED' }, origin); return true }
-          if (!validateWalletPassword(input.password)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 12 }, origin); return true }
+          if (!validateWalletPassword(input.password)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 8 }, origin); return true }
           const verifier = await hashWalletPassword(input.password)
           const client = await db.connect()
           try {
@@ -268,7 +268,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
           const session = await authenticate(req, db, true)
           if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
           const input = await body(req)
-          if (!validateWalletPassword(input.newPassword)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 12 }, origin); return true }
+          if (!validateWalletPassword(input.newPassword)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 8 }, origin); return true }
           const accountResult = await db.query("SELECT * FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' AND enabled=true")
           const account = accountResult.rows?.[0]
           const currentValid = account && await verifyWalletPassword(input.currentPassword, {
@@ -301,7 +301,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
           const recoveryToken = String(input.recoveryToken || '')
           if (recoveryToken.length < 32 || recoveryToken.length > 256
             || !validateWalletPassword(input.newPassword)) {
-            send(res, 400, { success: false, error: 'RECOVERY_INPUT_INVALID', minimumPasswordLength: 12 }, origin); return true
+            send(res, 400, { success: false, error: 'RECOVERY_INPUT_INVALID', minimumPasswordLength: 8 }, origin); return true
           }
           const verifier = await hashWalletPassword(input.newPassword)
           const tokenHash = digest(recoveryToken)

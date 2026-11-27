@@ -20,7 +20,7 @@ test('Owner Admin combines a managed application session with the independent en
   assert.ok(access.includes('expectedOwnerAddress'))
   assert.ok(!access.includes('EXPECTED_OWNER_ADDRESS'))
   assert.ok(!access.includes('TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'))
-  assert.ok(access.includes('ownerAuth.login(authPassword)'))
+  assert.ok(access.includes('ownerAuth.login(authPassword, OWNER_ADMIN_LOGIN_EMAIL)'))
   assert.ok(access.includes('ownerAuth.enroll(authPassword, enrollmentToken.trim(), initialAuthPassword)'))
   assert.ok(access.includes('Existing Owner password'))
   assert.ok(access.includes('Confirm new Owner password'))
