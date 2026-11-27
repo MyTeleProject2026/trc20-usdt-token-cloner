@@ -1,5 +1,6 @@
 import { TronWeb } from 'tronweb'
 import { Wallet } from 'ethers'
+import { saveDeviceWallet, unlockDeviceWallet, hasDeviceWallet, removeDeviceWallet } from './lib/device-wallet-vault.mjs'
 
 const STORAGE_KEY = 'tron-transfer.owner-wallet.v1'
 const PBKDF2_ITERATIONS = 310000
@@ -97,3 +98,8 @@ export function getSavedOwnerWalletAddress() {
 }
 export function hasSavedOwnerWallet() { try { return Boolean(localStorage.getItem(STORAGE_KEY)) } catch { return false } }
 export function removeSavedOwnerWallet() { try { localStorage.removeItem(STORAGE_KEY) } catch { throw new Error('The browser could not remove the local Owner Wallet backup.') } }
+
+export async function saveOwnerDeviceWallet(account){const privateKey=normalizePrivateKey(account?.privateKey),address=createOwnerTronWeb().address.fromPrivateKey(privateKey);if(address!==account?.address)throw new Error('Owner device wallet address integrity check failed.');return saveDeviceWallet('owner',{address,privateKey,network:'mainnet'})}
+export async function unlockOwnerDeviceWallet(){const account=await unlockDeviceWallet('owner');if(createOwnerTronWeb().address.fromPrivateKey(account.privateKey)!==account.address)throw new Error('Owner device wallet address integrity check failed.');return account}
+export async function hasOwnerDeviceWallet(){return hasDeviceWallet('owner')}
+export async function removeOwnerDeviceWallet(){return removeDeviceWallet('owner')}

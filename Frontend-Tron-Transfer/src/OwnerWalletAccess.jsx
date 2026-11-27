@@ -3,7 +3,7 @@ import './owner-wallet-access.css'
 import { KeyRound, LockKeyhole, ShieldCheck, Upload } from 'lucide-react'
 import {
   createOwnerTronWeb, deriveOwnerAccount, getSavedOwnerWalletAddress, hasSavedOwnerWallet,
-  removeSavedOwnerWallet, saveOwnerWalletVault, unlockOwnerWalletVault, migrateOwnerWalletVault,
+  removeSavedOwnerWallet, saveOwnerWalletVault, unlockOwnerWalletVault, migrateOwnerWalletVault,\n  saveOwnerDeviceWallet, unlockOwnerDeviceWallet, hasOwnerDeviceWallet, removeOwnerDeviceWallet,
 } from './owner-wallet-vault.mjs'
 import { createManagedWalletAuthClient, OWNER_ADMIN_LOGIN_EMAIL } from './managed-wallet-auth-client.mjs'
 
@@ -37,7 +37,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
 
   useEffect(() => {
     let active = true
-    Promise.all([ownerAuth.status(), ownerAuth.session().catch(() => null)]).then(([status, session]) => {
+    Promise.all([ownerAuth.status(), ownerAuth.session().catch(() => null)]).then(async ([status, session]) => {
       if (!active) return
       const configuredOwnerAddress = String(status.ownerAddress || '')
       if (!/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(configuredOwnerAddress) || status.identityMatches === false) {
@@ -111,7 +111,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
     } finally { setBusy(false) }
   }
 
-  async function activate(account, sessionPassword = '') {
+  async function activate(account, sessionPassword = '', configuredAddress = expectedOwnerAddress) {
     const tronWeb = createOwnerTronWeb(account.privateKey)
     const derived = tronWeb.address.fromPrivateKey(account.privateKey)
     if (!expectedOwnerAddress || derived !== expectedOwnerAddress || account.address !== expectedOwnerAddress) {
@@ -167,13 +167,13 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
 
   function removeBackup() {
     if (!window.confirm('Permanently remove the encrypted Owner Wallet backup from this browser? This does not change the on-chain wallet. Ensure you have your own offline recovery backup.')) return
-    try { removeSavedOwnerWallet(); setSaved(false); setReplace(true); setUnlockPassword('') }
+    try { removeSavedOwnerWallet(); void removeOwnerDeviceWallet().catch(() => {}); setSaved(false); setReplace(true); setUnlockPassword('') }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not remove the local backup.') }
   }
 
   return <div role="dialog" aria-modal="true" aria-labelledby="owner-wallet-title" className="owner-vault-backdrop">
     <section className="owner-vault-card">
-      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Independent Owner Wallet</h2><p>Encrypted local Mainnet signing · no TronLink connection required</p></div></div>
+      <div className="owner-vault-heading"><ShieldCheck/><div><span>TRON TRANSFER · OWNER AUTHENTICATION</span><h2 id="owner-wallet-title">Owner Admin workspace</h2><p>One application sign-in · protected local Mainnet signing</p></div></div>
       {!authenticated ? <>
         <div className="owner-vault-warning">The managed Owner password authenticates application access only. The separate encrypted local Owner vault holds the transaction-signing key. Never send wallet credentials to the Resource API.</div>
         <p className="owner-vault-address">{message}</p>
