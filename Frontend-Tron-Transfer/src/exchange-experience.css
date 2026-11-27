@@ -114,3 +114,20 @@ body:has(.trax-admin-shell){background:radial-gradient(ellipse at 70% -18%,rgba(
 .trax-admin-shell .am-note,.trax-admin-shell .am-safety-note{border-color:var(--x-line);background:rgba(255,255,255,.025)}
 .trax-admin-shell .am-footer{border-color:var(--x-line);color:#8e887d}
 @media(max-width:720px){.trax-session-state{flex:1;justify-content:center}.trax-mobile-sheet-grid{grid-template-columns:1fr 1fr}.trax-mobile-sheet{max-height:84vh}}
+
+/* Owner Admin sign-in and one-time vault import now share the same graphite/gold system. */
+.owner-vault-backdrop{background:rgba(0,0,0,.82);backdrop-filter:blur(12px)}
+.owner-vault-card{border:1px solid rgba(210,174,103,.24);border-radius:19px;background:linear-gradient(150deg,#1b1d21,#0e1013);color:#f2eee5;box-shadow:0 32px 100px rgba(0,0,0,.68)}
+.owner-vault-heading>svg{color:#d8b56d}.owner-vault-heading span{color:#c5a66b}
+.owner-vault-heading h2{color:#f3eee5;letter-spacing:-.035em}
+.owner-vault-heading p,.owner-vault-footnote{color:#a59d90}
+.owner-vault-card label{color:#d4cbbb;font-size:11px}
+.owner-vault-card input,.owner-vault-card textarea,.owner-vault-card select{border:1px solid rgba(190,181,160,.23);border-radius:9px;background:#0b0d10;color:#f3eee5}
+.owner-vault-card input:focus,.owner-vault-card textarea:focus,.owner-vault-card select:focus{border-color:#d0a657;outline:none;box-shadow:0 0 0 3px rgba(200,155,72,.13)}
+.owner-vault-primary{border:1px solid rgba(224,190,118,.45);background:linear-gradient(120deg,#d2aa5b,#98702f);color:#17130c}
+.owner-vault-secondary{border:1px solid var(--x-line2);background:#25272b;color:#e3dccf}
+.owner-vault-warning{border-color:rgba(210,174,103,.26);background:rgba(166,126,55,.1);color:#e5d0a5}
+.owner-vault-error{border:1px solid rgba(240,120,136,.22);background:rgba(121,36,54,.17);color:#ffd2d8}
+.owner-vault-address{color:#d9c08b}.owner-vault-actions button{color:#d8b56d}
+.owner-vault-recovery-toggle{border-color:rgba(210,174,103,.2);background:rgba(166,126,55,.06);color:#d8c59f}
+.owner-vault-recovery-toggle:hover{background:rgba(166,126,55,.13)}

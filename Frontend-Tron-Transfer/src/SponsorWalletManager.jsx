@@ -270,6 +270,10 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     return () => { active = false }
   }, [vaultSaved])
 
+  useEffect(() => {
+    if (sharedOwnerPassword && !vaultSaved) window.dispatchEvent(new Event('tron-transfer:sponsor-device-ready'))
+  }, [sharedOwnerPassword, vaultSaved])
+
   // Restore the paired Sponsor role using its own non-exportable device key.
   // The Owner password is used only once to enroll an older Sponsor vault.
   useEffect(() => {
