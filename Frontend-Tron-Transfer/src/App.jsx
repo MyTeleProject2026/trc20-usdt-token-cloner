@@ -188,12 +188,9 @@ export default function App() {
       </header>
       <main id="trax-workspace-main" className="trax-admin-content" tabIndex={-1}>
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
-        <div hidden={!sponsorWorkspace} aria-hidden={!sponsorWorkspace}>
-          <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace} ownerAdminPassword={ownerAdminPassword}/></SponsorWorkspaceErrorBoundary>
-        </div>
-        <div hidden={sponsorWorkspace} aria-hidden={sponsorWorkspace}>
-          <OwnerWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>{activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}</OwnerWorkspaceErrorBoundary>
-        </div>
+        {sponsorWorkspace
+          ? <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive ownerAdminPassword={ownerAdminPassword}/></SponsorWorkspaceErrorBoundary>
+          : <OwnerWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>{activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}</OwnerWorkspaceErrorBoundary>}
       </main>
       {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
       {ownerSecurityOpen && wallet && <div className="owner-security-modal-backdrop" role="dialog" aria-modal="true" aria-label="Owner account security" onMouseDown={event => { if (event.target === event.currentTarget) setOwnerSecurityOpen(false) }}><div className="owner-security-modal"><button type="button" className="owner-security-modal-close" onClick={() => setOwnerSecurityOpen(false)}>Close</button><OwnerAccountSecurity wallet={wallet} onConnect={connectWallet}/></div></div>}
