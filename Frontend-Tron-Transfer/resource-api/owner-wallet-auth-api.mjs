@@ -38,13 +38,13 @@ async function body(req) {
     return parsed
   } catch { throw Object.assign(new Error('invalid-json'), { status: 400 }) }
 }
-function setSessionCookies(res, token, csrf, sponsorCsrf = '') {
+function setSessionCookies(res, token, csrf, sponsorToken = '', sponsorCsrf = '') {
   const cookies = [
     COOKIE + '=' + encodeURIComponent(token) + '; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=28800',
     CSRF_COOKIE + '=' + encodeURIComponent(csrf) + '; Path=/; Secure; SameSite=None; Max-Age=28800',
   ]
   if (sponsorCsrf) cookies.push(
-    'tron_sponsor_session=' + encodeURIComponent(token) + '; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=28800',
+    'tron_sponsor_session=' + encodeURIComponent(sponsorToken) + '; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=28800',
     'tron_sponsor_csrf=' + encodeURIComponent(sponsorCsrf) + '; Path=/; Secure; SameSite=None; Max-Age=28800',
   )
   res.setHeader('set-cookie', cookies)
@@ -98,7 +98,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
   }
   async function issueSession(db, res, passwordVerifier = null) {
     const secret = createWalletSessionSecrets()
-    const sponsorCsrf = randomBytes(32).toString('base64url')
+    const sponsorSecret = createWalletSessionSecrets()
     await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['owner', secret.tokenHash, secret.csrfHash])
     const report = identity()
     let sponsorAuthorized = false
@@ -120,10 +120,10 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           JSON.stringify(sponsorPasswordParams),
         ])
       }
-      await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['sponsor', secret.tokenHash, digest(sponsorCsrf)])
+      await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['sponsor', sponsorSecret.tokenHash, sponsorSecret.csrfHash])
       await audit(db, 'shared_owner_session_issued', 'success', { sponsorAddress })
     }
-    setSessionCookies(res, secret.sessionToken, secret.csrfToken, sponsorAuthorized ? sponsorCsrf : '')
+    setSessionCookies(res, secret.sessionToken, secret.csrfToken, sponsorAuthorized ? sponsorSecret.sessionToken : '', sponsorAuthorized ? sponsorSecret.csrfToken : '')
     return { csrfToken: secret.csrfToken, sponsorAuthorized, expiresInSeconds: SESSION_MS / 1000 }
   }
   async function authenticate(req, db, requireCsrf = false) {
@@ -376,7 +376,9 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
         if (url.pathname === '/api/wallet-auth/owner/logout' && req.method === 'POST') {
           const session = await authenticate(req, db, true)
           if (session) {
-            await db.query('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE token_hash=$1', [session.tokenHash])
+            // Owner Admin logout closes both workspaces. Role sessions use distinct
+            // token hashes because production enforces UNIQUE(token_hash) across roles.
+            await db.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role IN ('owner','sponsor') AND revoked_at IS NULL")
             await audit(db, 'session_revoked', 'success')
           }
           clearSessionCookies(res)
