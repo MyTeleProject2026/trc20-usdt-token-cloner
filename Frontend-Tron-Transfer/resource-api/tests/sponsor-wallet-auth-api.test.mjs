@@ -149,8 +149,6 @@ async function createOwnerAdminPairedSponsorSession(db, api) {
 
 test('Sponsor session restores from the paired Owner Admin session and enforces database expiry',async()=>{
  const db=fakeDatabase()
- const verifier=await hashWalletPassword('shared Owner Admin password 123')
- db.state.account={wallet_address:address,password_hash:verifier.passwordHash,password_salt:verifier.passwordSalt,password_algorithm:verifier.passwordAlgorithm,password_params:verifier.passwordParams,enabled:true,failed_attempts:0}
  const api=createSponsorWalletAuthApi({env:{TRON_SPONSOR_ENROLLMENT_TOKEN:bootstrap},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))},identityReport})
  const paired=await createOwnerAdminPairedSponsorSession(db,api)
  const session=response()
@@ -182,8 +180,6 @@ test('Sponsor logout revokes its paired Sponsor token while preserving the Owner
 
 test('Sponsor session revocation cannot revoke the current session and can revoke other sessions',async()=>{
  const db=fakeDatabase()
- const verifier=await hashWalletPassword('current sponsor password phrase 123')
- db.state.account={wallet_address:address,password_hash:verifier.passwordHash,password_salt:verifier.passwordSalt,password_algorithm:verifier.passwordAlgorithm,password_params:verifier.passwordParams,enabled:true,failed_attempts:0}
  const api=createSponsorWalletAuthApi({env:{},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
  const paired=await createOwnerAdminPairedSponsorSession(db,api)
  const headers=paired.headers
