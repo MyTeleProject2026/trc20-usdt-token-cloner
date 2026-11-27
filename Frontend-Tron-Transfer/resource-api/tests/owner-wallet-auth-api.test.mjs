@@ -27,6 +27,7 @@ function fakeDatabase() {
       }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')) { state.sessions.push({ session_id: state.sessions.length + 1, wallet_role: params[0], token_hash: params[1], csrf_hash: params[2], session_group_id: params[3] || null, revoked_at: null, expires_at: new Date(Date.now()+8*60*60*1000).toISOString() }); return { rowCount: 1, rows: [] } }
       if (sql.includes('SELECT * FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [state.account] : [] }
+      if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE session_group_id=$1')) { let count=0; state.sessions.forEach(x=>{if(x.session_group_id===params[0]&&!x.revoked_at){x.revoked_at=new Date();count++}}); return {rowCount:count,rows:[]} }
       if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()')) { state.sessions.forEach(x => { x.revoked_at = new Date() }); return { rowCount: 1, rows: [] } }
       if (sql.includes('UPDATE public.tron_transfer_wallet_accounts SET failed_attempts=0')) { if (state.account) state.account.failed_attempts = 0; return { rowCount: 1, rows: [] } }
       if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET last_seen_at')) return { rowCount: 1, rows: [] }
