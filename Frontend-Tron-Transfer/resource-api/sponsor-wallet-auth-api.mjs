@@ -175,11 +175,11 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
           if (!report.sponsor.ready || !report.owner.ready || !report.identitiesDistinct) { send(res, 503, { success: false, error: 'OWNER_SPONSOR_IDENTITY_SEPARATION_REQUIRED' }, origin); return true }
           const ownerSession = await authenticateOwnerSessionForSponsorEnrollment(req, db)
           if (!ownerSession || ownerSession.address !== report.owner.address) { send(res, 401, { success: false, error: 'OWNER_ADMIN_SESSION_REQUIRED' }, origin); return true }
+          if (!ownerSession.passwordHash || !ownerSession.passwordSalt) { send(res, 503, { success: false, error: 'OWNER_ADMIN_VERIFIER_UNAVAILABLE' }, origin); return true }
           if (!await verifyWalletPassword(input.password, {
             passwordHash: ownerSession.passwordHash, passwordSalt: ownerSession.passwordSalt,
             passwordAlgorithm: ownerSession.passwordAlgorithm, passwordParams: ownerSession.passwordParams,
           })) { send(res, 401, { success: false, error: 'OWNER_ADMIN_CREDENTIAL_MISMATCH' }, origin); return true }
-          if (!ownerSession.passwordHash || !ownerSession.passwordSalt) { send(res, 503, { success: false, error: 'OWNER_ADMIN_VERIFIER_UNAVAILABLE' }, origin); return true }
           const client = await db.connect()
           try {
             await client.query('BEGIN')
