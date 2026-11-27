@@ -127,7 +127,11 @@ export async function createKmsTronSigner({
   }
   const publicKeys = new Map()
   async function verifyKey(role, config) {
-    if (publicKeys.has(config.keyArn)) return publicKeys.get(config.keyArn)
+    if (publicKeys.has(config.keyArn)) {
+      const cachedAddress = publicKeys.get(config.keyArn)
+      if (cachedAddress !== config.expectedAddress) fail('KMS_KEY_REUSED_ACROSS_WALLET_ROLES', 503)
+      return cachedAddress
+    }
     const result = await send('GetPublicKey', { KeyId: config.keyArn })
     if (result.KeySpec !== 'ECC_SECG_P256K1' || result.KeyUsage !== 'SIGN_VERIFY'
       || !Array.isArray(result.SigningAlgorithms) || !result.SigningAlgorithms.includes('ECDSA_SHA_256')) {
