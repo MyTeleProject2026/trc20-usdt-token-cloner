@@ -100,29 +100,40 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
     const secret = createWalletSessionSecrets()
     const sponsorSecret = createWalletSessionSecrets()
     const sessionGroupId = randomUUID()
-    await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,session_group_id,expires_at) VALUES ($1,$2,$3,$4,now()+interval \'8 hours\')', ['owner', secret.tokenHash, secret.csrfHash, sessionGroupId])
-    const report = identity()
+    const client = typeof db.connect === 'function' ? await db.connect() : db
+    const ownsClient = client !== db
     let sponsorAuthorized = false
     let sponsorAddress = ''
-    if (report?.identitiesDistinct && report?.sponsor?.ready
-      && report?.owner?.ready && report.sponsor.address !== report.owner.address) {
-      const sponsorResult = await db.query("SELECT wallet_address FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' AND enabled=true")
-      sponsorAddress = String(sponsorResult.rows?.[0]?.wallet_address || '')
-      sponsorAuthorized = Boolean(sponsorAddress && sponsorAddress === report.sponsor.address)
-    }
-    if (sponsorAuthorized) {
-      const sponsorPasswordHash = passwordVerifier?.password_hash || passwordVerifier?.passwordHash
-      const sponsorPasswordSalt = passwordVerifier?.password_salt || passwordVerifier?.passwordSalt
-      const sponsorPasswordAlgorithm = passwordVerifier?.password_algorithm || passwordVerifier?.passwordAlgorithm || 'scrypt'
-      const sponsorPasswordParams = passwordVerifier?.password_params || passwordVerifier?.passwordParams || {}
-      if (sponsorPasswordHash && sponsorPasswordSalt) {
-        await db.query("UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1,password_salt=$2,password_algorithm=$3,password_params=$4::jsonb,failed_attempts=0,locked_until=NULL,password_changed_at=now(),updated_at=now() WHERE wallet_role='sponsor' AND enabled=true", [
-          sponsorPasswordHash, sponsorPasswordSalt, sponsorPasswordAlgorithm,
-          JSON.stringify(sponsorPasswordParams),
-        ])
+    try {
+      await client.query('BEGIN')
+      await client.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,session_group_id,expires_at) VALUES ($1,$2,$3,$4,now()+interval \'8 hours\')', ['owner', secret.tokenHash, secret.csrfHash, sessionGroupId])
+      const report = identity()
+      if (report?.identitiesDistinct && report?.sponsor?.ready
+        && report?.owner?.ready && report.sponsor.address !== report.owner.address) {
+        const sponsorResult = await client.query("SELECT wallet_address FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' AND enabled=true")
+        sponsorAddress = String(sponsorResult.rows?.[0]?.wallet_address || '')
+        sponsorAuthorized = Boolean(sponsorAddress && sponsorAddress === report.sponsor.address)
       }
-      await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,session_group_id,expires_at) VALUES ($1,$2,$3,$4,now()+interval \'8 hours\')', ['sponsor', sponsorSecret.tokenHash, sponsorSecret.csrfHash, sessionGroupId])
-      await audit(db, 'shared_owner_session_issued', 'success', { sponsorAddress })
+      if (sponsorAuthorized) {
+        const sponsorPasswordHash = passwordVerifier?.password_hash || passwordVerifier?.passwordHash
+        const sponsorPasswordSalt = passwordVerifier?.password_salt || passwordVerifier?.passwordSalt
+        const sponsorPasswordAlgorithm = passwordVerifier?.password_algorithm || passwordVerifier?.passwordAlgorithm || 'scrypt'
+        const sponsorPasswordParams = passwordVerifier?.password_params || passwordVerifier?.passwordParams || {}
+        if (sponsorPasswordHash && sponsorPasswordSalt) {
+          await client.query("UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1,password_salt=$2,password_algorithm=$3,password_params=$4::jsonb,failed_attempts=0,locked_until=NULL,password_changed_at=now(),updated_at=now() WHERE wallet_role='sponsor' AND enabled=true", [
+            sponsorPasswordHash, sponsorPasswordSalt, sponsorPasswordAlgorithm,
+            JSON.stringify(sponsorPasswordParams),
+          ])
+        }
+        await client.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,session_group_id,expires_at) VALUES ($1,$2,$3,$4,now()+interval \'8 hours\')', ['sponsor', sponsorSecret.tokenHash, sponsorSecret.csrfHash, sessionGroupId])
+        await audit(client, 'shared_owner_session_issued', 'success', { sponsorAddress })
+      }
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw error
+    } finally {
+      if (ownsClient) client.release()
     }
     setSessionCookies(res, secret.sessionToken, secret.csrfToken, sponsorAuthorized ? sponsorSecret.sessionToken : '', sponsorAuthorized ? sponsorSecret.csrfToken : '')
     return { csrfToken: secret.csrfToken, sponsorAuthorized, expiresInSeconds: SESSION_MS / 1000 }
