@@ -89,12 +89,27 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
   async function audit(db, type, outcome, metadata = {}) {
     await db.query('INSERT INTO public.tron_transfer_wallet_auth_audit (wallet_role,event_type,outcome,metadata) VALUES ($1,$2,$3,$4::jsonb)', ['sponsor', type, outcome, JSON.stringify(metadata)])
   }
-  async function issueSession(db, res) {
+  async function issueSession(db, res, sessionGroupId) {
+    if (!sessionGroupId) throw Object.assign(new Error('OWNER_ADMIN_SESSION_REQUIRED'), { status: 401 })
     const secret = createWalletSessionSecrets()
-    await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['sponsor', secret.tokenHash, secret.csrfHash])
+    await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,session_group_id,expires_at) VALUES ($1,$2,$3,$4,now()+interval \'8 hours\')', ['sponsor', secret.tokenHash, secret.csrfHash, sessionGroupId])
     setSessionCookies(res, secret.sessionToken, secret.csrfToken)
     return { csrfToken: secret.csrfToken, expiresInSeconds: SESSION_MS / 1000 }
   }
+  async function authenticateOwnerSessionForSponsorEnrollment(req, db) {
+    const ownerToken = cookieValue(req, 'tron_owner_session')
+    const tokenHash = hashWalletSessionToken(ownerToken)
+    if (!tokenHash) return null
+    const result = await db.query(`SELECT s.session_id,s.session_group_id,a.wallet_address
+      FROM public.tron_transfer_wallet_sessions s
+      JOIN public.tron_transfer_wallet_accounts a USING(wallet_role)
+      WHERE s.wallet_role='owner' AND s.token_hash=$1 AND s.revoked_at IS NULL
+        AND s.expires_at>now() AND a.enabled=true`, [tokenHash])
+    const session = result.rows?.[0]
+    if (!session?.session_group_id) return null
+    return { sessionId: session.session_id, sessionGroupId: session.session_group_id, address: session.wallet_address }
+  }
+
   async function authenticate(req, db, requireCsrf = false) {
     const token = cookieValue(req, COOKIE)
     const tokenHash = hashWalletSessionToken(token)
@@ -157,6 +172,8 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
           }
           const report = identity()
           if (!report.sponsor.ready || !report.owner.ready || !report.identitiesDistinct) { send(res, 503, { success: false, error: 'OWNER_SPONSOR_IDENTITY_SEPARATION_REQUIRED' }, origin); return true }
+          const ownerSession = await authenticateOwnerSessionForSponsorEnrollment(req, db)
+          if (!ownerSession || ownerSession.address !== report.owner.address) { send(res, 401, { success: false, error: 'OWNER_ADMIN_SESSION_REQUIRED' }, origin); return true }
           if (!validateWalletPassword(input.password)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 8 }, origin); return true }
           const verifier = await hashWalletPassword(input.password)
           const client = await db.connect()
@@ -174,35 +191,11 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
           await audit(db, 'enrollment_succeeded', 'success')
-          const session = await issueSession(db, res)
+          const session = await issueSession(db, res, ownerSession.sessionGroupId)
           send(res, 201, { success: true, enrolled: true, role: 'sponsor', address: report.sponsor.address, session }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/sponsor/login' && req.method === 'POST') {
-          if (!allowLoginAttempt(req)) { send(res, 429, { success: false, error: 'LOGIN_RATE_LIMITED', retryAfterSeconds: 900 }, origin); return true }
-          const input = await body(req)
-          const result = await db.query("SELECT * FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' AND enabled=true")
-          const account = result.rows[0]
-          if (!account || (account.locked_until && Date.parse(account.locked_until) > Date.now())) {
-            send(res, 401, { success: false, error: 'INVALID_CREDENTIALS_OR_LOCKED' }, origin); return true
-          }
-          const valid = await verifyWalletPassword(input.password, {
-            passwordHash: account.password_hash, passwordSalt: account.password_salt,
-            passwordAlgorithm: account.password_algorithm, passwordParams: account.password_params,
-          })
-          if (!valid) {
-            const failed = await db.query(`UPDATE public.tron_transfer_wallet_accounts
-              SET failed_attempts=failed_attempts+1,
-                locked_until=CASE WHEN failed_attempts+1>=5 THEN now()+interval '15 minutes' ELSE locked_until END,
-                updated_at=now() WHERE wallet_role='sponsor' RETURNING failed_attempts`)
-            await audit(db, 'login_failed', 'denied')
-            if (failed.rows[0]?.failed_attempts >= 5) await audit(db, 'account_locked', 'denied')
-            send(res, 401, { success: false, error: 'INVALID_CREDENTIALS_OR_LOCKED' }, origin); return true
-          }
-          await db.query("UPDATE public.tron_transfer_wallet_accounts SET failed_attempts=0,locked_until=NULL,last_authenticated_at=now(),updated_at=now() WHERE wallet_role='sponsor'")
-          await db.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='sponsor' AND revoked_at IS NULL")
-          const session = await issueSession(db, res)
-          await audit(db, 'login_succeeded', 'success')
-          send(res, 200, { success: true, role: 'sponsor', address: account.wallet_address, session }, origin); return true
+          send(res, 403, { success: false, error: 'OWNER_ADMIN_LOGIN_REQUIRED' }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/sponsor/session' && req.method === 'GET') {
           const session = await authenticate(req, db)
@@ -265,74 +258,10 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
           send(res, 200, { success: true, revokedCount: revoked.rowCount || 0 }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/sponsor/password/change' && req.method === 'POST') {
-          const session = await authenticate(req, db, true)
-          if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
-          const input = await body(req)
-          if (!validateWalletPassword(input.newPassword)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 8 }, origin); return true }
-          const accountResult = await db.query("SELECT * FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' AND enabled=true")
-          const account = accountResult.rows?.[0]
-          const currentValid = account && await verifyWalletPassword(input.currentPassword, {
-            passwordHash: account.password_hash, passwordSalt: account.password_salt,
-            passwordAlgorithm: account.password_algorithm, passwordParams: account.password_params,
-          })
-          if (!currentValid) { send(res, 401, { success: false, error: 'CURRENT_PASSWORD_INVALID' }, origin); return true }
-          const verifier = await hashWalletPassword(input.newPassword)
-          const client = await db.connect()
-          try {
-            await client.query('BEGIN')
-            await client.query(`
-              UPDATE public.tron_transfer_wallet_accounts
-              SET password_hash=$1,password_salt=$2,password_algorithm='scrypt',
-                  password_params=$3::jsonb,password_changed_at=now(),
-                  failed_attempts=0,locked_until=NULL,updated_at=now()
-              WHERE wallet_role='sponsor'
-            `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
-            await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='sponsor' AND revoked_at IS NULL")
-            await audit(client, 'password_changed', 'success', { source: 'authenticated-change' })
-            await client.query('COMMIT')
-          } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
-          const nextSession = await issueSession(db, res)
-          send(res, 200, { success: true, passwordChanged: true, session: nextSession }, origin); return true
+          send(res, 403, { success: false, error: 'OWNER_ADMIN_PASSWORD_MANAGED' }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/sponsor/recover' && req.method === 'POST') {
-          if (!allowedOrigins.includes(String(req.headers.origin || ''))) { send(res, 403, { success: false, error: 'ORIGIN_NOT_ALLOWED' }, origin); return true }
-          if (!allowRecoveryAttempt(req)) { send(res, 429, { success: false, error: 'RECOVERY_RATE_LIMITED', retryAfterSeconds: 900 }, origin); return true }
-          const input = await body(req)
-          const recoveryToken = String(input.recoveryToken || '')
-          if (recoveryToken.length < 32 || recoveryToken.length > 256
-            || !validateWalletPassword(input.newPassword)) {
-            send(res, 400, { success: false, error: 'RECOVERY_INPUT_INVALID', minimumPasswordLength: 8 }, origin); return true
-          }
-          const verifier = await hashWalletPassword(input.newPassword)
-          const tokenHash = digest(recoveryToken)
-          const client = await db.connect()
-          try {
-            await client.query('BEGIN')
-            const tokenResult = await client.query(`
-              SELECT recovery_token_id FROM public.tron_transfer_wallet_recovery_tokens
-              WHERE wallet_role='sponsor' AND token_hash=$1 AND consumed_at IS NULL AND expires_at>now()
-              FOR UPDATE
-            `, [tokenHash])
-            if (!tokenResult.rows?.[0]) {
-              await client.query('ROLLBACK')
-              send(res, 401, { success: false, error: 'RECOVERY_TOKEN_INVALID_OR_EXPIRED' }, origin); return true
-            }
-            await client.query('UPDATE public.tron_transfer_wallet_recovery_tokens SET consumed_at=now() WHERE recovery_token_id=$1', [tokenResult.rows[0].recovery_token_id])
-            const accountUpdate = await client.query(`
-              UPDATE public.tron_transfer_wallet_accounts
-              SET password_hash=$1,password_salt=$2,password_algorithm='scrypt',
-                  password_params=$3::jsonb,password_changed_at=now(),
-                  failed_attempts=0,locked_until=NULL,updated_at=now()
-              WHERE wallet_role='sponsor' AND enabled=true
-              RETURNING wallet_address
-            `, [verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
-            if (!accountUpdate.rowCount) throw Object.assign(new Error('SPONSOR_ACCOUNT_NOT_AVAILABLE'), { status: 503 })
-            await client.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='sponsor' AND revoked_at IS NULL")
-            await audit(client, 'password_changed', 'success', { source: 'one-time-recovery' })
-            await client.query('COMMIT')
-          } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error } finally { client.release() }
-          clearSessionCookies(res)
-          send(res, 200, { success: true, passwordRecovered: true, sessionsRevoked: true }, origin); return true
+          send(res, 403, { success: false, error: 'OWNER_ADMIN_PASSWORD_MANAGED' }, origin); return true
         }
         send(res, 405, { success: false, error: 'METHOD_NOT_ALLOWED' }, origin); return true
       } catch (error) {
