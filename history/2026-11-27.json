@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-27",
+  "source": "Tron Transfer scheduled production probes",
+  "records": [
+    {
+      "id": 45930643814,
+      "runNumber": 152,
+      "checkedAt": "2026-11-27T02:50:10.099Z",
+      "status": "failure",
+      "conclusion": "failure",
+      "commit": "395eef8f3542d3fb8eeccc42a1ef8d90232bcfa9",
+      "event": "schedule",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/45930643814",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 307,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:50:10.099Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 266,
+          "detail": "healthy · TRON Mainnet · recovered after 47133 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:50:56.971Z"
+        },
+        {
+          "name": "mainnet-rpc-providers",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 2027,
+          "detail": "Tatum block 88357860 · TronGrid block 88357860 · recovered after 49028 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:50:58.867Z"
+        },
+        {
+          "name": "tronscan-explorer",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1383,
+          "detail": "TronScan public read endpoint reachable · official USDT indexed · API key=TRONSCAN_PRO_API_KEY · recovered after 47935 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:50:57.775Z"
+        },
+        {
+          "name": "sponsor-readiness",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 3473,
+          "detail": "Sponsor acceptance=blocked · db=ready · dbReady=true · dbIdentity=true · expectedDbIdentity=true · sponsor=true · owner=true · ownerEnrolled=true · independent=true · durable=true · sessionAuth=true · adminSession=true · engine=true/true · ",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:51:05.756Z"
+        },
+        {
+          "name": "owner-signer-challenge-auth",
+          "ok": true,
+          "status": 401,
+          "latencyMs": 257,
+          "detail": "Owner sign-only challenge endpoint is present and rejects unauthenticated access · recovered after 48104 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:50:57.945Z"
+        },
+        {
+          "name": "sponsor-signer-challenge-auth",
+          "ok": true,
+          "status": 401,
+          "latencyMs": 293,
+          "detail": "Sponsor sign-only challenge endpoint is present and rejects unauthenticated access · recovered after 47220 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:50:57.062Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 270,
+          "detail": "valid JSON health payload · recovered after 46542 ms (4 attempts)",
+          "metrics": {
+            "sampledAt": "2026-11-27T02:50:56.279Z",
+            "uptimeSeconds": 10,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 98107392,
+            "heapUsedBytes": 29572560,
+            "heapTotalBytes": 33914880,
+            "eventLoopP95Ms": 20.152319,
+            "requestCount": 3,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 3,
+            "p95LatencyMs": 8
+          },
+          "checkedAt": "2026-11-27T02:50:56.385Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 935,
+          "detail": "Git-backed history served · 50 archived runs · recovered after 48970 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:50:58.813Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": false,
+          "status": 200,
+          "latencyMs": 1050,
+          "detail": "Render metrics payload missing authenticated CPU/memory samples · recovered after 47523 ms (4 attempts)",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:50:57.367Z"
+        },
+        {
+          "name": "owner-mainnet-resources",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 4060,
+          "detail": "Mainnet resource read passed · Energy=zero · single-source Bandwidth=nonzero · TRX balance=nonzero",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:51:05.756Z"
+        },
+        {
+          "name": "sponsor-mainnet-resources",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1874,
+          "detail": "Mainnet resource read passed · Energy=nonzero · single-source Bandwidth=nonzero · TRX balance=nonzero",
+          "metrics": null,
+          "checkedAt": "2026-11-27T02:51:03.570Z"
+        }
+      ]
+    }
+  ]
+}
