@@ -100,14 +100,15 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
     const ownerToken = cookieValue(req, 'tron_owner_session')
     const tokenHash = hashWalletSessionToken(ownerToken)
     if (!tokenHash) return null
-    const result = await db.query(`SELECT s.session_id,s.session_group_id,a.wallet_address
+    const result = await db.query(`SELECT s.session_id,s.session_group_id,a.wallet_address,
+        a.password_hash,a.password_salt,a.password_algorithm,a.password_params
       FROM public.tron_transfer_wallet_sessions s
       JOIN public.tron_transfer_wallet_accounts a USING(wallet_role)
       WHERE s.wallet_role='owner' AND s.token_hash=$1 AND s.revoked_at IS NULL
         AND s.expires_at>now() AND a.enabled=true`, [tokenHash])
     const session = result.rows?.[0]
     if (!session?.session_group_id) return null
-    return { sessionId: session.session_id, sessionGroupId: session.session_group_id, address: session.wallet_address }
+    return { sessionId: session.session_id, sessionGroupId: session.session_group_id, address: session.wallet_address, passwordHash: session.password_hash, passwordSalt: session.password_salt, passwordAlgorithm: session.password_algorithm, passwordParams: session.password_params }
   }
 
   async function authenticate(req, db, requireCsrf = false) {
@@ -174,8 +175,11 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
           if (!report.sponsor.ready || !report.owner.ready || !report.identitiesDistinct) { send(res, 503, { success: false, error: 'OWNER_SPONSOR_IDENTITY_SEPARATION_REQUIRED' }, origin); return true }
           const ownerSession = await authenticateOwnerSessionForSponsorEnrollment(req, db)
           if (!ownerSession || ownerSession.address !== report.owner.address) { send(res, 401, { success: false, error: 'OWNER_ADMIN_SESSION_REQUIRED' }, origin); return true }
-          if (!validateWalletPassword(input.password)) { send(res, 400, { success: false, error: 'PASSWORD_POLICY_FAILED', minimumLength: 8 }, origin); return true }
-          const verifier = await hashWalletPassword(input.password)
+          if (!await verifyWalletPassword(input.password, {
+            passwordHash: ownerSession.passwordHash, passwordSalt: ownerSession.passwordSalt,
+            passwordAlgorithm: ownerSession.passwordAlgorithm, passwordParams: ownerSession.passwordParams,
+          })) { send(res, 401, { success: false, error: 'OWNER_ADMIN_CREDENTIAL_MISMATCH' }, origin); return true }
+          if (!ownerSession.passwordHash || !ownerSession.passwordSalt) { send(res, 503, { success: false, error: 'OWNER_ADMIN_VERIFIER_UNAVAILABLE' }, origin); return true }
           const client = await db.connect()
           try {
             await client.query('BEGIN')
@@ -187,7 +191,7 @@ export function createSponsorWalletAuthApi({ env = process.env, database, send, 
             }
             await client.query(`INSERT INTO public.tron_transfer_wallet_accounts
               (wallet_role,wallet_address,password_hash,password_salt,password_algorithm,password_params)
-              VALUES ('sponsor',$1,$2,$3,'scrypt',$4::jsonb)`, [report.sponsor.address, verifier.passwordHash, verifier.passwordSalt, JSON.stringify(verifier.passwordParams)])
+              VALUES ('sponsor',$1,$2,$3,$4,$5::jsonb)`, [report.sponsor.address, ownerSession.passwordHash, ownerSession.passwordSalt, ownerSession.passwordAlgorithm, JSON.stringify(ownerSession.passwordParams)])
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
           await audit(db, 'enrollment_succeeded', 'success')
