@@ -25,13 +25,13 @@ function fakeDatabase() {
         state.account = { wallet_address: params[0], password_hash: params[1], password_salt: params[2], password_algorithm: 'scrypt', password_params: JSON.parse(params[3]), enabled: true, failed_attempts: 0 }
         return { rowCount: 1, rows: [] }
       }
-      if (sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')) { state.sessions.push({ wallet_role: params[0], token_hash: params[1], csrf_hash: params[2], revoked_at: null }); return { rowCount: 1, rows: [] } }
+      if (sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')) { state.sessions.push({ session_id: state.sessions.length + 1, wallet_role: params[0], token_hash: params[1], csrf_hash: params[2], session_group_id: params[3] || null, revoked_at: null, expires_at: new Date(Date.now()+8*60*60*1000).toISOString() }); return { rowCount: 1, rows: [] } }
       if (sql.includes('SELECT * FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [state.account] : [] }
       if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()')) { state.sessions.forEach(x => { x.revoked_at = new Date() }); return { rowCount: 1, rows: [] } }
       if (sql.includes('UPDATE public.tron_transfer_wallet_accounts SET failed_attempts=0')) { if (state.account) state.account.failed_attempts = 0; return { rowCount: 1, rows: [] } }
       if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET last_seen_at')) return { rowCount: 1, rows: [] }
       if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE session_id')) return { rowCount: 1, rows: [] }
-      if (sql.includes('SELECT s.session_id')) return { rows: [] }
+      if (sql.includes('SELECT s.session_id')) { const row=state.sessions.find(x=>x.wallet_role==='owner'&&x.token_hash===params[0]&&!x.revoked_at&&Date.parse(x.expires_at)>Date.now()); return { rows: row?[{session_id:row.session_id,csrf_hash:row.csrf_hash,session_group_id:row.session_group_id,wallet_address:state.account?.wallet_address||address}]:[] } }
       throw new Error('unexpected-test-query: ' + sql.slice(0, 100))
     },
   }
@@ -259,6 +259,8 @@ test('Owner login establishes role-isolated Owner and Sponsor sessions with the 
   assert.equal(db.state.sessions.filter(row => row.wallet_role === 'owner').length, 1)
   assert.equal(db.state.sessions.filter(row => row.wallet_role === 'sponsor').length, 1)
   assert.notEqual(db.state.sessions[0].token_hash, db.state.sessions[1].token_hash, 'production UNIQUE(token_hash) requires independent role tokens')
+  assert.ok(db.state.sessions[0].session_group_id)
+  assert.equal(db.state.sessions[0].session_group_id, db.state.sessions[1].session_group_id, 'Owner and Sponsor sessions must share one revocation group')
   assert.equal(db.state.sponsorAccount.password_hash, verifier.passwordHash)
 })
 
@@ -387,4 +389,32 @@ test('Owner status returns a safe database diagnostic code when its query fails'
   assert.equal(replies[0].payload.error, 'WALLET_AUTH_UNAVAILABLE')
   assert.equal(replies[0].payload.diagnosticCode, '42P01')
   assert.equal(JSON.stringify(replies[0].payload).includes('private connection details'), false)
+})
+
+
+test('Owner Admin logout revokes only the paired Owner and Sponsor sessions for this browser', async () => {
+  const db = fakeDatabase()
+  const verifier = await hashWalletPassword('Abc123!@')
+  db.state.account = { wallet_address: address, password_hash: verifier.passwordHash, password_salt: verifier.passwordSalt, password_algorithm: verifier.passwordAlgorithm, password_params: verifier.passwordParams, enabled: true, failed_attempts: 0 }
+  db.state.sponsorAccount = { wallet_address: identityReport.sponsor.address, password_hash: verifier.passwordHash, password_salt: verifier.passwordSalt, password_algorithm: 'scrypt', password_params: verifier.passwordParams, enabled: true }
+  const api = createOwnerWalletAuthApi({ env: {}, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) }, identityReport })
+  const login = response()
+  await api.handle(request('POST', {}, { email: 'trontokenstudio@admin.com', password: 'Abc123!@' }), login, new URL('https://api.test/api/wallet-auth/owner/login'), 'https://tron-transfer.onrender.com')
+  assert.equal(login.status, 200)
+  const ownerSession = db.state.sessions.find(x => x.wallet_role === 'owner')
+  const sponsorSession = db.state.sessions.find(x => x.wallet_role === 'sponsor')
+  const unrelatedOwner = { session_id: 90, wallet_role: 'owner', token_hash: 'unrelated-owner-token', csrf_hash: 'unrelated-owner-csrf', session_group_id: '00000000-0000-4000-8000-000000000090', revoked_at: null }
+  const unrelatedSponsor = { session_id: 91, wallet_role: 'sponsor', token_hash: 'unrelated-sponsor-token', csrf_hash: 'unrelated-sponsor-csrf', session_group_id: null, revoked_at: null }
+  db.state.sessions.push(unrelatedOwner, unrelatedSponsor)
+  const cookies = login.headers['set-cookie']
+  const ownerCookie = cookies.find(value => value.startsWith('tron_owner_session=')).split(';')[0]
+  const ownerCsrfCookie = cookies.find(value => value.startsWith('tron_owner_csrf=')).split(';')[0]
+  const ownerCsrf = decodeURIComponent(ownerCsrfCookie.slice('tron_owner_csrf='.length))
+  const logout = response()
+  await api.handle(request('POST', { cookie: ownerCookie + '; ' + ownerCsrfCookie, origin: 'https://tron-transfer.onrender.com', 'x-owner-csrf-token': ownerCsrf }), logout, new URL('https://api.test/api/wallet-auth/owner/logout'), 'https://tron-transfer.onrender.com')
+  assert.equal(logout.status, 200)
+  assert.ok(ownerSession.revoked_at)
+  assert.ok(sponsorSession.revoked_at)
+  assert.equal(unrelatedOwner.revoked_at, null)
+  assert.equal(unrelatedSponsor.revoked_at, null)
 })
