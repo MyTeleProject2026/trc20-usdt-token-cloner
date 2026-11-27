@@ -160,3 +160,28 @@ For the integrated frontend, run `npm test` or `npm run build` from `Frontend-Tr
 7. Enable Sponsor writes or any TRӾ deployment only after a separate explicit release authorization and fresh Mainnet preflight.
 
 Do not remove source databases or historical branches merely because a replacement exists. Preserve rollback evidence until acceptance is complete. Do not delete wallet keys, recovery data or transaction records as part of source cleanup.
+
+
+## Server-side KMS signing migration status
+
+The Resource API now contains an isolated, fail-closed KMS signing adapter at `kms-tron-signer.mjs`, with focused tests in `tests/kms-tron-signer.test.mjs`. The AWS SDK KMS client is declared as a Resource API dependency. This is a signer foundation only; it is **not yet wired into Owner or Sponsor broadcast routes** and must not be described as an active production signer.
+
+The adapter:
+- requires the global `TRON_KMS_SIGNING_ENABLED=true` gate;
+- requires separate Owner and Sponsor KMS key ARNs and rejects reuse of one key across both roles;
+- requires KMS secp256k1 ECDSA signing key metadata;
+- verifies the KMS public key derives to the configured existing TRON address before signing;
+- validates the exact unsigned transaction ID against SHA-256 of `raw_data_hex`;
+- requests a KMS ECDSA signature over the 32-byte transaction digest;
+- parses DER ECDSA output, normalizes low-S and searches recovery IDs until the signature recovers to the expected configured TRON address;
+- appends the TRON 65-byte recoverable signature only after identity verification.
+
+**No production KMS signing is enabled by this code addition.** No AWS key has been created/imported, no Render IAM role/credentials have been configured, and no Owner/Sponsor endpoint has been migrated. Existing local signing remains the active transaction path. Keep all existing write gates disabled until the remaining migration and acceptance checklist in `docs/OWNER_SPONSOR_WALLET_ARCHITECTURE.md` has passed.
+
+Required next steps:
+1. Configure AWS KMS and a secure Render workload identity/credential path outside source control.
+2. Create/import distinct existing Owner and Sponsor secp256k1 keys and independently verify both public-key/address mappings.
+3. Run the Resource API test suite and add cryptographic known-answer tests against real KMS test keys.
+4. Integrate the signer into each existing Owner and Sponsor prepared-operation confirmation route. The browser must never choose a KMS key or submit arbitrary digest bytes.
+5. Keep explicit operation confirmation, database persistence before broadcast, one-attempt broadcast and solidified receipt reconciliation.
+6. Only then retire routine local vault unlocks; retain the offline recovery path until cutover and rollback have been proven.
