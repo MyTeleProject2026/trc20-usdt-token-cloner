@@ -170,8 +170,6 @@ test('Sponsor session restores from the paired Owner Admin session and enforces 
 
 test('Sponsor logout revokes its paired Sponsor token while preserving the Owner session',async()=>{
  const db=fakeDatabase()
- const verifier=await hashWalletPassword('shared Owner Admin password 123')
- db.state.account={wallet_address:address,password_hash:verifier.passwordHash,password_salt:verifier.passwordSalt,password_algorithm:verifier.passwordAlgorithm,password_params:verifier.passwordParams,enabled:true,failed_attempts:0}
  const api=createSponsorWalletAuthApi({env:{TRON_SPONSOR_ENROLLMENT_TOKEN:bootstrap},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))},identityReport})
  const paired=await createOwnerAdminPairedSponsorSession(db,api)
  const sponsorRow=db.state.sessions.find(x=>x.wallet_role==='sponsor')
@@ -185,7 +183,7 @@ test('Sponsor logout revokes its paired Sponsor token while preserving the Owner
 
 test('Sponsor session revocation cannot revoke the current session and can revoke other sessions',async()=>{
  const db=fakeDatabase()
- const api=createSponsorWalletAuthApi({env:{},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
+ const api=createSponsorWalletAuthApi({env:{TRON_SPONSOR_ENROLLMENT_TOKEN:bootstrap},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))},identityReport})
  const paired=await createOwnerAdminPairedSponsorSession(db,api)
  const headers=paired.headers
  db.state.sessions.push({session_id:99,wallet_role:'sponsor',token_hash:'other-token-hash',csrf_hash:'other-csrf-hash',revoked_at:null,created_at:new Date().toISOString(),last_seen_at:new Date().toISOString(),expires_at:new Date(Date.now()+3600000).toISOString()})
