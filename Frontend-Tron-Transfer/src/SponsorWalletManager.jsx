@@ -127,7 +127,10 @@ async function readResourceSnapshot(address, tronWeb) {
     // Do not turn an explicit API/provider rate limit into a burst of direct
     // TronWeb fallback calls. That amplifies 429s against the same RPC provider.
     if (error?.status === 429 || error?.status === 503) {
-      throw new Error('Mainnet resource service is temporarily rate-limited or unavailable. Existing balances are not treated as fresh; wait briefly and refresh again.')
+      const limited = new Error('Mainnet resource service is temporarily rate-limited or unavailable. Existing balances are not treated as fresh; wait before refreshing again.')
+      limited.status = error.status
+      limited.retryAfterSeconds = error.retryAfterSeconds || 15
+      throw limited
     }
     const [raw, balanceSun] = await Promise.all([tronWeb.trx.getAccountResources(address), tronWeb.trx.getBalance(address)])
     const energyLimit = Number(raw.EnergyLimit || 0), energyUsed = Number(raw.EnergyUsed || 0)
@@ -201,6 +204,9 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [newSponsorPassword, setNewSponsorPassword] = useState('')
   const [confirmSponsorPassword, setConfirmSponsorPassword] = useState('')
   const [authCsrfToken, setAuthCsrfToken] = useState('')
+  // Owner Admin has a separate session/CSRF proof from the Sponsor session.
+  const [ownerAdminCsrfToken, setOwnerAdminCsrfToken] = useState('')
+  const refreshCooldownUntil = useRef(0)
   const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
   const ownerAuth = useMemo(() => createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: RESOURCE_API }), [])
   const [saved, setSaved] = useState(null)
@@ -709,6 +715,11 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   const refresh = useCallback(async ({ quiet = false } = {}) => {
     if (!wallet || !tronWeb || !ownerAddress || refreshInFlight.current) return
+    const waitMs = refreshCooldownUntil.current - Date.now()
+    if (waitMs > 0) {
+      if (!quiet) notify('info', 'Mainnet refresh cooling down', 'The resource service recently rate-limited this wallet. Wait ' + Math.ceil(waitMs / 1000) + ' seconds before trying again.')
+      return
+    }
     refreshInFlight.current = true
     setBusy(true)
     try {
@@ -773,7 +784,11 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       })
       if (!quiet) notify('success', 'Sponsor wallet refreshed', 'Balances and current Mainnet resource counters were read from the TRON node.')
     } catch (error) {
-      if (!quiet) notify('error', 'Live refresh failed', error instanceof Error ? error.message : 'Could not read Sponsor Wallet data.')
+      if (error?.status === 429 || error?.status === 503) {
+        const retrySeconds = Math.max(15, Math.min(300, Number(error.retryAfterSeconds || 30)))
+        refreshCooldownUntil.current = Date.now() + retrySeconds * 1000
+        if (!quiet) notify('error', 'Live refresh rate-limited', 'Mainnet data is not fresh. Automatic and manual refresh are paused for ' + retrySeconds + ' seconds to avoid amplifying provider limits.')
+      } else if (!quiet) notify('error', 'Live refresh failed', error instanceof Error ? error.message : 'Could not read Sponsor Wallet data.')
     } finally {
       refreshInFlight.current = false
       setBusy(false)
