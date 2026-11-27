@@ -346,9 +346,9 @@ test('Owner password change rotates the current session and revokes all old sess
       if(sql.includes('INSERT INTO public.tron_transfer_wallet_auth_audit')){state.audits.push(params);return {rowCount:1,rows:[]}}
       if(sql.includes('SELECT s.session_id')) return {rows:[{session_id:41,csrf_hash:current.csrfHash,wallet_address:address}]}
       if(sql.includes('UPDATE public.tron_transfer_wallet_sessions SET last_seen_at')) return {rowCount:1,rows:[]}
+      if(sql.includes('UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1,password_salt=$2,password_algorithm=$3')){state.sponsorAccount.password_hash=params[0];state.sponsorAccount.password_salt=params[1];state.sponsorAccount.password_algorithm=params[2];state.sponsorAccount.password_params=JSON.parse(params[3]);return {rowCount:1,rows:[]}}
       if(sql.includes("wallet_role='sponsor' AND enabled=true")) return {rows:[state.sponsorAccount]}
       if(sql.includes('SELECT * FROM public.tron_transfer_wallet_accounts')) return {rows:[state.account]}
-      if(sql.includes('UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1,password_salt=$2,password_algorithm=$3')){state.sponsorAccount.password_hash=params[0];state.sponsorAccount.password_salt=params[1];state.sponsorAccount.password_algorithm=params[2];state.sponsorAccount.password_params=JSON.parse(params[3]);return {rowCount:1,rows:[]}}
       if(sql.includes('UPDATE public.tron_transfer_wallet_accounts')){state.account.password_hash=params[0];state.account.password_salt=params[1];state.account.password_params=JSON.parse(params[2]);return {rowCount:1,rows:[]}}
       if(sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()')){state.sessions.forEach(item=>{item.revoked_at=new Date()});return {rowCount:2,rows:[]}}
       if(sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')){state.sessions.push({session_id:42+state.sessions.length-2,wallet_role:params[0],token_hash:params[1],csrf_hash:params[2],revoked_at:null});return {rowCount:1,rows:[]}}
