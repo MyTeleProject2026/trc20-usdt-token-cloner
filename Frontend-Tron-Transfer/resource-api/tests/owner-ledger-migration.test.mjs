@@ -56,6 +56,8 @@ test('Owner Admin migration postflight requires the official USDT operation cons
   assert.match(script, /official_usdt_withdrawal_operation/)
   assert.match(script, /tron_transfer_owner_operations_operation_type_check/)
   assert.match(script, /LIKE '%usdt-transfer%'/)
+  assert.match(script, /paired_session_groups/)
+  assert.match(script, /column_name='session_group_id'/)
 })
 
 
