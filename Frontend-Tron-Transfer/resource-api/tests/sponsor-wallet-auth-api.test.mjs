@@ -16,7 +16,8 @@ function fakeDatabase() {
     async query(sql, params = []) {
       if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(sql.trim())) return { rowCount: 0, rows: [] }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_auth_audit')) { state.audit.push(params); return { rowCount: 1, rows: [] } }
-      if (sql.includes('SELECT s.session_id,s.session_group_id,a.wallet_address')) return { rows: state.ownerSession && state.ownerSession.token_hash===params[0] && !state.ownerSession.revoked_at && Date.parse(state.ownerSession.expires_at)>Date.now() ? [{session_id:state.ownerSession.session_id,session_group_id:state.ownerSession.session_group_id,wallet_address:state.ownerSession.wallet_address}] : [] }\n      if (sql.includes('SELECT wallet_address FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [{ wallet_address: state.account.wallet_address }] : [] }
+      if (sql.includes('SELECT s.session_id,s.session_group_id,a.wallet_address')) return { rows: state.ownerSession && state.ownerSession.token_hash===params[0] && !state.ownerSession.revoked_at && Date.parse(state.ownerSession.expires_at)>Date.now() ? [{session_id:state.ownerSession.session_id,session_group_id:state.ownerSession.session_group_id,wallet_address:state.ownerSession.wallet_address}] : [] }
+      if (sql.includes('SELECT wallet_address FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [{ wallet_address: state.account.wallet_address }] : [] }
       if (sql.includes('SELECT 1 FROM public.tron_transfer_wallet_accounts')) return { rowCount: state.account ? 1 : 0, rows: state.account ? [{}] : [] }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_accounts')) {
         state.account = { wallet_address: params[0], password_hash: params[1], password_salt: params[2], password_algorithm: 'scrypt', password_params: JSON.parse(params[3]), enabled: true, failed_attempts: 0 }
