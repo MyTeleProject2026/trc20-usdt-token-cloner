@@ -101,11 +101,14 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
     const sponsorCsrf = randomBytes(32).toString('base64url')
     await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['owner', secret.tokenHash, secret.csrfHash])
     const report = identity()
-    const sponsorResult = await db.query("SELECT wallet_address FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' AND enabled=true")
-    const sponsorAddress = String(sponsorResult.rows?.[0]?.wallet_address || '')
-    const sponsorAuthorized = Boolean(report?.identitiesDistinct && report?.sponsor?.ready
-      && sponsorAddress && sponsorAddress === report.sponsor.address
-      && sponsorAddress !== report?.owner?.address)
+    let sponsorAuthorized = false
+    let sponsorAddress = ''
+    if (report?.identitiesDistinct && report?.sponsor?.ready
+      && report?.owner?.ready && report.sponsor.address !== report.owner.address) {
+      const sponsorResult = await db.query("SELECT wallet_address FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' AND enabled=true")
+      sponsorAddress = String(sponsorResult.rows?.[0]?.wallet_address || '')
+      sponsorAuthorized = Boolean(sponsorAddress && sponsorAddress === report.sponsor.address)
+    }
     if (sponsorAuthorized) {
       const sponsorPasswordHash = passwordVerifier?.password_hash || passwordVerifier?.passwordHash
       const sponsorPasswordSalt = passwordVerifier?.password_salt || passwordVerifier?.passwordSalt
@@ -244,7 +247,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           }
           await db.query("UPDATE public.tron_transfer_wallet_accounts SET failed_attempts=0,locked_until=NULL,last_authenticated_at=now(),updated_at=now() WHERE wallet_role='owner'")
           await db.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role IN ('owner','sponsor') AND revoked_at IS NULL")
-          const session = await issueSession(db, res, verifier)
+          const session = await issueSession(db, res, account)
           await audit(db, 'login_succeeded', 'success')
           send(res, 200, { success: true, role: 'owner', address: account.wallet_address, session }, origin); return true
         }

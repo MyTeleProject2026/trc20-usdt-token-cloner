@@ -17,6 +17,7 @@ function fakeDatabase() {
     async query(sql, params = []) {
       if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(sql.trim())) return { rowCount: 0, rows: [] }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_auth_audit')) { state.audit.push(params); return { rowCount: 1, rows: [] } }
+      if (sql.includes("wallet_role='sponsor' AND enabled=true")) return { rows: state.sponsorAccount ? [{ wallet_address: state.sponsorAccount.wallet_address }] : [] }
       if (sql.includes('SELECT wallet_address FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [{ wallet_address: state.account.wallet_address }] : [] }
       if (sql.includes('SELECT 1 FROM public.tron_transfer_wallet_accounts')) return { rowCount: state.account ? 1 : 0, rows: state.account ? [{}] : [] }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_accounts')) {
@@ -24,7 +25,6 @@ function fakeDatabase() {
         return { rowCount: 1, rows: [] }
       }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')) { state.sessions.push({ wallet_role: params[0], token_hash: params[1], csrf_hash: params[2], revoked_at: null }); return { rowCount: 1, rows: [] } }
-      if (sql.includes("wallet_role='sponsor' AND enabled=true")) return { rows: state.sponsorAccount ? [{ wallet_address: state.sponsorAccount.wallet_address }] : [] }
       if (sql.includes('UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1')) { if (state.sponsorAccount) Object.assign(state.sponsorAccount,{password_hash:params[0],password_salt:params[1],password_algorithm:params[2],password_params:JSON.parse(params[3])}); return {rowCount:state.sponsorAccount?1:0,rows:[]} }
       if (sql.includes('SELECT * FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [state.account] : [] }
       if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()')) { state.sessions.forEach(x => { x.revoked_at = new Date() }); return { rowCount: 1, rows: [] } }
