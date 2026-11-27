@@ -9,7 +9,7 @@ const address = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const bootstrap = 'owner-enrollment-test-token-with-more-than-32-characters'
 
 function fakeDatabase() {
-  const state = { account: null, sessions: [], audit: [] }
+  const state = { account: null, sponsorAccount: null, sessions: [], audit: [] }
   return {
     state,
     async connect() { return this },
@@ -23,7 +23,9 @@ function fakeDatabase() {
         state.account = { wallet_address: params[0], password_hash: params[1], password_salt: params[2], password_algorithm: 'scrypt', password_params: JSON.parse(params[3]), enabled: true, failed_attempts: 0 }
         return { rowCount: 1, rows: [] }
       }
-      if (sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')) { state.sessions.push({ token_hash: params[1], csrf_hash: params[2], revoked_at: null }); return { rowCount: 1, rows: [] } }
+      if (sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')) { state.sessions.push({ wallet_role: params[0], token_hash: params[1], csrf_hash: params[2], revoked_at: null }); return { rowCount: 1, rows: [] } }
+      if (sql.includes("wallet_role='sponsor' AND enabled=true")) return { rows: state.sponsorAccount ? [{ wallet_address: state.sponsorAccount.wallet_address }] : [] }
+      if (sql.includes('UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1')) { if (state.sponsorAccount) Object.assign(state.sponsorAccount,{password_hash:params[0],password_salt:params[1],password_algorithm:params[2],password_params:JSON.parse(params[3])}); return {rowCount:state.sponsorAccount?1:0,rows:[]} }
       if (sql.includes('SELECT * FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [state.account] : [] }
       if (sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()')) { state.sessions.forEach(x => { x.revoked_at = new Date() }); return { rowCount: 1, rows: [] } }
       if (sql.includes('UPDATE public.tron_transfer_wallet_accounts SET failed_attempts=0')) { if (state.account) state.account.failed_attempts = 0; return { rowCount: 1, rows: [] } }
@@ -239,6 +241,25 @@ test('Owner login rejects an email identifier other than the configured Owner Ad
   assert.equal(res.status, 401)
   assert.equal(JSON.parse(res.body).error, 'INVALID_CREDENTIALS_OR_LOCKED')
   assert.equal(db.state.sessions.length, 0)
+})
+
+test('Owner login establishes a distinct Sponsor session with the same Owner Admin credential', async () => {
+  const db = fakeDatabase()
+  const verifier = await hashWalletPassword('Abc123!@')
+  db.state.account = { wallet_address: address, password_hash: verifier.passwordHash, password_salt: verifier.passwordSalt, password_algorithm: verifier.passwordAlgorithm, password_params: verifier.passwordParams, enabled: true, failed_attempts: 0 }
+  db.state.sponsorAccount = { wallet_address: identityReport.sponsor.address, password_hash: 'old-hash', password_salt: 'old-salt', password_algorithm: 'scrypt', password_params: {}, enabled: true }
+  const api = createOwnerWalletAuthApi({ env: {}, database: db, send: (res, status, payload) => { res.writeHead(status); res.end(JSON.stringify(payload)) }, identityReport })
+  const res = response()
+  await api.handle(request('POST', {}, { email: 'trontokenstudio@admin.com', password: 'Abc123!@' }), res, new URL('https://api.test/api/wallet-auth/owner/login'), 'https://tron-transfer.onrender.com')
+  assert.equal(res.status, 200)
+  const cookies = res.headers['set-cookie']
+  assert.ok(cookies.some(value => value.startsWith('tron_owner_session=')))
+  assert.ok(cookies.some(value => value.startsWith('tron_sponsor_session=')))
+  assert.ok(cookies.some(value => value.startsWith('tron_sponsor_csrf=')))
+  assert.equal(db.state.sessions.filter(row => row.wallet_role === 'owner').length, 1)
+  assert.equal(db.state.sessions.filter(row => row.wallet_role === 'sponsor').length, 1)
+  assert.equal(db.state.sessions[0].token_hash, db.state.sessions[1].token_hash)
+  assert.equal(db.state.sponsorAccount.password_hash, verifier.passwordHash)
 })
 
 test('Owner login is rate-limited per validated client IP after ten attempts in fifteen minutes', async () => {

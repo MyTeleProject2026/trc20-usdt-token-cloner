@@ -38,16 +38,23 @@ async function body(req) {
     return parsed
   } catch { throw Object.assign(new Error('invalid-json'), { status: 400 }) }
 }
-function setSessionCookies(res, token, csrf) {
-  res.setHeader('set-cookie', [
+function setSessionCookies(res, token, csrf, sponsorCsrf = '') {
+  const cookies = [
     COOKIE + '=' + encodeURIComponent(token) + '; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=28800',
     CSRF_COOKIE + '=' + encodeURIComponent(csrf) + '; Path=/; Secure; SameSite=None; Max-Age=28800',
-  ])
+  ]
+  if (sponsorCsrf) cookies.push(
+    'tron_sponsor_session=' + encodeURIComponent(token) + '; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=28800',
+    'tron_sponsor_csrf=' + encodeURIComponent(sponsorCsrf) + '; Path=/; Secure; SameSite=None; Max-Age=28800',
+  )
+  res.setHeader('set-cookie', cookies)
 }
 function clearSessionCookies(res) {
   res.setHeader('set-cookie', [
     COOKIE + '=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0',
     CSRF_COOKIE + '=; Path=/; Secure; SameSite=None; Max-Age=0',
+    'tron_sponsor_session=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0',
+    'tron_sponsor_csrf=; Path=/; Secure; SameSite=None; Max-Age=0',
   ])
 }
 
@@ -89,11 +96,29 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
   async function audit(db, type, outcome, metadata = {}) {
     await db.query('INSERT INTO public.tron_transfer_wallet_auth_audit (wallet_role,event_type,outcome,metadata) VALUES ($1,$2,$3,$4::jsonb)', ['owner', type, outcome, JSON.stringify(metadata)])
   }
-  async function issueSession(db, res) {
+  async function issueSession(db, res, passwordVerifier = null) {
     const secret = createWalletSessionSecrets()
+    const sponsorCsrf = randomBytes(32).toString('base64url')
     await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['owner', secret.tokenHash, secret.csrfHash])
-    setSessionCookies(res, secret.sessionToken, secret.csrfToken)
-    return { csrfToken: secret.csrfToken, expiresInSeconds: SESSION_MS / 1000 }
+    const report = identity()
+    const sponsorResult = await db.query("SELECT wallet_address FROM public.tron_transfer_wallet_accounts WHERE wallet_role='sponsor' AND enabled=true")
+    const sponsorAddress = String(sponsorResult.rows?.[0]?.wallet_address || '')
+    const sponsorAuthorized = Boolean(report?.identitiesDistinct && report?.sponsor?.ready
+      && sponsorAddress && sponsorAddress === report.sponsor.address
+      && sponsorAddress !== report?.owner?.address)
+    if (sponsorAuthorized) {
+      if (passwordVerifier?.password_hash && passwordVerifier?.password_salt) {
+        await db.query("UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1,password_salt=$2,password_algorithm=$3,password_params=$4::jsonb,failed_attempts=0,locked_until=NULL,password_changed_at=now(),updated_at=now() WHERE wallet_role='sponsor' AND enabled=true", [
+          passwordVerifier.password_hash, passwordVerifier.password_salt,
+          passwordVerifier.password_algorithm || 'scrypt',
+          JSON.stringify(passwordVerifier.password_params || {}),
+        ])
+      }
+      await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['sponsor', secret.tokenHash, digest(sponsorCsrf)])
+      await audit(db, 'shared_owner_session_issued', 'success', { sponsorAddress })
+    }
+    setSessionCookies(res, secret.sessionToken, secret.csrfToken, sponsorAuthorized ? sponsorCsrf : '')
+    return { csrfToken: secret.csrfToken, sponsorAuthorized, expiresInSeconds: SESSION_MS / 1000 }
   }
   async function authenticate(req, db, requireCsrf = false) {
     const token = cookieValue(req, COOKIE)
@@ -112,7 +137,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
         || !allowedOrigins.includes(String(req.headers.origin || ''))) return null
     }
     await db.query('UPDATE public.tron_transfer_wallet_sessions SET last_seen_at=now() WHERE session_id=$1', [session.session_id])
-    return { address: session.wallet_address, sessionId: session.session_id, csrfHash: session.csrf_hash }
+    return { address: session.wallet_address, sessionId: session.session_id, csrfHash: session.csrf_hash, tokenHash }
   }
 
   return {
@@ -184,7 +209,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
           await audit(db, 'enrollment_succeeded', 'success')
-          const session = await issueSession(db, res)
+          const session = await issueSession(db, res, verifier)
           send(res, 201, { success: true, enrolled: true, role: 'owner', address: report.owner.address, session }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/owner/login' && req.method === 'POST') {
@@ -215,8 +240,8 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
             send(res, 401, { success: false, error: 'INVALID_CREDENTIALS_OR_LOCKED' }, origin); return true
           }
           await db.query("UPDATE public.tron_transfer_wallet_accounts SET failed_attempts=0,locked_until=NULL,last_authenticated_at=now(),updated_at=now() WHERE wallet_role='owner'")
-          await db.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role='owner' AND revoked_at IS NULL")
-          const session = await issueSession(db, res)
+          await db.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role IN ('owner','sponsor') AND revoked_at IS NULL")
+          const session = await issueSession(db, res, verifier)
           await audit(db, 'login_succeeded', 'success')
           send(res, 200, { success: true, role: 'owner', address: account.wallet_address, session }, origin); return true
         }
@@ -298,7 +323,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
             await audit(client, 'password_changed', 'success', { source: 'authenticated-change' })
             await client.query('COMMIT')
           } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
-          const nextSession = await issueSession(db, res)
+          const nextSession = await issueSession(db, res, verifier)
           send(res, 200, { success: true, passwordChanged: true, session: nextSession }, origin); return true
         }
         if (url.pathname === '/api/wallet-auth/owner/recover' && req.method === 'POST') {
@@ -344,7 +369,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
         if (url.pathname === '/api/wallet-auth/owner/logout' && req.method === 'POST') {
           const session = await authenticate(req, db, true)
           if (session) {
-            await db.query('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE session_id=$1', [session.sessionId])
+            await db.query('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE token_hash=$1', [session.tokenHash])
             await audit(db, 'session_revoked', 'success')
           }
           clearSessionCookies(res)
