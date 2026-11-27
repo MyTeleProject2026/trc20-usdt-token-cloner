@@ -20,7 +20,7 @@ function fakeDatabase() {
       if (sql.includes('SELECT wallet_address FROM public.tron_transfer_wallet_accounts')) return { rows: state.account ? [{ wallet_address: state.account.wallet_address }] : [] }
       if (sql.includes('SELECT 1 FROM public.tron_transfer_wallet_accounts')) return { rowCount: state.account ? 1 : 0, rows: state.account ? [{}] : [] }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_accounts')) {
-        state.account = { wallet_address: params[0], password_hash: params[1], password_salt: params[2], password_algorithm: 'scrypt', password_params: JSON.parse(params[3]), enabled: true, failed_attempts: 0 }
+        state.account = { wallet_address: params[0], password_hash: params[1], password_salt: params[2], password_algorithm: params[3], password_params: JSON.parse(params[4]), enabled: true, failed_attempts: 0 }
         return { rowCount: 1, rows: [] }
       }
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')) { const now = new Date().toISOString(); state.sessions.push({ session_id: state.sessions.length + 1, wallet_role: params[0], token_hash: params[1], csrf_hash: params[2], session_group_id: params[3] || null, revoked_at: null, created_at: now, last_seen_at: now, expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString() }); return { rowCount: 1, rows: [] } }
