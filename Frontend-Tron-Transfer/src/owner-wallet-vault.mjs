@@ -76,6 +76,22 @@ export async function unlockOwnerWalletVault(password) {
     throw new Error('Unable to unlock the Owner Wallet. Check the vault password.')
   }
 }
+
+export async function migrateOwnerWalletVault(previousPassword, ownerAdminPassword) {
+  if (typeof ownerAdminPassword !== 'string' || ownerAdminPassword.length < 8) throw new Error('Use the Owner Admin password with at least 8 characters.')
+  const account = await unlockOwnerWalletVault(previousPassword)
+  const original = localStorage.getItem(STORAGE_KEY)
+  try {
+    await saveOwnerWalletVault(account, ownerAdminPassword)
+    const verified = await unlockOwnerWalletVault(ownerAdminPassword)
+    if (verified.address !== account.address || verified.privateKey !== account.privateKey) throw new Error('Owner vault migration verification failed.')
+    return verified
+  } catch (error) {
+    if (original !== null) localStorage.setItem(STORAGE_KEY, original)
+    throw error
+  }
+}
+
 export function getSavedOwnerWalletAddress() {
   try { const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); return typeof value.address === 'string' ? value.address : '' } catch { return '' }
 }

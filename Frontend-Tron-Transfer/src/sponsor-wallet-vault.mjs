@@ -119,6 +119,22 @@ export async function unlockSponsorWalletVault(password) {
   }
 }
 
+
+export async function migrateSponsorWalletVault(previousPassword, ownerAdminPassword) {
+  if (typeof ownerAdminPassword !== 'string' || ownerAdminPassword.length < 8) throw new Error('Use the Owner Admin password with at least 8 characters.')
+  const account = await unlockSponsorWalletVault(previousPassword)
+  const original = localStorage.getItem(STORAGE_KEY)
+  try {
+    await saveSponsorWalletVault(account, ownerAdminPassword)
+    const verified = await unlockSponsorWalletVault(ownerAdminPassword)
+    if (verified.address !== account.address || verified.privateKey !== account.privateKey) throw new Error('Sponsor vault migration verification failed.')
+    return verified
+  } catch (error) {
+    if (original !== null) localStorage.setItem(STORAGE_KEY, original)
+    throw error
+  }
+}
+
 export function getSavedSponsorWalletAddress() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
