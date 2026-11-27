@@ -66,6 +66,7 @@ function pageFromLocation() {
 export default function App() {
   const [activePage, setActivePage] = useState(pageFromLocation)
   const [wallet, setWallet] = useState(null)
+  const [ownerAdminPassword, setOwnerAdminPassword] = useState('')
   const [walletError, setWalletError] = useState('')
   const [walletNotice, setWalletNotice] = useState('')
   const [ownerAccessOpen, setOwnerAccessOpen] = useState(false)
@@ -107,6 +108,7 @@ export default function App() {
 
   function acceptOwnerWallet(ownerWallet) {
     setWallet(ownerWallet)
+    setOwnerAdminPassword(String(ownerWallet.ownerAdminPassword || ''))
     setOwnerAccessOpen(false)
     setWalletError('')
     setWalletNotice('Owner application session authenticated and the encrypted local Owner Wallet is unlocked. Every transaction still requires explicit confirmation.')
@@ -116,6 +118,7 @@ export default function App() {
     setOwnerSecurityOpen(false)
     ownerAuthClient.logout().catch(() => {})
     setWallet(null)
+    setOwnerAdminPassword('')
     setOwnerAccessOpen(true)
     setActivePage('home')
     setWalletNotice('Owner password session signed out and the local signing key has been cleared from memory.')
@@ -178,7 +181,7 @@ export default function App() {
       <main id="trax-workspace-main" className="trax-admin-content" tabIndex={-1}>
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
         <div hidden={!sponsorWorkspace} aria-hidden={!sponsorWorkspace}>
-          <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace}/></SponsorWorkspaceErrorBoundary>
+          <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive={sponsorWorkspace} ownerAdminPassword={ownerAdminPassword}/></SponsorWorkspaceErrorBoundary>
         </div>
         <div hidden={sponsorWorkspace} aria-hidden={sponsorWorkspace}>
           <OwnerWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>{activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}</OwnerWorkspaceErrorBoundary>

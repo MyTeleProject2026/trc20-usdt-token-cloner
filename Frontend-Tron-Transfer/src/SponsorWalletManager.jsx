@@ -175,7 +175,7 @@ function CenterToast({ toast, onClose }) {
   </div>
 }
 
-export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {}, workspaceActive = true }) {
+export default function SponsorWalletManager({ activePage = 'sponsor', onNavigate = () => {}, workspaceActive = true, ownerAdminPassword: sharedOwnerPassword = '' }) {
   const [wallet, setWallet] = useState(null)
   const [managedSponsorAddress, setManagedSponsorAddress] = useState('')
   const [vaultSaved, setVaultSaved] = useState(() => hasSavedSponsorWallet())
@@ -202,7 +202,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
   const ownerAuth = useMemo(() => createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: RESOURCE_API }), [])
   const [saved, setSaved] = useState(null)
-  const [ownerAdminPassword, setOwnerAdminPassword] = useState('')
+  const [ownerAdminPassword, setOwnerAdminPassword] = useState(sharedOwnerPassword)
   const [ownerAdminReady, setOwnerAdminReady] = useState(false)
   const [amount, setAmount] = useState('10')
   const [transferRecipient, setTransferRecipient] = useState('')
@@ -261,6 +261,44 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }
 
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
+
+  useEffect(() => {
+    if (sharedOwnerPassword) setOwnerAdminPassword(sharedOwnerPassword)
+    else setOwnerAdminPassword('')
+  }, [sharedOwnerPassword])
+
+  // The primary Owner Admin login already established the paired Sponsor role
+  // session. Reuse that authenticated session and the in-memory sign-in secret
+  // to unlock the Sponsor's independent local vault without another password UI.
+  useEffect(() => {
+    if (!workspaceActive || !sharedOwnerPassword || !vaultSaved || wallet || !managedSponsorAddress && saved === false) return undefined
+    let active = true
+    ;(async () => {
+      try {
+        const [ownerSession, sponsorSession] = await Promise.all([ownerAuth.session(), sponsorAuth.session()])
+        if (!active || !ownerSession?.success || !sponsorSession?.success || !sponsorSession.address) return
+        const account = await unlockSponsorWalletVault(sharedOwnerPassword)
+        if (account.address === ownerSession.address || account.address !== sponsorSession.address) {
+          throw new Error('The saved Sponsor wallet does not match its paired Sponsor role session.')
+        }
+        if (!active) return
+        setManagedSponsorAddress(sponsorSession.address)
+        setWallet(account)
+        setAuthCsrfToken(sponsorSession.csrfToken || '')
+        setOwnerAdminReady(true)
+        setSnapshot(null)
+        setWalletTransactions([])
+        setWalletTransactionsAvailable(false)
+        setWalletTokenTransfers([])
+        setWalletTokenTransfersAvailable(false)
+        recordSecurityEvent(account.address, 'Sponsor workspace automatically authorized', 'Reused the paired Sponsor role session established by the primary Owner Admin sign-in.')
+      } catch (error) {
+        if (active) notify('error', 'Sponsor wallet needs attention', error instanceof Error ? error.message : 'Automatic Sponsor wallet activation failed.')
+      }
+    })()
+    return () => { active = false }
+  }, [workspaceActive, sharedOwnerPassword, vaultSaved, wallet, managedSponsorAddress, saved, ownerAuth, sponsorAuth, notify])
+
 
   // Clear the Owner Admin re-authentication input and UI assertion whenever Sponsor is locked or its workspace is left.
   useEffect(() => {

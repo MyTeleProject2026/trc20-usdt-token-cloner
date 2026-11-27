@@ -92,13 +92,26 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       setUnlockPassword(authPassword)
       setVaultPassword(authPassword)
       setAuthPassword(''); setInitialAuthPassword(''); setConfirmAuthPassword(''); setEnrollmentToken('')
-      setMessage('Owner application session authenticated. Unlock or import the independent local Owner Wallet.')
+      setMessage('Owner Admin authenticated. Activating the configured Owner wallet without a second password prompt.')
+      if (saved && !replace) {
+        try {
+          const account = vaultMigrationRequired
+            ? await migrateOwnerWalletVault(legacyVaultPassword, authPassword)
+            : await unlockOwnerWalletVault(authPassword)
+          await activate(account, authPassword)
+          return
+        } catch (vaultError) {
+          setVaultMigrationRequired(true)
+          setMessage('Owner Admin sign-in succeeded. This older local vault needs its previous vault password once to migrate; it will not be requested on later sign-ins.')
+          if (vaultMigrationRequired) throw vaultError
+        }
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Owner account authentication failed.')
     } finally { setBusy(false) }
   }
 
-  async function activate(account) {
+  async function activate(account, sessionPassword = '') {
     const tronWeb = createOwnerTronWeb(account.privateKey)
     const derived = tronWeb.address.fromPrivateKey(account.privateKey)
     if (!expectedOwnerAddress || derived !== expectedOwnerAddress || account.address !== expectedOwnerAddress) {
@@ -110,7 +123,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
     if (typeof tronWeb.trx?.sign !== 'function') throw new Error('Local Owner transaction signing is unavailable in this browser.')
     onUnlock({
       address: derived, tronWeb, provider: null, managedSession: true,
-      signerType: 'encrypted-local-owner-vault', authClient: ownerAuth,
+      signerType: 'encrypted-local-owner-vault', authClient: ownerAuth, ownerAdminPassword: sessionPassword,
     })
   }
 
@@ -122,8 +135,9 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       const authenticatedOwner = await ownerAuth.login(vaultPassword, loginEmail)
       if (authenticatedOwner.address !== expectedOwnerAddress) throw new Error('OWNER_ADMIN_REAUTHENTICATION_FAILED')
       await saveOwnerWalletVault(account, vaultPassword)
-      setSaved(true); setCredential(''); setKeystorePassword(''); setVaultPassword('')
-      await activate(account)
+      setSaved(true); setCredential(''); setKeystorePassword('')
+      await activate(account, vaultPassword)
+      setVaultPassword('')
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Owner Wallet import failed.') }
     finally { setBusy(false) }
   }
@@ -145,7 +159,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         }
         throw cause
       }
-      await activate(account)
+      await activate(account, unlockPassword)
       setUnlockPassword(''); setLegacyVaultPassword(''); setVaultMigrationRequired(false)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Owner Wallet unlock failed.') }
     finally { setBusy(false) }
