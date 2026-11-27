@@ -56,15 +56,15 @@ test('Sponsor TronWeb instance is initialized before any effect dependency reads
 })
 
 
-test('Sponsor password recovery and account session controls stay inside the existing workspace',()=>{
+test('Owner Admin password recovery and Sponsor session controls stay inside the existing workspace',()=>{
   assert.ok(source.includes('ownerAuth.recoverPassword(authRecoveryToken.trim(), authPassword)'))
   assert.ok(source.includes('ownerAuth.changePassword(currentSponsorPassword, newSponsorPassword)'))
   assert.ok(source.includes('sponsorAuth.sessions()'))
   assert.ok(source.includes('sponsorAuth.revokeSession(sessionId)'))
   assert.ok(source.includes('sponsorAuth.revokeOtherSessions()'))
   assert.ok(source.includes('Sponsor account security and active sessions'))
-  assert.ok(source.includes('Recover Sponsor password'))
-  assert.ok(source.includes('Change Sponsor password'))
+  assert.ok(source.includes('Recover Owner Admin password'))
+  assert.ok(source.includes('Change Owner Admin password'))
   assert.ok(source.includes("activePage === \"sponsor\" && wallet"))
 })
 
