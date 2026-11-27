@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual, randomBytes } from 'node:crypto'
+import { createHash, timingSafeEqual, randomBytes, randomUUID } from 'node:crypto'
 import { isIP } from 'node:net'
 import pg from 'pg'
 import { walletAuthDatabaseConnectionString } from './sponsor-api.mjs'
@@ -99,7 +99,8 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
   async function issueSession(db, res, passwordVerifier = null) {
     const secret = createWalletSessionSecrets()
     const sponsorSecret = createWalletSessionSecrets()
-    await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['owner', secret.tokenHash, secret.csrfHash])
+    const sessionGroupId = randomUUID()
+    await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,session_group_id,expires_at) VALUES ($1,$2,$3,$4,now()+interval \'8 hours\')', ['owner', secret.tokenHash, secret.csrfHash, sessionGroupId])
     const report = identity()
     let sponsorAuthorized = false
     let sponsorAddress = ''
@@ -120,7 +121,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           JSON.stringify(sponsorPasswordParams),
         ])
       }
-      await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,expires_at) VALUES ($1,$2,$3,now()+interval \'8 hours\')', ['sponsor', sponsorSecret.tokenHash, sponsorSecret.csrfHash])
+      await db.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,session_group_id,expires_at) VALUES ($1,$2,$3,$4,now()+interval \'8 hours\')', ['sponsor', sponsorSecret.tokenHash, sponsorSecret.csrfHash, sessionGroupId])
       await audit(db, 'shared_owner_session_issued', 'success', { sponsorAddress })
     }
     setSessionCookies(res, secret.sessionToken, secret.csrfToken, sponsorAuthorized ? sponsorSecret.sessionToken : '', sponsorAuthorized ? sponsorSecret.csrfToken : '')
@@ -130,7 +131,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
     const token = cookieValue(req, COOKIE)
     const tokenHash = hashWalletSessionToken(token)
     if (!tokenHash) return null
-    const result = await db.query(`SELECT s.session_id,s.csrf_hash,a.wallet_address
+    const result = await db.query(`SELECT s.session_id,s.csrf_hash,s.session_group_id,a.wallet_address
       FROM public.tron_transfer_wallet_sessions s
       JOIN public.tron_transfer_wallet_accounts a USING(wallet_role)
       WHERE s.wallet_role='owner' AND s.token_hash=$1 AND s.revoked_at IS NULL
@@ -143,7 +144,7 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
         || !allowedOrigins.includes(String(req.headers.origin || ''))) return null
     }
     await db.query('UPDATE public.tron_transfer_wallet_sessions SET last_seen_at=now() WHERE session_id=$1', [session.session_id])
-    return { address: session.wallet_address, sessionId: session.session_id, csrfHash: session.csrf_hash, tokenHash }
+    return { address: session.wallet_address, sessionId: session.session_id, csrfHash: session.csrf_hash, tokenHash, sessionGroupId: session.session_group_id || null }
   }
 
   return {
@@ -285,7 +286,10 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           }
           const revoked = await db.query(`
             UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()
-            WHERE session_id=$1 AND wallet_role='owner' AND revoked_at IS NULL
+            WHERE revoked_at IS NULL AND (
+              session_id=$1 AND wallet_role='owner'
+              OR session_group_id=(SELECT session_group_id FROM public.tron_transfer_wallet_sessions WHERE session_id=$1 AND wallet_role='owner')
+            )
             RETURNING session_id
           `, [targetId])
           if (revoked.rowCount) await audit(db, 'session_revoked', 'success', { scope: 'single-session' })
@@ -296,7 +300,13 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           if (!session) { send(res, 401, { success: false, error: 'SESSION_REQUIRED' }, origin); return true }
           const revoked = await db.query(`
             UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()
-            WHERE wallet_role='owner' AND session_id<>$1 AND revoked_at IS NULL
+            WHERE revoked_at IS NULL AND session_id<>$1 AND (
+              wallet_role='owner'
+              OR session_group_id IN (
+                SELECT session_group_id FROM public.tron_transfer_wallet_sessions
+                WHERE wallet_role='owner' AND session_id<>$1 AND session_group_id IS NOT NULL
+              )
+            )
             RETURNING session_id
           `, [session.sessionId])
           for (const _row of (revoked.rows || [])) await audit(db, 'session_revoked', 'success', { scope: 'other-session' })
@@ -376,9 +386,13 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
         if (url.pathname === '/api/wallet-auth/owner/logout' && req.method === 'POST') {
           const session = await authenticate(req, db, true)
           if (session) {
-            // Owner Admin logout closes both workspaces. Role sessions use distinct
-            // token hashes because production enforces UNIQUE(token_hash) across roles.
-            await db.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE wallet_role IN ('owner','sponsor') AND revoked_at IS NULL")
+            // Revoke only the Owner/Sponsor pair created by this Owner Admin login.
+            // Unrelated device sessions remain independently manageable.
+            if (session.sessionGroupId) {
+              await db.query('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE session_group_id=$1 AND revoked_at IS NULL', [session.sessionGroupId])
+            } else {
+              await db.query("UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now() WHERE session_id=$1 AND wallet_role='owner' AND revoked_at IS NULL", [session.sessionId])
+            }
             await audit(db, 'session_revoked', 'success')
           }
           clearSessionCookies(res)
