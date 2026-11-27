@@ -161,3 +161,14 @@ test('Sponsor pre-release checklist is distinct from live transaction execution 
   assert.ok(source.includes('released ledger control, approved database identity, verified durability'))
   assert.equal(source.includes('paused-write and explicit Mainnet release gates'), false)
 })
+
+
+test('Sponsor security-event callback is initialized before the auto-restore effect reads it', () => {
+  const callback = source.indexOf('const recordSecurityEvent = useCallback(')
+  const restoreEffect = source.indexOf('// Restore the paired Sponsor role')
+  const dependency = source.indexOf('recordSecurityEvent])', restoreEffect)
+  assert.notEqual(callback, -1, 'security-event callback must remain memoized')
+  assert.notEqual(restoreEffect, -1, 'paired Sponsor auto-restore effect must exist')
+  assert.notEqual(dependency, -1, 'auto-restore effect must retain its callback dependency')
+  assert.ok(callback < restoreEffect && restoreEffect < dependency, 'the callback must be initialized before the effect callback and dependency array are evaluated')
+})
