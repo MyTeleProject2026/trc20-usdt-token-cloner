@@ -179,3 +179,13 @@ test('Sponsor Activity reads authenticated durable ledger records separately fro
   assert.ok(api.includes("req.method === 'GET' && path === '/api/sponsor/operations'"))
   assert.ok(api.includes('WHERE sponsor_address=$1 ORDER BY created_at DESC LIMIT $2'))
 })
+
+
+test('Owner and Sponsor workspaces mount exclusively so inactive page effects cannot execute', async () => {
+  const app = await read('../src/App.jsx')
+  assert.match(app, /\{sponsorWorkspace\s*\? <SponsorWorkspaceErrorBoundary/)
+  assert.match(app, /: <OwnerWorkspaceErrorBoundary/)
+  assert.doesNotMatch(app, /<div hidden=\{!sponsorWorkspace\}/)
+  assert.doesNotMatch(app, /<div hidden=\{sponsorWorkspace\}/)
+  assert.match(app, /workspaceActive ownerAdminPassword=\{ownerAdminPassword\}/)
+})
