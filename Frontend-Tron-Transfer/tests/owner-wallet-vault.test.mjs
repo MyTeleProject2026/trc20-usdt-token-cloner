@@ -1,10 +1,11 @@
 import test from 'node:test'
+import { webcrypto } from 'node:crypto'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
 import { assertMainnetWallet, deployContractWithOwnerSigner } from '../src/trax-mainnet.mjs'
 import {
   createOwnerTronWeb, deriveOwnerAccount, getSavedOwnerWalletAddress,
-  saveOwnerWalletVault, unlockOwnerWalletVault, removeSavedOwnerWallet,
+  saveOwnerWalletVault, unlockOwnerWalletVault, removeSavedOwnerWallet, migrateOwnerWalletVault,
 } from '../src/owner-wallet-vault.mjs'
 
 const PRIVATE_KEY = '0000000000000000000000000000000000000000000000000000000000000001'
@@ -97,4 +98,56 @@ test('local Owner signer signs a locally built transaction offline without broad
   assert.equal(signed.signature.length, 1)
   assert.match(signed.signature[0], /^[0-9a-f]{130}$/i)
   assert.equal(broadcastCalls, 0)
+})
+
+
+test('Owner vault migration verifies the new credential, rejects a wrong legacy password, and recovers an interrupted local write', async () => {
+  const priorStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const priorCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+  const values = new Map()
+  let interruptNextWrite = false
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto })
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: key => values.has(key) ? values.get(key) : null,
+      setItem: (key, value) => {
+        values.set(key, String(value))
+        if (interruptNextWrite) {
+          interruptNextWrite = false
+          throw new Error('simulated-owner-vault-write-interruption')
+        }
+      },
+      removeItem: key => values.delete(key),
+    },
+  })
+  try {
+    const account = await deriveOwnerAccount({ mode: 'private-key', value: PRIVATE_KEY })
+    const oldPassword = 'old-owner-vault-password'
+    const newPassword = 'Abc123!@'
+    await saveOwnerWalletVault(account, oldPassword)
+    const original = values.get('tron-transfer.owner-wallet.v1')
+
+    await assert.rejects(migrateOwnerWalletVault('wrong-old-password', newPassword), /Unable to unlock the Owner Wallet/)
+    assert.equal(values.get('tron-transfer.owner-wallet.v1'), original)
+    assert.equal((await unlockOwnerWalletVault(oldPassword)).address, account.address)
+
+    interruptNextWrite = true
+    await assert.rejects(migrateOwnerWalletVault(oldPassword, newPassword), /simulated-owner-vault-write-interruption/)
+    assert.equal(values.get('tron-transfer.owner-wallet.v1'), original)
+    const restored = await unlockOwnerWalletVault(oldPassword)
+    assert.equal(restored.address, account.address)
+    assert.equal(restored.privateKey, PRIVATE_KEY)
+
+    const migrated = await migrateOwnerWalletVault(oldPassword, newPassword)
+    assert.equal(migrated.address, account.address)
+    assert.equal(migrated.privateKey, PRIVATE_KEY)
+    await assert.rejects(unlockOwnerWalletVault(oldPassword), /Unable to unlock the Owner Wallet/)
+    assert.equal((await unlockOwnerWalletVault(newPassword)).address, account.address)
+  } finally {
+    if (priorStorage) Object.defineProperty(globalThis, 'localStorage', priorStorage)
+    else delete globalThis.localStorage
+    if (priorCrypto) Object.defineProperty(globalThis, 'crypto', priorCrypto)
+    else delete globalThis.crypto
+  }
 })
