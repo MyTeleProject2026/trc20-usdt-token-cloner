@@ -801,6 +801,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       await saveSponsorWalletVault(account, localVaultPassword)
       await saveSponsorDeviceWallet(account).catch(() => {})
       setDeviceUnlockReady(await hasSponsorDeviceWallet())
+      window.dispatchEvent(new Event('tron-transfer:sponsor-device-ready'))
       setWallet(account)
       setVaultSaved(true)
       setDeviceUnlockReady(await hasSponsorDeviceWallet())

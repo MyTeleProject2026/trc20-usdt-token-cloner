@@ -112,6 +112,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
               : await unlockOwnerWalletVault(authPassword)
           await saveOwnerDeviceWallet(account).catch(() => {})
           await activate(account, authPassword)
+          setVaultPassword('')
           return
         } catch (vaultError) {
           setVaultMigrationRequired(true)
