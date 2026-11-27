@@ -126,7 +126,6 @@ export function createOwnerWalletAuthApi({ env = process.env, database, send, al
           ])
         }
         await client.query('INSERT INTO public.tron_transfer_wallet_sessions (wallet_role,token_hash,csrf_hash,session_group_id,expires_at) VALUES ($1,$2,$3,$4,now()+interval \'8 hours\')', ['sponsor', sponsorSecret.tokenHash, sponsorSecret.csrfHash, sessionGroupId])
-        await audit(client, 'shared_owner_session_issued', 'success', { sponsorAddress })
       }
       await client.query('COMMIT')
     } catch (error) {
