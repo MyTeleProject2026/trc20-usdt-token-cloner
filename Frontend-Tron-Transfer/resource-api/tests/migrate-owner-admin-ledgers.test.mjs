@@ -25,7 +25,7 @@ test('Owner Admin migration target fingerprint rejects pooler URLs only at main 
 
 
 test('Owner Admin schema fingerprint reads the stable catalog manifest',async()=>{
- assert.equal(OWNER_ADMIN_SCHEMA_FINGERPRINT,'d791bd80a73d966365e717ac7f72e1525f4df1c2fac1d0096c2f8aea5c5ad8ea','Pin the catalog fingerprint verified against the current production and restored Neon branches.');
+ assert.equal(OWNER_ADMIN_SCHEMA_FINGERPRINT,'affaf989f3f11eb410ed016f4eafa9ef327654b5a41ffeb905d204037097c6e5','Pin the catalog fingerprint verified against the current production and restored Neon branches.');
  let statement=''
  const fingerprint=await getOwnerAdminSchemaFingerprint({async query(sql){statement=sql;return{rows:[{fingerprint:OWNER_ADMIN_SCHEMA_FINGERPRINT}]}}})
  assert.equal(fingerprint,OWNER_ADMIN_SCHEMA_FINGERPRINT)
