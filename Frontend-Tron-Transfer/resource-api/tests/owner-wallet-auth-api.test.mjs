@@ -299,6 +299,9 @@ test('Owner recovery token is one-time, expires server-side, and revokes every s
   const state = { consumed: false, sessions: [{ revoked: false }, { revoked: false }], account: {
     wallet_address: address, password_hash: verifier.passwordHash, password_salt: verifier.passwordSalt,
     password_algorithm: verifier.passwordAlgorithm, password_params: verifier.passwordParams, enabled: true,
+  }, sponsorAccount: {
+    wallet_address: identityReport.sponsor.address, password_hash: 'old-sponsor-hash',
+    password_salt: 'old-sponsor-salt', password_algorithm: 'scrypt', password_params: {}, enabled: true,
   }, audits: [] }
   const db = {
     async connect() { return this }, release() {},
@@ -307,18 +310,22 @@ test('Owner recovery token is one-time, expires server-side, and revokes every s
       if (sql.includes('INSERT INTO public.tron_transfer_wallet_auth_audit')) { state.audits.push(params); return { rowCount: 1, rows: [] } }
       if (sql.includes('SELECT recovery_token_id')) return { rows: state.consumed || params[0] !== tokenHash ? [] : [{ recovery_token_id: 7 }] }
       if (sql.includes('UPDATE public.tron_transfer_wallet_recovery_tokens')) { state.consumed = true; return { rowCount: 1, rows: [] } }
+      if (sql.includes("UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1,password_salt=$2,password_algorithm='scrypt'") && sql.includes("wallet_role='sponsor'")) {
+        state.sponsorAccount.password_hash=params[0]; state.sponsorAccount.password_salt=params[1]; state.sponsorAccount.password_params=JSON.parse(params[2]); return { rowCount: 1, rows: [] }
+      }
       if (sql.includes('UPDATE public.tron_transfer_wallet_accounts')) { state.account.password_hash=params[0]; state.account.password_salt=params[1]; state.account.password_params=JSON.parse(params[2]); return { rowCount: 1, rows: [{wallet_address:address}] } }
       if (sql.includes('UPDATE public.tron_transfer_wallet_sessions')) { state.sessions.forEach(item=>{item.revoked=true}); return { rowCount: 2, rows: [] } }
       throw new Error('unexpected-recovery-query: '+sql.slice(0,100))
     },
   }
-  const api=createOwnerWalletAuthApi({env:{},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
+  const api=createOwnerWalletAuthApi({env:{},database:db,identityReport,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
   const first=response()
   await api.handle(request('POST',{origin:'https://tron-transfer.onrender.com'},{recoveryToken,newPassword:'new owner password phrase 456'}),first,new URL('https://api.test/api/wallet-auth/owner/recover'),'https://tron-transfer.onrender.com')
   assert.equal(first.status,200)
   assert.equal(JSON.parse(first.body).passwordRecovered,true)
   assert.equal(state.consumed,true)
   assert.ok(state.sessions.every(item=>item.revoked))
+  assert.equal(state.sponsorAccount.password_hash, state.account.password_hash, 'Owner recovery must synchronize the Sponsor verifier')
   assert.ok(state.audits.some(item=>item[1]==='password_changed' && item[3].includes('one-time-recovery-token')))
 
   const second=response()
@@ -331,7 +338,7 @@ test('Owner password change rotates the current session and revokes all old sess
   const oldPassword='current owner password phrase 123'
   const verifier=await hashWalletPassword(oldPassword)
   const current=createWalletSessionSecrets()
-  const state={account:{wallet_address:address,password_hash:verifier.passwordHash,password_salt:verifier.passwordSalt,password_algorithm:verifier.passwordAlgorithm,password_params:verifier.passwordParams,enabled:true},sessions:[{session_id:41,token_hash:current.tokenHash,csrf_hash:current.csrfHash,revoked_at:null},{session_id:40,revoked_at:null}],audits:[]}
+  const state={account:{wallet_address:address,password_hash:verifier.passwordHash,password_salt:verifier.passwordSalt,password_algorithm:verifier.passwordAlgorithm,password_params:verifier.passwordParams,enabled:true},sponsorAccount:{wallet_address:identityReport.sponsor.address,password_hash:'old-sponsor-hash',password_salt:'old-sponsor-salt',password_algorithm:'scrypt',password_params:{},enabled:true},sessions:[{session_id:41,token_hash:current.tokenHash,csrf_hash:current.csrfHash,revoked_at:null},{session_id:40,revoked_at:null}],audits:[]}
   const db={
     async connect(){return this},release(){},
     async query(sql,params=[]){
@@ -339,14 +346,16 @@ test('Owner password change rotates the current session and revokes all old sess
       if(sql.includes('INSERT INTO public.tron_transfer_wallet_auth_audit')){state.audits.push(params);return {rowCount:1,rows:[]}}
       if(sql.includes('SELECT s.session_id')) return {rows:[{session_id:41,csrf_hash:current.csrfHash,wallet_address:address}]}
       if(sql.includes('UPDATE public.tron_transfer_wallet_sessions SET last_seen_at')) return {rowCount:1,rows:[]}
+      if(sql.includes("wallet_role='sponsor' AND enabled=true")) return {rows:[state.sponsorAccount]}
       if(sql.includes('SELECT * FROM public.tron_transfer_wallet_accounts')) return {rows:[state.account]}
+      if(sql.includes('UPDATE public.tron_transfer_wallet_accounts SET password_hash=$1,password_salt=$2,password_algorithm=$3')){state.sponsorAccount.password_hash=params[0];state.sponsorAccount.password_salt=params[1];state.sponsorAccount.password_algorithm=params[2];state.sponsorAccount.password_params=JSON.parse(params[3]);return {rowCount:1,rows:[]}}
       if(sql.includes('UPDATE public.tron_transfer_wallet_accounts')){state.account.password_hash=params[0];state.account.password_salt=params[1];state.account.password_params=JSON.parse(params[2]);return {rowCount:1,rows:[]}}
       if(sql.includes('UPDATE public.tron_transfer_wallet_sessions SET revoked_at=now()')){state.sessions.forEach(item=>{item.revoked_at=new Date()});return {rowCount:2,rows:[]}}
-      if(sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')){state.sessions.push({session_id:42,token_hash:params[1],csrf_hash:params[2],revoked_at:null});return {rowCount:1,rows:[]}}
+      if(sql.includes('INSERT INTO public.tron_transfer_wallet_sessions')){state.sessions.push({session_id:42+state.sessions.length-2,wallet_role:params[0],token_hash:params[1],csrf_hash:params[2],revoked_at:null});return {rowCount:1,rows:[]}}
       throw new Error('unexpected-password-change-query: '+sql.slice(0,100))
     }
   }
-  const api=createOwnerWalletAuthApi({env:{},database:db,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
+  const api=createOwnerWalletAuthApi({env:{},database:db,identityReport,send:(res,status,payload)=>{res.writeHead(status);res.end(JSON.stringify(payload))}})
   const res=response()
   await api.handle(request('POST',{
     cookie:'tron_owner_session='+current.sessionToken+'; tron_owner_csrf='+current.csrfToken,
@@ -356,7 +365,9 @@ test('Owner password change rotates the current session and revokes all old sess
   assert.equal(res.status,200)
   assert.equal(JSON.parse(res.body).passwordChanged,true)
   assert.ok(state.sessions.filter(item=>item.session_id!==42).every(item=>item.revoked_at))
-  assert.equal(state.sessions.find(item=>item.session_id===42).revoked_at,null)
+  assert.equal(state.sessions.find(item=>item.wallet_role==='owner' && item.revoked_at===null).revoked_at,null)
+  assert.equal(state.sponsorAccount.password_hash, state.account.password_hash, 'Owner password change must synchronize the Sponsor verifier')
+  assert.equal(state.sessions.filter(item=>item.wallet_role==='sponsor' && item.revoked_at===null).length,1)
   assert.ok(state.audits.some(item=>item[1]==='password_changed'))
 })
 
