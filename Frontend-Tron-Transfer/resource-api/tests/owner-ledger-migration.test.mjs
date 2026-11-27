@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 const migrationUrl = new URL('../migrations/20261122_backend_wallet_auth.sql', import.meta.url)
 const operationMigrationUrl = new URL('../migrations/20261123_owner_operation_ledger.sql', import.meta.url)
 const usdtWithdrawalMigrationUrl = new URL('../migrations/20261127_owner_usdt_withdrawal.sql', import.meta.url)
+const sessionGroupMigrationUrl = new URL('../migrations/20261128_shared_owner_sponsor_session_groups.sql', import.meta.url)
 
 test('Owner operation ledger migration has complete bounded validation constraints', async () => {
   const sql = await readFile(migrationUrl, 'utf8')
@@ -55,4 +56,14 @@ test('Owner Admin migration postflight requires the official USDT operation cons
   assert.match(script, /official_usdt_withdrawal_operation/)
   assert.match(script, /tron_transfer_owner_operations_operation_type_check/)
   assert.match(script, /LIKE '%usdt-transfer%'/)
+})
+
+
+test('Paired Owner and Sponsor session migration preserves independent tokens and legacy sessions', async () => {
+  const sql = await readFile(sessionGroupMigrationUrl, 'utf8')
+  assert.match(sql, /ALTER TABLE public\.tron_transfer_wallet_sessions/)
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS session_group_id UUID/)
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS tron_transfer_wallet_sessions_group_active/)
+  assert.match(sql, /WHERE session_group_id IS NOT NULL AND revoked_at IS NULL/)
+  assert.doesNotMatch(sql, /DROP COLUMN|DELETE FROM|UPDATE public\.tron_transfer_wallet_sessions/)
 })
