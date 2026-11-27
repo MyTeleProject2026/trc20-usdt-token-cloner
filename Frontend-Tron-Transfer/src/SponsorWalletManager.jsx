@@ -3,6 +3,7 @@ import { Activity, ArrowDownUp, CheckCircle2, CircleAlert, FileKey2, LockKeyhole
 import {
   createSponsorTronWeb, deriveSponsorAccount, getSavedSponsorWalletAddress, hasSavedSponsorWallet,
   removeSavedSponsorWallet, saveSponsorWalletVault, unlockSponsorWalletVault, migrateSponsorWalletVault, signSponsorTransaction,
+  saveSponsorDeviceWallet, unlockSponsorDeviceWallet, hasSponsorDeviceWallet, removeSponsorDeviceWallet,
 } from './sponsor-wallet-vault.mjs'
 import { planSponsorResourceProvisioning } from './sponsor-resource-planner.mjs'
 import { createManagedWalletAuthClient, OWNER_ADMIN_LOGIN_EMAIL } from './managed-wallet-auth-client.mjs'
@@ -202,7 +203,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const sponsorAuth = useMemo(() => createManagedWalletAuthClient({ role: 'sponsor', apiBaseUrl: RESOURCE_API }), [])
   const ownerAuth = useMemo(() => createManagedWalletAuthClient({ role: 'owner', apiBaseUrl: RESOURCE_API }), [])
   const [saved, setSaved] = useState(null)
-  const [ownerAdminPassword, setOwnerAdminPassword] = useState(sharedOwnerPassword)
   const [ownerAdminReady, setOwnerAdminReady] = useState(false)
   const [amount, setAmount] = useState('10')
   const [transferRecipient, setTransferRecipient] = useState('')
@@ -231,6 +231,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const toastTimer = useRef(null)
   const resourceAlertState = useRef('unknown')
   const refreshInFlight = useRef(false)
+  const autoRestoreBlocked = useRef(false)
 
   const tronWeb = useMemo(() => wallet?.privateKey ? createSponsorTronWeb(wallet.privateKey) : null, [wallet])
 
@@ -262,52 +263,64 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current) }, [])
 
+  // Restore the paired Sponsor role using its own non-exportable device key.
+  // The Owner password is used only once to enroll an older Sponsor vault.
   useEffect(() => {
-    if (workspaceActive && sharedOwnerPassword) setOwnerAdminPassword(sharedOwnerPassword)
-    else if (!workspaceActive) setOwnerAdminPassword('')
-  }, [sharedOwnerPassword, workspaceActive])
-
-  // The primary Owner Admin login already established the paired Sponsor role
-  // session. Reuse that authenticated session and the in-memory sign-in secret
-  // to unlock the Sponsor's independent local vault without another password UI.
-  useEffect(() => {
-    if (!workspaceActive || !sharedOwnerPassword || !vaultSaved || wallet || !managedSponsorAddress && saved === false) return undefined
     let active = true
-    ;(async () => {
+    const restore = async () => {
+      if (autoRestoreBlocked.current || wallet || !vaultSaved) return
       try {
         const [ownerSession, sponsorSession] = await Promise.all([ownerAuth.session(), sponsorAuth.session()])
-        if (!active || !ownerSession?.success || !sponsorSession?.success || !sponsorSession.address) return
-        const account = await unlockSponsorWalletVault(sharedOwnerPassword)
+        if (!active || !ownerSession?.success || !sponsorSession?.success
+          || !ADDRESS_PATTERN.test(String(ownerSession.address || ''))
+          || !ADDRESS_PATTERN.test(String(sponsorSession.address || ''))
+          || sponsorSession.address === ownerSession.address) return
+        let account
+        if (await hasSponsorDeviceWallet()) account = await unlockSponsorDeviceWallet()
+        else if (sharedOwnerPassword) {
+          account = await unlockSponsorWalletVault(sharedOwnerPassword)
+          await saveSponsorDeviceWallet(account)
+        } else return
         if (account.address === ownerSession.address || account.address !== sponsorSession.address) {
-          throw new Error('The saved Sponsor wallet does not match its paired Sponsor role session.')
+          throw new Error('The saved Sponsor wallet does not match its independent paired Sponsor role session.')
         }
         if (!active) return
         setManagedSponsorAddress(sponsorSession.address)
+        setOwnerAddress(ownerSession.address)
+        setOwnerAdminReady(true)
+        setOwnerAdminCsrfToken(ownerSession.csrfToken || '')
         setWallet(account)
         setAuthCsrfToken(sponsorSession.csrfToken || '')
-        setOwnerAdminReady(true)
         setSnapshot(null)
         setWalletTransactions([])
         setWalletTransactionsAvailable(false)
         setWalletTokenTransfers([])
         setWalletTokenTransfersAvailable(false)
-        recordSecurityEvent(account.address, 'Sponsor workspace automatically authorized', 'Reused the paired Sponsor role session established by the primary Owner Admin sign-in.')
+        recordSecurityEvent(account.address, 'Sponsor workspace automatically authorized', 'Restored the independent Sponsor wallet using its role-specific non-exportable browser key and paired Owner Admin session.')
+        if (sharedOwnerPassword) window.dispatchEvent(new Event('tron-transfer:sponsor-device-ready'))
       } catch (error) {
         if (active) notify('error', 'Sponsor wallet needs attention', error instanceof Error ? error.message : 'Automatic Sponsor wallet activation failed.')
       }
-    })()
-    return () => { active = false }
-  }, [workspaceActive, sharedOwnerPassword, vaultSaved, wallet, managedSponsorAddress, saved, ownerAuth, sponsorAuth, notify])
-
-
-  // Clear the transient shared-password UI copy when leaving the Sponsor workspace.
-  // A locked Sponsor vault is restored from the paired role session, not another login.
-  useEffect(() => {
-    if (!workspaceActive) {
-      setOwnerAdminPassword('')
-      setOwnerAdminReady(false)
     }
-  }, [workspaceActive])
+    void restore()
+    const onOwnerRefresh = () => { autoRestoreBlocked.current = false; void restore() }
+    window.addEventListener('tron-transfer:owner-session-refreshed', onOwnerRefresh)
+    return () => { active = false; window.removeEventListener('tron-transfer:owner-session-refreshed', onOwnerRefresh) }
+  }, [sharedOwnerPassword, vaultSaved, wallet, ownerAuth, sponsorAuth, notify, recordSecurityEvent])
+
+  useEffect(() => {
+    if (!workspaceActive) return
+    void ownerAuth.session().then(session => {
+      if (session?.success && ADDRESS_PATTERN.test(String(session.address || ''))) {
+        setOwnerAddress(session.address)
+        setOwnerAdminReady(true)
+        setOwnerAdminCsrfToken(session.csrfToken || '')
+      } else {
+        setOwnerAdminReady(false)
+        setOwnerAdminCsrfToken('')
+      }
+    }).catch(() => { setOwnerAdminReady(false); setOwnerAdminCsrfToken('') })
+  }, [workspaceActive, ownerAuth])
 
   useEffect(() => {
     if (!workspaceActive) return undefined
@@ -374,21 +387,20 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [workspaceActive, sponsorAuth, ownerAuth])
 
   async function loginOwnerAdmin() {
-    if (busy || ownerAdminPassword.length < 8) return
+    if (busy) return
     setBusy(true)
     try {
-      const result = await ownerAuth.login(ownerAdminPassword, OWNER_ADMIN_LOGIN_EMAIL)
-      if (typeof result.address !== 'string' || !ADDRESS_PATTERN.test(result.address)) throw new Error('Authenticated Owner session did not return a valid configured Mainnet address.')
       const session = await ownerAuth.session()
-      if (session?.address !== result.address) throw new Error('Owner Admin session could not be verified.')
+      if (!session?.success || typeof session.address !== 'string' || !ADDRESS_PATTERN.test(session.address)) {
+        throw new Error('Sign in through the main Owner Admin login to authorize guarded Sponsor administration.')
+      }
       setOwnerAddress(session.address)
       setOwnerAdminReady(true)
-      setOwnerAdminPassword('')
-      window.dispatchEvent(new Event('tron-transfer:owner-session-refreshed'))
-      notify('success', 'Owner Admin authenticated', 'Independent Owner authorization is active for guarded Sponsor administration.')
+      setOwnerAdminCsrfToken(session.csrfToken || '')
+      notify('success', 'Owner Admin session verified', 'The existing application session authorizes guarded Sponsor administration. No second password was requested.')
     } catch (error) {
       setOwnerAdminReady(false)
-      notify('error', 'Owner Admin authentication failed', error instanceof Error ? error.message : 'Could not authenticate the Owner account.')
+      notify('error', 'Owner Admin session unavailable', error instanceof Error ? error.message : 'Could not verify the Owner Admin session.')
     } finally { setBusy(false) }
   }
 
@@ -765,19 +777,22 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     if (!managedSponsorAddress || busy) return
     setBusy(true)
     try {
-      const ownerLogin = await ownerAuth.login(vaultPassword, OWNER_ADMIN_LOGIN_EMAIL)
-      if (!ownerLogin?.address || !ADDRESS_PATTERN.test(ownerLogin.address)) throw new Error('OWNER_ADMIN_AUTHENTICATION_FAILED')
+      const ownerSession = await ownerAuth.session()
+      if (!ownerSession?.success || !ADDRESS_PATTERN.test(String(ownerSession.address || ''))) throw new Error('OWNER_ADMIN_SESSION_REQUIRED')
       const sponsorSession = await sponsorAuth.session()
       if (sponsorSession?.address !== managedSponsorAddress) throw new Error('SPONSOR_SESSION_REQUIRED')
       const account = await deriveSponsorAccount({ mode, value: credential, secretPassword: keystorePassword })
       if (account.address === ownerAddress || account.address !== managedSponsorAddress) {
         throw new Error('Imported Sponsor Wallet must match the authenticated independent Sponsor Mainnet account.')
       }
-      await saveSponsorWalletVault(account, vaultPassword)
+      const localVaultPassword = vaultPassword || sharedOwnerPassword || (globalThis.crypto?.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join(''))
+      await saveSponsorWalletVault(account, localVaultPassword)
+      await saveSponsorDeviceWallet(account).catch(() => {})
       setWallet(account)
       setVaultSaved(true)
       setReplacing(false)
       setCredential(''); setKeystorePassword(''); setVaultPassword('')
+      window.dispatchEvent(new Event('tron-transfer:sponsor-device-ready'))
       recordSecurityEvent(account.address, 'Sponsor Wallet imported', 'Existing Sponsor credentials encrypted in this browser; the Resource API received no private key.')
       notify('success', 'Sponsor Wallet imported', 'Independent Mainnet address verified: ' + account.address)
     } catch (error) {
@@ -789,15 +804,17 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     if (!managedSponsorAddress || busy) return
     setBusy(true)
     try {
-      const ownerLogin = await ownerAuth.login(unlockPassword, OWNER_ADMIN_LOGIN_EMAIL)
-      if (!ownerLogin?.address || !ADDRESS_PATTERN.test(ownerLogin.address)) throw new Error('OWNER_ADMIN_AUTHENTICATION_FAILED')
+      const ownerSession = await ownerAuth.session()
+      if (!ownerSession?.success || !ADDRESS_PATTERN.test(String(ownerSession.address || ''))) throw new Error('OWNER_ADMIN_SESSION_REQUIRED')
       const session = await sponsorAuth.session()
       if (session?.address !== managedSponsorAddress) throw new Error('SPONSOR_SESSION_REQUIRED')
       let account
       try {
-        account = vaultMigrationRequired
-          ? await migrateSponsorWalletVault(legacyVaultPassword, unlockPassword)
-          : await unlockSponsorWalletVault(unlockPassword)
+        account = await hasSponsorDeviceWallet()
+          ? await unlockSponsorDeviceWallet()
+          : vaultMigrationRequired
+            ? await migrateSponsorWalletVault(legacyVaultPassword, unlockPassword)
+            : await unlockSponsorWalletVault(unlockPassword)
       } catch (error) {
         if (!vaultMigrationRequired) {
           setVaultMigrationRequired(true)
@@ -808,6 +825,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
       if (account.address === ownerAddress || account.address !== managedSponsorAddress) {
         throw new Error('Saved Sponsor Wallet does not match the authenticated independent Sponsor account.')
       }
+      await saveSponsorDeviceWallet(account).catch(() => {})
       setWallet(account)
       setUnlockPassword('')
       setLegacyVaultPassword('')
@@ -837,7 +855,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
 
   function removeVault() {
     if (!window.confirm('Remove the encrypted Sponsor Wallet backup from this browser? This does not affect the on-chain wallet. Keep your own recovery backup.')) return
-    try { removeSavedSponsorWallet() }
+    try { removeSavedSponsorWallet(); void removeSponsorDeviceWallet().catch(() => {}) }
     catch (error) { notify('error', 'Could not remove local backup', error instanceof Error ? error.message : 'Browser storage is unavailable.'); return }
     recordSecurityEvent(managedSponsorAddress || getSavedSponsorWalletAddress(), 'Sponsor Wallet backup removed', 'Encrypted local vault removed; on-chain funds were not changed.')
     setVaultSaved(false); setReplacing(true); setWallet(null)
@@ -846,6 +864,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }
 
   const lockWallet = useCallback((reason = 'manual') => {
+    autoRestoreBlocked.current = true
     const address = wallet?.address || managedSponsorAddress || getSavedSponsorWalletAddress()
     const automatic = reason === 'inactivity' || reason === 'background'
     if (address) recordSecurityEvent(
@@ -855,8 +874,6 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
         ? (reason === 'background' ? 'Session locked after the page remained hidden for 60 seconds.' : 'Session locked after 5 minutes without user activity.')
         : 'Local Sponsor signer cleared from memory and managed session revoked; encrypted backup retained.',
     )
-    void sponsorAuth.logout().catch(() => {})
-    setOwnerAdminPassword('')
     setOwnerAdminReady(false)
     setOwnerAdminCsrfToken('')
     setAuthCsrfToken('')
@@ -893,10 +910,17 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   }, [wallet?.address, recordSecurityEvent, notify, sponsorAuth, managedSponsorAddress])
 
   useEffect(() => {
+    const onOwnerSessionEnded = () => {
+      autoRestoreBlocked.current = true
+      if (wallet?.address) lockWallet('manual')
+    }
+    window.addEventListener('tron-transfer:owner-session-ended', onOwnerSessionEnded)
+    return () => window.removeEventListener('tron-transfer:owner-session-ended', onOwnerSessionEnded)
+  }, [wallet?.address, lockWallet])
+
+  useEffect(() => {
     if (workspaceActive) return
-    if (wallet?.address) lockWallet('manual')
-    if (!wallet?.address && managedSponsorAddress) lockWallet('manual')
-    // Clear pending import/unlock credentials even when no vault has been unlocked yet.
+    // Workspace navigation is not logout: retain paired sessions and unlocked signers in memory.
     setAuthPassword('')
     setAuthRecoveryToken('')
     setAuthRecoveryConfirmPassword('')
@@ -907,8 +931,7 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
     setKeystorePassword('')
     setVaultPassword('')
     setUnlockPassword('')
-    setOwnerAdminPassword('')
-  }, [workspaceActive, wallet?.address, managedSponsorAddress, lockWallet])
+  }, [workspaceActive])
 
   useEffect(() => {
     if (!wallet?.address || !workspaceActive) return undefined
@@ -1346,12 +1369,12 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
           <label className="sponsor-field">Type PAUSE_SPONSOR_MAINNET_WRITES to pause Sponsor writes<input value={sponsorControlPhrase} onChange={event => setSponsorControlPhrase(event.target.value)} autoComplete="off" spellCheck="false"/></label>
           <button type="button" className="sponsor-danger" disabled={busy || !ownerAdminReady || sponsorControlPhrase !== 'PAUSE_SPONSOR_MAINNET_WRITES'} onClick={() => void changeSponsorWriteControl(true)}>Pause Sponsor Mainnet writes</button>
         </>}
-        {!ownerAdminReady && <p className="sponsor-muted">Authenticate the separate Owner Admin session below to use this control. Sponsor login and ordinary Sponsor operations do not require Owner authentication.</p>}
+        {!ownerAdminReady && <p className="sponsor-muted">Sign in once through Owner Admin to authorize this control. No separate workspace password is required.</p>}
       </div>}
       {activePage === 'sponsor' && <section className="sponsor-card sponsor-admin-authorization">
-        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Owner Admin authorization</h3><p>{ownerAdminReady ? 'Owner account session verified for guarded Sponsor administration.' : 'Authenticate the separate Owner account only for ledger bootstrap and explicit Sponsor write-control actions.'}</p></div></div>
-        {!ownerAdminReady && <label className="sponsor-field">Owner account password<input type="password" value={ownerAdminPassword} onChange={event => setOwnerAdminPassword(event.target.value)} autoComplete="current-password" minLength={8}/></label>}
-        <div className="sponsor-actions"><button type="button" className="sponsor-secondary" disabled={busy || ownerAdminPassword.length < 8 || ownerAdminReady} onClick={() => void loginOwnerAdmin()}>{ownerAdminReady ? 'Owner Admin session active' : 'Authenticate Owner for guarded Sponsor administration'}</button></div>
+        <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Owner Admin authorization</h3><p>{ownerAdminReady ? 'Owner account session verified for guarded Sponsor administration.' : 'The primary Owner Admin application session authorizes guarded Sponsor administration.'}</p></div></div>
+        
+        <div className="sponsor-actions"><button type="button" className="sponsor-secondary" disabled={busy || ownerAdminReady} onClick={() => void loginOwnerAdmin()}>{ownerAdminReady ? 'Owner Admin session active' : 'Verify existing Owner Admin session'}</button></div>
         <p className="sponsor-muted">Sponsor transactions require only the independent Sponsor session and Sponsor CSRF proof. The Owner session is used only for the separately guarded ledger bootstrap and explicit pause/release controls. No static Sponsor Admin token is sent from the browser.</p>
       </section>}
     </section>}

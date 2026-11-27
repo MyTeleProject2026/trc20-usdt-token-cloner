@@ -84,6 +84,12 @@ export default function App() {
     return () => { active = false; window.removeEventListener('tron-transfer:owner-session-refreshed', restoreOwnerSession) }
   }, [])
 
+  useEffect(() => {
+    const clearTransientOwnerPassword = () => setOwnerAdminPassword('')
+    window.addEventListener('tron-transfer:sponsor-device-ready', clearTransientOwnerPassword)
+    return () => window.removeEventListener('tron-transfer:sponsor-device-ready', clearTransientOwnerPassword)
+  }, [])
+
   // Keep each workspace/page addressable and make browser Back/Forward work.
   useEffect(() => {
     const syncFromLocation = () => setActivePage(pageFromLocation())
@@ -117,6 +123,7 @@ export default function App() {
   function lockWallet() {
     setOwnerSecurityOpen(false)
     ownerAuthClient.logout().catch(() => {})
+    window.dispatchEvent(new Event('tron-transfer:owner-session-ended'))
     setWallet(null)
     setOwnerAdminPassword('')
     setOwnerAccessOpen(true)
@@ -131,6 +138,7 @@ export default function App() {
     let backgroundTimer
     const lock = () => {
       ownerAuthClient.logout().catch(() => {})
+      window.dispatchEvent(new Event('tron-transfer:owner-session-ended'))
       setWallet(null)
       setActivePage('home')
       setOwnerAccessOpen(true)
