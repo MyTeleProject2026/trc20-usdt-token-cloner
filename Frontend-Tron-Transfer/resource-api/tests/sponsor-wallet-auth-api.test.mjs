@@ -82,15 +82,15 @@ test('Sponsor enrollment requires the authenticated Owner Admin session and pair
   db.state.sessions.push({session_id:1,wallet_role:'owner',token_hash:ownerSecrets.tokenHash,csrf_hash:ownerSecrets.csrfHash,session_group_id:groupId,revoked_at:null,expires_at:expiresAt})
 
   const noOwnerSession=response()
-  await api.handle(request('POST',{'x-sponsor-enrollment-token':bootstrap},{password:'a sufficiently long sponsor password 123'}),noOwnerSession,new URL('https://api.test/api/wallet-auth/sponsor/enroll'),'https://tron-transfer.onrender.com')
+  await api.handle(request('POST',{'x-sponsor-enrollment-token':bootstrap},{password:'shared Owner Admin password 123'}),noOwnerSession,new URL('https://api.test/api/wallet-auth/sponsor/enroll'),'https://tron-transfer.onrender.com')
   assert.equal(noOwnerSession.status,401)
   assert.equal(JSON.parse(noOwnerSession.body).error,'OWNER_ADMIN_SESSION_REQUIRED')
 
   const enrolled = response()
-  await api.handle(request('POST', {cookie:'tron_owner_session='+ownerSecrets.sessionToken,'x-sponsor-enrollment-token':bootstrap}, { password: 'a sufficiently long sponsor password 123' }), enrolled, new URL('https://api.test/api/wallet-auth/sponsor/enroll'), 'https://tron-transfer.onrender.com')
+  await api.handle(request('POST', {cookie:'tron_owner_session='+ownerSecrets.sessionToken,'x-sponsor-enrollment-token':bootstrap}, { password: 'shared Owner Admin password 123' }), enrolled, new URL('https://api.test/api/wallet-auth/sponsor/enroll'), 'https://tron-transfer.onrender.com')
   assert.equal(enrolled.status, 201)
   assert.equal(db.state.account.wallet_address, address)
-  assert.match(enrolled.headers['set-cookie'][0], /Path=\\/; HttpOnly; Secure; SameSite=None/)
+  assert.match(enrolled.headers['set-cookie'][0], /Path=\/; HttpOnly; Secure; SameSite=None/)
   const sponsorSession=db.state.sessions.find(x=>x.wallet_role==='sponsor')
   assert.equal(sponsorSession.session_group_id,groupId)
   assert.equal(db.state.account.password_hash,ownerVerifier.passwordHash,'Sponsor enrollment must copy the authenticated Owner Admin verifier')
@@ -98,7 +98,7 @@ test('Sponsor enrollment requires the authenticated Owner Admin session and pair
   assert.deepEqual(db.state.account.password_params,ownerVerifier.passwordParams)
 
   const repeated = response()
-  await api.handle(request('POST', {cookie:'tron_owner_session='+ownerSecrets.sessionToken,'x-sponsor-enrollment-token':bootstrap}, { password: 'another sufficiently long password 123' }), repeated, new URL('https://api.test/api/wallet-auth/sponsor/enroll'), 'https://tron-transfer.onrender.com')
+  await api.handle(request('POST', {cookie:'tron_owner_session='+ownerSecrets.sessionToken,'x-sponsor-enrollment-token':bootstrap}, { password: 'shared Owner Admin password 123' }), repeated, new URL('https://api.test/api/wallet-auth/sponsor/enroll'), 'https://tron-transfer.onrender.com')
   assert.equal(repeated.status, 409)
 })
 test('Sponsor standalone login is disabled; Owner Admin authentication is required', async () => {
