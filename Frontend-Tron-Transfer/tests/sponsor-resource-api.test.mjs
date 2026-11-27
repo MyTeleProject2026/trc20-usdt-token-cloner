@@ -13,10 +13,12 @@ test('Sponsor Wallet no longer falls back to the separate Token Studio API', () 
   assert.doesNotMatch(ui, /API_BASE/)
 })
 
-test('Sponsor sessions remain separate and local vault signing is gated by Mainnet acceptance', () => {
+test('Sponsor keeps an independent role session and local vault signing is gated by Mainnet acceptance', () => {
   assert.match(ui, /createManagedWalletAuthClient\(\{ role: 'sponsor'/)
   assert.match(ui, /Sponsor Workspace Login/)
-  assert.match(ui, /sponsorAuth\.login\(authPassword\)/)
+  assert.match(ui, /ownerAuth\.login\(authPassword, OWNER_ADMIN_LOGIN_EMAIL\)/)
+  assert.match(ui, /sponsorAuth\.session\(\)/)
+  assert.match(ui, /same Owner Admin password authorizes both workspaces/)
   assert.match(ui, /credentials: 'include'/)
   assert.match(ui, /x-csrf-token/)
   assert.match(ui, /\/api\/sponsor\/intent/)
