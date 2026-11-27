@@ -3,7 +3,7 @@ import './owner-wallet-access.css'
 import { KeyRound, LockKeyhole, ShieldCheck, Upload } from 'lucide-react'
 import {
   createOwnerTronWeb, deriveOwnerAccount, getSavedOwnerWalletAddress, hasSavedOwnerWallet,
-  removeSavedOwnerWallet, saveOwnerWalletVault, unlockOwnerWalletVault,
+  removeSavedOwnerWallet, saveOwnerWalletVault, unlockOwnerWalletVault, migrateOwnerWalletVault,
 } from './owner-wallet-vault.mjs'
 import { createManagedWalletAuthClient, OWNER_ADMIN_LOGIN_EMAIL } from './managed-wallet-auth-client.mjs'
 
@@ -27,6 +27,8 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
   const [keystorePassword, setKeystorePassword] = useState('')
   const [vaultPassword, setVaultPassword] = useState('')
   const [unlockPassword, setUnlockPassword] = useState('')
+  const [legacyVaultPassword, setLegacyVaultPassword] = useState('')
+  const [vaultMigrationRequired, setVaultMigrationRequired] = useState(false)
   const [saved, setSaved] = useState(hasSavedOwnerWallet())
   const [replace, setReplace] = useState(!hasSavedOwnerWallet())
   const [busy, setBusy] = useState(false)
@@ -87,6 +89,8 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
       }
       setAuthenticated(true)
       setEnrolled(true)
+      setUnlockPassword(authPassword)
+      setVaultPassword(authPassword)
       setAuthPassword(''); setInitialAuthPassword(''); setConfirmAuthPassword(''); setEnrollmentToken('')
       setMessage('Owner application session authenticated. Unlock or import the independent local Owner Wallet.')
     } catch (cause) {
@@ -115,6 +119,8 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
     try {
       const account = await deriveOwnerAccount({ mode, value: credential, secretPassword: keystorePassword })
       if (!expectedOwnerAddress || account.address !== expectedOwnerAddress) throw new Error('Imported address does not match the configured Owner Wallet. Expected ' + (expectedOwnerAddress || 'an unconfigured address') + '.')
+      const authenticatedOwner = await ownerAuth.login(vaultPassword, loginEmail)
+      if (authenticatedOwner.address !== expectedOwnerAddress) throw new Error('OWNER_ADMIN_REAUTHENTICATION_FAILED')
       await saveOwnerWalletVault(account, vaultPassword)
       setSaved(true); setCredential(''); setKeystorePassword(''); setVaultPassword('')
       await activate(account)
@@ -124,8 +130,24 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
 
   async function unlockWallet(event) {
     event.preventDefault(); setBusy(true); setError('')
-    try { await activate(await unlockOwnerWalletVault(unlockPassword)); setUnlockPassword('') }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Owner Wallet unlock failed.') }
+    try {
+      const authenticatedOwner = await ownerAuth.login(unlockPassword, loginEmail)
+      if (authenticatedOwner.address !== expectedOwnerAddress) throw new Error('OWNER_ADMIN_REAUTHENTICATION_FAILED')
+      let account
+      try {
+        account = vaultMigrationRequired
+          ? await migrateOwnerWalletVault(legacyVaultPassword, unlockPassword)
+          : await unlockOwnerWalletVault(unlockPassword)
+      } catch (cause) {
+        if (!vaultMigrationRequired) {
+          setVaultMigrationRequired(true)
+          throw new Error('This saved vault uses an older password. Enter its previous vault password once to migrate it to your Owner Admin password.')
+        }
+        throw cause
+      }
+      await activate(account)
+      setUnlockPassword(''); setLegacyVaultPassword(''); setVaultMigrationRequired(false)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Owner Wallet unlock failed.') }
     finally { setBusy(false) }
   }
 
@@ -153,7 +175,8 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         </form>
       </> : saved && !replace ? <form onSubmit={unlockWallet}>
         <p className="owner-vault-address">Saved Owner Wallet: <b>{getSavedOwnerWalletAddress()}</b></p>
-        <label>Owner vault password<input type="password" minLength={8} autoComplete="current-password" value={unlockPassword} onChange={event=>setUnlockPassword(event.target.value)} required/></label>
+        <label>Owner Admin application password<input type="password" minLength={8} autoComplete="current-password" value={unlockPassword} onChange={event=>setUnlockPassword(event.target.value)} required/></label>
+        {vaultMigrationRequired && <label>Previous Owner vault password (one-time migration)<input type="password" autoComplete="current-password" value={legacyVaultPassword} onChange={event=>setLegacyVaultPassword(event.target.value)} required/></label>}
         <button className="owner-vault-primary" disabled={busy || !unlockPassword}><LockKeyhole size={16}/>{busy ? 'Unlocking…' : 'Unlock Owner Wallet'}</button>
         <div className="owner-vault-actions"><button type="button" onClick={()=>setReplace(true)}>Replace wallet</button><button type="button" onClick={removeBackup}>Remove encrypted backup</button><button type="button" onClick={onClose}>Close</button></div>
       </form> : <form onSubmit={importWallet}>
@@ -162,7 +185,7 @@ export default function OwnerWalletAccess({ onUnlock, onClose }) {
         <label>{mode === 'private-key' ? 'Owner private key' : mode === 'mnemonic' ? 'Owner recovery phrase' : 'V3 Keystore JSON'}<textarea rows={mode === 'mnemonic' ? 3 : 4} value={credential} onChange={event=>setCredential(event.target.value)} required autoComplete="off" spellCheck="false"/></label>
         {mode === 'keystore' && <label>Select V3 Keystore JSON file<input type="file" accept=".json,application/json" onChange={async event=>{const file=event.target.files?.[0];if(file){try{setCredential(await file.text())}catch{setError('Could not read the selected keystore file.')}}}}/></label>}
         {mode === 'keystore' && <label>Keystore password<input type="password" value={keystorePassword} onChange={event=>setKeystorePassword(event.target.value)}/></label>}
-        <label>New local vault password (minimum 8 characters)<input type="password" minLength={8} value={vaultPassword} onChange={event=>setVaultPassword(event.target.value)} required autoComplete="new-password"/></label>
+        <label>Owner Admin application password<input type="password" minLength={8} value={vaultPassword} onChange={event=>setVaultPassword(event.target.value)} required autoComplete="current-password"/></label>
         <button className="owner-vault-primary" disabled={busy || !credential || vaultPassword.length < 8}><Upload size={16}/>{busy ? 'Encrypting and verifying…' : 'Import and unlock Owner Wallet'}</button>
         {saved && <button type="button" className="owner-vault-secondary" onClick={()=>{setReplace(false);setCredential('');setVaultPassword('')}}>Cancel replacement</button>}
       </form>}
