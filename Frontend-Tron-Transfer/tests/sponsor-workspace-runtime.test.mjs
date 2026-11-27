@@ -172,3 +172,9 @@ test('Sponsor security-event callback is initialized before the auto-restore eff
   assert.notEqual(dependency, -1, 'auto-restore effect must retain its callback dependency')
   assert.ok(callback < restoreEffect && restoreEffect < dependency, 'the callback must be initialized before the effect callback and dependency array are evaluated')
 })
+
+test('Sponsor Owner Admin CSRF state is declared before session restoration uses its setter', () => {
+  assert.match(source, /const \[ownerAdminCsrfToken, setOwnerAdminCsrfToken\] = useState\(''\)/)
+  assert.match(source, /setOwnerAdminCsrfToken\(ownerSession\.csrfToken \|\| ''\)/)
+  assert.match(source, /ownerAdminCsrfToken/)
+})
