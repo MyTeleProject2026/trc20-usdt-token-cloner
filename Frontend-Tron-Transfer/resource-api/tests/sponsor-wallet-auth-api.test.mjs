@@ -88,7 +88,7 @@ test('Sponsor enrollment requires the authenticated Owner Admin session and pair
 
   const enrolled = response()
   await api.handle(request('POST', {cookie:'tron_owner_session='+ownerSecrets.sessionToken,'x-sponsor-enrollment-token':bootstrap}, { password: 'shared Owner Admin password 123' }), enrolled, new URL('https://api.test/api/wallet-auth/sponsor/enroll'), 'https://tron-transfer.onrender.com')
-  assert.equal(enrolled.status, 201)
+  assert.equal(enrolled.status, 201, enrolled.body)
   assert.equal(db.state.account.wallet_address, address)
   assert.match(enrolled.headers['set-cookie'][0], /Path=\/; HttpOnly; Secure; SameSite=None/)
   const sponsorSession=db.state.sessions.find(x=>x.wallet_role==='sponsor')
