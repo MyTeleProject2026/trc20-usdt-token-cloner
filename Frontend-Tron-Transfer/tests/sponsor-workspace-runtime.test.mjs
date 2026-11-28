@@ -311,3 +311,17 @@ test('Sponsor write operations use in-app full-screen review gates before intent
   assert.match(styles, /\.sponsor-operation-review-backdrop/)
   assert.match(styles, /\.sponsor-operation-review-message/)
 })
+
+test('final exchange theme normalizes legacy Owner and Sponsor surfaces', async () => {
+ const css = await read('../src/exchange-experience.css')
+ assert.ok(css.includes('--owner-bg:#090a0d'))
+ assert.ok(css.includes('--owner-primary:#d7b15e'))
+ assert.ok(css.includes('.trax-sidebar nav button:not(.trax-sidebar-group-toggle).active'))
+ assert.ok(css.includes('.trax-admin-shell .sponsor-render-stack'))
+ assert.ok(css.includes('.trax-admin-shell .trax-mobile-nav'))
+})
+test('Sponsor activity does not claim an authenticated backend session when the wallet is locked', () => {
+ assert.ok(source.includes('Authenticated · independent Sponsor role session'))
+ assert.ok(source.includes('Not authenticated · wallet locked'))
+ assert.ok(!source.includes('Backend password session · authenticated'))
+})
