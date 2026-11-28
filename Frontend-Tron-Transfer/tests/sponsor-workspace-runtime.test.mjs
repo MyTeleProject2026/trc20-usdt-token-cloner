@@ -289,3 +289,9 @@ test('Mainnet observability pages use the same graphite-and-gold theme as Owner 
   assert.match(mesh, /\.aetheria-mesh \.am-hero[\s\S]*#1b1a17/)
   assert.match(mesh, /\.aetheria-mesh \.am-monitor-tabs button\.active[\s\S]*#f0dca9/)
 })
+
+
+test('Production frontend emits source maps so minified Sponsor runtime exceptions can be mapped to source', async () => {
+  const vite = await readFile(new URL('../vite.config.js', import.meta.url), 'utf8')
+  assert.match(vite, /sourcemap:\s*true/)
+})
