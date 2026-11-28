@@ -182,3 +182,10 @@ body:has(.trax-admin-shell){background:radial-gradient(ellipse at 70% -18%,rgba(
  .trax-admin-shell .trax-operation-settings>summary{align-items:flex-start;flex-direction:column;gap:4px}
  .trax-admin-shell .trax-operation-settings>summary small{margin:0;text-align:left}
 }
+
+
+.trax-admin-shell .sponsor-workspace-context{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;border:1px solid rgba(255,132,45,.16);border-radius:10px;background:linear-gradient(110deg,rgba(255,105,24,.08),rgba(255,255,255,.015));color:#a79a8d;font-size:9px}
+.trax-admin-shell .sponsor-workspace-context>span{color:#f28a45;font-size:8px;font-weight:850;letter-spacing:.14em}
+.trax-admin-shell .sponsor-workspace-context>b{color:#f5e8dc;font-size:11px}
+.trax-admin-shell .sponsor-workspace-context>small{margin-left:auto;color:#93877d;font-size:9px}
+@media(max-width:520px){.trax-admin-shell .sponsor-workspace-context>small{width:100%;margin:0}}
