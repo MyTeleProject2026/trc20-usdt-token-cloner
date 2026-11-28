@@ -199,3 +199,14 @@ body:has(.trax-admin-shell){background:radial-gradient(ellipse at 70% -18%,rgba(
 .trax-admin-shell .trax-withdrawal-choice small{display:block;color:#a79a8d;font-size:10px;line-height:1.6}
 .trax-admin-shell .trax-withdrawal-choice strong{grid-column:2;color:#ff9b5c;font-size:10px}
 @media(max-width:720px){.trax-admin-shell .trax-withdrawal-chooser{grid-template-columns:1fr}.trax-admin-shell .trax-withdrawal-choice{min-height:110px;padding:14px}}
+
+
+/* Assets landing page: actions open separate focused workflows. */
+.trax-admin-shell .trax-asset-shortcuts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin:0 0 14px}
+.trax-admin-shell .trax-asset-shortcuts>button{display:grid;gap:7px;min-height:94px;padding:13px;border:1px solid rgba(190,181,160,.15);border-radius:12px;background:linear-gradient(145deg,#191713,#101114);color:#f2efe8;text-align:left;cursor:pointer;transition:border-color .18s ease,transform .18s ease}
+.trax-admin-shell .trax-asset-shortcuts>button:hover{border-color:rgba(238,135,60,.58);transform:translateY(-2px)}
+.trax-admin-shell .trax-asset-shortcuts b{font-size:11px}
+.trax-admin-shell .trax-asset-shortcuts small{color:#a29c90;font-size:9px;line-height:1.45}
+.trax-admin-shell .trax-asset-shortcuts span{color:#e9ad68;font-size:9px;font-weight:750}
+@media(max-width:1100px){.trax-admin-shell .trax-asset-shortcuts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:720px){.trax-admin-shell .trax-asset-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))}.trax-admin-shell .trax-asset-shortcuts>button{min-height:90px;padding:11px}}
