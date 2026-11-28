@@ -355,3 +355,19 @@ Pending for the latest commit. Required: desktop and mobile browser tests, login
 Pending. Reconcile every open PR against the production branch before closing it; remove only proven duplicate/unneeded branches after confirming no PR depends on them and no unique unmerged work would be lost. The currently available GitHub integration cannot delete branch refs, so use GitHub UI or a separately authorized branch-delete tool for that operation. Retain security, dependency and recovery history. Complete final security review, DB backup/restore proof, Mainnet read-only readiness, contract verification and TRONSCAN checks.
 
 **Acceptance rule:** Do not call the platform production-ready until Stages 1–6 are evidenced by code, passing tests, verified deployment, external key custody configuration, and browser acceptance. Keep Mainnet writes locked until the relevant deployment and operation gates pass.
+
+
+### 12.7 Latest verification snapshot after documentation commit `915a3849`
+
+- GitHub CI: **success** on `915a3849fc5087c35c21d1c8929491e54b384791`.
+- Frontend build/tests and uptime probe: **success** on immediately preceding code commit `020077151b93837a3a282b482a410df62dedeafb`; frontend tests passed and production build completed.
+- Uptime probe on `915a3849`: frontend HTTP 200; Resource API health HTTP 200; Owner resource read HTTP 200; TronScan HTTP 200; Sponsor readiness HTTP 200; owner/sponsor sign-only endpoints correctly returned unauthenticated HTTP 401; runtime, uptime history and Render metrics passed. One probe failed only because the Mainnet RPC provider-health endpoint returned HTTP 200 after 5,040 ms, exceeding the probe's latency threshold. Both Tatum and TronGrid reported the same block height. Treat this as a latency warning, not an RPC outage.
+- Live Owner resource snapshot: Energy available 0; free Bandwidth 600; staked/delegated Bandwidth 0. Mainnet deployment remains blocked.
+- Live Sponsor readiness: database and durable ledger checks passed, but wallet enrollment and both signer-acceptance checks were false; writes remain paused and transaction execution is unavailable/disabled. Do not enable Sponsor writes or Mainnet broadcast.
+- Render deploy revision was not independently checked because the Render connection lists multiple workspaces and requires the user to confirm which workspace to inspect. Ask the user to confirm the production Tron Transfer workspace before reading deployment details.
+
+### 12.8 Branch/PR cleanup status
+
+- Closed as superseded: PR #314 and PR #303.
+- Their branch refs remain in GitHub because this session's GitHub connector does not expose branch deletion. Do not state they were deleted.
+- Other open PRs remain intentionally untouched pending per-PR reconciliation; do not mass-close dependency, security, managed-wallet identity or Sponsor ledger work without reviewing their diffs.
