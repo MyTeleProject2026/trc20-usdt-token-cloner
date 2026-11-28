@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Grid2X2, Wallet, X } from 'lucide-react'
 
-const OWNER_PRIMARY = ['home', 'portfolio', 'transfers']
+const OWNER_PRIMARY = ['home', 'deploy', 'monitor', 'portfolio', 'profile']
 const SPONSOR_PRIMARY = ['sponsor', 'sponsor-resources', 'sponsor-activity']
 
 function grouped(items) {
