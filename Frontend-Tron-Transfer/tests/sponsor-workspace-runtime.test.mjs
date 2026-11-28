@@ -256,3 +256,17 @@ test('Every Owner workspace route has a specific page heading and the deposit pa
     assert.ok(panel.includes(pageMetaKey), 'Owner route must have page metadata: ' + route)
   }
 })
+
+
+test('Sponsor durable and local activity entries open a consistent full-screen operation receipt', async () => {
+  const sponsor = await readFile(new URL('../src/SponsorWalletManager.jsx', import.meta.url), 'utf8')
+  const theme = await readFile(new URL('../src/sponsor-wallet.css', import.meta.url), 'utf8')
+  assert.match(sponsor, /const \[selectedSponsorReceipt, setSelectedSponsorReceipt\] = useState\(null\)/)
+  assert.match(sponsor, /source: 'durable ledger'/)
+  assert.match(sponsor, /source: 'browser-local activity'/)
+  assert.match(sponsor, /sponsor-receipt-sheet/)
+  assert.match(sponsor, /Solidified block/)
+  assert.match(sponsor, /verified solidified Mainnet receipt/)
+  assert.match(theme, /\.sponsor-receipt-backdrop/)
+  assert.match(theme, /\.sponsor-receipt-fields/)
+})
