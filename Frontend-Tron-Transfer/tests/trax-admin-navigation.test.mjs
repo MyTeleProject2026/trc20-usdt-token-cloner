@@ -247,3 +247,14 @@ test('mobile navigation grid fits the five Owner destinations plus More and the 
   assert.match(css, /\.trax-mobile-nav\.trax-mobile-nav-sponsor\s*\{\s*grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/)
   assert.ok(mobile.includes('aria-expanded={moreOpen}') && mobile.includes('secondaryGroups.map'))
 })
+
+
+test('exchange workspace uses one graphite-and-gold accent system across navigation and operation surfaces', async () => {
+  const css = await read('../src/exchange-experience.css')
+  assert.ok(css.includes('--x-gold:#d7b15e'))
+  assert.ok(css.includes('--x-gold-bright:#e8c978'))
+  assert.ok(css.includes('.trax-admin-shell .trax-page-heading'))
+  assert.ok(css.includes('.owner-vault-primary'))
+  assert.ok(css.includes('.trax-mobile-nav button.active'))
+  assert.ok(css.includes('.trax-receipt-open'))
+})
