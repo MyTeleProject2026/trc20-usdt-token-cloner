@@ -281,3 +281,11 @@ test('Owner mobile primary navigation exposes Home, Deploy & Verify, Live Monito
   assert.match(mobile, /const OWNER_PRIMARY = \['home', 'deploy', 'monitor', 'portfolio', 'profile'\]/)
   assert.match(mobile, /aria-label=.*Owner workspace navigation/)
 })
+
+
+test('Mainnet observability pages use the same graphite-and-gold theme as Owner and Sponsor workspaces', async () => {
+  const mesh = await readFile(new URL('../src/aetheria-mcp-mesh.css', import.meta.url), 'utf8')
+  assert.match(mesh, /\.aetheria-mesh \{[\s\S]*--am-text:#f1ede4/)
+  assert.match(mesh, /\.aetheria-mesh \.am-hero[\s\S]*#1b1a17/)
+  assert.match(mesh, /\.aetheria-mesh \.am-monitor-tabs button\.active[\s\S]*#f0dca9/)
+})
