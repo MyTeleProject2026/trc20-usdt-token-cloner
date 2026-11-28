@@ -313,7 +313,7 @@ test('Sponsor write operations use in-app full-screen review gates before intent
 })
 
 test('final exchange theme normalizes legacy Owner and Sponsor surfaces', async () => {
- const css = await read('../src/exchange-experience.css')
+ const css = await readFile(new URL('../src/exchange-experience.css', import.meta.url), 'utf8')
  assert.ok(css.includes('--owner-bg:#090a0d'))
  assert.ok(css.includes('--owner-primary:#d7b15e'))
  assert.ok(css.includes('.trax-sidebar nav button:not(.trax-sidebar-group-toggle).active'))
