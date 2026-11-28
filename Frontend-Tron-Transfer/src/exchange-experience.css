@@ -260,3 +260,33 @@ body:has(.trax-admin-shell){background:radial-gradient(ellipse at 70% -18%,rgba(
     grid-template-columns:repeat(4,minmax(0,1fr));
   }
 }
+
+
+/* Final graphite / gold accent normalization across the exchange workspaces. */
+:root{
+  --x-gold:#d7b15e;
+  --x-gold-bright:#e8c978;
+  --x-gold-soft:rgba(215,177,94,.14);
+  --x-gold-line:rgba(215,177,94,.28);
+}
+.trax-admin-shell .trax-page-heading{
+  border-color:var(--x-gold-line);
+  background:radial-gradient(ellipse at 0 0,rgba(215,177,94,.12),transparent 48%),linear-gradient(145deg,#171611,#0b0b0b 72%);
+}
+.trax-admin-shell .trax-page-heading :is(.trax-breadcrumb,.trax-page-kicker){color:#cbb783}
+.trax-admin-shell .trax-withdrawal-choice:hover,
+.trax-admin-shell .trax-asset-shortcuts>button:hover,
+.trax-admin-shell .trax-deploy-shortcuts>button:hover{border-color:rgba(215,177,94,.58)}
+.trax-admin-shell .trax-withdrawal-choice-icon,
+.trax-admin-shell .trax-asset-shortcuts span,
+.trax-admin-shell .trax-deploy-shortcuts span{color:var(--x-gold-bright)}
+.trax-admin-shell .trax-withdrawal-choice-icon{border-color:var(--x-gold-line);background:var(--x-gold-soft)}
+.trax-admin-shell .trax-operation-stepper span.active,
+.trax-admin-shell .trax-receipt-open,
+.trax-admin-shell .trax-receipt-explorer{border-color:var(--x-gold-line);background:var(--x-gold-soft);color:#f0dca9}
+.owner-vault-heading>svg{border-color:var(--x-gold-line)!important;background:var(--x-gold-soft)!important;color:var(--x-gold-bright)!important}
+.owner-vault-heading span{color:var(--x-gold-bright)!important}
+.owner-vault-card input:focus,.owner-vault-card select:focus,.owner-vault-card textarea:focus{border-color:var(--x-gold)!important;box-shadow:0 0 0 3px rgba(215,177,94,.14)!important}
+.owner-vault-primary{border-color:var(--x-gold-line)!important;background:linear-gradient(110deg,#e2c16f,#b88d3e)!important;color:#17130a!important;box-shadow:0 8px 26px rgba(153,112,37,.18)!important}
+.trax-mobile-nav button.active{border-color:var(--x-gold-line);background:var(--x-gold-soft);color:#f0dca9}
+.trax-mobile-nav button.active svg{color:var(--x-gold-bright)}
