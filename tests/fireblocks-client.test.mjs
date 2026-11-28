@@ -541,3 +541,47 @@ test('Fireblocks retrieves paged vault accounts with validated supported filters
   )
   assert.equal(calls.length, 1, 'invalid page filters must be rejected before any provider request')
 })
+
+
+test('Fireblocks retrieves public key information for a validated vault asset derivation index', async () => {
+  const { privateKey } = keyPair()
+  const calls = []
+  const client = createFireblocksClient(configuredEnv, {
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init })
+      return new Response(JSON.stringify({
+        algorithm: 'MPC_ECDSA_SECP256K1',
+        derivationPath: [44, 195, 0, 0, 0],
+        publicKey: '1044c36403c1802818b472398f546a43a0d91569d5583a6e807c3825b155c7bd',
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'public-key-info-read-test',
+  })
+
+  const info = await client.getPublicKeyInfoForAddress({
+    assetId: 'TRX',
+    change: 0,
+    addressIndex: 0,
+    compressed: true,
+  })
+  assert.equal(info.algorithm, 'MPC_ECDSA_SECP256K1')
+  assert.deepEqual(info.derivationPath, [44, 195, 0, 0, 0])
+  assert.equal(info.publicKey, '1044c36403c1802818b472398f546a43a0d91569d5583a6e807c3825b155c7bd')
+  assert.equal(calls.length, 1)
+  assert.equal(new URL(calls[0].url).pathname, '/v1/vault/accounts/0/TRX/0/0/public_key_info')
+  assert.equal(new URL(calls[0].url).searchParams.get('compressed'), 'true')
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal(calls[0].init.body, undefined)
+
+  await assert.rejects(
+    client.getPublicKeyInfoForAddress({ assetId: 'TRX', change: -1, addressIndex: 0 }),
+    (error) => error?.code === 'invalid-fireblocks-public-key-request',
+  )
+  await assert.rejects(
+    client.getPublicKeyInfoForAddress({ assetId: 'TRX', change: 0, addressIndex: 1.5 }),
+    (error) => error?.code === 'invalid-fireblocks-public-key-request',
+  )
+  assert.equal(calls.length, 1, 'invalid derivation indexes must be rejected before provider access')
+})
