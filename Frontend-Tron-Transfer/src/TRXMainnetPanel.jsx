@@ -735,8 +735,6 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     balance: ['External balance lookup', 'Read token balances for a TRON Mainnet address without initiating a transaction.'],
   }
   const [pageTitle, pageDescription] = pageMeta[activePage] || ['Owner workspace', 'Manage the existing TRON Mainnet Owner operations.']
-  const showFeeSettings = activePage !== 'withdraw'
-  const showContractSettings = activePage !== 'withdraw'
 
   return <section className="trax-workspace trax-page-workspace" data-page={activePage}>
     <div className="trax-page-heading">
