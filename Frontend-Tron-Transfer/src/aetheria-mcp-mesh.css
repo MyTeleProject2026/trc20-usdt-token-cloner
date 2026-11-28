@@ -123,18 +123,18 @@
 .aetheria-mesh.focused[data-view="router"]>.am-section-head:nth-of-type(5),
 .aetheria-mesh.focused[data-view="router"]>.am-flow-grid{display:grid}
 .aetheria-mesh.focused[data-view="infrastructure"]>.am-dual-grid:nth-of-type(7){display:grid;grid-template-columns:1fr}
-.aetheria-mesh.focused[data-view="infrastructure"]>.am-dual-grid:nth-of-type(1)>.am-panel:nth-child(2){display:none}
-.aetheria-mesh.focused[data-view="mainnet"]>.am-dual-grid:nth-of-type(1){display:grid;grid-template-columns:1fr}
-.aetheria-mesh.focused[data-view="mainnet"]>.am-dual-grid:nth-of-type(1)>.am-panel:nth-child(1){display:none}
+.aetheria-mesh.focused[data-view="infrastructure"]>.am-dual-grid:nth-of-type(7)>.am-panel:nth-child(2){display:none}
+.aetheria-mesh.focused[data-view="mainnet"]>.am-dual-grid:nth-of-type(7){display:grid;grid-template-columns:1fr}
+.aetheria-mesh.focused[data-view="mainnet"]>.am-dual-grid:nth-of-type(7)>.am-panel:nth-child(1){display:none}
 .aetheria-mesh.focused[data-view="resources"]>.am-section-head:nth-of-type(8),
 .aetheria-mesh.focused[data-view="resources"]>.am-resource-grid,
 .aetheria-mesh.focused[data-view="resources"]>.am-safety-note{display:grid}
 .aetheria-mesh.focused[data-view="render"]>.am-dual-grid:nth-of-type(11),
-.aetheria-mesh.focused[data-view="uptime"]>.am-dual-grid:nth-of-type(2),
+.aetheria-mesh.focused[data-view="uptime"]>.am-dual-grid:nth-of-type(11),
 .aetheria-mesh.focused[data-view="chain"]>.am-dual-grid:nth-of-type(12),
-.aetheria-mesh.focused[data-view="callbacks"]>.am-dual-grid:nth-of-type(3){display:grid;grid-template-columns:1fr}
-.aetheria-mesh.focused[data-view="render"]>.am-dual-grid:nth-of-type(2)>.am-panel:nth-child(2),
-.aetheria-mesh.focused[data-view="uptime"]>.am-dual-grid:nth-of-type(2)>.am-panel:nth-child(1),
-.aetheria-mesh.focused[data-view="chain"]>.am-dual-grid:nth-of-type(3)>.am-panel:nth-child(2),
-.aetheria-mesh.focused[data-view="callbacks"]>.am-dual-grid:nth-of-type(3)>.am-panel:nth-child(1){display:none}
+.aetheria-mesh.focused[data-view="callbacks"]>.am-dual-grid:nth-of-type(12){display:grid;grid-template-columns:1fr}
+.aetheria-mesh.focused[data-view="render"]>.am-dual-grid:nth-of-type(11)>.am-panel:nth-child(2),
+.aetheria-mesh.focused[data-view="uptime"]>.am-dual-grid:nth-of-type(11)>.am-panel:nth-child(1),
+.aetheria-mesh.focused[data-view="chain"]>.am-dual-grid:nth-of-type(12)>.am-panel:nth-child(2),
+.aetheria-mesh.focused[data-view="callbacks"]>.am-dual-grid:nth-of-type(12)>.am-panel:nth-child(1){display:none}
 @media(max-width:720px){.am-overview-links{grid-template-columns:1fr}.am-overview-links>button{min-height:88px}.am-monitor-tabs{margin-inline:-2px}.am-monitor-tabs button{font-size:8px;padding-inline:10px}}
