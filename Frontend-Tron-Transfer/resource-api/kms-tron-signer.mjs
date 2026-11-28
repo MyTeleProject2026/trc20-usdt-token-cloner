@@ -37,8 +37,10 @@ function readDerInteger(bytes, offset) {
     fail('KMS_SIGNATURE_DER_INTEGER_INVALID', 502)
   }
   const normalized = value[0] === 0 ? value.subarray(1) : value
-  if (!normalized.length || normalized.length > 32) fail('KMS_SIGNATURE_DER_INTEGER_RANGE', 502)
-  return { value: BigInt('0x' + normalized.toString('hex')), next: end }
+  if (normalized.length > 32) fail('KMS_SIGNATURE_DER_INTEGER_RANGE', 502)
+  // A canonical DER INTEGER zero is structurally valid ASN.1 but is not a
+  // valid ECDSA scalar; let the scalar-range check report that distinction.
+  return { value: normalized.length ? BigInt('0x' + normalized.toString('hex')) : 0n, next: end }
 }
 
 export function parseKmsEcdsaDerSignature(der) {
