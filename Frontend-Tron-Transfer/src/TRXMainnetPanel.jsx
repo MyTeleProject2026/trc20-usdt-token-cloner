@@ -731,6 +731,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const show = (...pages) => pages.includes(activePage)
   const pageMeta = {
     portfolio: ['Portfolio', 'Review Owner wallet assets, verified balances, deposits and the live TRӾ contract state.'],
+    deposit: ['Deposits', 'Receive native TRX and official USDT on TRON Mainnet and review confirmed incoming transfers.'],
     deploy: ['Deploy & verify', 'Check artifact integrity and Mainnet readiness, prepare deployment, review, authorize and reconcile the contract receipt.'],
     issuance: ['Owner issuance', 'Review token supply and minting authorization before issuing TRӾ to the Owner wallet.'],
     credits: ['External credits', 'Prepare and review a single-recipient TRӾ credit with its exact amount and Mainnet resource requirements.'],
