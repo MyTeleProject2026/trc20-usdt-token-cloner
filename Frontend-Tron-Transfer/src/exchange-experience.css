@@ -290,3 +290,43 @@ body:has(.trax-admin-shell){background:radial-gradient(ellipse at 70% -18%,rgba(
 .owner-vault-primary{border-color:var(--x-gold-line)!important;background:linear-gradient(110deg,#e2c16f,#b88d3e)!important;color:#17130a!important;box-shadow:0 8px 26px rgba(153,112,37,.18)!important}
 .trax-mobile-nav button.active{border-color:var(--x-gold-line);background:var(--x-gold-soft);color:#f0dca9}
 .trax-mobile-nav button.active svg{color:var(--x-gold-bright)}
+
+
+
+/* Application-wide exchange finishing pass: normalize legacy feature panels. */
+:root{--owner-bg:#090a0d;--owner-bg-raised:#101215;--owner-surface:#15171b;--owner-surface-raised:#1d2025;--owner-surface-soft:#111316;--owner-ink:#f2efe8;--owner-muted:#a29c90;--owner-subtle:#827c72;--owner-line:rgba(190,181,160,.13);--owner-line-strong:rgba(190,181,160,.23);--owner-primary:#d7b15e;--owner-primary-strong:#b88d3e;--owner-cyan:#cbb783;--owner-success:#65bd91;--owner-warning:#e8b85c;--owner-danger:#f07888}
+body:has(.trax-admin-shell){background:radial-gradient(ellipse at 72% -18%,rgba(173,132,57,.13),transparent 42rem),linear-gradient(150deg,#090a0d,#101114 58%,#0b0c0f)}
+.trax-admin-shell .trax-sidebar-network{border-color:rgba(215,177,94,.2);background:linear-gradient(120deg,rgba(153,112,37,.13),rgba(20,20,19,.7))}
+.trax-admin-shell .trax-sidebar-network b{color:#e8d6a9}.trax-admin-shell .trax-sidebar-network small{color:#a49c8e}
+.trax-admin-shell .trax-sidebar nav button:not(.trax-sidebar-group-toggle){color:#b8b1a5}
+.trax-admin-shell .trax-sidebar nav button:not(.trax-sidebar-group-toggle) svg{color:#b39a68}
+.trax-admin-shell .trax-sidebar nav button:not(.trax-sidebar-group-toggle).active{border-color:var(--x-gold-line);background:linear-gradient(100deg,rgba(166,126,55,.22),rgba(83,66,39,.1));color:#f4e5c7;box-shadow:inset 3px 0 var(--x-gold),0 7px 18px rgba(0,0,0,.12)}
+.trax-admin-shell .trax-sidebar-wallet{border-color:var(--x-line);background:rgba(255,255,255,.025)}
+.trax-admin-shell .trax-sidebar-wallet small{color:#a49c8e}.trax-admin-shell .trax-sidebar-wallet b{color:#eee8dc}
+.trax-admin-shell .trax-sidebar-toggle,.trax-admin-shell .trax-sidebar-connect{border-color:var(--x-line2);background:#202226;color:#e3ddd1}
+.trax-admin-shell .trax-sidebar-connect{border-color:var(--x-gold-line);background:linear-gradient(120deg,#e2c16f,#b88d3e);color:#17130a}
+.trax-admin-shell .trax-topbar-title h1{color:#f2efe8}.trax-admin-shell .trax-topbar-title p{color:#a29c90}
+.trax-admin-shell .trax-workspace-switch button{color:#b8b1a5}
+.trax-admin-shell .trax-mainnet-badge{border-color:var(--x-gold-line);background:var(--x-gold-soft);color:#e8d6a9}
+.trax-admin-shell :is(.panel,.card,.trax-card,.trax-step-card,.am-panel,.am-flow-card,.am-metric,.am-mesh-stage,.trax-stats>*,.sponsor-card){border-color:var(--x-line);background:linear-gradient(145deg,#191b1f,#111316);color:#eee9df}
+.trax-admin-shell :is(.section-heading,.trax-page-heading){border-color:var(--x-line);background:radial-gradient(ellipse at 0 0,rgba(215,177,94,.09),transparent 48%),linear-gradient(145deg,#191b1f,#101215)}
+.trax-admin-shell :is(.section-heading h2,.trax-page-heading h1,.am-section-head h2,.am-panel-head h3){color:#f2efe8}
+.trax-admin-shell :is(.eyebrow,.trax-page-kicker,.am-eyebrow){color:var(--x-gold-bright)}
+.trax-admin-shell :is(input,select,textarea){border-color:var(--x-line2);background:#0c0e11;color:#f2efe8}
+.trax-admin-shell :is(input,select,textarea):focus{border-color:var(--x-gold);box-shadow:0 0 0 3px rgba(215,177,94,.14)}
+.trax-admin-shell :is(.primary-button,.trax-connect,.sponsor-primary,.trax-topbar-connect){border-color:var(--x-gold-line);background:linear-gradient(110deg,#e2c16f,#b88d3e);color:#17130a}
+.trax-admin-shell :is(.secondary-button,.outline-button,.sponsor-secondary,.trax-topbar-security,.trax-topbar-wallet){border-color:var(--x-line2);background:#222428;color:#e3ddd1}
+.trax-admin-shell :is(.transaction-row,.trax-history-item,.trax-provider,.am-provider,.am-tx-list,.am-event-list,.am-archive-list){border-color:var(--x-line);background:rgba(255,255,255,.025);color:#ddd6c9}
+.trax-admin-shell :is(table th,.table-header){color:#cbb783;border-color:var(--x-line)}
+.trax-admin-shell :is(table td,.table-row){color:#ddd6c9;border-color:var(--x-line)}
+.trax-admin-shell .trax-shell-alert{border-color:var(--x-gold-line);background:rgba(153,112,37,.1);color:#e8d6a9}
+.trax-admin-shell .trax-shell-alert.error{border-color:rgba(240,120,136,.3);background:rgba(121,36,54,.15);color:#ffd1d8}
+.trax-admin-shell .sponsor-render-error{border-color:rgba(240,120,136,.34);background:linear-gradient(145deg,rgba(70,25,34,.34),#111316)}
+.trax-admin-shell .sponsor-render-stack{margin-top:12px;border:1px solid var(--x-line2);border-radius:10px;background:#0b0c0e;padding:10px}
+.trax-admin-shell .sponsor-render-stack summary{color:#e8d6a9;cursor:pointer;font-size:11px;font-weight:750}
+.trax-admin-shell .sponsor-render-stack pre{max-height:280px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:#d8d0c2;font:10px/1.55 ui-monospace,monospace}
+.trax-admin-shell .trax-mobile-nav{border-color:var(--x-line2);background:rgba(9,10,12,.97)}
+.trax-admin-shell .trax-mobile-nav button{color:#a9a295}
+.trax-admin-shell .trax-mobile-nav button.active{border-color:var(--x-gold-line);background:var(--x-gold-soft);color:#f0dca9}
+.trax-admin-shell .trax-mobile-sheet{border-color:var(--x-line2);background:linear-gradient(160deg,#1b1d21,#0d0f12)}
+@media(max-width:720px){.trax-admin-shell .trax-admin-topbar{background:rgba(12,13,15,.96)}.trax-admin-shell .trax-topbar-actions{align-items:stretch}.trax-admin-shell .trax-mainnet-badge{justify-content:center}.trax-admin-shell .trax-mobile-nav button span{overflow-wrap:anywhere}}
