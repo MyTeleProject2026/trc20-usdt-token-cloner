@@ -27,12 +27,32 @@ class OwnerWorkspaceErrorBoundary extends React.Component {
 }
 
 class SponsorWorkspaceErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { hasError: false, message: '' } }
+  constructor(props) { super(props); this.state = { hasError: false, message: '', componentStack: '' } }
   static getDerivedStateFromError(error) { return { hasError: true, message: String(error?.message || 'Unknown render error').slice(0, 240) } }
-  componentDidCatch(error, info) { console.error('Sponsor workspace render failure', error, info?.componentStack) }
-  componentDidUpdate(previousProps) { if (previousProps.activePage !== this.props.activePage && this.state.hasError) this.setState({ hasError: false, message: '' }) }
+  componentDidCatch(error, info) {
+    const componentStack = String(info?.componentStack || '').slice(0, 6000)
+    this.setState({ componentStack })
+    console.error('Sponsor workspace render failure', error, componentStack)
+  }
+  componentDidUpdate(previousProps) {
+    if (previousProps.activePage !== this.props.activePage && this.state.hasError) {
+      this.setState({ hasError: false, message: '', componentStack: '' })
+    }
+  }
   render() {
-    if (this.state.hasError) return <section className="sponsor-card sponsor-render-error" role="alert"><div className="sponsor-card-heading"><AlertTriangle/><div><h3>This Sponsor page could not be displayed</h3><p>A render error does not confirm transaction status. Check the durable Sponsor ledger and solidified Mainnet receipt before retrying; do not create a replacement operation until the original is reconciled.</p><p className="sponsor-muted">Diagnostic: <code>{this.state.message}</code></p></div></div><div className="sponsor-actions"><button type="button" className="sponsor-primary" onClick={() => this.setState({ hasError: false, message: '' })}>Retry this page</button><button type="button" className="sponsor-secondary" onClick={() => this.props.onNavigate('sponsor')}>Return to Sponsor overview</button></div></section>
+    if (this.state.hasError) return <section className="sponsor-card sponsor-render-error" role="alert">
+      <div className="sponsor-card-heading"><AlertTriangle/><div>
+        <h3>This Sponsor page could not be displayed</h3>
+        <p>A render error does not confirm transaction status. Check the durable Sponsor ledger and solidified Mainnet receipt before retrying; do not create a replacement operation until the original is reconciled.</p>
+        <p className="sponsor-muted">Diagnostic: <code>{this.state.message}</code></p>
+        {this.state.componentStack && <details className="sponsor-render-stack"><summary>Show component trace for support</summary><pre>{this.state.componentStack}</pre></details>}
+      </div></div>
+      <div className="sponsor-actions">
+        <button type="button" className="sponsor-primary" onClick={() => this.setState({ hasError: false, message: '', componentStack: '' })}>Retry this page</button>
+        <button type="button" className="sponsor-secondary" onClick={() => this.props.onNavigate('sponsor')}>Return to Sponsor overview</button>
+        <button type="button" className="sponsor-secondary" onClick={() => window.location.reload()}>Reload application</button>
+      </div>
+    </section>
     return this.props.children
   }
 }
