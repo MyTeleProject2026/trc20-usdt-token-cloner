@@ -189,3 +189,13 @@ body:has(.trax-admin-shell){background:radial-gradient(ellipse at 70% -18%,rgba(
 .trax-admin-shell .sponsor-workspace-context>b{color:#f5e8dc;font-size:11px}
 .trax-admin-shell .sponsor-workspace-context>small{margin-left:auto;color:#93877d;font-size:9px}
 @media(max-width:520px){.trax-admin-shell .sponsor-workspace-context>small{width:100%;margin:0}}
+
+
+.trax-admin-shell .trax-withdrawal-chooser{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.trax-admin-shell .trax-withdrawal-choice{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:13px;min-height:126px;padding:18px;border:1px solid rgba(255,132,45,.2);border-radius:14px;background:radial-gradient(ellipse at 0 0,rgba(255,105,24,.1),transparent 60%),linear-gradient(145deg,#17120e,#0c0c0c);color:#f5e8dc;text-align:left;cursor:pointer;transition:border-color .18s ease,transform .18s ease}
+.trax-admin-shell .trax-withdrawal-choice:hover{border-color:rgba(255,132,45,.52);transform:translateY(-2px)}
+.trax-admin-shell .trax-withdrawal-choice-icon{display:grid;place-items:center;width:42px;height:42px;border:1px solid rgba(255,132,45,.28);border-radius:12px;background:rgba(255,105,24,.12);color:#ff8b45}
+.trax-admin-shell .trax-withdrawal-choice b{display:block;margin-bottom:6px;font-size:14px}
+.trax-admin-shell .trax-withdrawal-choice small{display:block;color:#a79a8d;font-size:10px;line-height:1.6}
+.trax-admin-shell .trax-withdrawal-choice strong{grid-column:2;color:#ff9b5c;font-size:10px}
+@media(max-width:720px){.trax-admin-shell .trax-withdrawal-chooser{grid-template-columns:1fr}.trax-admin-shell .trax-withdrawal-choice{min-height:110px;padding:14px}}
