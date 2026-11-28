@@ -853,7 +853,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       </div>
     </>}
 
-    {show('withdraw') && <div className="trax-actions" aria-label="Native TRX withdrawal">
+    {show('withdraw-trx') && <div className="trax-actions" aria-label="Native TRX withdrawal">
       <h3>Send native TRX · Owner Wallet</h3>
       <p className="fine-print">Native TRX Mainnet transfer from the Owner's encrypted local vault to any valid TRON Mainnet address. This is not a TRӾ or USDT token transfer. Each operation is prepared, balance-reserved, reviewed, locally signed and reconciled independently. Bandwidth fallback must fit the fee budget selected for this operation.</p>
       <div className="trax-stats">
@@ -870,7 +870,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <div className="trax-history"><h4>Recent native TRX withdrawals</h4>{!nativeTrxWithdrawalHistory.length ? <p className="fine-print">No native TRX withdrawals are recorded in the Owner operation ledger yet.</p> : <div className="transaction-list">{nativeTrxWithdrawalHistory.map(item => <article className="transaction-row" key={item.operationId}><div><b>{formatTokenUnits(item.args?.[1] || '0')} TRX</b><span>To {item.args?.[0] || 'Unknown recipient'}</span></div><div><b>{String(item.state || 'unknown').replaceAll('-', ' ')}</b><span>{item.blockNumber ? 'Solidified block ' + item.blockNumber : item.transactionId ? 'Transaction submitted' : 'No transaction broadcast'}</span></div><div>{item.transactionId ? <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">{item.transactionId.slice(0, 12)}… <ExternalLink size={11}/></a> : <span>{item.failureCode || 'Awaiting transaction'}</span>}</div></article>)}</div>}</div>
     </div>}
 
-    {show('withdraw') && <div className="trax-actions" aria-label="Official USDT withdrawal">
+    {show('withdraw-usdt') && <div className="trax-actions" aria-label="Official USDT withdrawal">
       <h3>Withdraw official USDT · TRC20</h3>
       <p className="fine-print">Asset: USDT · Mainnet contract: {OFFICIAL_USDT_MAINNET_CONTRACT} · 6 decimals. The Owner wallet signs locally; the Resource API checks the exact transfer, resource budget, Owner permission and solidified receipt. Network fees are paid in native TRX from the Owner wallet and are never taken from the USDT amount.</p>
       <div className="trax-stats">
@@ -1026,7 +1026,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       <p className="fine-print">A signed or broadcast-unknown transaction is never automatically re-signed or rebroadcast. Its transaction ID must be reconciled against a solidified Mainnet receipt.</p>
     </div>}
     {lastTx && <div className="notice notice-success trax-last-tx"><CheckCircle2 size={16}/><div><b>Solidified Mainnet transaction verified</b><p>{lastTx}</p><a href={'https://tronscan.org/#/transaction/' + lastTx} target="_blank" rel="noreferrer">Open transaction on TRONSCAN <ExternalLink size={12}/></a></div></div>}
-    {tokenAddress && !show('withdraw') && <div className="notice trax-contract-explorer"><div><b>Saved TRӾ Mainnet contract</b><p>{tokenAddress}</p><a href={'https://tronscan.org/#/contract/' + tokenAddress} target="_blank" rel="noreferrer">Open contract on TRONSCAN <ExternalLink size={12}/></a><small>Explorer visibility is not the same as source-code verification. Confirm the deployed address and submit source verification using the exact compiler settings and constructor data.</small></div></div>}
+    {tokenAddress && !show('withdraw','withdraw-trx','withdraw-usdt') && <div className="notice trax-contract-explorer"><div><b>Saved TRӾ Mainnet contract</b><p>{tokenAddress}</p><a href={'https://tronscan.org/#/contract/' + tokenAddress} target="_blank" rel="noreferrer">Open contract on TRONSCAN <ExternalLink size={12}/></a><small>Explorer visibility is not the same as source-code verification. Confirm the deployed address and submit source verification using the exact compiler settings and constructor data.</small></div></div>}
     <div className="trax-footer-links"><a href="https://developers.tron.network/docs/trc20-protocol-interface" target="_blank" rel="noreferrer">TRON TRC-20 standard <ExternalLink size={12}/></a><a href="https://tronscan.org/#/token20" target="_blank" rel="noreferrer">TRONSCAN token directory <ExternalLink size={12}/></a></div>
   </section>
 }
