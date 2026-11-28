@@ -108,6 +108,7 @@ test('Sponsor workspace exposes independent Overview, Resources, Automation and 
   const sponsor = await read('../src/SponsorWalletManager.jsx')
   const mobile = await read('../src/MobileNavBar.jsx')
   const css = await read('../src/sponsor-wallet.css')
+  const exchangeCss = await read('../src/exchange-experience.css')
   for (const id of ['sponsor','sponsor-resources','sponsor-automation','sponsor-activity']) {
     assert.ok(app.includes("id: '" + id + "'"), 'missing Sponsor workspace route: ' + id)
   }
@@ -116,7 +117,7 @@ test('Sponsor workspace exposes independent Overview, Resources, Automation and 
   for (const id of ['sponsor-overview','sponsor-resources','sponsor-automation','sponsor-activity']) assert.ok(sponsor.includes('id="' + id + '"'))
   assert.ok(sponsor.includes('sponsor-workspace-context'))
   assert.ok(mobile.includes('Sponsor workspace navigation') && mobile.includes('primary.map') && mobile.includes('secondaryGroups.map'))
-  assert.ok(css.includes('.sponsor-workspace-context') && css.includes('@media(max-width:720px)'))
+  assert.ok(exchangeCss.includes('.sponsor-workspace-context') && css.includes('@media(max-width:720px)'))
 })
 
 test('Sponsor pages mount only the active section and expose actionable render diagnostics', async () => {
@@ -131,10 +132,11 @@ test('Sponsor pages mount only the active section and expose actionable render d
 })
 test('premium workspace layer preserves reduced motion and mobile Sponsor tabs', async () => {
   const css = await read('../src/styles.css')
+  const exchangeCss = await read('../src/exchange-experience.css')
   assert.ok(css.includes('TRON TRANSFER Signature Edition'))
   assert.ok(css.includes('@media(max-width:720px)'))
   assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'))
-  assert.ok(css.includes('.sponsor-workspace-context'))
+  assert.ok(exchangeCss.includes('.sponsor-workspace-context'))
 })
 
 
