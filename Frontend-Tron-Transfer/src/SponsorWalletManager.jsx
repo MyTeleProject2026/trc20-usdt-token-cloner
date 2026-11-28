@@ -226,6 +226,26 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
   const [lastOperationReference, setLastOperationReference] = useState('')
   const [lastDelegation, setLastDelegation] = useState(null)
   const [selectedSponsorReceipt, setSelectedSponsorReceipt] = useState(null)
+  const [confirmationRequest, setConfirmationRequest] = useState(null)
+  const confirmationResolverRef = useRef(null)
+
+  const requestSponsorConfirmation = useCallback(request => new Promise(resolve => {
+    if (confirmationResolverRef.current) { resolve(false); return }
+    confirmationResolverRef.current = resolve
+    setConfirmationRequest(request)
+  }), [])
+
+  const resolveSponsorConfirmation = useCallback(approved => {
+    const resolve = confirmationResolverRef.current
+    confirmationResolverRef.current = null
+    setConfirmationRequest(null)
+    resolve?.(approved)
+  }, [])
+
+  useEffect(() => () => {
+    if (confirmationResolverRef.current) confirmationResolverRef.current(false)
+    confirmationResolverRef.current = null
+  }, [])
   const [activity, setActivity] = useState([])
   const [securityEvents, setSecurityEvents] = useState([])
   const [sponsorApiStatus, setSponsorApiStatus] = useState(null)
@@ -1051,9 +1071,14 @@ export default function SponsorWalletManager({ activePage = 'sponsor', onNavigat
             : action === 'unstake'
               ? `Initiate Stake 2.0 unfreezing of ${selectedAmount} TRX for ${selectedResource} in Sponsor Wallet ${wallet.address}? The TRX will remain locked for the current Mainnet unfreeze delay (normally 14 days) before it can be withdrawn.`
               : `Withdraw all currently matured Stake 2.0 TRX (${selectedAmount}) to Sponsor Wallet ${wallet.address}?`
-    if (!window.confirm(`${prompt}
+    const acceptedForPreparation = await requestSponsorConfirmation({
+      title: 'Review Sponsor Mainnet operation',
+      confirmLabel: 'Continue to prepare unsigned intent',
+      message: `${prompt}
 
-This request is sent to the authenticated TRON Transfer Resource API. The Resource API prepares the exact unsigned Mainnet transaction. The imported Sponsor vault must sign it locally; the API must verify the Sponsor signer and permission, persist the signed payload before a single broadcast, and reconcile a solidified receipt. Mainnet execution is gated by the current production ledger, durability, resource and write-control checks. The API will reject this request unless every required gate is currently satisfied.`)) return
+This request is sent to the authenticated TRON Transfer Resource API. The Resource API prepares the exact unsigned Mainnet transaction. The imported Sponsor vault must sign it locally; the API must verify the Sponsor signer and permission, persist the signed payload before a single broadcast, and reconcile a solidified receipt. Mainnet execution is gated by the current production ledger, durability, resource and write-control checks. The API will reject this request unless every required gate is currently satisfied.`,
+    })
+    if (!acceptedForPreparation) return
     setBusy(true)
     try {
       const idempotencyKey = createIdempotencyKey()
@@ -1062,7 +1087,12 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         body: { operation: action, resource: ['topup', 'withdraw', 'transfer'].includes(action) ? 'TRX' : selectedResource, amountSun: String(amountSun), idempotencyKey, ...(action === 'transfer' ? { recipientAddress } : {}) },
       })
       if (typeof intent.message !== 'string' || typeof intent.intentId !== 'string') throw new Error('Sponsor API returned an invalid transaction intent.')
-      if (!window.confirm('Confirm this exact Sponsor operation?\\n\\n' + intent.message + '\\n\\nThe Resource API will prepare and persist one unsigned transaction. The imported Sponsor Wallet will sign locally; the API will verify the signer and persist the transaction ID before broadcasting.')) return
+      const acceptedIntent = await requestSponsorConfirmation({
+        title: 'Confirm exact Sponsor operation',
+        confirmLabel: 'Prepare exact unsigned transaction',
+        message: 'Confirm this exact Sponsor operation?\\n\\n' + intent.message + '\\n\\nThe Resource API will prepare and persist one unsigned transaction. The imported Sponsor Wallet will sign locally; the API will verify the signer and persist the transaction ID before broadcasting.',
+      })
+      if (!acceptedIntent) return
       const prepared = await sponsorApiRequest('/api/sponsor/operations/prepare', {
         method: 'POST', csrfToken: authCsrfToken,
         body: { intentId: intent.intentId, confirmPhrase: intent.confirmationPhrase },
@@ -1095,12 +1125,17 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 5_000) {
         throw new Error('Prepared Sponsor transaction is too close to expiration. Refresh resources and prepare a new operation.')
       }
-      if (!window.confirm('Review the exact unsigned Mainnet transaction before local signing.\\n\\nOperation: ' + action
-        + '\\nSponsor: ' + wallet.address + '\\nRecipient: ' + recipientAddress + '\\nTransaction ID: ' + unsignedTransaction.txID
-        + '\\nEstimated Bandwidth fee: ' + formatSunAsTrx(requiredBandwidthFeeSun) + ' TRX'
-        + '\\nProtected liquid reserve: ' + formatSunAsTrx(feeReserveSun) + ' TRX'
-        + '\\nExpires: ' + new Date(expiration).toLocaleString()
-        + '\\n\\nThe fee estimate uses the current Mainnet Bandwidth price and transaction size. The API rechecks live balance, reserve and fee before its single broadcast attempt. Only the imported local Sponsor Wallet signs this transaction.')) {
+      const approvedLocalSigning = await requestSponsorConfirmation({
+        title: 'Review exact unsigned Mainnet transaction',
+        confirmLabel: 'Approve local Sponsor signing',
+        message: 'Review the exact unsigned Mainnet transaction before local signing.\\n\\nOperation: ' + action
+          + '\\nSponsor: ' + wallet.address + '\\nRecipient: ' + recipientAddress + '\\nTransaction ID: ' + unsignedTransaction.txID
+          + '\\nEstimated Bandwidth fee: ' + formatSunAsTrx(requiredBandwidthFeeSun) + ' TRX'
+          + '\\nProtected liquid reserve: ' + formatSunAsTrx(feeReserveSun) + ' TRX'
+          + '\\nExpires: ' + new Date(expiration).toLocaleString()
+          + '\\n\\nThe fee estimate uses the current Mainnet Bandwidth price and transaction size. The API rechecks live balance, reserve and fee before its single broadcast attempt. Only the imported local Sponsor Wallet signs this transaction.',
+      })
+      if (!approvedLocalSigning) {
         try {
           await sponsorApiRequest('/api/sponsor/operations/cancel', {
             method: 'POST', csrfToken: authCsrfToken, body: { operationReference: idempotencyKey },
@@ -1544,6 +1579,14 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
         </dl>
         {selectedSponsorReceipt.transactionId && <a className="sponsor-receipt-explorer" href={'https://tronscan.org/#/transaction/' + selectedSponsorReceipt.transactionId} target="_blank" rel="noreferrer">Verify transaction on TRONSCAN</a>}
         <p className="sponsor-muted">A local activity entry is not a substitute for the durable Sponsor ledger and a verified solidified Mainnet receipt.</p>
+      </section>
+    </div>}
+    {confirmationRequest && <div className="sponsor-operation-review-backdrop" role="presentation">
+      <section className="sponsor-operation-review-sheet" role="dialog" aria-modal="true" aria-labelledby="sponsor-operation-review-title">
+        <div className="sponsor-receipt-heading"><div><span className="sponsor-eyebrow">TRON TRANSFER · EXPLICIT APPROVAL</span><h3 id="sponsor-operation-review-title">{confirmationRequest.title}</h3><p>TRON Mainnet · Sponsor local signer</p></div></div>
+        <pre className="sponsor-operation-review-message">{confirmationRequest.message}</pre>
+        <p className="sponsor-muted">Nothing is signed or broadcast by opening this review. Continuing only authorizes the next guarded step shown above.</p>
+        <div className="sponsor-actions"><button type="button" className="sponsor-secondary" onClick={() => resolveSponsorConfirmation(false)}>Cancel</button><button type="button" className="sponsor-primary" onClick={() => resolveSponsorConfirmation(true)}>{confirmationRequest.confirmLabel}</button></div>
       </section>
     </div>}
   </section>
