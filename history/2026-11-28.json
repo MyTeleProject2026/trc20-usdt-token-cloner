@@ -7459,6 +7459,167 @@
           "checkedAt": "2026-11-28T06:48:41.352Z"
         }
       ]
+    },
+    {
+      "id": 46118337863,
+      "runNumber": 283,
+      "checkedAt": "2026-11-28T06:48:55.886Z",
+      "status": "success",
+      "conclusion": "success",
+      "commit": "20efb0de78850f79836db24be5c5134e39580528",
+      "event": "push",
+      "url": "https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/46118337863",
+      "results": [
+        {
+          "name": "owner-admin-frontend",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 215,
+          "detail": "HTML response received",
+          "metrics": null,
+          "checkedAt": "2026-11-28T06:48:55.886Z"
+        },
+        {
+          "name": "resource-api-health",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 292,
+          "detail": "healthy · TRON Mainnet",
+          "metrics": null,
+          "checkedAt": "2026-11-28T06:48:56.015Z"
+        },
+        {
+          "name": "owner-mainnet-resource-readiness",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 666,
+          "detail": "Energy=0 · free Bandwidth=600 · staked Bandwidth=0 · RPC=tatum/tatum/tatum",
+          "metrics": {
+            "energyAvailable": "0",
+            "freeBandwidthAvailable": "600",
+            "stakedBandwidthAvailable": "0",
+            "accountResourcesProvider": "tatum",
+            "accountProvider": "tatum",
+            "chainParametersProvider": "tatum"
+          },
+          "checkedAt": "2026-11-28T06:48:56.390Z"
+        },
+        {
+          "name": "mainnet-rpc-providers",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 331,
+          "detail": "Tatum block 88391406 · TronGrid block 88391405",
+          "metrics": null,
+          "checkedAt": "2026-11-28T06:48:56.056Z"
+        },
+        {
+          "name": "tronscan-explorer",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 665,
+          "detail": "TronScan public read endpoint reachable · official USDT indexed · API key=TRONSCAN_PRO_API_KEY",
+          "metrics": null,
+          "checkedAt": "2026-11-28T06:48:56.390Z"
+        },
+        {
+          "name": "sponsor-readiness",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 1555,
+          "detail": "Sponsor API schema valid · acceptance=blocked · db=ready · dbReady=true · dbIdentity=true · expectedPin=true · sponsorAddress=true · sponsor=true · owner=true · ownerSigner=true · sponsorSigner=true · independent=true · durable=true · block",
+          "metrics": {
+            "databaseConfigured": true,
+            "databaseReady": true,
+            "databaseIdentityMatches": true,
+            "expectedDatabaseIdentityConfigured": true,
+            "sponsorAddressMatches": true,
+            "ownerWalletEnrolled": true,
+            "ownerSignerAcceptanceVerified": true,
+            "sponsorSignerAcceptanceVerified": true,
+            "acceptanceBlockedChecks": [
+              "mainnet-execution-explicitly-disabled"
+            ],
+            "writesReleaseBlockedChecks": [],
+            "ownerAddressMatches": true,
+            "sponsorIndependent": true,
+            "sponsorWalletEnrolled": true,
+            "sessionAuthenticationConfigured": true,
+            "ownerAdminSessionConfigured": true,
+            "ledgerDurabilityVerified": true,
+            "sponsorWritesPaused": true,
+            "localSignerReady": true,
+            "engineEnabled": true,
+            "broadcastAvailable": true,
+            "clientSigningAvailable": true,
+            "writesReleaseConfigured": true,
+            "writesReleaseAvailable": true,
+            "stakingEnabled": true,
+            "ownerTopupEnabled": true,
+            "transactionExecutionAvailable": false
+          },
+          "checkedAt": "2026-11-28T06:48:57.281Z"
+        },
+        {
+          "name": "owner-signer-challenge-auth",
+          "ok": true,
+          "status": 401,
+          "latencyMs": 661,
+          "detail": "Owner sign-only challenge endpoint is present and rejects unauthenticated access",
+          "metrics": null,
+          "checkedAt": "2026-11-28T06:48:56.387Z"
+        },
+        {
+          "name": "sponsor-signer-challenge-auth",
+          "ok": true,
+          "status": 401,
+          "latencyMs": 663,
+          "detail": "Sponsor sign-only challenge endpoint is present and rejects unauthenticated access",
+          "metrics": null,
+          "checkedAt": "2026-11-28T06:48:56.390Z"
+        },
+        {
+          "name": "runtime-observatory",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 692,
+          "detail": "valid JSON health payload",
+          "metrics": {
+            "sampledAt": "2026-11-28T06:48:56.329Z",
+            "uptimeSeconds": 26,
+            "heartbeatSuccessPercent": 100,
+            "heartbeatMissedIntervals": 0,
+            "rssBytes": 118550528,
+            "heapUsedBytes": 34469312,
+            "heapTotalBytes": 36278272,
+            "eventLoopP95Ms": 20.119551,
+            "requestCount": 34,
+            "errors5xx": 0,
+            "errorRatePercent": 0,
+            "averageLatencyMs": 341,
+            "p95LatencyMs": 2805
+          },
+          "checkedAt": "2026-11-28T06:48:56.420Z"
+        },
+        {
+          "name": "uptime-history",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 862,
+          "detail": "Git-backed history served · 50 archived runs",
+          "metrics": null,
+          "checkedAt": "2026-11-28T06:48:56.590Z"
+        },
+        {
+          "name": "render-metrics",
+          "ok": true,
+          "status": 200,
+          "latencyMs": 699,
+          "detail": "server credential verified · CPU=no_data · memory=available · no platform samples in the current window",
+          "metrics": null,
+          "checkedAt": "2026-11-28T06:48:56.428Z"
+        }
+      ]
     }
   ]
 }
