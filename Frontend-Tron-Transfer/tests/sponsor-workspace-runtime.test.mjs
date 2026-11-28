@@ -270,3 +270,14 @@ test('Sponsor durable and local activity entries open a consistent full-screen o
   assert.match(theme, /\.sponsor-receipt-backdrop/)
   assert.match(theme, /\.sponsor-receipt-fields/)
 })
+
+
+test('Owner mobile primary navigation exposes Home, Deploy & Verify, Live Monitor, Assets and Profile', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const mobile = await readFile(new URL('../src/MobileNavBar.jsx', import.meta.url), 'utf8')
+  assert.match(app, /label: 'Deploy & verify', shortLabel: 'Deploy & Verify'/)
+  assert.match(app, /label: 'Live monitor', shortLabel: 'Live Monitor'/)
+  assert.match(app, /id: 'portfolio', group: 'Assets', label: 'Assets overview', shortLabel: 'Assets'/)
+  assert.match(mobile, /const OWNER_PRIMARY = \['home', 'deploy', 'monitor', 'portfolio', 'profile'\]/)
+  assert.match(mobile, /aria-label=.*Owner workspace navigation/)
+})
