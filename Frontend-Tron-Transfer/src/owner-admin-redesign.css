@@ -496,3 +496,8 @@ body:has(.trax-admin-shell) {
   .trax-receipt-sheet { padding:16px;border-radius:14px; }
   .trax-receipt-heading { align-items:center; }
 }
+
+@media(max-width:900px) {
+  .trax-mobile-nav button span { max-width:76px;font-size:8px;line-height:1.12;white-space:normal;text-align:center; }
+  .trax-mobile-nav button { min-width:0;gap:3px; }
+}
