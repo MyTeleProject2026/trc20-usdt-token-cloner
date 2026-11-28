@@ -236,3 +236,14 @@ test('Sponsor refresh preserves 429/503 retry metadata and applies a bounded coo
   assert.ok(sponsor.includes('refreshCooldownUntil.current - Date.now()'))
   assert.ok(sponsor.includes('Math.max(15, Math.min(300, Number(error.retryAfterSeconds || 30)))'))
 })
+
+
+test('mobile navigation grid fits the five Owner destinations plus More and the Sponsor destinations plus More', async () => {
+  const mobile = await read('../src/MobileNavBar.jsx')
+  const css = await read('../src/exchange-experience.css')
+  assert.ok(mobile.includes("const OWNER_PRIMARY = ['home', 'deploy', 'monitor', 'portfolio', 'profile']"))
+  assert.ok(mobile.includes("const SPONSOR_PRIMARY = ['sponsor', 'sponsor-resources', 'sponsor-activity']"))
+  assert.match(css, /\.trax-mobile-nav:not\(\.trax-mobile-nav-sponsor\)\s*\{\s*grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/)
+  assert.match(css, /\.trax-mobile-nav\.trax-mobile-nav-sponsor\s*\{\s*grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/)
+  assert.ok(mobile.includes('aria-expanded={moreOpen}') && mobile.includes('secondaryGroups.map'))
+})
