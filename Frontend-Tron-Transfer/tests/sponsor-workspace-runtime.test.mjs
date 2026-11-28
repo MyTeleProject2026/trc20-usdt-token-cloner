@@ -178,3 +178,12 @@ test('Sponsor Owner Admin CSRF state is declared before session restoration uses
   assert.match(source, /setOwnerAdminCsrfToken\(ownerSession\.csrfToken \|\| ''\)/)
   assert.match(source, /ownerAdminCsrfToken/)
 })
+
+test('Sponsor render boundary exposes a component trace and a full-application recovery action', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  assert.match(app, /componentStack: ''/)
+  assert.match(app, /String\(info\?\.componentStack \|\| ''\)/)
+  assert.match(app, /Show component trace for support/)
+  assert.match(app, /window\.location\.reload\(\)/)
+  assert.match(app, /componentStack: ''/)
+})
