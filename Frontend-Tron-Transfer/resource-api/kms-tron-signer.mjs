@@ -95,6 +95,10 @@ export function assertKmsSignerConfiguration({ role, env = process.env, enabled 
   if (!enabled) fail('KMS_SIGNING_DISABLED', 423)
   const keyArn = String(env[config.keyEnv] || '').trim()
   const expectedAddress = String(env[config.addressEnv] || '').trim()
+  const ownerKeyArn = String(env.OWNER_KMS_KEY_ARN || '').trim()
+  const sponsorKeyArn = String(env.SPONSOR_KMS_KEY_ARN || '').trim()
+  if (!ownerKeyArn || !sponsorKeyArn) fail('KMS_BOTH_ROLE_KEYS_REQUIRED', 503)
+  if (ownerKeyArn === sponsorKeyArn) fail('KMS_ROLE_KEYS_MUST_BE_DISTINCT', 503)
   if (!keyArn || !/^arn:aws:kms:[a-z0-9-]+:\d{12}:key\/[0-9a-f-]{36}$/i.test(keyArn)) fail('KMS_SIGNING_KEY_NOT_CONFIGURED', 503)
   if (!/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(expectedAddress)) fail('KMS_SIGNING_WALLET_IDENTITY_NOT_CONFIGURED', 503)
   if (role === 'sponsor' && expectedAddress === String(env.TRON_OWNER_ADDRESS || env.TRON_OWNER_WALLET_ADDRESS || '')) {
