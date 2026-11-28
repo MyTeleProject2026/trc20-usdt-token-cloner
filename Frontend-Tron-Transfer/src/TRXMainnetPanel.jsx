@@ -96,12 +96,21 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   const [nativeTrxAvailableBalanceSun, setNativeTrxAvailableBalanceSun] = useState(null)
   const [nativeTrxWithdrawalHistory, setNativeTrxWithdrawalHistory] = useState([])
   const [nativeTrxBalanceAt, setNativeTrxBalanceAt] = useState('')
+  const [trxWithdrawalStep, setTrxWithdrawalStep] = useState(1)
+  const [usdtWithdrawalStep, setUsdtWithdrawalStep] = useState(1)
+  const [selectedWithdrawalReceipt, setSelectedWithdrawalReceipt] = useState(null)
   const prepareInFlightRef = useRef(null)
   const preparationKeyRef = useRef('')
 
   useEffect(() => {
     try { saveContractAddresses({ tokenAddress }) } catch {}
   }, [tokenAddress])
+
+  useEffect(() => {
+    if (activePage === 'withdraw-trx') setTrxWithdrawalStep(1)
+    if (activePage === 'withdraw-usdt') setUsdtWithdrawalStep(1)
+    setSelectedWithdrawalReceipt(null)
+  }, [activePage])
 
   const connectedAddress = wallet?.address || ''
   const readOnlyTronWeb = useMemo(() => new TronWeb({ fullHost: RESOURCE_API_BASE + '/api/tron/mainnet/rpc' }), [])
@@ -883,11 +892,21 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <article><span>Network</span><b>TRON Mainnet</b><small>No testnet or alternate chain</small></article>
       </div>
       <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refreshOwnerNativeTrxBalance}><RefreshCw size={14}/> Refresh native TRX balance</button></div>
-      <label>Recipient TRON Mainnet address<input value={nativeTrxWithdrawalRecipient} onChange={event => setNativeTrxWithdrawalRecipient(event.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
-      <label>Withdrawal amount (TRX)<input value={nativeTrxWithdrawalAmount} onChange={event => setNativeTrxWithdrawalAmount(event.target.value)} inputMode="decimal" placeholder="0.000001"/></label>
-      <div className="trax-balance-note">Six decimal places · Requested base units: {(() => { try { return parseTokenUnits(nativeTrxWithdrawalAmount) } catch { return '—' } })()}</div>
-      <button type="button" className="primary-button" disabled={!walletReady || busy || !nativeTrxWithdrawalRecipient.trim() || !nativeTrxWithdrawalAmount.trim() || !feeCapSun} onClick={prepareNativeTrxWithdrawal}><ArrowUpRight size={15}/> Review native TRX withdrawal</button>
-      <div className="trax-history"><h4>Recent native TRX withdrawals</h4>{!nativeTrxWithdrawalHistory.length ? <p className="fine-print">No native TRX withdrawals are recorded in the Owner operation ledger yet.</p> : <div className="transaction-list">{nativeTrxWithdrawalHistory.map(item => <article className="transaction-row" key={item.operationId}><div><b>{formatTokenUnits(item.args?.[1] || '0')} TRX</b><span>To {item.args?.[0] || 'Unknown recipient'}</span></div><div><b>{String(item.state || 'unknown').replaceAll('-', ' ')}</b><span>{item.blockNumber ? 'Solidified block ' + item.blockNumber : item.transactionId ? 'Transaction submitted' : 'No transaction broadcast'}</span></div><div>{item.transactionId ? <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">{item.transactionId.slice(0, 12)}… <ExternalLink size={11}/></a> : <span>{item.failureCode || 'Awaiting transaction'}</span>}</div></article>)}</div>}</div>
+      <div className="trax-operation-stepper" aria-label="Native TRX withdrawal steps">
+        <span className="complete">1 · Network</span><span className="complete">2 · Asset</span><span className={trxWithdrawalStep === 1 ? 'active' : 'complete'}>3 · Recipient</span><span className={trxWithdrawalStep === 2 ? 'active' : ''}>4 · Amount</span><span>5 · Review &amp; confirm</span>
+      </div>
+      <label>Network<input value="TRON Mainnet" readOnly/></label>
+      <label>Asset<input value="Native TRX" readOnly/></label>
+      {trxWithdrawalStep === 1 ? <>
+        <label>Recipient TRON Mainnet address<input value={nativeTrxWithdrawalRecipient} onChange={event => setNativeTrxWithdrawalRecipient(event.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
+        <button type="button" className="primary-button" disabled={!walletReady || !wallet?.tronWeb?.isAddress?.(nativeTrxWithdrawalRecipient.trim())} onClick={() => setTrxWithdrawalStep(2)}>Continue to withdrawal amount</button>
+      </> : <>
+        <div className="trax-recipient-result"><span>Recipient address</span><b>{nativeTrxWithdrawalRecipient}</b><button type="button" className="outline-button" onClick={() => setTrxWithdrawalStep(1)}>Change recipient</button></div>
+        <label>Withdrawal amount (TRX)<input value={nativeTrxWithdrawalAmount} onChange={event => setNativeTrxWithdrawalAmount(event.target.value)} inputMode="decimal" placeholder="0.000001"/></label>
+        <div className="trax-balance-note">Six decimal places · Requested base units: {(() => { try { return parseTokenUnits(nativeTrxWithdrawalAmount) } catch { return '—' } })()}</div>
+        <div className="button-row"><button type="button" className="outline-button" onClick={() => setTrxWithdrawalStep(1)}>Back</button><button type="button" className="primary-button" disabled={!walletReady || busy || !nativeTrxWithdrawalRecipient.trim() || !nativeTrxWithdrawalAmount.trim() || !feeCapSun} onClick={prepareNativeTrxWithdrawal}><ArrowUpRight size={15}/> Review native TRX withdrawal</button></div>
+      </>}
+      <div className="trax-history"><h4>Recent native TRX withdrawals</h4>{!nativeTrxWithdrawalHistory.length ? <p className="fine-print">No native TRX withdrawals are recorded in the Owner operation ledger yet.</p> : <div className="transaction-list">{nativeTrxWithdrawalHistory.map(item => <article className="transaction-row" key={item.operationId}><div><b>{formatTokenUnits(item.args?.[1] || '0')} TRX</b><span>To {item.args?.[0] || 'Unknown recipient'}</span></div><div><b>{String(item.state || 'unknown').replaceAll('-', ' ')}</b><span>{item.blockNumber ? 'Solidified block ' + item.blockNumber : item.transactionId ? 'Transaction submitted' : 'No transaction broadcast'}</span></div><div><button type="button" className="trax-receipt-open" onClick={() => setSelectedWithdrawalReceipt({ ...item, asset: 'TRX' })}>Open receipt</button>{item.transactionId ? <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">{item.transactionId.slice(0, 12)}… <ExternalLink size={11}/></a> : <span>{item.failureCode || 'Awaiting transaction'}</span>}</div></article>)}</div>}</div>
     </div>}
 
     {show('withdraw-usdt') && <div className="trax-actions" aria-label="Official USDT withdrawal">
@@ -901,10 +920,20 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <article><span>Network</span><b>TRON Mainnet</b><small>No testnet or alternate token contract</small></article>
       </div>
       <div className="button-row"><button type="button" className="secondary-button" disabled={!walletReady || busy} onClick={refreshUsdtWithdrawalBalance}><RefreshCw size={14}/> Refresh USDT balance</button></div>
-      <label>Recipient TRON Mainnet address<input value={usdtWithdrawalRecipient} onChange={event => setUsdtWithdrawalRecipient(event.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
-      <label>Withdrawal amount (USDT)<input value={usdtWithdrawalAmount} onChange={event => setUsdtWithdrawalAmount(event.target.value)} inputMode="decimal" placeholder="0.00"/></label>
-      <div className="trax-balance-note">Six decimal places · Requested base units: {(() => { try { return parseTokenUnits(usdtWithdrawalAmount) } catch { return '—' } })()}</div>
-      <button type="button" className="primary-button" disabled={!walletReady || busy || !usdtWithdrawalRecipient.trim() || !usdtWithdrawalAmount.trim() || !feeCapSun} onClick={prepareUsdtWithdrawal}><ArrowUpRight size={15}/> Review official USDT withdrawal</button>
+      <div className="trax-operation-stepper" aria-label="Official USDT withdrawal steps">
+        <span className="complete">1 · Network</span><span className="complete">2 · Asset</span><span className={usdtWithdrawalStep === 1 ? 'active' : 'complete'}>3 · Recipient</span><span className={usdtWithdrawalStep === 2 ? 'active' : ''}>4 · Amount</span><span>5 · Review &amp; confirm</span>
+      </div>
+      <label>Network<input value="TRON Mainnet" readOnly/></label>
+      <label>Asset<input value="Official USDT · TRC20" readOnly/></label>
+      {usdtWithdrawalStep === 1 ? <>
+        <label>Recipient TRON Mainnet address<input value={usdtWithdrawalRecipient} onChange={event => setUsdtWithdrawalRecipient(event.target.value)} autoComplete="off" spellCheck="false" placeholder="T…"/></label>
+        <button type="button" className="primary-button" disabled={!walletReady || !wallet?.tronWeb?.isAddress?.(usdtWithdrawalRecipient.trim())} onClick={() => setUsdtWithdrawalStep(2)}>Continue to withdrawal amount</button>
+      </> : <>
+        <div className="trax-recipient-result"><span>Recipient address</span><b>{usdtWithdrawalRecipient}</b><button type="button" className="outline-button" onClick={() => setUsdtWithdrawalStep(1)}>Change recipient</button></div>
+        <label>Withdrawal amount (USDT)<input value={usdtWithdrawalAmount} onChange={event => setUsdtWithdrawalAmount(event.target.value)} inputMode="decimal" placeholder="0.00"/></label>
+        <div className="trax-balance-note">Six decimal places · Requested base units: {(() => { try { return parseTokenUnits(usdtWithdrawalAmount) } catch { return '—' } })()}</div>
+        <div className="button-row"><button type="button" className="outline-button" onClick={() => setUsdtWithdrawalStep(1)}>Back</button><button type="button" className="primary-button" disabled={!walletReady || busy || !usdtWithdrawalRecipient.trim() || !usdtWithdrawalAmount.trim() || !feeCapSun} onClick={prepareUsdtWithdrawal}><ArrowUpRight size={15}/> Review official USDT withdrawal</button></div>
+      </>}
       <p className="fine-print">Preparation is unsigned. The next screen displays the exact recipient, amount, fee ceiling and Mainnet resource estimate. A separate explicit confirmation is required. Insufficient Energy, Bandwidth, TRX fallback or database readiness blocks signing. An ambiguous broadcast is reconciled by transaction ID; it is never automatically retried.</p>
       <a href={'https://tronscan.org/#/contract/' + OFFICIAL_USDT_MAINNET_CONTRACT} target="_blank" rel="noreferrer">Official USDT contract on TRONSCAN <ExternalLink size={12}/></a>
 
@@ -914,7 +943,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
           {usdtWithdrawalHistory.map(item => <article className="transaction-row" key={item.operationId}>
             <div><b>{formatTokenUnits(item.args?.[1] || '0')} USDT</b><span>To {item.args?.[0] || 'Unknown recipient'}</span></div>
             <div><b>{String(item.state || 'unknown').replaceAll('-', ' ')}</b><span>{item.blockNumber ? 'Solidified block ' + item.blockNumber : item.transactionId ? 'Transaction submitted' : 'No transaction broadcast'}</span></div>
-            <div>{item.transactionId ? <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">{item.transactionId.slice(0, 12)}… <ExternalLink size={11}/></a> : <span>{item.failureCode || 'Awaiting transaction'}</span>}</div>
+            <div><button type="button" className="trax-receipt-open" onClick={() => setSelectedWithdrawalReceipt({ ...item, asset: 'USDT' })}>Open receipt</button>{item.transactionId ? <a href={'https://tronscan.org/#/transaction/' + item.transactionId} target="_blank" rel="noreferrer">{item.transactionId.slice(0, 12)}… <ExternalLink size={11}/></a> : <span>{item.failureCode || 'Awaiting transaction'}</span>}</div>
           </article>)}
         </div>}
       </div>
@@ -1044,6 +1073,24 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         <button type="button" className="outline-button" disabled={busy || pendingOperation.state !== 'awaiting-confirmation'} onClick={cancelOwnerOperation}>Cancel prepared operation</button>
       </div>
       <p className="fine-print">A signed or broadcast-unknown transaction is never automatically re-signed or rebroadcast. Its transaction ID must be reconciled against a solidified Mainnet receipt.</p>
+    </div>}
+    {selectedWithdrawalReceipt && <div className="trax-receipt-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedWithdrawalReceipt(null) }}>
+      <section className="trax-receipt-sheet" role="dialog" aria-modal="true" aria-labelledby="trax-receipt-title">
+        <div className="trax-receipt-heading"><div><span className="eyebrow">TRON TRANSFER · MAINNET RECEIPT</span><h2 id="trax-receipt-title">Withdrawal receipt</h2><p>Owner wallet · {selectedWithdrawalReceipt.asset}</p></div><button type="button" className="outline-button" onClick={() => setSelectedWithdrawalReceipt(null)}>Close</button></div>
+        <div className="trax-receipt-amount"><small>Withdrawal amount</small><strong>{formatTokenUnits(selectedWithdrawalReceipt.args?.[1] || '0')} {selectedWithdrawalReceipt.asset}</strong></div>
+        <dl className="trax-receipt-fields">
+          <div><dt>Network</dt><dd>TRON Mainnet</dd></div>
+          <div><dt>Recipient</dt><dd>{selectedWithdrawalReceipt.args?.[0] || 'Not recorded'}</dd></div>
+          <div><dt>Status</dt><dd>{String(selectedWithdrawalReceipt.state || 'unknown').replaceAll('-', ' ')}</dd></div>
+          <div><dt>Operation reference</dt><dd>{selectedWithdrawalReceipt.operationId || 'Not recorded'}</dd></div>
+          <div><dt>Transaction ID</dt><dd>{selectedWithdrawalReceipt.transactionId || 'Not broadcast / not recorded'}</dd></div>
+          <div><dt>Solidified block</dt><dd>{selectedWithdrawalReceipt.blockNumber || 'Awaiting confirmation'}</dd></div>
+          <div><dt>Recorded at</dt><dd>{selectedWithdrawalReceipt.createdAt || selectedWithdrawalReceipt.recordedAt ? new Date(selectedWithdrawalReceipt.createdAt || selectedWithdrawalReceipt.recordedAt).toLocaleString() : 'Not recorded'}</dd></div>
+          {selectedWithdrawalReceipt.failureCode && <div><dt>Result detail</dt><dd>{selectedWithdrawalReceipt.failureCode}</dd></div>}
+        </dl>
+        {selectedWithdrawalReceipt.transactionId && <a className="trax-receipt-explorer" href={'https://tronscan.org/#/transaction/' + selectedWithdrawalReceipt.transactionId} target="_blank" rel="noreferrer">Verify transaction on TRONSCAN <ExternalLink size={13}/></a>}
+        <p className="fine-print">This receipt reflects the recorded operation state. Treat a transaction as complete only when its solidified Mainnet receipt has been verified.</p>
+      </section>
     </div>}
     {lastTx && <div className="notice notice-success trax-last-tx"><CheckCircle2 size={16}/><div><b>Solidified Mainnet transaction verified</b><p>{lastTx}</p><a href={'https://tronscan.org/#/transaction/' + lastTx} target="_blank" rel="noreferrer">Open transaction on TRONSCAN <ExternalLink size={12}/></a></div></div>}
     {tokenAddress && !show('withdraw','withdraw-trx','withdraw-usdt') && <div className="notice trax-contract-explorer"><div><b>Saved TRӾ Mainnet contract</b><p>{tokenAddress}</p><a href={'https://tronscan.org/#/contract/' + tokenAddress} target="_blank" rel="noreferrer">Open contract on TRONSCAN <ExternalLink size={12}/></a><small>Explorer visibility is not the same as source-code verification. Confirm the deployed address and submit source verification using the exact compiler settings and constructor data.</small></div></div>}
