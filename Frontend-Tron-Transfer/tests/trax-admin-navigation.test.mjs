@@ -8,7 +8,7 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
   const app = await read('../src/App.jsx')
   const sidebar = await read('../src/TRAXSidebar.jsx')
   const mobile = await read('../src/MobileNavBar.jsx')
-  const ids = ['home','portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']
+  const ids = ['home','monitor','profile','portfolio','deposit','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance','withdraw-trx','withdraw-usdt']
   for (const id of ids) assert.ok(app.includes("id: '" + id + "'"), 'missing page route: ' + id)
   assert.ok(sidebar.includes('trax-desktop-workspace-nav'))
   assert.ok(sidebar.includes('Owner workspace navigation') && sidebar.includes('Sponsor workspace navigation'))
@@ -16,7 +16,7 @@ test('desktop sidebar and mobile bottom navigation expose all TRӾ admin pages',
   assert.ok(sidebar.includes('collapsed'))
   assert.ok(sidebar.includes('Expand sidebar'))
   assert.ok(sidebar.includes('Collapse sidebar'))
-  assert.ok(mobile.includes("const OWNER_PRIMARY = ['home', 'portfolio', 'transfers']"))
+  assert.ok(mobile.includes("const OWNER_PRIMARY = ['home', 'deploy', 'monitor', 'portfolio', 'profile']"))
   assert.ok(mobile.includes("const SPONSOR_PRIMARY = ['sponsor', 'sponsor-resources', 'sponsor-activity']"))
   assert.ok(mobile.includes('More workspace'))
   assert.ok(mobile.includes('role="dialog"'))
@@ -47,7 +47,7 @@ test('each TRӾ admin page is wired to the existing on-chain operation', async (
   assert.match(mesh, /TronScan Mainnet · explorer\/indexer/)
   assert.ok(mesh.includes('MCP EXECUTION ROUTER') && mesh.includes('FUNCTION RETURN BUS'), 'mesh must expose function and callback flows')
   assert.doesNotMatch(panel, /claimTenergyPromo|TEnergy|free energy promotion/i, 'Owner deployment must not expose external resource claims')
-  for (const page of ['portfolio','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
+  for (const page of ['portfolio','deposit','deploy','issuance','credits','batch','pause','minting','transfers','ownership','history','balance']) {
     assert.ok(panel.includes("show('" + page + "')"), 'missing page rendering: ' + page)
   }
   for (const action of ['issueOwnerSupply','issueCredit','batchCredit','pause','unpauseTransfers','enableMinting','disableMinting','transfer']) {
@@ -202,4 +202,37 @@ test('Owner withdrawals are split into dedicated Native TRX and official USDT pa
   assert.ok(panel.includes("show('withdraw-usdt') && <div className=\"trax-actions\" aria-label=\"Official USDT withdrawal\""))
   assert.ok(panel.includes("onNavigate?.('withdraw-trx')") && panel.includes("onNavigate?.('withdraw-usdt')"))
   assert.ok(css.includes('.trax-withdrawal-chooser') && css.includes('@media(max-width:720px)'))
+})
+
+test('Owner Home is a compact live overview and the Monitor exposes nine focused live sections', async () => {
+  const app = await read('../src/App.jsx')
+  const mesh = await read('../src/AetheriaMcpMesh.jsx')
+  const css = await read('../src/aetheria-mcp-mesh.css')
+  for (const id of ['home','deploy','monitor','portfolio','profile']) assert.ok(app.includes("id: '" + id + "'"))
+  assert.ok(app.includes('compact/>'), 'Home must render the compact observability overview')
+  for (const label of ['SERVICE TOPOLOGY','MCP EXECUTION ROUTER','LIVE INFRASTRUCTURE','MAINNET CONNECTION','TRON MAINNET RESOURCE HUB','RENDER TELEMETRY','EXTERNAL UPTIME','CONFIRMED CHAIN ACTIVITY','FUNCTION RETURN BUS']) {
+    assert.ok(mesh.includes(label), 'missing monitor section ' + label)
+  }
+  assert.ok(mesh.includes('am-monitor-tabs') && mesh.includes('setMonitorView'))
+  assert.ok(mesh.includes("onNavigate?.('monitor')"))
+  assert.ok(css.includes('.aetheria-mesh.compact') && css.includes('.aetheria-mesh.focused[data-view='))
+})
+
+test('Assets overview shortcuts open separate existing Deposit, Withdraw, History, Ownership and Balance pages', async () => {
+  const app = await read('../src/App.jsx')
+  const panel = await read('../src/TRXMainnetPanel.jsx')
+  assert.ok(app.includes("id: 'deposit'"))
+  assert.ok(panel.includes("show('deposit') && <WalletDepositPanel"))
+  for (const route of ['deposit','withdraw','history','ownership','balance']) {
+    assert.ok(panel.includes("onNavigate?.('" + route + "')"), 'missing Assets shortcut to ' + route)
+  }
+  assert.ok(panel.includes('trax-asset-shortcuts'))
+})
+
+test('Sponsor refresh preserves 429/503 retry metadata and applies a bounded cooldown', async () => {
+  const sponsor = await read('../src/SponsorWalletManager.jsx')
+  assert.ok(sponsor.includes('limited.status = error.status'))
+  assert.ok(sponsor.includes('limited.retryAfterSeconds = error.retryAfterSeconds || 15'))
+  assert.ok(sponsor.includes('refreshCooldownUntil.current - Date.now()'))
+  assert.ok(sponsor.includes('Math.max(15, Math.min(300, Number(error.retryAfterSeconds || 30)))'))
 })
