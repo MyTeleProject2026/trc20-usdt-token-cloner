@@ -252,6 +252,7 @@ test('Every Owner workspace route has a specific page heading and the deposit pa
   const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
   for (const route of ['portfolio', 'deposit', 'deploy', 'issuance', 'credits', 'batch', 'pause', 'minting', 'transfers', 'withdraw', 'withdraw-trx', 'withdraw-usdt', 'ownership', 'history', 'balance']) {
     assert.ok(app.includes(`id: '${route}'`), 'Owner route must be navigable: ' + route)
-    assert.ok(panel.includes(route + ': ['), 'Owner route must have page metadata: ' + route)
+    const pageMetaKey = route.includes('-') ? `'${route}': [` : route + ': ['
+    assert.ok(panel.includes(pageMetaKey), 'Owner route must have page metadata: ' + route)
   }
 })
