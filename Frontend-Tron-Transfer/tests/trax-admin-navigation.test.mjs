@@ -114,9 +114,9 @@ test('Sponsor workspace exposes independent Overview, Resources, Automation and 
   assert.ok(app.includes("activePage.startsWith('sponsor')"))
   assert.ok(app.includes('<SponsorWalletManager activePage={activePage}'))
   for (const id of ['sponsor-overview','sponsor-resources','sponsor-automation','sponsor-activity']) assert.ok(sponsor.includes('id="' + id + '"'))
-  assert.ok(sponsor.includes('Sponsor platform sections'))
+  assert.ok(sponsor.includes('sponsor-workspace-context'))
   assert.ok(mobile.includes('Sponsor workspace navigation') && mobile.includes('primary.map') && mobile.includes('secondaryGroups.map'))
-  assert.ok(css.includes('.sponsor-product-tabs') && css.includes('@media(max-width:720px)'))
+  assert.ok(css.includes('.sponsor-workspace-context') && css.includes('@media(max-width:720px)'))
 })
 
 test('Sponsor pages mount only the active section and expose actionable render diagnostics', async () => {
@@ -134,7 +134,7 @@ test('premium workspace layer preserves reduced motion and mobile Sponsor tabs',
   assert.ok(css.includes('TRON TRANSFER Signature Edition'))
   assert.ok(css.includes('@media(max-width:720px)'))
   assert.ok(css.includes('@media(prefers-reduced-motion:reduce)'))
-  assert.ok(css.includes('.sponsor-product-tabs button.active'))
+  assert.ok(css.includes('.sponsor-workspace-context'))
 })
 
 
