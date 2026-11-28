@@ -96,7 +96,11 @@ function readJson(path, timeoutMs = 8_000) {
   }).finally(() => window.clearTimeout(timer))
 }
 
-export default function AetheriaMcpMesh({ wallet, onNavigate }) {
+export default function AetheriaMcpMesh({ wallet, onNavigate, compact = false }) {
+  const [monitorView, setMonitorView] = useState('services')
+  const monitorTabs = [
+    ['services','SERVICE TOPOLOGY'],['router','MCP EXECUTION ROUTER'],['infrastructure','LIVE INFRASTRUCTURE'],['mainnet','MAINNET CONNECTION'],['resources','TRON MAINNET RESOURCE HUB'],['render','RENDER TELEMETRY'],['uptime','EXTERNAL UPTIME'],['chain','CONFIRMED CHAIN ACTIVITY'],['callbacks','FUNCTION RETURN BUS'],
+  ]
   const [calls, setCalls] = useState(INITIAL_CALLS)
   const [health, setHealth] = useState(null)
   const [providerHealth, setProviderHealth] = useState(null)
@@ -304,7 +308,7 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     return value ? new Date(Number(value)).toLocaleTimeString() : '—'
   }
 
-  return <section className="aetheria-mesh" aria-label="AETHERIA global MCP mesh runtime monitoring">
+  return <section className={"aetheria-mesh" + (compact ? " compact" : " focused")} data-view={compact ? "compact" : monitorView} aria-label="AETHERIA global MCP mesh runtime monitoring">
     <header className="am-hero">
       <div className="am-brandline"><span className="am-brand-mark"><Network size={19}/></span><div><span>AETHERIA // GLOBAL MCP MESH</span><small>TRON TRANSFER · OWNER ADMIN RUNTIME FABRIC</small></div></div>
       <div className="am-hero-copy"><div><span className="am-eyebrow"><Radio size={13}/> MULTI-HUB OBSERVABILITY · TRON MAINNET</span><h2>One console. Every critical service path.</h2><p>Live API, provider and infrastructure status in one operational view. The one-second clock updates telemetry age and runtime heartbeat; upstream services retain their safe polling intervals.</p></div>
@@ -312,6 +316,22 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
       </div>
       <div className="am-telemetry-bar"><span><Clock3 size={13}/> LOCAL TICK <b>{stamp(clockNow)}</b></span><span><Activity size={13}/> RUNTIME HEARTBEAT <b>{heartbeatAge == null ? '—' : heartbeatAge + ' ms'}</b></span><span><Radio size={13}/> LAST CALLBACK <b>{latestTick ? age(latestTick, clockNow) : 'Awaiting'}</b></span><span><Waves size={13}/> API ROUTES <b>{allFlowCount}/{flowCount} online</b></span></div>
     </header>
+    {compact ? <div className="am-overview-links" aria-label="Live monitoring workspaces">
+      {[
+        ['MULTI-HUB OBSERVABILITY','Global status and service map',runtimeState],
+        ['SERVICE TOPOLOGY','Connected service health',allFlowCount === flowCount ? 'online' : 'warning'],
+        ['MCP EXECUTION ROUTER','API requests and return callbacks',calls.runtime.state],
+        ['LIVE INFRASTRUCTURE','Runtime and process telemetry',runtimeState],
+        ['MAINNET CONNECTION','RPC and explorer providers',calls.providers.state],
+        ['TRON MAINNET RESOURCE HUB','Owner Energy, Bandwidth and TRX',resourceState],
+        ['RENDER TELEMETRY','CPU, memory and HTTP metrics',calls.renderMetrics.state],
+        ['EXTERNAL UPTIME','Archived production probes',calls.uptime.state],
+        ['CONFIRMED CHAIN ACTIVITY','Confirmed Owner wallet transactions',calls.transactions.state],
+        ['FUNCTION RETURN BUS','Execution and callback trace',allFlowCount === flowCount ? 'online' : 'warning'],
+      ].map(([title,detail,state]) => <button type="button" key={title} onClick={() => onNavigate?.('monitor')}><span className="am-overview-link-status"><Status state={state}/></span><b>{title}</b><small>{detail}</small><strong>Open monitor ↗</strong></button>)}
+    </div> : <nav className="am-monitor-tabs" aria-label="Live monitor sections">
+      {monitorTabs.map(([id,label]) => <button type="button" key={id} className={monitorView === id ? 'active' : ''} aria-pressed={monitorView === id} onClick={() => setMonitorView(id)}>{label}</button>)}
+    </nav>}
 
     <div className="am-section-head"><div><span className="am-eyebrow">01 / SERVICE TOPOLOGY</span><h3>Connected services</h3><p>Each service tile reports its own live probe or latest successful response.</p></div><div className="am-legend"><span><i className="ok"/> live</span><span><i className="warn"/> degraded</span><span><i className="bad"/> offline</span><span><i className="pulse"/> callback pulse</span></div></div>
     <div className="am-mesh-stage">
