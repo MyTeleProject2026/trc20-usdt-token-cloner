@@ -228,3 +228,20 @@ test('Owner and Sponsor error boundaries retain actionable component and JavaScr
   assert.match(app, /componentStack: '', errorStack: ''/)
   assert.match(app, /hasError: false, message: '', componentStack: '', errorStack: ''/)
 })
+
+
+test('Owner TRX and USDT withdrawals use guided recipient/amount stages and open detailed operation receipts', async () => {
+  const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  const theme = await readFile(new URL('../src/owner-admin-redesign.css', import.meta.url), 'utf8')
+  assert.match(panel, /const \[trxWithdrawalStep, setTrxWithdrawalStep\] = useState\(1\)/)
+  assert.match(panel, /const \[usdtWithdrawalStep, setUsdtWithdrawalStep\] = useState\(1\)/)
+  assert.match(panel, /Continue to withdrawal amount/)
+  assert.match(panel, /Review native TRX withdrawal/)
+  assert.match(panel, /Review official USDT withdrawal/)
+  assert.match(panel, /setSelectedWithdrawalReceipt\(\{ \.\.\.item, asset: 'TRX' \}\)/)
+  assert.match(panel, /setSelectedWithdrawalReceipt\(\{ \.\.\.item, asset: 'USDT' \}\)/)
+  assert.match(panel, /aria-label="Review Owner Mainnet operation"/)
+  assert.match(panel, /solidified Mainnet receipt has been verified/)
+  assert.match(theme, /\.trax-receipt-backdrop/)
+  assert.match(theme, /\.trax-receipt-sheet/)
+})
