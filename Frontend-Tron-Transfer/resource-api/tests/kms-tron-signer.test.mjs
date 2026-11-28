@@ -21,7 +21,7 @@ test('KMS signer stays disabled unless the explicit server-side gate is enabled'
 
 test('KMS signer rejects unknown roles and missing key identity', () => {
   assert.throws(() => assertKmsSignerConfiguration({ role: 'admin', env: {}, enabled: true }), /KMS_SIGNER_ROLE_INVALID/)
-  assert.throws(() => assertKmsSignerConfiguration({ role: 'owner', env: {}, enabled: true }), /KMS_SIGNING_KEY_NOT_CONFIGURED/)
+  assert.throws(() => assertKmsSignerConfiguration({ role: 'owner', env: {}, enabled: true }), error => error.code === 'KMS_BOTH_ROLE_KEYS_REQUIRED')
 })
 
 test('KMS signer validates the Owner and Sponsor key configuration as separate identities', () => {
