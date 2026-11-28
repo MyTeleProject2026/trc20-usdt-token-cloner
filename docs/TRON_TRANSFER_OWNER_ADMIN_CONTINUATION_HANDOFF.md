@@ -380,3 +380,60 @@ Pending. Reconcile every open PR against the production branch before closing it
 - Production uptime probe: **success** on that exact commit.
 - The prior single provider-health latency miss did not recur in the next scheduled probe. Continue monitoring the Mainnet provider-health endpoint; do not treat a transient latency pass as a permanent SLA.
 - Frontend source code did not change after the frontend build/test success on `0200771`; subsequent commits in this sequence only updated handoff documentation.
+
+
+## 14. Render production workspace verification — 2026-11-28
+
+The user explicitly authorized inspection and use of **Sam's workspace** (`tea-d9q4rhtbedkc73b3dsfg`). The two production services were found in that workspace and inspected through Render.
+
+### 14.1 Live services and deployed commit
+
+| Service | Render ID | URL | Branch | Latest deploy |
+|---|---|---|---|---|
+| `tron-transfer` | `srv-dblmrad6e07s739cs2lg` | `https://tron-transfer.onrender.com` | `ui/modern-crypto-dashboard-theme` | `81064fe4ce3e83044c8acf91ababcf685b4925ac`, status `live` |
+| `tron-transfer-resource-api` | `srv-dbrjpq56e07s73bueevg` | `https://tron-transfer-resource-api.onrender.com` | `ui/modern-crypto-dashboard-theme` | `81064fe4ce3e83044c8acf91ababcf685b4925ac`, status `live` |
+
+Both services have automatic deploy enabled on commits. Both latest deployments completed successfully. The frontend is a Static Site publishing `Frontend-Tron-Transfer/dist`. The API is a Node web service in Singapore with `/health` as its configured health-check path.
+
+### 14.2 Runtime and database observations
+
+- No application-level error log entries were returned for the Resource API in the inspected interval `2026-11-28T02:38:00Z` to `02:48:31Z`.
+- Render lists `tron-transfer-sponsor-ledger-free` (`dpg-dbvu3c142hec73856ogg-a`) as available in Singapore. It is a free Postgres database with expiry shown as `2026-12-20T05:59:12Z`. It is therefore not a durable long-term production database plan.
+- A separate older database `tronlink-skills-sponsor-ledger` (`dpg-dbafj4tg1s2s73bu80m0-a`) is suspended due to billing. Do not treat it as the active production ledger.
+- A read-only SQL query from the hosted Render MCP failed because the database requires SSL/TLS and the MCP connector's source IP is not in the database external IP allowlist. The error explicitly states that the hosted MCP server cannot currently be allowlisted. This does not prove that the Resource API cannot connect from its own Render runtime; do not change the database allowlist or replace the database based on this MCP-only failure.
+- The latest API runtime error query was empty. The historical log stream contains build/test output labelled at error level (including test assertions and an earlier Vite syntax failure); those are historical build logs, not current runtime exceptions. The current deployment is live.
+
+### 14.3 Authentication and signer reality check
+
+- `setOwnerAdminCsrfToken` is declared with `useState` in the current `SponsorWalletManager.jsx`, and its call sites are present. The previously reported undefined setter is not reproduced by the current production-branch source.
+- The current `SponsorWalletManager.jsx` contains no `ln` identifier binding. GitHub's repository search for the exact `Cannot access 'ln' before initialization` diagnostic returned no matching source result. Treat that screenshot diagnostic as an old deployed bundle or an unresolved runtime/import dependency until reproduced against the latest live bundle; do not claim the root cause is fixed solely by source inspection.
+- Current Owner and Sponsor authentication APIs issue role-scoped sessions, including a paired Sponsor session after Owner authentication. This is application-session pairing, not server-side transaction signing.
+- `OwnerWalletAccess.jsx`, `SponsorWalletManager.jsx`, `trax-deployment-api.mjs`, and `sponsor-engine.mjs` still rely on separate encrypted local wallet vaults for transaction signing.
+- `kms-tron-signer.mjs` is a tested helper but is not imported/wired into the Owner operation API, TRӾ deployment API or Sponsor engine. No KMS signing is enabled or claimed.
+- The backend-managed wallet identity PR that proposed reading raw private keys from Render environment variables was explicitly not merged. Preserve the current no-server-plaintext-private-key design until the separate KMS custody architecture is implemented and externally provisioned.
+
+### 14.4 Pull request cleanup completed
+
+Closed after confirming that their relevant safe changes are already in the production branch, or that the proposal was superseded:
+
+- #314 and #303 — older UI/Sponsor redesigns (closed in the previous continuation).
+- #271 — wallet-auth database connection selection already incorporated.
+- #248 — guarded Sponsor ledger bootstrap already incorporated.
+- #244 — Sponsor render error boundary already incorporated.
+- #240 — proxy-aware Sponsor rate limiting already incorporated; the newer Sponsor cooldown is also present.
+- #261 — closed without merging the raw private-key-in-Render-env identity proposal; the production design target is distinct Owner/Sponsor KMS custody.
+
+Other open PRs remain pending individual review. They include security, dependency, resource, and older product proposals; do not mass-close them without diff reconciliation.
+
+### 14.5 External prerequisites still blocking final acceptance
+
+1. Move the Sponsor ledger off the expiring Free Postgres plan to a durable, backed-up production plan; verify backups and perform a restore test. Do not delete or replace the current database before a migration/backup/restore plan is accepted.
+2. Provide two separate AWS KMS secp256k1 signing keys and least-privilege Render-to-AWS identity. Verify public-key-derived TRON addresses against the existing Owner and Sponsor addresses before any signing integration.
+3. Wire the KMS signer into Owner operations, TRӾ deployment and Sponsor operations with exact-intent checks, durable transaction IDs, explicit user confirmation, idempotency, signer/permission checks and solidified receipt reconciliation.
+4. Complete migration away from local encrypted browser vaults only after both role-specific KMS paths are verified. Do not silently fall back to a local or alternate wallet after cutover.
+5. Reproduce and test the old Sponsor `ln` TDZ diagnostic on the latest production bundle with browser console/source maps if it recurs.
+6. Complete screenshot-based page-by-page desktop/mobile acceptance for every Owner and Sponsor route, including operation review/preflight/confirm/execute/verify states.
+7. Verify the live production database connection, backup/restore, session revocation, and KMS acceptance from the Resource API runtime. The hosted MCP's database network restriction prevents direct SQL inspection from this session.
+8. Reconcile remaining open PRs and delete obsolete branch refs only after proving no unique commits are lost. The current GitHub tool set in this session has no branch-delete operation.
+
+**Current release status:** frontend and Resource API are deployed and CI/uptime probes passed, but the app is **not yet final production-accepted for Mainnet writes**. Keep Sponsor writes, Owner operations and TRӾ deployment behind their existing readiness gates. No Mainnet transaction was signed or broadcast during this verification.
