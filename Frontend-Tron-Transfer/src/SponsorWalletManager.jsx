@@ -1553,7 +1553,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
 
       {activePage === "sponsor-activity" && <section id="sponsor-activity" className="sponsor-card">
         <div className="sponsor-card-heading"><FileKey2/><div><h3>Sponsor Activity</h3><p>Current browser session and latest observed transaction.</p></div></div>
-        <div className="sponsor-activity-row"><span>Wallet connection</span><b>Backend password session · authenticated</b></div>
+        <div className="sponsor-activity-row"><span>Wallet connection</span><b>{wallet ? "Authenticated · independent Sponsor role session" : "Not authenticated · wallet locked"}</b></div>
         <div className="sponsor-activity-row"><span>Network</span><b>TRON Mainnet</b></div><div className="sponsor-activity-row"><span>Security events</span><b>{securityEvents.length} local events</b></div>{securityEvents.slice(0, 5).map((item, index) => <div className="sponsor-activity-row" key={item.createdAt + index}><span>{item.event} · {new Date(item.createdAt).toLocaleString()}</span><b>{item.detail}</b></div>)}
         <div className="sponsor-activity-row"><span>Resource history</span><b>{activity.length} local records · {activity.filter((item) => String(item.status || '').startsWith('solidified-mainnet-')).length} independently verified</b></div>
         <div className="sponsor-activity-row"><span>Durable Sponsor ledger</span><b>{durableLedgerState === 'ready' ? durableOperations.length + ' server records · PostgreSQL' : durableLedgerState === 'loading' ? 'Loading authenticated ledger…' : durableLedgerState === 'unavailable' ? 'Unavailable · local history only' : 'Not loaded'}</b></div>
