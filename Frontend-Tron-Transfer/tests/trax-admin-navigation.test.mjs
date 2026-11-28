@@ -191,3 +191,15 @@ test('Owner and Sponsor workspaces mount exclusively so inactive page effects ca
   assert.doesNotMatch(app, /<div hidden=\{sponsorWorkspace\}/)
   assert.match(app, /workspaceActive ownerAdminPassword=\{ownerAdminPassword\}/)
 })
+
+test('Owner withdrawals are split into dedicated Native TRX and official USDT pages', async () => {
+  const app = await read('../src/App.jsx')
+  const panel = await read('../src/TRXMainnetPanel.jsx')
+  const css = await read('../src/exchange-experience.css')
+  assert.ok(app.includes("id: 'withdraw-trx'"))
+  assert.ok(app.includes("id: 'withdraw-usdt'"))
+  assert.ok(panel.includes("show('withdraw-trx') && <div className=\"trax-actions\" aria-label=\"Native TRX withdrawal\""))
+  assert.ok(panel.includes("show('withdraw-usdt') && <div className=\"trax-actions\" aria-label=\"Official USDT withdrawal\""))
+  assert.ok(panel.includes("onNavigate?.('withdraw-trx')") && panel.includes("onNavigate?.('withdraw-usdt')"))
+  assert.ok(css.includes('.trax-withdrawal-chooser') && css.includes('@media(max-width:720px)'))
+})
