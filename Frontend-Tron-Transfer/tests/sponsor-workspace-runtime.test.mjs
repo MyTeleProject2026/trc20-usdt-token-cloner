@@ -216,3 +216,15 @@ test('Sponsor render boundary exposes the JavaScript stack as well as the React 
   assert.match(app, /Show JavaScript stack for support/)
   assert.match(app, /this\.state\.errorStack/)
 })
+
+
+test('Owner and Sponsor error boundaries retain actionable component and JavaScript stacks and clear them on retry', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  for (const role of ['Owner', 'Sponsor']) {
+    assert.ok(app.includes(`Show ${role} component trace for support`), role + ' component trace must be visible')
+    assert.ok(app.includes(`Show ${role} JavaScript stack for support`), role + ' JavaScript stack must be visible')
+  }
+  assert.match(app, /errorStack: String\(error\?\.stack \|\| ''\)/)
+  assert.match(app, /componentStack: '', errorStack: ''/)
+  assert.match(app, /hasError: false, message: '', componentStack: '', errorStack: ''/)
+})
