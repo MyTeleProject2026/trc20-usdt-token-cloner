@@ -398,9 +398,13 @@ Both services have automatic deploy enabled on commits. Both latest deployments 
 ### 14.2 Runtime and database observations
 
 - No application-level error log entries were returned for the Resource API in the inspected interval `2026-11-28T02:38:00Z` to `02:48:31Z`.
-- Render lists `tron-transfer-sponsor-ledger-free` (`dpg-dbvu3c142hec73856ogg-a`) as available in Singapore. It is a free Postgres database with expiry shown as `2026-12-20T05:59:12Z`. It is therefore not a durable long-term production database plan.
-- A separate older database `tronlink-skills-sponsor-ledger` (`dpg-dbafj4tg1s2s73bu80m0-a`) is suspended due to billing. Do not treat it as the active production ledger.
-- A read-only SQL query from the hosted Render MCP failed because the database requires SSL/TLS and the MCP connector's source IP is not in the database external IP allowlist. The error explicitly states that the hosted MCP server cannot currently be allowlisted. This does not prove that the Resource API cannot connect from its own Render runtime; do not change the database allowlist or replace the database based on this MCP-only failure.
+- **Correction (2026-11-28): Tron Transfer uses Neon, not Render PostgreSQL, as its application database.** The earlier Render Postgres entries below are unrelated workspace resources and must not be treated as the active Tron Transfer database. Do not migrate Tron Transfer data to Render Postgres.
+- Verified Neon organization: `Tron Transfer Resources` (`org-fancy-queen-75517323`).
+- Verified Neon project: `Tron Transfer Resources Database` (`super-water-26874320`), AWS `us-east-2`, PostgreSQL 18.7.
+- Verified protected Neon production branch: `production` (`br-proud-mud-bexgns9g`). It is ready and is not the Neon default branch. The separate default branch is `implementation-validation-2026-11-23` (`br-quiet-dust-bejcl1kt`); do not assume default means production.
+- The production branch contains the Owner Admin schema migration ledger, deployment ledger, Owner operations, Sponsor operations/control, wallet accounts, wallet auth audit, recovery tokens, wallet sessions, and Neon Auth tables. Read-only checks returned 12 recorded schema migrations; current row counts were Owner operations 0, Sponsor operations 1, wallet accounts 2, wallet sessions 73.
+- Neon read-only SQL successfully connected to the production branch as `neondb_owner`; current database reports `Tron Transfer Resource Database ` (trailing space), server version `18.7 (3190d2f)`. The hosted Render MCP's inability to query a Render Postgres instance is irrelevant to the app's Neon database connectivity.
+- The Resource API source selects Sponsor DB URLs in this order: `SPONSOR_DATABASE_URL_POOLED`, `SPONSOR_DATABASE_URL`, `DATABASE_URL_POOLED`, `DATABASE_URL`, then `OWNER_ADMIN_DATABASE_URL`; Owner/Sponsor wallet-auth APIs use `OWNER_ADMIN_DATABASE_URL` first, falling back to the selected Sponsor DB URL. The code explicitly identifies `.neon.tech` hosts as Neon and prefers the pinned direct Neon URL for wallet auth/migrations. Production Render environment values were not exposed or read during this check, so the exact runtime env-var value and branch target still require a safe fingerprint comparison (never print the URL/password).
 - The latest API runtime error query was empty. The historical log stream contains build/test output labelled at error level (including test assertions and an earlier Vite syntax failure); those are historical build logs, not current runtime exceptions. The current deployment is live.
 
 ### 14.3 Authentication and signer reality check
@@ -447,3 +451,29 @@ Other open PRs remain pending individual review. They include security, dependen
 - Render Resource API `tron-transfer-resource-api` completed deploy `dep-dc54368jo6nc73cdcahg` with status `live` on that commit.
 - Both services remain on `ui/modern-crypto-dashboard-theme` with automatic deploy enabled.
 - These checks verify the code revision and service availability, not KMS key provisioning, database backup/restore, browser visual acceptance, or permission to execute Mainnet transactions.
+
+
+### 14.7 Neon database correction and live verification — 2026-11-28
+
+This section supersedes any earlier handoff wording that described Render PostgreSQL as the Tron Transfer application database.
+
+**Authoritative application database:** Neon project `super-water-26874320`, organization `org-fancy-queen-75517323`, protected branch `br-proud-mud-bexgns9g` named `production`. Region `aws-us-east-2`; PostgreSQL `18.7 (3190d2f)`. The production branch is ready. The Neon default branch is a separate implementation-validation branch and is not the production branch.
+
+**Direct read-only Neon verification:** connected to the protected `production` branch successfully, queried database identity, listed the production tables, inspected migration table schema and read migration records and ledger row counts. Twelve migrations are recorded, including shared Owner/Sponsor session groups, Sponsor arbitrary TRX transfer, Owner native TRX withdrawal, signer acceptance audit, Owner USDT withdrawal, Sponsor operations ledger, wallet recovery and TRӾ deployment ledger.
+
+Observed row counts at verification time: Owner operations 0; Sponsor operations 1; wallet accounts 2; wallet sessions 73. These are point-in-time observations, not a claim that every wallet or transaction workflow is accepted.
+
+**Runtime configuration contract from source:**
+- Sponsor DB selection checks `SPONSOR_DATABASE_URL_POOLED`, `SPONSOR_DATABASE_URL`, `DATABASE_URL_POOLED`, `DATABASE_URL`, then `OWNER_ADMIN_DATABASE_URL`.
+- Owner and Sponsor wallet-auth DB selection prefers `OWNER_ADMIN_DATABASE_URL`, falling back to the Sponsor DB selector.
+- Neon hostnames ending `.neon.tech` are explicitly identified as provider `neon`.
+- The source prefers the pinned direct `OWNER_ADMIN_DATABASE_URL` for wallet-auth/migration identity verification and rejects Neon transaction-pooler URLs for migration execution.
+
+**Remaining database acceptance work (Neon, not Render Postgres):**
+1. In Render service environment configuration, confirm the effective `OWNER_ADMIN_DATABASE_URL` and Sponsor database URL point to the intended Neon project and protected `production` branch. Compare a one-way host/project/branch identity fingerprint only; never print or log credentials.
+2. Confirm the deployed Resource API actually connects to that Neon production branch and passes the application's database identity check.
+3. Verify Neon backup/PITR retention and complete a documented restore drill on a temporary Neon branch, then retain evidence. Existing Neon restore/acceptance branches and snapshots are present; their existence alone is not a fresh restore acceptance.
+4. Keep all schema migrations on the existing guarded migration path: verified backup, successful restore test, pinned expected database identity fingerprint, explicit migration acknowledgement, ordered checksums and required-table/constraint checks.
+5. Do not create a Render PostgreSQL replacement, move production records, change Neon branch routing, or delete existing Neon branches/snapshots as part of this correction.
+
+No production schema or data was changed during this read-only verification.
