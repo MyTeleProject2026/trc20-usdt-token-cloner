@@ -257,3 +257,101 @@ The frontend CI run before the test expectation update failed because two tests 
 - Owner Withdraw currently contains both native TRX and official USDT subflows; they still need separate focused sub-pages without changing their underlying handlers.
 - Full screenshot-driven desktop/mobile review and browser QA across every route remain outstanding.
 - Production acceptance still requires all latest frontend/API CI, live service deployment checks, read-only Mainnet preflight, database durability/restore acceptance, and independent security review. No Mainnet transaction is to be initiated as a test.
+
+
+## 12. Direct production-branch continuation — 2026-11-28
+
+All changes below were committed directly to the existing branch `ui/modern-crypto-dashboard-theme`; no replacement branch or PR was created for this work.
+
+### 12.1 Current UI implementation
+
+- Owner mobile primary navigation now has five destinations in the requested order: Home, Deploy, Monitor, Assets, Profile. Sponsor mobile navigation remains its own Overview, Resources, Activity, and More pattern.
+- Desktop sidebar continues to expose grouped existing Owner and Sponsor routes. The top workspace switch now uses compact Owner/Sponsor icon controls.
+- Home now uses a compact AETHERIA overview launcher instead of rendering the entire monitoring dashboard as one long page. It presents status-backed launch cards for Multi-Hub Observability, Service Topology, MCP Execution Router, Live Infrastructure, Mainnet Connection, TRON Mainnet Resource Hub, Render Telemetry, External Uptime, Confirmed Chain Activity, and Function Return Bus. Selecting a card opens Live Monitor.
+- Live Monitor now has nine focused section tabs and only renders the selected section: Service Topology, MCP Execution Router, Live Infrastructure, Mainnet Connection, TRON Mainnet Resource Hub, Render Telemetry, External Uptime, Confirmed Chain Activity, Function Return Bus. All telemetry continues to use the existing read-only Resource API and polling logic.
+- Assets is now labelled as a distinct workspace. Its launcher opens the existing Deposits, Withdrawals, Credit History, Ownership Transfer and External Balance pages. Deposit history is rendered on its own route instead of occupying the Assets overview.
+- Deploy & Verify now has shortcut cards to the existing Owner Issuance, External Credits, Batch Credits, Emergency Pause and Minting Authorization pages.
+- Owner Admin authentication modal now uses the graphite/ember exchange visual language. The actual authentication/signing architecture has not been changed by styling.
+- Native TRX and Official USDT withdrawals remain separate pages, with their existing transaction handlers and safety checks.
+- Sponsor still uses its own independent workspace routes and only mounts the selected page. The existing Sponsor ledger and authorization checks are retained.
+
+### 12.2 Sponsor rate-limit repair
+
+- `SponsorWalletManager.jsx` now preserves HTTP 429/503 status and Retry-After metadata instead of replacing the error with a generic Error.
+- Manual and automatic refresh attempts are paused for a bounded 15–300 second cooldown after 429/503, preventing refresh loops from amplifying provider rate limits.
+- The current production-branch source already declares and initializes `ownerAdminCsrfToken` and `setOwnerAdminCsrfToken` in the Sponsor component. The previously reported undefined-setter diagnostic is not present in the current source. Confirm the deployed Render build is on the current branch commit before treating an old browser error as a current source defect.
+- The old `Cannot access 'ln' before initialization` Sponsor diagnostic is not present as an `ln` binding in the current SponsorWalletManager source. Recheck the exact deployed bundle and browser console if it recurs.
+
+### 12.3 Main asset valuation rule — preserve safety
+
+- Native TRX, official USDT and TRӾ quantities remain separate.
+- TRӾ has no verified market quote. Do not infer a TRӾ price from native TRX or display a synthetic combined USD total when TRӾ holdings are non-zero.
+- The Assets UI may show verified reference valuations for native TRX and USDT, but must preserve the no-verified-TRӾ-quote disclosure.
+
+### 12.4 Direct commits in this continuation
+
+- `a45abddd66503689a46b0693729c0c6ac4faca2c` — add Owner Monitor and Profile routes and compact workspace switch.
+- `0476bea73fc9b9edff9592687123bf652a6726c6` — five primary Owner mobile tabs.
+- `41ff067c3e9204ad0f49b9c8c0c9ff42adf34633` — compact Home status launchers and nine focused Monitor tabs.
+- `799487b66126c25f7bcbda766f25ae9e06d697a0`, `ef490c3db30c73aa8d0f41065dc079b316ea2310`, `fa22a5fad18a0c225d1395d322a8d13b8ce39889` — responsive overview and Monitor section styles/selector repairs.
+- `9f91961cc330d111b7599deae351696dad7bcf51` — dedicated Deposits route.
+- `d3a3d1e0c3c977986057a28c7bb66687ed3d2cae` — Assets shortcut launcher and route wiring.
+- `de9138e1985f801dbf224747c8a8a2c57763c0c5` — responsive Assets shortcut styling.
+- `d3e4730944bd1208337801d01563feff9f301e07` — Sponsor 429/503 cooldown implementation.
+- `cc6488c4f6a083194ef87d2a0a46f80ca049242c`, `dd5a39ee685dc87a9949c5eeccb6c41d5a1d9e2a`, `2a07505e1400242b95309a61d0f3aea730d43b53`, `414a8f4dfc1337da3de07e8c29dbdcfd3c163052` — regression tests updated for the new navigation and focused workspaces.
+- `c10584cd8776a2d384758ce45fb0352f9bf01d61` — fixed an Owner route conditional JSX build error found by CI.
+- `6a0d93ccb03530edcf8da28d82d419465effa0c7`, `5b4fea77e94bb85b8953907ebb31bf6077fbe229` — Deploy & Verify shortcut cards and responsive styling.
+- `020077151b93837a3a282b482a410df62dedeafb` — premium Owner Admin login styling.
+
+### 12.5 CI observations
+
+- A frontend build failure occurred after the first route refactor because of a missing JSX expression terminator in `App.jsx`; it was fixed in `c10584c`.
+- A later frontend workflow completed successfully on `5b4fea7`; the run reported all 200 frontend tests passing and the production build succeeding.
+- The latest commit at the time this section was written is `0200771`; its CI/frontend/uptime workflows must be checked again before claiming the latest source revision is green.
+- No Mainnet transaction, deployment, withdrawal, staking, delegation, signing or broadcast was initiated by these changes.
+
+### 12.6 Pull-request cleanup
+
+- PR #314 (Owner Admin session error / Sponsor refresh throttling / premium exchange UI) was closed as superseded after its relevant Sponsor cooldown behavior and visual treatment were implemented directly on the production branch.
+- PR #303 (older institutional-fintech workspace redesign) was closed as superseded by the newer direct exchange-style workspace work.
+- Their head branches were not deleted: the available GitHub connection in this session exposes branch listing/creation and pull-request updates but no branch deletion operation. Do not claim those refs were deleted.
+- Other open PRs were preserved pending individual source comparison. In particular, do not close/delete the Owner/Sponsor managed-identity migration, Owner database identity, Sponsor ledger bootstrap, Sponsor render-isolation, or proxy-aware rate-limit work without proving the changes are already incorporated.
+
+## 13. Remaining six-stage production completion plan
+
+### Stage 1 — Unified Owner Admin application authorization
+
+Partly implemented: Owner login can establish paired Owner/Sponsor application sessions. Not complete: Sponsor workspace still retains separate vault lifecycle UI and local key unlock dependencies. The desired end state is one Owner Admin application session with role-scoped Owner/Sponsor permissions, no workspace re-login, and no separate wallet unlock when the managed signing service is fully provisioned.
+
+### Stage 2 — Role-separated server-side signing
+
+Not complete. `kms-tron-signer.mjs` exists and has DER parsing, low-S normalization, public-key/address verification, role-specific key ARN checks and signature-recovery validation. It is not wired into Owner operation confirmation, TRӾ deployment confirmation or Sponsor submit/broadcast. The current active paths remain local Owner/Sponsor vault signing.
+
+Required before enabling KMS:
+1. Provision two distinct AWS KMS asymmetric secp256k1 keys.
+2. Import the existing Owner and Sponsor private-key material into their respective KMS keys so the existing TRON addresses are preserved; do not generate replacement keys.
+3. Verify each KMS public key derives to the configured on-chain address.
+4. Configure least-privilege Render workload identity/IAM, CloudTrail audit and role-specific environment configuration.
+5. Integrate KMS signing into each operation after exact transaction review, explicit transaction-specific confirmation, fresh preflight and durable intent persistence.
+6. Add cryptographic known-answer tests, signature-recovery tests, replay/idempotency tests and failure/reconciliation tests.
+7. Keep `TRON_KMS_SIGNING_ENABLED` disabled until all gates pass. Do not fall back silently to a different wallet or key.
+
+This cannot be honestly marked complete from source changes alone; the existing private key material, AWS account/KMS provisioning and Render IAM configuration are external prerequisites.
+
+### Stage 3 — Complete exchange-style desktop/mobile redesign
+
+Partly implemented: compact Home, five Owner mobile destinations, nine focused Monitor tabs, Assets launcher, Deploy shortcuts, separate Sponsor navigation and premium login styling. Remaining: full screenshot-driven review of every Owner and Sponsor page, consistent top bar/sidebar responsive states, tables/forms/detail panels, profile/security layout and page-specific mobile interaction testing.
+
+### Stage 4 — Guided one-operation-at-a-time workflows
+
+Partly implemented: existing TRX and USDT withdrawal pages are separate; deposit is separate; existing token operations are routed to their own pages; deployment has existing readiness/preflight/confirmation/verification gates. Remaining: present deployment as distinct Configure → Review → Preflight → Confirm → Execute → Verify screens, and apply the same staged layout to each existing Sponsor write operation without changing backend transaction semantics.
+
+### Stage 5 — Browser QA and production deployment verification
+
+Pending for the latest commit. Required: desktop and mobile browser tests, login/session restoration tests, Sponsor route crash regression tests, 429 cooldown tests, keyboard/focus tests, visual checks at common breakpoints, Render deploy commit verification and live read-only endpoint checks. Never use a Mainnet transaction as a smoke test.
+
+### Stage 6 — Final acceptance and repository cleanup
+
+Pending. Reconcile every open PR against the production branch before closing it; remove only proven duplicate/unneeded branches after confirming no PR depends on them and no unique unmerged work would be lost. The currently available GitHub integration cannot delete branch refs, so use GitHub UI or a separately authorized branch-delete tool for that operation. Retain security, dependency and recovery history. Complete final security review, DB backup/restore proof, Mainnet read-only readiness, contract verification and TRONSCAN checks.
+
+**Acceptance rule:** Do not call the platform production-ready until Stages 1–6 are evidenced by code, passing tests, verified deployment, external key custody configuration, and browser acceptance. Keep Mainnet writes locked until the relevant deployment and operation gates pass.
