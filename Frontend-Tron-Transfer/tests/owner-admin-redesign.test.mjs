@@ -18,7 +18,7 @@ test('owner admin navigation groups related operations into clear workspace sect
   assert.ok(sidebar.includes('expandedGroups'))
   assert.ok(sidebar.includes("item.group || 'Workspace'"))
   assert.ok(sidebar.includes('/trax-token-mark.svg'))
-  assert.ok(mobile.includes("const OWNER_PRIMARY = ['home', 'portfolio', 'transfers']"))
+  assert.ok(mobile.includes("const OWNER_PRIMARY = ['home', 'deploy', 'monitor', 'portfolio', 'profile']"))
   assert.ok(mobile.includes('secondaryGroups.map'))
   assert.ok(theme.includes('--owner-primary: #4e8dff'))
   assert.ok(theme.includes('--owner-bg: #07111f'))
