@@ -207,3 +207,12 @@ test('Owner shell and Sponsor component share the graphite-and-gold exchange des
   assert.match(sponsorTheme, /\.sponsor-card[\s\S]*background:linear-gradient\(145deg,rgba\(25,27,30/)
   assert.match(sponsorTheme, /\.sponsor-primary[\s\S]*#e2c16f/)
 })
+
+
+test('Sponsor render boundary exposes the JavaScript stack as well as the React component trace', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  assert.match(app, /errorStack: ''/)
+  assert.match(app, /String\(error\?\.stack \|\| ''\)/)
+  assert.match(app, /Show JavaScript stack for support/)
+  assert.match(app, /this\.state\.errorStack/)
+})
