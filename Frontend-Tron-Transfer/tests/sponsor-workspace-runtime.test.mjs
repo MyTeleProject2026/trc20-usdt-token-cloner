@@ -295,3 +295,19 @@ test('Production frontend emits source maps so minified Sponsor runtime exceptio
   const vite = await readFile(new URL('../vite.config.js', import.meta.url), 'utf8')
   assert.match(vite, /sourcemap:\s*true/)
 })
+
+
+test('Sponsor write operations use in-app full-screen review gates before intent preparation, transaction preparation and local signing', async () => {
+  const sponsor = await readFile(new URL('../src/SponsorWalletManager.jsx', import.meta.url), 'utf8')
+  const styles = await readFile(new URL('../src/sponsor-wallet.css', import.meta.url), 'utf8')
+  const start = sponsor.indexOf('async function submitResourceTransaction')
+  const end = sponsor.indexOf('async function runResourceAutomation', start)
+  assert.ok(start >= 0 && end > start, 'Sponsor operation workflow must be present')
+  const workflow = sponsor.slice(start, end)
+  assert.equal((workflow.match(/requestSponsorConfirmation\(/g) || []).length, 3)
+  assert.doesNotMatch(workflow, /window\.confirm/)
+  assert.match(sponsor, /sponsor-operation-review-sheet/)
+  assert.match(sponsor, /Approve local Sponsor signing/)
+  assert.match(styles, /\.sponsor-operation-review-backdrop/)
+  assert.match(styles, /\.sponsor-operation-review-message/)
+})
