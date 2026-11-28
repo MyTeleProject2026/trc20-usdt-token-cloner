@@ -223,8 +223,8 @@ test('Assets overview shortcuts open separate existing Deposit, Withdraw, Histor
   const panel = await read('../src/TRXMainnetPanel.jsx')
   assert.ok(app.includes("id: 'deposit'"))
   assert.ok(panel.includes("show('deposit') && <WalletDepositPanel"))
-  for (const route of ['deposit','withdraw','history','ownership','balance']) {
-    assert.ok(panel.includes("onNavigate?.('" + route + "')"), 'missing Assets shortcut to ' + route)
+  for (const [label,route] of [['Deposit','deposit'],['Withdraw','withdraw'],['Credit history','history'],['Ownership transfer','ownership'],['External balance','balance']]) {
+    assert.ok(panel.includes("['" + label + "','" + route + "'"), 'missing Assets shortcut to ' + route)
   }
   assert.ok(panel.includes('trax-asset-shortcuts'))
 })
