@@ -117,21 +117,21 @@
 .am-monitor-tabs button{flex:0 0 auto;min-height:36px;padding:0 12px;border:1px solid rgba(190,181,160,.13);border-radius:9px;background:#131416;color:#aaa398;font-size:9px;font-weight:700;letter-spacing:.05em;cursor:pointer}
 .am-monitor-tabs button.active{border-color:rgba(238,135,60,.65);background:linear-gradient(130deg,rgba(229,104,29,.2),rgba(30,24,19,.9));color:#ffd0a0}
 .aetheria-mesh.focused>[class^="am-"]:not(.am-hero):not(.am-monitor-tabs){display:none}
-.aetheria-mesh.focused[data-view="services"]>.am-section-head:nth-of-type(1),
+.aetheria-mesh.focused[data-view="services"]>.am-section-head:nth-of-type(2),
 .aetheria-mesh.focused[data-view="services"]>.am-mesh-stage,
 .aetheria-mesh.focused[data-view="services"]>.am-kpi-grid{display:grid}
-.aetheria-mesh.focused[data-view="router"]>.am-section-head:nth-of-type(2),
+.aetheria-mesh.focused[data-view="router"]>.am-section-head:nth-of-type(5),
 .aetheria-mesh.focused[data-view="router"]>.am-flow-grid{display:grid}
-.aetheria-mesh.focused[data-view="infrastructure"]>.am-dual-grid:nth-of-type(1){display:grid;grid-template-columns:1fr}
+.aetheria-mesh.focused[data-view="infrastructure"]>.am-dual-grid:nth-of-type(7){display:grid;grid-template-columns:1fr}
 .aetheria-mesh.focused[data-view="infrastructure"]>.am-dual-grid:nth-of-type(1)>.am-panel:nth-child(2){display:none}
 .aetheria-mesh.focused[data-view="mainnet"]>.am-dual-grid:nth-of-type(1){display:grid;grid-template-columns:1fr}
 .aetheria-mesh.focused[data-view="mainnet"]>.am-dual-grid:nth-of-type(1)>.am-panel:nth-child(1){display:none}
-.aetheria-mesh.focused[data-view="resources"]>.am-section-head:nth-of-type(3),
+.aetheria-mesh.focused[data-view="resources"]>.am-section-head:nth-of-type(8),
 .aetheria-mesh.focused[data-view="resources"]>.am-resource-grid,
 .aetheria-mesh.focused[data-view="resources"]>.am-safety-note{display:grid}
-.aetheria-mesh.focused[data-view="render"]>.am-dual-grid:nth-of-type(2),
+.aetheria-mesh.focused[data-view="render"]>.am-dual-grid:nth-of-type(11),
 .aetheria-mesh.focused[data-view="uptime"]>.am-dual-grid:nth-of-type(2),
-.aetheria-mesh.focused[data-view="chain"]>.am-dual-grid:nth-of-type(3),
+.aetheria-mesh.focused[data-view="chain"]>.am-dual-grid:nth-of-type(12),
 .aetheria-mesh.focused[data-view="callbacks"]>.am-dual-grid:nth-of-type(3){display:grid;grid-template-columns:1fr}
 .aetheria-mesh.focused[data-view="render"]>.am-dual-grid:nth-of-type(2)>.am-panel:nth-child(2),
 .aetheria-mesh.focused[data-view="uptime"]>.am-dual-grid:nth-of-type(2)>.am-panel:nth-child(1),
