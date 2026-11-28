@@ -213,7 +213,7 @@ test('Sponsor render boundary exposes the JavaScript stack as well as the React 
   const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
   assert.match(app, /errorStack: ''/)
   assert.match(app, /String\(error\?\.stack \|\| ''\)/)
-  assert.match(app, /Show JavaScript stack for support/)
+  assert.match(app, /Show Sponsor JavaScript stack for support/)
   assert.match(app, /this\.state\.errorStack/)
 })
 
