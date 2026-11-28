@@ -437,3 +437,13 @@ Other open PRs remain pending individual review. They include security, dependen
 8. Reconcile remaining open PRs and delete obsolete branch refs only after proving no unique commits are lost. The current GitHub tool set in this session has no branch-delete operation.
 
 **Current release status:** frontend and Resource API are deployed and CI/uptime probes passed, but the app is **not yet final production-accepted for Mainnet writes**. Keep Sponsor writes, Owner operations and TRӾ deployment behind their existing readiness gates. No Mainnet transaction was signed or broadcast during this verification.
+
+
+### 14.6 Latest post-cleanup verification — commit `1eae47ee`
+
+- GitHub CI completed successfully on `1eae47ee0aa68d59901ff6cd6adca193684b7ed6`.
+- Production uptime probe completed successfully on the same commit.
+- Render frontend `tron-transfer` completed deploy `dep-dc54368jo6nc73cdcbdg` with status `live` on that commit.
+- Render Resource API `tron-transfer-resource-api` completed deploy `dep-dc54368jo6nc73cdcahg` with status `live` on that commit.
+- Both services remain on `ui/modern-crypto-dashboard-theme` with automatic deploy enabled.
+- These checks verify the code revision and service availability, not KMS key provisioning, database backup/restore, browser visual acceptance, or permission to execute Mainnet transactions.
