@@ -16,12 +16,33 @@ const ownerAuthClient = createManagedWalletAuthClient({ role: 'owner' })
 
 
 class OwnerWorkspaceErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { hasError: false, message: '' } }
-  static getDerivedStateFromError(error) { return { hasError: true, message: String(error?.message || 'Unknown render error').slice(0, 240) } }
-  componentDidCatch(error, info) { console.error('Owner workspace render failure', error, info?.componentStack) }
-  componentDidUpdate(previousProps) { if (previousProps.activePage !== this.props.activePage && this.state.hasError) this.setState({ hasError: false, message: '' }) }
+  constructor(props) { super(props); this.state = { hasError: false, message: '', componentStack: '', errorStack: '' } }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, message: String(error?.message || 'Unknown render error').slice(0, 240), errorStack: String(error?.stack || '').slice(0, 12000) }
+  }
+  componentDidCatch(error, info) {
+    const componentStack = String(info?.componentStack || '').slice(0, 6000)
+    this.setState({ componentStack })
+    console.error('Owner workspace render failure', error, componentStack)
+  }
+  componentDidUpdate(previousProps) {
+    if (previousProps.activePage !== this.props.activePage && this.state.hasError) {
+      this.setState({ hasError: false, message: '', componentStack: '', errorStack: '' })
+    }
+  }
   render() {
-    if (this.state.hasError) return <section className="trax-shell-alert error" role="alert"><AlertTriangle size={16}/><div><strong>This Owner page could not be displayed.</strong><p>A render error does not confirm transaction status. Check the durable Owner operation ledger and solidified Mainnet receipt before retrying; do not create a replacement operation until the original is reconciled.</p><p>Diagnostic: <code>{this.state.message}</code></p></div><button type="button" className="trax-topbar-connect" onClick={() => this.setState({ hasError: false, message: '' })}>Retry this page</button><button type="button" className="trax-topbar-security" onClick={() => this.props.onNavigate('home')}>Owner overview</button></section>
+    if (this.state.hasError) return <section className="trax-shell-alert error owner-render-error" role="alert">
+      <AlertTriangle size={16}/>
+      <div>
+        <strong>This Owner page could not be displayed.</strong>
+        <p>A render error does not confirm transaction status. Check the durable Owner operation ledger and solidified Mainnet receipt before retrying; do not create a replacement operation until the original is reconciled.</p>
+        <p>Diagnostic: <code>{this.state.message}</code></p>
+        {this.state.componentStack && <details className="sponsor-render-stack"><summary>Show Owner component trace for support</summary><pre>{this.state.componentStack}</pre></details>}
+        {this.state.errorStack && <details className="sponsor-render-stack"><summary>Show Owner JavaScript stack for support</summary><pre>{this.state.errorStack}</pre></details>}
+      </div>
+      <button type="button" className="trax-topbar-connect" onClick={() => this.setState({ hasError: false, message: '', componentStack: '', errorStack: '' })}>Retry this page</button>
+      <button type="button" className="trax-topbar-security" onClick={() => this.props.onNavigate('home')}>Owner overview</button>
+    </section>
     return this.props.children
   }
 }
@@ -49,7 +70,7 @@ class SponsorWorkspaceErrorBoundary extends React.Component {
         {this.state.errorStack && <details className="sponsor-render-stack"><summary>Show JavaScript stack for support</summary><pre>{this.state.errorStack}</pre></details>}
       </div></div>
       <div className="sponsor-actions">
-        <button type="button" className="sponsor-primary" onClick={() => this.setState({ hasError: false, message: '', componentStack: '' })}>Retry this page</button>
+        <button type="button" className="sponsor-primary" onClick={() => this.setState({ hasError: false, message: '', componentStack: '', errorStack: '' })}>Retry this page</button>
         <button type="button" className="sponsor-secondary" onClick={() => this.props.onNavigate('sponsor')}>Return to Sponsor overview</button>
         <button type="button" className="sponsor-secondary" onClick={() => window.location.reload()}>Reload application</button>
       </div>
