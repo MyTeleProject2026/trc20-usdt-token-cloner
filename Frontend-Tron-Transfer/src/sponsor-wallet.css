@@ -329,3 +329,25 @@
 .sponsor-toast>svg { color:#d7b15e; }
 .sponsor-toast p { color:#b7b0a2; }
 .sponsor-toast button { color:#e4dac4; }
+
+
+/* Sponsor activity receipt detail follows the same exchange voucher pattern as Owner history. */
+.sponsor-receipt-open { margin-left:7px;padding:5px 9px;border:1px solid rgba(215,177,94,.3);border-radius:7px;background:rgba(153,112,37,.13);color:#e9d39f;font-size:9px;font-weight:800;cursor:pointer; }
+.sponsor-receipt-backdrop { position:fixed;inset:0;z-index:10060;display:grid;place-items:center;padding:18px;background:rgba(0,0,0,.76);backdrop-filter:blur(8px); }
+.sponsor-receipt-sheet { width:min(760px,100%);max-height:min(90vh,900px);overflow:auto;padding:clamp(18px,3vw,30px);border:1px solid rgba(215,177,94,.28);border-radius:18px;background:linear-gradient(145deg,#1b1d20,#101215);color:#f1ede4;box-shadow:0 28px 100px rgba(0,0,0,.65); }
+.sponsor-receipt-heading { display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding-bottom:16px;border-bottom:1px solid #34332f; }
+.sponsor-receipt-heading h3 { margin:6px 0;color:#f4ecda;font-size:clamp(21px,3vw,28px); }
+.sponsor-receipt-heading p { margin:0;color:#a9a397;font-size:11px; }
+.sponsor-receipt-amount { display:grid;gap:5px;margin:18px 0;padding:16px;border:1px solid rgba(215,177,94,.24);border-radius:12px;background:rgba(153,112,37,.1); }
+.sponsor-receipt-amount small { color:#b5a47d;font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase; }
+.sponsor-receipt-amount strong { color:#f1dfb6;font-size:clamp(23px,4vw,34px);font-variant-numeric:tabular-nums; }
+.sponsor-receipt-fields { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px;margin:0; }
+.sponsor-receipt-fields>div { min-width:0;padding:12px 0;border-bottom:1px solid rgba(215,177,94,.1); }
+.sponsor-receipt-fields dt { margin-bottom:5px;color:#999387;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase; }
+.sponsor-receipt-fields dd { margin:0;color:#e8e1d3;font-size:11px;line-height:1.5;overflow-wrap:anywhere; }
+.sponsor-receipt-explorer { display:inline-flex;align-items:center;margin-top:18px;padding:10px 13px;border:1px solid rgba(215,177,94,.3);border-radius:9px;background:rgba(153,112,37,.14);color:#efd99f!important;font-size:10px;font-weight:800; }
+@media(max-width:560px) {
+  .sponsor-receipt-fields { grid-template-columns:minmax(0,1fr); }
+  .sponsor-receipt-sheet { padding:16px;border-radius:14px; }
+  .sponsor-receipt-heading { align-items:center; }
+}
