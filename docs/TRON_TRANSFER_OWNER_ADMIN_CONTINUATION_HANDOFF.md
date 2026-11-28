@@ -520,3 +520,45 @@ The Sponsor and Owner error boundaries now display both component and JavaScript
 6. Complete real-browser vault migration/restoration acceptance and production recovery/backup drills. Automated vault tests use isolated fixtures and do not migrate a user's browser vault.
 
 No TRON Mainnet transaction, signing, broadcast, deployment, stake, delegation, withdrawal, or transfer was initiated during this pass.
+
+## 11. November 28, 2026 — latest continuation work
+
+Latest verified source revision before this handoff update:
+- Branch: `ui/modern-crypto-dashboard-theme`
+- Commit: `997ac9f424890e92f7c504aa6879b7eb9a021b8b`
+- Repository: `MyTeleProject2026/trc20-usdt-token-cloner`
+
+Direct commits added in this continuation:
+- `35d55c0` — normalized remaining legacy Owner/Sponsor surfaces to graphite/gold using a final application-wide theme layer.
+- `d9de028` — corrected Sponsor Activity's wallet-connection line so it reports the independent Sponsor role session only when the local Sponsor wallet is unlocked; it no longer displays a hard-coded authenticated claim while locked.
+- `644732d` — added regression coverage for theme normalization and truthful Sponsor session status.
+- `997ac9f` — corrected the new regression fixture to read its CSS file using Node's `readFile` API.
+
+Validation on `997ac9f`:
+- GitHub Main CI: completed successfully. Dependency audit, security/regression/isolated PostgreSQL integration tests, Resource API test suite, frontend build and contract compilation all passed.
+- Frontend workflow: completed successfully; frontend regression suite and production build passed.
+- Production uptime probe: completed successfully.
+- Existing Render frontend service `srv-dblmrad6e07s739cs2lg`: Live on `997ac9f`.
+- Existing Render Resource API service `srv-dbrjpq56e07s73bueevg`: Live on `997ac9f`.
+- Render workspace: `Sam's workspace` (`tea-d9q4rhtbedkc73b3dsfg`).
+
+Sponsor runtime exception status:
+- The old reported `recordSecurityEvent` temporal-dead-zone explanation does not match the currently inspected source: the callback is declared before the paired Sponsor restore effect and its dependency array.
+- The Sponsor error boundary now retains and displays both React component trace and JavaScript error stack; production source maps are enabled.
+- No exact `ln` source location has yet been supplied or reproduced in a browser in this continuation. Do not claim the Sponsor crash is fixed until the captured stack is mapped or the failure is reproduced and corrected.
+- No browser automation/browser session tool was available during this continuation. Manual authenticated desktop/mobile acceptance remains outstanding.
+
+Latest UI refinements:
+- Shared graphite/gold palette now overrides residual navy/blue legacy surfaces across sidebar, top bar, network badge, Owner and Sponsor cards, forms, tables, buttons, error diagnostics, mobile nav and mobile sheet.
+- Owner/Sponsor feature routes and handlers were not changed by this CSS pass.
+- Sponsor Activity now reports `Authenticated · independent Sponsor role session` only when a wallet is unlocked, otherwise `Not authenticated · wallet locked`.
+
+Remaining completion gates:
+1. Capture and map the actual Sponsor JavaScript stack for `Cannot access 'ln' before initialization`; fix the source-level cause and add a focused regression test.
+2. Run authenticated browser acceptance through Owner and all Sponsor routes, including mobile navigation, session restore/expiry/revocation and operation review/receipt screens.
+3. Complete page-by-page UI and interaction audit; verify every visible control has a real handler and accurate loading/error/empty states.
+4. Finish the explicitly documented AWS KMS/HSM migration only after the user provisions/authorizes AWS account, region, workload identity and offline key import. Current signing remains independent browser-local Owner/Sponsor signing; do not represent managed signing as complete.
+5. Verify any remaining production Neon migration/restore requirements read-only first; no production data or wallet keys were modified by this UI continuation.
+6. Keep Mainnet writes behind existing preflight, durable-ledger and explicit transaction confirmation gates. No transaction was signed or broadcast during this continuation.
+
+Continue directly on this same branch and the same two Render services. Do not create a branch or PR. Do not request wallet private keys, seed phrases, passwords or cloud credentials in chat.
