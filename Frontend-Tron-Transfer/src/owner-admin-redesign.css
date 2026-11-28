@@ -299,3 +299,170 @@ body:has(.trax-admin-shell)::before { display:none!important; }
 @media (prefers-reduced-motion: reduce) {
   .trax-admin-shell *, .trax-admin-shell *::before, .trax-admin-shell *::after { scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important; }
 }
+
+
+/* Exchange terminal refresh — graphite surfaces, warm-gold actions, consistent Owner/Sponsor chrome. */
+:root {
+  --owner-bg:#090a0c;
+  --owner-bg-raised:#0e1013;
+  --owner-surface:#14171b;
+  --owner-surface-raised:#1b1e23;
+  --owner-surface-soft:#101317;
+  --owner-ink:#f3f0e8;
+  --owner-muted:#aaa69c;
+  --owner-subtle:#77746d;
+  --owner-line:#2b2c2d;
+  --owner-line-strong:#45433d;
+  --owner-primary:#d7b15e;
+  --owner-primary-strong:#b88d3e;
+  --owner-cyan:#d7b15e;
+  --owner-success:#54c99b;
+  --owner-warning:#e8bd68;
+  --owner-danger:#ed7780;
+  --owner-radius:14px;
+  --owner-shadow:0 18px 48px rgba(0,0,0,.34),inset 0 1px rgba(255,255,255,.025);
+}
+body:has(.trax-admin-shell) {
+  background:
+    radial-gradient(ellipse at 82% -8%,rgba(190,145,58,.12),transparent 36rem),
+    radial-gradient(ellipse at 4% 28%,rgba(255,255,255,.025),transparent 34rem),
+    linear-gradient(145deg,#090a0c 0%,#101216 52%,#090a0c 100%);
+}
+.trax-sidebar {
+  background:rgba(12,13,15,.97);
+  border-right:1px solid rgba(215,177,94,.15);
+  box-shadow:12px 0 34px rgba(0,0,0,.28);
+}
+.trax-sidebar-brand img { border-color:rgba(215,177,94,.34); }
+.trax-sidebar-network {
+  border-color:rgba(215,177,94,.2);
+  background:linear-gradient(120deg,rgba(153,112,37,.16),rgba(30,29,25,.55));
+}
+.trax-sidebar-network b { color:#e9d5a4; }
+.trax-sidebar-network small { color:#a99a76; }
+.trax-sidebar-group-toggle.compact { border-color:rgba(215,177,94,.17);background:rgba(153,112,37,.08);color:#cbb783; }
+.trax-sidebar-group-toggle.compact[aria-expanded="true"] { border-color:rgba(215,177,94,.38);background:rgba(153,112,37,.2);color:#f0dca9; }
+.trax-sidebar nav button:not(.trax-sidebar-group-toggle):hover { border-color:rgba(215,177,94,.18);background:rgba(153,112,37,.09);color:#f7f1e3; }
+.trax-sidebar nav button:not(.trax-sidebar-group-toggle).active {
+  border-color:rgba(215,177,94,.32);
+  background:linear-gradient(100deg,rgba(153,112,37,.22),rgba(64,52,29,.12));
+  color:#f5e8c7;
+  box-shadow:inset 3px 0 var(--owner-primary),0 5px 18px rgba(0,0,0,.16);
+}
+.trax-sidebar nav button.active svg { color:#e2c477; }
+.trax-admin-topbar {
+  border-bottom-color:rgba(215,177,94,.14);
+  background:rgba(12,13,15,.9);
+}
+.trax-kicker { color:#c7a85f; }
+.trax-topbar-title h1 { color:#f4f0e7; }
+.trax-topbar-title p { color:#a39e93; }
+.trax-workspace-switch { border-color:#34312a;background:#111214; }
+.trax-workspace-switch button.active {
+  border-color:rgba(215,177,94,.34);
+  background:linear-gradient(135deg,rgba(153,112,37,.3),rgba(77,59,27,.24));
+  color:#f3dfb1;
+}
+.trax-workspace-switch button.active.sponsor { border-color:rgba(84,201,155,.28);background:rgba(24,119,83,.18);color:#baf0d9; }
+.trax-mainnet-badge { border-color:rgba(84,201,155,.24);background:rgba(21,113,89,.12); }
+.trax-topbar-wallet,.trax-topbar-connect,.trax-topbar-security,.trax-sidebar-toggle {
+  border-color:#484237;background:#1b1a17;color:#e4dac4;
+}
+.trax-topbar-connect,.trax-sidebar-connect {
+  border-color:#d2ad5c;
+  background:linear-gradient(135deg,#e2c16f,#b88b3b);
+  color:#17130a;
+  box-shadow:0 7px 18px rgba(153,112,37,.18);
+}
+.trax-admin-shell :is(.panel,.card,.trax-card) {
+  border-color:#30302d;
+  border-radius:var(--owner-radius);
+  background:linear-gradient(145deg,rgba(24,26,29,.98),rgba(17,19,22,.99));
+  color:var(--owner-ink);
+  box-shadow:var(--owner-shadow);
+}
+.trax-admin-shell :is(h1,h2,h3,h4) { color:#f0ece3; }
+.trax-admin-shell :is(input,select,textarea) {
+  border-color:#45413a;
+  background:#101215;
+  color:#f2eee5;
+}
+.trax-admin-shell :is(input,select,textarea):focus {
+  border-color:#c9a553;
+  background:#151619;
+  box-shadow:0 0 0 3px rgba(215,177,94,.14);
+}
+.trax-admin-shell :is(.primary-button,.trax-primary,.trax-topbar-connect) {
+  border-color:#d2ad5c;
+  background:linear-gradient(135deg,#e2c16f,#b88b3b);
+  color:#17130a;
+  box-shadow:0 7px 18px rgba(153,112,37,.18);
+}
+.trax-admin-shell :is(.primary-button,.trax-primary):hover:not(:disabled) { border-color:#f0d48a;box-shadow:0 10px 23px rgba(153,112,37,.24); }
+.trax-admin-shell :is(.secondary-button,.trax-secondary,.outline-button) { border-color:#45413a;background:#1b1c1e;color:#d8d1c2; }
+.trax-admin-shell th { background:#1b1c1e;color:#c4b58f; }
+.trax-admin-shell td { border-color:rgba(215,177,94,.12); }
+.trax-admin-shell a { color:#e0c274; }
+.trax-mobile-nav {
+  border-color:rgba(215,177,94,.2);
+  background:rgba(12,13,15,.97);
+}
+.trax-mobile-nav button { color:#9c978b; }
+.trax-mobile-nav button.active {
+  border-color:rgba(215,177,94,.3);
+  background:rgba(153,112,37,.18);
+  color:#f0dca9;
+}
+.trax-mobile-nav button.active svg { color:#e2c477; }
+.trax-mobile-sheet { border-color:#484237;background:#141619;color:#f1ece1; }
+.trax-mobile-sheet-group h3 { color:#c7a85f; }
+.trax-mobile-sheet-grid button,.trax-mobile-owner-switch { border-color:#34332f;background:#1b1d20;color:#e9e3d6; }
+.trax-mobile-sheet-grid button.selected { border-color:rgba(215,177,94,.4);background:rgba(153,112,37,.18); }
+.trax-nav-icon { border-color:rgba(215,177,94,.2);background:rgba(153,112,37,.12);color:#e0c274; }
+.trax-shell-alert { border-color:rgba(84,201,155,.24); }
+.trax-shell-alert.error { border-color:rgba(237,119,128,.32); }
+.trax-admin-shell .sponsor-manager .sponsor-card {
+  border-color:#34332f;
+  background:linear-gradient(145deg,rgba(25,27,30,.98),rgba(16,18,21,.99));
+  color:#f0ece3;
+  box-shadow:var(--owner-shadow);
+}
+.trax-admin-shell .sponsor-manager .sponsor-manager-header h2,
+.trax-admin-shell .sponsor-manager .sponsor-card-heading h3 { color:#f0ece3; }
+.trax-admin-shell .sponsor-manager .sponsor-eyebrow { color:#d2b264; }
+.trax-admin-shell .sponsor-manager .sponsor-card-heading>svg { color:#d7b15e; }
+.trax-admin-shell .sponsor-manager .sponsor-primary {
+  border-color:#d2ad5c;
+  background:linear-gradient(135deg,#e2c16f,#b88b3b);
+  color:#17130a;
+}
+.trax-admin-shell .sponsor-manager .sponsor-secondary,
+.trax-admin-shell .sponsor-manager .sponsor-wallet-actions button,
+.trax-admin-shell .sponsor-manager .sponsor-import-tabs button {
+  border-color:#45413a;background:#1b1c1e;color:#e2dac8;
+}
+.trax-admin-shell .sponsor-manager .sponsor-import-tabs button.active { border-color:rgba(215,177,94,.45);background:rgba(153,112,37,.2);color:#f0dca9; }
+.trax-admin-shell .sponsor-manager .sponsor-field input,
+.trax-admin-shell .sponsor-manager .sponsor-field textarea,
+.trax-admin-shell .sponsor-manager .sponsor-field select { border-color:#45413a;background:#101215;color:#f2eee5; }
+.trax-admin-shell .sponsor-manager .sponsor-metric-grid article,
+.trax-admin-shell .sponsor-manager .sponsor-engine-grid>div { border-color:#33332f;background:rgba(9,10,12,.58); }
+.trax-admin-shell .sponsor-manager .sponsor-metric-grid strong { color:#f0e6cf; }
+.trax-admin-shell .sponsor-manager .sponsor-network-pill,
+.trax-admin-shell .sponsor-manager .sponsor-status { border-color:rgba(215,177,94,.24);background:rgba(153,112,37,.1);color:#e8d6a9; }
+.trax-admin-shell .sponsor-manager .sponsor-network-pill i,
+.trax-admin-shell .sponsor-manager .sponsor-status i { background:#d7b15e;box-shadow:0 0 10px rgba(215,177,94,.5); }
+@media(max-width:900px) {
+  .trax-admin-shell { grid-template-columns:minmax(0,1fr);padding-bottom:calc(76px + env(safe-area-inset-bottom)); }
+  .trax-sidebar { display:none; }
+  .trax-admin-topbar { position:sticky;top:0;min-height:74px;padding:12px 16px;align-items:flex-start; }
+  .trax-topbar-actions { gap:6px; }
+  .trax-admin-content { padding:16px; }
+  .trax-mobile-nav { padding-bottom:env(safe-area-inset-bottom); }
+}
+@media(max-width:560px) {
+  .trax-admin-topbar { display:grid;gap:10px; }
+  .trax-topbar-actions { justify-content:flex-start; }
+  .trax-session-state { display:none; }
+  .trax-admin-content { padding:12px; }
+}
