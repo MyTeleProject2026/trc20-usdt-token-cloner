@@ -42,7 +42,9 @@ const NAV_ITEMS = [
   { id: 'sponsor-resources', group: 'Sponsor', label: 'Resource markets', shortLabel: 'Resources', description: 'Energy, Bandwidth, staking and delegation controls', icon: Activity },
   { id: 'sponsor-automation', group: 'Provisioning', label: 'Automation & limits', shortLabel: 'Automation', description: 'Owner resource targets, preflight and guarded automation', icon: Network },
   { id: 'sponsor-activity', group: 'Audit', label: 'Activity & audit', shortLabel: 'Activity', description: 'Sponsor operations, wallet transactions and verification history', icon: History },
-  { id: 'home', group: 'Overview', label: 'Overview', shortLabel: 'Home', description: 'Global MCP mesh · live infrastructure, API execution and TRON Mainnet resources', icon: Network },
+  { id: 'home', group: 'Overview', label: 'Home', shortLabel: 'Home', description: 'Global operations overview · TRON Mainnet', icon: Network },
+  { id: 'monitor', group: 'Overview', label: 'Live monitor', shortLabel: 'Monitor', description: 'Live infrastructure, MCP execution, Mainnet resources and confirmed activity', icon: Activity },
+  { id: 'profile', group: 'Account', label: 'Profile & security', shortLabel: 'Profile', description: 'Owner Admin session, wallet identity and account security', icon: ShieldCheck },
   { id: 'portfolio', group: 'Assets', label: 'Owner portfolio', shortLabel: 'Portfolio', description: 'Contract health and owner portfolio', icon: Wallet },
   { id: 'deploy', group: 'Token operations', label: 'Deploy & verify', description: 'Create or inspect the TRӾ Mainnet contract', icon: Rocket },
   { id: 'issuance', group: 'Token operations', label: 'Owner issuance', shortLabel: 'Issue', description: 'Mint new TRӾ to a recipient address', icon: Coins },
@@ -181,8 +183,8 @@ export default function App() {
         <div className="trax-topbar-actions">
           <PWAInstallButton />
           <div className="trax-workspace-switch" role="group" aria-label="Wallet workspace">
-            <button type="button" className={!sponsorWorkspace ? 'active' : ''} aria-current={!sponsorWorkspace ? 'page' : undefined} aria-pressed={!sponsorWorkspace} onClick={() => setActivePage('home')}>Owner workspace</button>
-            <button type="button" className={sponsorWorkspace ? 'active sponsor' : ''} aria-current={sponsorWorkspace ? 'page' : undefined} aria-pressed={sponsorWorkspace} onClick={() => setActivePage('sponsor')}>Sponsor workspace</button>
+            <button type="button" className={!sponsorWorkspace ? 'active' : ''} aria-current={!sponsorWorkspace ? 'page' : undefined} aria-pressed={!sponsorWorkspace} onClick={() => setActivePage('home')}><Network size={14}/> Owner</button>
+            <button type="button" className={sponsorWorkspace ? 'active sponsor' : ''} aria-current={sponsorWorkspace ? 'page' : undefined} aria-pressed={sponsorWorkspace} onClick={() => setActivePage('sponsor')}><Wallet size={14}/> Sponsor</button>
           </div>
           <span className="trax-mainnet-badge"><i/> TRON MAINNET <b>·</b> {sponsorWorkspace ? "SPONSOR" : "OWNER"}</span><span className="trax-session-state"><i/>{wallet ? 'APPLICATION SESSION ACTIVE' : 'SIGN-IN REQUIRED'}</span>
           {!sponsorWorkspace && (wallet ? <><button type="button" className="trax-topbar-security" onClick={() => setOwnerSecurityOpen(true)}>Account security</button><button type="button" className="trax-topbar-wallet" onClick={lockWallet}><Wallet size={15}/>{wallet.address.slice(0,7)}…{wallet.address.slice(-5)} · Lock Owner</button></> : <button type="button" className="trax-topbar-connect" onClick={connectWallet}>Sign in</button>)}
@@ -192,7 +194,7 @@ export default function App() {
         {(walletError || walletNotice) && <div className={walletError ? 'trax-shell-alert error' : 'trax-shell-alert'} role={walletError ? 'alert' : 'status'}><AlertTriangle size={16}/><span>{walletError || walletNotice}</span><button onClick={() => {setWalletError('');setWalletNotice('')}} aria-label="Dismiss">×</button></div>}
         {sponsorWorkspace
           ? <SponsorWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}><SponsorWalletManager activePage={activePage} onNavigate={setActivePage} workspaceActive ownerAdminPassword={ownerAdminPassword}/></SponsorWorkspaceErrorBoundary>
-          : <OwnerWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>{activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage} onNavigate={setActivePage}/>}</OwnerWorkspaceErrorBoundary>}
+          : <OwnerWorkspaceErrorBoundary activePage={activePage} onNavigate={setActivePage}>{activePage === 'home' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage} compact/> : activePage === 'monitor' ? <AetheriaMcpMesh wallet={wallet} onNavigate={setActivePage}/> : activePage === 'profile' ? <OwnerAccountSecurity wallet={wallet} onConnect={connectWallet}/> : <TRXMainnetPanel wallet={wallet} onConnect={connectWallet} activePage={activePage === 'assets' ? 'portfolio' : activePage} onNavigate={setActivePage}/></OwnerWorkspaceErrorBoundary>}
       </main>
       {ownerAccessOpen && <OwnerWalletAccess onUnlock={acceptOwnerWallet} onClose={() => setOwnerAccessOpen(false)}/>}
       {ownerSecurityOpen && wallet && <div className="owner-security-modal-backdrop" role="dialog" aria-modal="true" aria-label="Owner account security" onMouseDown={event => { if (event.target === event.currentTarget) setOwnerSecurityOpen(false) }}><div className="owner-security-modal"><button type="button" className="owner-security-modal-close" onClick={() => setOwnerSecurityOpen(false)}>Close</button><OwnerAccountSecurity wallet={wallet} onConnect={connectWallet}/></div></div>}
