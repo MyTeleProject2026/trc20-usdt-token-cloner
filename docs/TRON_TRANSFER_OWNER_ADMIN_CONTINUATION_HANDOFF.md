@@ -477,3 +477,46 @@ Observed row counts at verification time: Owner operations 0; Sponsor operations
 5. Do not create a Render PostgreSQL replacement, move production records, change Neon branch routing, or delete existing Neon branches/snapshots as part of this correction.
 
 No production schema or data was changed during this read-only verification.
+
+
+## 2026-11-28 implementation continuation — exchange UI and runtime diagnostics
+
+Production branch remains `ui/modern-crypto-dashboard-theme`. The following source changes were committed directly to this branch; no new branch or PR was created.
+
+### Implemented in this pass
+
+- Unified the Owner, Sponsor, and Mainnet observability surfaces on a graphite/black and warm-gold exchange theme. The affected stylesheets are `src/owner-admin-redesign.css`, `src/sponsor-wallet.css`, and `src/aetheria-mcp-mesh.css`.
+- Kept the existing desktop sidebar, workspace switcher, top menu, and mobile bottom navigation. Owner mobile primary labels now read Home, Deploy & Verify, Live Monitor, Assets, and Profile.
+- Added Owner native TRX and official USDT withdrawal stages: existing network/asset context, recipient address, amount, then the existing durable operation review and exact confirmation path.
+- Added full-screen Owner withdrawal receipt detail views and Sponsor activity receipt views. Receipt status is displayed from recorded operation data; an unverified or pending operation is not represented as complete.
+- Replaced the Sponsor write-operation browser confirmation dialogs with an in-app, full-screen approval surface for the three existing guarded stages: initial operation intent, exact unsigned transaction preparation, and exact local-signing approval. The local Sponsor signer and API persistence/broadcast gates remain unchanged.
+- Added Owner and Sponsor render-boundary display for React component traces and JavaScript error stacks, including clearing stale diagnostics on retry.
+- Enabled frontend production source maps to make the minified Sponsor runtime stack trace mappable to original source.
+- Added regression coverage for Sponsor callback initialization order, Owner/Sponsor diagnostic traces, shared theme tokens, Owner route metadata, withdrawal stages/receipts, Sponsor receipt views, Sponsor approval stages, mobile navigation labels, and observability theme consistency.
+
+### Deployment and automated verification at commit `2bbe2e6904cc0afb3ee2ef75e5094335a0d95c07`
+
+- Frontend Render service `tron-transfer`: Live.
+- Resource API Render service `tron-transfer-resource-api`: Live.
+- Frontend workflow: Passed.
+- Main CI: Passed, including security/dependency audit, regression tests, isolated PostgreSQL integration tests, Mainnet resource API read tests, frontend build, and contract compilation.
+- Production uptime probe: Passed.
+
+Both services use the existing repository and production branch. No production Neon schema or records were changed in this UI pass. Neon PostgreSQL remains the application database; Render PostgreSQL is not the application database.
+
+### Sponsor `Cannot access 'ln' before initialization` status
+
+The current `SponsorWalletManager.jsx` source initializes `recordSecurityEvent` before the paired Sponsor auto-restore effect and its dependency list. A scan of that component's hook dependency lists found no dependency referring to a later declaration. The exact production `ln` exception has **not** yet been reproduced from an authenticated browser stack, so it must not be reported as root-cause-fixed.
+
+The Sponsor and Owner error boundaries now display both component and JavaScript stacks. Production source maps are enabled so the next captured stack can be mapped to its original source location. The service worker is network-only and does not cache application bundles.
+
+### Still outstanding — do not mark complete
+
+1. Reproduce the Sponsor TDZ exception using the captured production JavaScript stack and fix the exact mapped source defect.
+2. Complete authenticated desktop and mobile browser acceptance across every Owner and Sponsor route, including navigation, form validation, review, cancellation, pending status, receipt and history interactions.
+3. Finish page-by-page visual and interaction standardization for every existing section; this pass establishes the shared theme and updates the withdrawal and Sponsor approval/receipt flows, but is not a claim that every workflow is fully redesigned.
+4. Complete the remaining supported write-operation guided screens where the existing operation contract supports them; do not invent unsupported memo fields or exchange functions. Current TRX/USDT withdrawal intents carry recipient and amount; they do not submit a transfer memo/note.
+5. Complete managed-signing production acceptance. Current transaction signing remains on the independent local Owner/Sponsor encrypted vaults; no KMS/HSM managed signer was provisioned in this pass. Preserve separate role keys and explicit transaction-level approval.
+6. Complete real-browser vault migration/restoration acceptance and production recovery/backup drills. Automated vault tests use isolated fixtures and do not migrate a user's browser vault.
+
+No TRON Mainnet transaction, signing, broadcast, deployment, stake, delegation, withdrawal, or transfer was initiated during this pass.
