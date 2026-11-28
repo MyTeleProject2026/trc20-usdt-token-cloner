@@ -138,3 +138,80 @@
 .aetheria-mesh.focused[data-view="chain"]>.am-dual-grid:nth-of-type(12)>.am-panel:nth-child(2),
 .aetheria-mesh.focused[data-view="callbacks"]>.am-dual-grid:nth-of-type(12)>.am-panel:nth-child(1){display:none}
 @media(max-width:720px){.am-overview-links{grid-template-columns:1fr}.am-overview-links>button{min-height:88px}.am-monitor-tabs{margin-inline:-2px}.am-monitor-tabs button{font-size:8px;padding-inline:10px}}
+
+
+/* Graphite/gold observability surfaces — keep semantic health colors, unify the application chrome. */
+.aetheria-mesh {
+  --am-text:#f1ede4;
+  --am-muted:#aaa69c;
+  --am-line:rgba(215,177,94,.16);
+  color:var(--am-text);
+}
+.aetheria-mesh .am-hero,
+.aetheria-mesh .am-panel,
+.aetheria-mesh .am-mesh-stage,
+.aetheria-mesh .am-flow-card,
+.aetheria-mesh .am-metric {
+  border-color:rgba(215,177,94,.17);
+  background:linear-gradient(145deg,rgba(25,27,30,.98),rgba(14,16,19,.99));
+  box-shadow:0 18px 48px rgba(0,0,0,.34),inset 0 1px rgba(255,255,255,.025);
+}
+.aetheria-mesh .am-hero {
+  background:radial-gradient(ellipse at 82% 0,rgba(190,145,58,.16),transparent 40%),linear-gradient(145deg,#1b1a17,#101215 72%);
+}
+.aetheria-mesh .am-hero:after { background:conic-gradient(from 40deg,transparent 0 32%,rgba(215,177,94,.07) 42%,transparent 53% 100%); }
+.aetheria-mesh .am-brandline { border-bottom-color:rgba(215,177,94,.14); }
+.aetheria-mesh .am-brand-mark { border-color:rgba(215,177,94,.42);color:#f0dca9;background:linear-gradient(145deg,rgba(153,112,37,.3),rgba(35,31,22,.65));box-shadow:0 0 24px rgba(153,112,37,.14),inset 0 1px rgba(255,255,255,.08); }
+.aetheria-mesh .am-brandline>div>span { color:#f2e6c9; }
+.aetheria-mesh .am-brandline small,.aetheria-mesh .am-hero p,.aetheria-mesh .am-section-head p,.aetheria-mesh .am-note { color:#aaa397; }
+.aetheria-mesh .am-eyebrow,.aetheria-mesh .am-telemetry-bar svg,.aetheria-mesh .am-flow-hub { color:#d7b15e; }
+.aetheria-mesh .am-hero h2 { color:#f2eee5;text-shadow:0 5px 30px rgba(153,112,37,.15); }
+.aetheria-mesh .am-hero-actions button {
+  border-color:rgba(215,177,94,.34);
+  color:#f1e4c4;
+  background:linear-gradient(145deg,rgba(80,61,29,.65),rgba(27,25,21,.95));
+}
+.aetheria-mesh .am-hero-actions button:hover { border-color:rgba(240,212,138,.7);box-shadow:0 14px 30px rgba(0,0,0,.3),0 0 20px rgba(153,112,37,.13); }
+.aetheria-mesh .am-telemetry-bar span { border-color:rgba(215,177,94,.13);background:rgba(8,9,11,.55);color:#a99f8b; }
+.aetheria-mesh .am-telemetry-bar b { color:#e8dfce; }
+.aetheria-mesh .am-section-head h3,.aetheria-mesh .am-panel-head h3 { color:#f0ece3; }
+.aetheria-mesh .am-legend span { color:#aaa397; }
+.aetheria-mesh .am-mesh-stage {
+  background:radial-gradient(ellipse at 50% 48%,rgba(153,112,37,.13),transparent 48%),linear-gradient(160deg,#171714,#0b0d10 75%);
+}
+.aetheria-mesh .am-grid-floor { background-image:linear-gradient(rgba(215,177,94,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(215,177,94,.055) 1px,transparent 1px); }
+.aetheria-mesh .am-mesh-stage:before { border-color:rgba(215,177,94,.1);box-shadow:0 0 60px rgba(153,112,37,.07),inset 0 0 55px rgba(153,112,37,.06); }
+.aetheria-mesh .am-connection-svg { filter:drop-shadow(0 0 7px rgba(215,177,94,.22)); }
+.aetheria-mesh .am-link-base { stroke:rgba(215,177,94,.16); }
+.aetheria-mesh .am-link-active { stroke:rgba(215,177,94,.72); }
+.aetheria-mesh .am-packet { fill:#f0dca9; }
+.aetheria-mesh .am-hub { border-color:rgba(215,177,94,.24);background:linear-gradient(150deg,rgba(39,35,26,.96),rgba(13,15,17,.98));box-shadow:0 22px 38px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.06),0 0 24px rgba(153,112,37,.07); }
+.aetheria-mesh .am-hub:hover { border-color:rgba(240,212,138,.58);box-shadow:0 28px 45px rgba(0,0,0,.43),0 0 28px rgba(153,112,37,.14); }
+.aetheria-mesh .am-hub b { color:#f0e6cf; }
+.aetheria-mesh .am-hub small { color:#a9a18f; }
+.aetheria-mesh .am-hub-orbit { border-color:rgba(215,177,94,.45);color:#f0dca9;background:radial-gradient(circle,rgba(153,112,37,.22),rgba(20,19,16,.25) 70%);box-shadow:0 0 23px rgba(153,112,37,.12),inset 0 0 13px rgba(215,177,94,.1); }
+.aetheria-mesh .am-hub-orbit i { border-color:rgba(215,177,94,.3); }
+.aetheria-mesh .am-stage-foot { border-color:rgba(215,177,94,.13);background:rgba(7,8,10,.72);color:#a99f8b; }
+.aetheria-mesh .am-stage-foot b { color:#eadfca; }
+.aetheria-mesh .am-metric>span,.aetheria-mesh .am-metric>small { color:#a99f8b; }
+.aetheria-mesh .am-metric>b { color:#f0e6cf; }
+.aetheria-mesh .am-flow-card h4 { color:#e8dfce; }
+.aetheria-mesh .am-flow-card code { color:#a99f8b; }
+.aetheria-mesh .am-flow-hub { color:#d7b15e; }
+.aetheria-mesh .am-flow-method { border-color:rgba(215,177,94,.2);color:#e4c77e;background:rgba(153,112,37,.1); }
+.aetheria-mesh .am-flow-line:before { background:rgba(215,177,94,.18); }
+.aetheria-mesh .am-flow-line i { background:#d7b15e;box-shadow:0 0 8px rgba(215,177,94,.55); }
+.aetheria-mesh .am-flow-line.warning i,.aetheria-mesh .am-flow-line.offline i { background:#e8bd68;box-shadow:0 0 7px rgba(232,189,104,.55); }
+.aetheria-mesh .am-monitor-tabs { border-color:rgba(215,177,94,.17);background:#101215; }
+.aetheria-mesh .am-monitor-tabs button { color:#a9a397; }
+.aetheria-mesh .am-monitor-tabs button.active { border-color:rgba(215,177,94,.35);background:rgba(153,112,37,.2);color:#f0dca9; }
+.aetheria-mesh .am-overview-link-status,.aetheria-mesh .am-provider-used { color:#c7b98f; }
+.aetheria-mesh .am-owner-chip { border-color:rgba(215,177,94,.22);background:rgba(153,112,37,.1);color:#ead8ad; }
+.aetheria-mesh .am-provider,.aetheria-mesh .am-resource-grid article,.aetheria-mesh .am-render-metrics article,.aetheria-mesh .am-tx-list article,.aetheria-mesh .am-event-list article { border-color:rgba(215,177,94,.14);background:rgba(10,11,13,.5); }
+.aetheria-mesh .am-footer { border-top-color:rgba(215,177,94,.13);color:#9b9589; }
+.aetheria-mesh a { color:#e2c477; }
+@media(max-width:640px) {
+  .aetheria-mesh .am-hero { padding:16px;border-radius:15px; }
+  .aetheria-mesh .am-mesh-stage { min-height:410px; }
+  .aetheria-mesh .am-hub { width:142px;min-height:108px;padding:9px 7px; }
+}
