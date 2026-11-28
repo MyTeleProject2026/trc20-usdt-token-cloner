@@ -66,7 +66,7 @@ class SponsorWorkspaceErrorBoundary extends React.Component {
         <h3>This Sponsor page could not be displayed</h3>
         <p>A render error does not confirm transaction status. Check the durable Sponsor ledger and solidified Mainnet receipt before retrying; do not create a replacement operation until the original is reconciled.</p>
         <p className="sponsor-muted">Diagnostic: <code>{this.state.message}</code></p>
-        {this.state.componentStack && <details className="sponsor-render-stack"><summary>Show component trace for support</summary><pre>{this.state.componentStack}</pre></details>}
+        {this.state.componentStack && <details className="sponsor-render-stack"><summary>Show Sponsor component trace for support</summary><pre>{this.state.componentStack}</pre></details>}
         {this.state.errorStack && <details className="sponsor-render-stack"><summary>Show JavaScript stack for support</summary><pre>{this.state.errorStack}</pre></details>}
       </div></div>
       <div className="sponsor-actions">
