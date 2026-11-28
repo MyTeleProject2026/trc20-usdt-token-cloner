@@ -187,3 +187,23 @@ test('Sponsor render boundary exposes a component trace and a full-application r
   assert.match(app, /window\.location\.reload\(\)/)
   assert.match(app, /componentStack: ''/)
 })
+
+
+test('Sponsor auto-restore callback is initialized before the effect and its dependency list', () => {
+  const callback = source.indexOf('const recordSecurityEvent = useCallback(')
+  const restoreMarker = source.indexOf('// Restore the paired Sponsor role')
+  const restoreEffect = source.indexOf('useEffect(() => {', restoreMarker)
+  const restoreDependencies = source.indexOf('[sharedOwnerPassword, vaultSaved, wallet, ownerAuth, sponsorAuth, notify, recordSecurityEvent]', restoreEffect)
+  assert.ok(callback >= 0 && restoreMarker > callback, 'recordSecurityEvent must be initialized before the auto-restore effect')
+  assert.ok(restoreEffect > restoreMarker && restoreDependencies > restoreEffect, 'the paired-session restoration effect and dependency list must remain present')
+})
+
+test('Owner shell and Sponsor component share the graphite-and-gold exchange design tokens', async () => {
+  const ownerTheme = await readFile(new URL('../src/owner-admin-redesign.css', import.meta.url), 'utf8')
+  const sponsorTheme = await readFile(new URL('../src/sponsor-wallet.css', import.meta.url), 'utf8')
+  assert.match(ownerTheme, /--owner-bg:\s*#090a0c/)
+  assert.match(ownerTheme, /--owner-primary:\s*#d7b15e/)
+  assert.match(ownerTheme, /\.trax-mobile-nav[\s\S]*background:rgba\(12,13,15/)
+  assert.match(sponsorTheme, /\.sponsor-card[\s\S]*background:linear-gradient\(145deg,rgba\(25,27,30/)
+  assert.match(sponsorTheme, /\.sponsor-primary[\s\S]*#e2c16f/)
+})
