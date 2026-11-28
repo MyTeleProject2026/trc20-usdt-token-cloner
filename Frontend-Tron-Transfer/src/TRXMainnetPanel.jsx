@@ -127,7 +127,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
   }, [walletReady, connectedAddress])
 
   useEffect(() => {
-    if (walletReady && activePage === 'portfolio') void refreshOwnerDeposits()
+    if (walletReady && ['portfolio','deposit'].includes(activePage)) void refreshOwnerDeposits()
   }, [walletReady, activePage, refreshOwnerDeposits])
 
   useEffect(() => {
@@ -828,7 +828,16 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       </button>
     </div>}
 
-        {show('portfolio') && <>
+        {show('portfolio') && <div className="trax-asset-shortcuts" aria-label="Asset actions">
+      {[
+        ['Deposit','deposit','Receive native TRX and official USDT'],
+        ['Withdraw','withdraw','Send an existing supported asset'],
+        ['Credit history','history','Review confirmed TRӾ credit events'],
+        ['Ownership transfer','ownership','Manage the existing two-step handoff'],
+        ['External balance','balance','Read a TRON Mainnet token balance'],
+      ].map(([label,target,description]) => <button type="button" key={target} onClick={() => onNavigate?.(target)}><b>{label}</b><small>{description}</small><span>Open ↗</span></button>)}
+    </div>}
+    {show('portfolio') && <>
       <div className="trax-actions trax-portfolio" aria-label="Combined wallet portfolio valuation">
         <h3>Owner wallet portfolio</h3>
         <p className="fine-print">Separate quantities and clearly labelled reference valuations for native TRX, TRӾ and official USDT.</p>
@@ -852,6 +861,8 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
         {snapshot && <div className="trax-checks"><span className={snapshot.valid ? 'ok' : 'bad'}>{snapshot.valid ? '✓' : '!'} {snapshot.name} / {snapshot.symbol} / {snapshot.decimals} decimals</span><span className={snapshot.ownerValid ? 'ok' : 'bad'}>{snapshot.ownerValid ? '✓' : '!'} On-chain owner matches wallet</span><span className="bad">! No backing or redemption</span></div>}
       </div>
     </>}
+
+    {show('deposit') && <WalletDepositPanel role="Owner" address={connectedAddress} addressHex={readOnlyTronWeb.address.toHex(connectedAddress)} transactions={ownerDepositHistory.transactions} tokenTransfers={ownerDepositHistory.tokenTransfers} transactionsAvailable={ownerDepositHistory.transactionsAvailable} tokenTransfersAvailable={ownerDepositHistory.tokenTransfersAvailable} onRefresh={refreshOwnerDeposits} refreshing={ownerDepositLoading}/>}
 
     {show('withdraw-trx') && <div className="trax-actions" aria-label="Native TRX withdrawal">
       <h3>Send native TRX · Owner Wallet</h3>
