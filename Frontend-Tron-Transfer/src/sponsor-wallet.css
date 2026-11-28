@@ -351,3 +351,15 @@
   .sponsor-receipt-sheet { padding:16px;border-radius:14px; }
   .sponsor-receipt-heading { align-items:center; }
 }
+
+
+/* Full-screen Sponsor operation review/approval workflow. */
+.sponsor-operation-review-backdrop { position:fixed;inset:0;z-index:10070;display:grid;place-items:center;padding:18px;background:rgba(0,0,0,.78);backdrop-filter:blur(9px); }
+.sponsor-operation-review-sheet { width:min(720px,100%);max-height:min(90vh,900px);overflow:auto;padding:clamp(18px,3vw,30px);border:1px solid rgba(215,177,94,.32);border-radius:18px;background:linear-gradient(145deg,#1b1d20,#101215);color:#f1ede4;box-shadow:0 28px 100px rgba(0,0,0,.68); }
+.sponsor-operation-review-sheet h3 { margin:6px 0;color:#f4ecda;font-size:clamp(21px,3vw,28px); }
+.sponsor-operation-review-message { max-height:42vh;overflow:auto;margin:18px 0;padding:15px;border:1px solid rgba(215,177,94,.17);border-radius:12px;background:#0b0d10;color:#e7dfcf;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.75 ui-monospace,monospace; }
+.sponsor-operation-review-sheet .sponsor-actions { display:flex;justify-content:flex-end;gap:10px;margin-top:18px; }
+@media(max-width:560px) {
+  .sponsor-operation-review-sheet { padding:16px;border-radius:14px; }
+  .sponsor-operation-review-sheet .sponsor-actions { display:grid;grid-template-columns:1fr; }
+}
