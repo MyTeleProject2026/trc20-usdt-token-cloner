@@ -68,3 +68,12 @@ test('KMS signer refuses one KMS key shared by Owner and Sponsor', () => {
     },
   }), error => error.code === 'KMS_ROLE_KEYS_MUST_BE_DISTINCT')
 })
+
+test('KMS signer refuses incomplete two-role key configuration', () => {
+  const ownerArn = 'arn:aws:kms:ap-southeast-1:123456789012:key/00000000-0000-0000-0000-000000000001'
+  assert.throws(() => assertKmsSignerConfiguration({
+    role: 'owner',
+    enabled: true,
+    env: { TRON_OWNER_ADDRESS: OWNER, OWNER_KMS_KEY_ARN: ownerArn },
+  }), error => error.code === 'KMS_BOTH_ROLE_KEYS_REQUIRED')
+})
