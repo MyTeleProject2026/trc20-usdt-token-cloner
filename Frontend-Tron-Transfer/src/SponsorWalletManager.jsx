@@ -1357,9 +1357,7 @@ This request is sent to the authenticated TRON Transfer Resource API. The Resour
       </div>
       <button type="button" className="sponsor-secondary" disabled={busy} onClick={() => void verifySponsorLocalSigner()}>Run sign-only acceptance</button>
     </section>}
-    <nav className="sponsor-product-tabs" aria-label="Sponsor platform sections">
-      {[['sponsor','Overview'],['sponsor-resources','Resources'],['sponsor-automation','Automation'],['sponsor-activity','Activity']].map(([id,label]) => <button key={id} type="button" className={activePage === id ? 'active' : ''} aria-current={activePage === id ? 'page' : undefined} onClick={() => onNavigate(id)}>{label}</button>)}
-    </nav>
+    <div className="sponsor-workspace-context" aria-live="polite"><span>SPONSOR WORKSPACE</span><b>{({ sponsor: 'Overview', 'sponsor-resources': 'Resources', 'sponsor-automation': 'Automation & limits', 'sponsor-activity': 'Activity & audit' })[activePage] || 'Sponsor operations'}</b><small>TRON Mainnet · Independent Sponsor wallet</small></div>
 
     {activePage === 'sponsor' && <section className="sponsor-card">
       <div className="sponsor-card-heading"><ShieldCheck/><div><h3>Sponsor Resource API execution readiness</h3><p>Independent local vault, exact-intent verification and durable operation ledger.</p></div></div>
