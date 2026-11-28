@@ -245,3 +245,13 @@ test('Owner TRX and USDT withdrawals use guided recipient/amount stages and open
   assert.match(theme, /\.trax-receipt-backdrop/)
   assert.match(theme, /\.trax-receipt-sheet/)
 })
+
+
+test('Every Owner workspace route has a specific page heading and the deposit page is not shown as a generic workspace', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const panel = await readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  for (const route of ['portfolio', 'deposit', 'deploy', 'issuance', 'credits', 'batch', 'pause', 'minting', 'transfers', 'withdraw', 'withdraw-trx', 'withdraw-usdt', 'ownership', 'history', 'balance']) {
+    assert.ok(app.includes(`id: '${route}'`), 'Owner route must be navigable: ' + route)
+    assert.ok(panel.includes(route + ': ['), 'Owner route must have page metadata: ' + route)
+  }
+})
