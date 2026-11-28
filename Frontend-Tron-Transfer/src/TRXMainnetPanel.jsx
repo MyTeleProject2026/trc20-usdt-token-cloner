@@ -729,7 +729,9 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     pause: ['Emergency pause', 'Inspect the current contract pause state and prepare an explicitly confirmed emergency control.'],
     minting: ['Minting authorization', 'Inspect and change the on-chain permission for new TRӾ issuance.'],
     transfers: ['TRӾ transfers', 'Transfer existing TRӾ balances without creating new token supply.'],
-    withdraw: ['Wallet withdrawals', 'Choose the existing native TRX or official USDT withdrawal workflow and review its fee/resource checks.'],
+    withdraw: ['Withdrawals', 'Choose one asset-specific withdrawal workflow. Each transfer has its own review, preflight, confirmation and receipt history.'],
+    'withdraw-trx': ['Native TRX withdrawal', 'Send native TRX from the Owner wallet after balance reservation, resource preflight and exact transaction review.'],
+    'withdraw-usdt': ['Official USDT withdrawal', 'Send official USDT TRC20 after token balance reservation, resource preflight and exact transaction review.'],
     ownership: ['Ownership transfer', 'Review the two-step on-chain ownership handoff and pending acceptance state.'],
     history: ['Operation history', 'Inspect durable Owner operations, transaction IDs and solidified receipt reconciliation.'],
     balance: ['External balance lookup', 'Read token balances for a TRON Mainnet address without initiating a transaction.'],
@@ -750,7 +752,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       </div>
     </div>
 
-    {!show('withdraw') && ['deploy','portfolio','issuance','credits','batch','pause','minting','transfers','ownership'].includes(activePage) && <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>}
+    {!show('withdraw','withdraw-trx','withdraw-usdt') && ['deploy','portfolio','issuance','credits','batch','pause','minting','transfers','ownership'].includes(activePage) && <div className="trax-notice" role="note"><AlertTriangle size={18}/><div><b>OWNER-ISSUED TOKEN · NOT NATIVE TRX</b><p>TRӾ is a custom TRC-20 token without reserves, collateral, guaranteed redemption or a promised market price. Owner issuance can dilute holders. Native TRX and TRӾ are different assets.</p></div></div>}
 
     {!walletReady ? <div className="trax-connect"><p>{wallet?.managedSession && connectedAddress ? 'Owner password session restored. Unlock the local Owner vault matching the authenticated Owner account (' + shorten(connectedAddress) + ') to review and approve Mainnet transactions.' : connectedAddress ? 'The local Owner vault must match the authenticated Owner session before Mainnet actions are enabled.' : 'Sign in to the configured backend Owner account to administer the contract.'}</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> {wallet?.managedSession ? 'Unlock matching local Owner vault' : 'Unlock Owner Wallet'}</button></div> : <div className="trax-wallet-row"><span>Connected owner / transaction fee payer</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> TRON Mainnet</span><small>This wallet is the transaction owner. Network fees are never redirected to a different account.</small></div>}
 
@@ -772,7 +774,7 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
     <details className="trax-operation-settings" open={activePage === 'deploy'}>
       <summary><span>Operation configuration</span><small>Contract address and transaction fee ceiling · advanced settings</small></summary>
       <div className="trax-addresses">
-        {!show('withdraw') && <><label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
+        {!show('withdraw','withdraw-trx','withdraw-usdt') && <><label>TRӾ Mainnet contract address<input aria-describedby="trax-contract-address-note" value={tokenAddress} onChange={e => setTokenAddress(e.target.value.trim())} placeholder="Enter an existing verified address or deploy a new contract"/></label>
         <p id="trax-contract-address-note" className="fine-print">The contract address identifies the custom token on TRON Mainnet. Verify its on-chain bytecode and metadata before accepting deposits.</p></>}
         <label>Transaction fee limit (TRX)<input type="number" min="0.000001" step="0.000001" value={feeCap} onChange={e => setFeeCap(e.target.value)}/></label>
         <p className="fine-print">Fee limit is a ceiling, not a prepaid fee. The Resource API checks the current Mainnet protocol limit and fresh Energy/Bandwidth estimates. Zero-TRX-burn protection blocks signing whenever the resource preflight detects TRX fallback.</p>
@@ -817,7 +819,16 @@ export default function TRXMainnetPanel({ wallet, onConnect, activePage = 'home'
       </div>
     </details>
 
-    {show('portfolio') && <>
+    {show('withdraw') && <div className="trax-withdrawal-chooser" aria-label="Choose withdrawal asset">
+      <button type="button" className="trax-withdrawal-choice" onClick={() => onNavigate?.('withdraw-trx')}>
+        <span className="trax-withdrawal-choice-icon"><ArrowUpRight/></span><span><b>Native TRX</b><small>Send TRX for a native Mainnet transfer. Uses the Owner wallet's TRX balance and Bandwidth/resource checks.</small></span><strong>Continue →</strong>
+      </button>
+      <button type="button" className="trax-withdrawal-choice" onClick={() => onNavigate?.('withdraw-usdt')}>
+        <span className="trax-withdrawal-choice-icon"><Coins/></span><span><b>Official USDT · TRC20</b><small>Send USDT using the official Mainnet token contract. Checks token balance, reservations and network resources.</small></span><strong>Continue →</strong>
+      </button>
+    </div>}
+
+        {show('portfolio') && <>
       <div className="trax-actions trax-portfolio" aria-label="Combined wallet portfolio valuation">
         <h3>Owner wallet portfolio</h3>
         <p className="fine-print">Separate quantities and clearly labelled reference valuations for native TRX, TRӾ and official USDT.</p>
