@@ -220,3 +220,23 @@ body:has(.trax-admin-shell){background:radial-gradient(ellipse at 70% -18%,rgba(
 .trax-admin-shell .trax-deploy-shortcuts span{color:#e9ad68;font-size:9px;font-weight:750}
 @media(max-width:1100px){.trax-admin-shell .trax-deploy-shortcuts{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:720px){.trax-admin-shell .trax-deploy-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))}.trax-admin-shell .trax-deploy-shortcuts>button{min-height:88px;padding:11px}}
+
+
+/* Owner Admin authentication surface: same graphite / ember visual language as the exchange shell. */
+.owner-vault-backdrop{background:rgba(2,3,5,.84)!important;backdrop-filter:blur(18px)!important}
+.owner-vault-card{width:min(560px,calc(100vw - 28px))!important;max-height:min(90dvh,900px)!important;overflow:auto!important;padding:clamp(20px,4vw,32px)!important;border:1px solid rgba(220,167,94,.24)!important;border-radius:20px!important;background:radial-gradient(ellipse at 0 0,rgba(231,111,39,.12),transparent 48%),linear-gradient(155deg,#1a1713,#101114 62%,#0b0c0e)!important;box-shadow:0 28px 100px rgba(0,0,0,.68),inset 0 1px rgba(255,255,255,.04)!important;color:#f2efe8!important}
+.owner-vault-heading{align-items:flex-start!important;gap:15px!important;padding-bottom:18px!important;border-bottom:1px solid rgba(190,181,160,.14)!important}
+.owner-vault-heading>svg{flex:0 0 auto!important;width:42px!important;height:42px!important;padding:10px!important;border:1px solid rgba(231,145,67,.3)!important;border-radius:12px!important;background:rgba(231,111,39,.12)!important;color:#ff9b5c!important}
+.owner-vault-heading span{color:#e8ad68!important;font-size:9px!important;letter-spacing:.16em!important}
+.owner-vault-heading h2{color:#fff4e9!important;font-size:24px!important;letter-spacing:-.035em!important}
+.owner-vault-heading p,.owner-vault-footnote{color:#a69b8e!important;line-height:1.65!important}
+.owner-vault-warning{border:1px solid rgba(231,174,99,.2)!important;border-radius:11px!important;background:rgba(120,78,31,.13)!important;color:#e6c99e!important;font-size:11px!important;line-height:1.65!important}
+.owner-vault-card label{display:grid!important;gap:7px!important;color:#d9cbb9!important;font-size:11px!important;font-weight:650!important}
+.owner-vault-card input,.owner-vault-card select,.owner-vault-card textarea{min-height:44px!important;border:1px solid rgba(190,181,160,.2)!important;border-radius:10px!important;background:#090a0c!important;color:#f7f0e8!important;outline:none!important}
+.owner-vault-card input:focus,.owner-vault-card select:focus,.owner-vault-card textarea:focus{border-color:#e78a43!important;box-shadow:0 0 0 3px rgba(231,138,67,.12)!important}
+.owner-vault-primary{min-height:48px!important;border:1px solid rgba(255,177,108,.38)!important;border-radius:11px!important;background:linear-gradient(110deg,#e96b24,#bd4319)!important;color:#fff!important;font-weight:800!important;box-shadow:0 8px 26px rgba(185,67,25,.18)!important}
+.owner-vault-secondary,.owner-vault-actions button{border:1px solid rgba(190,181,160,.17)!important;border-radius:9px!important;background:#171719!important;color:#c9bfb2!important}
+.owner-vault-error{border:1px solid rgba(238,101,111,.32)!important;border-radius:10px!important;background:rgba(122,33,43,.18)!important;color:#ffb5b8!important}
+.owner-vault-footnote{display:flex!important;align-items:flex-start!important;gap:8px!important;font-size:9px!important}
+.owner-vault-footnote svg{flex:0 0 auto!important;color:#e8ad68!important}
+@media(max-width:560px){.owner-vault-card{width:calc(100vw - 18px)!important;max-height:calc(100dvh - 20px)!important;padding:18px!important;border-radius:16px!important}.owner-vault-heading h2{font-size:21px!important}}
