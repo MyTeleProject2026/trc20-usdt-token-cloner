@@ -231,3 +231,29 @@ Updated commits after the earlier runtime repair:
 - Resource API README status: `be9641dd66562c124fe8e42b54e043d0c7f595ff`
 
 Before continuing, inspect the current branch head because additional documentation commits may have advanced it.
+
+
+## 11. Focused exchange-workspace redesign changes (2026-11-28)
+
+Direct commits on the existing production branch:
+- `04a64ff4a67af8e4c37daae1e3b8150fa0201e6d` — Owner workspace now renders page-specific headings/descriptions and breadcrumbs; shared contract/fee configuration is progressively disclosed in a collapsible settings panel; local signer acceptance is limited to Deploy & Verify and Portfolio rather than repeated on every operation page.
+- `bfbc3889dc77c23923fc6f290523019e75687952` — black/graphite and orange exchange visual layer for focused page headings, network status, compact advanced settings and responsive mobile layout.
+- `4bddc328dcc50523447d9f365b19aca5e3650ec7` — removed duplicate Sponsor internal tab bar; added a compact Sponsor page context label and use the shared sidebar/mobile navigation.
+- `02a4325e881614a51f3a76ee00612ba05dddc5d8` — Sponsor context visual styling.
+- `74b093c35fb05586bc75d415869a49f264d78d96` — KMS signer now requires both Owner and Sponsor key ARNs and rejects a shared key.
+- `d3fc29f1ca3dd6e611d4515469be91e1d9355934` — added regression coverage for missing and shared KMS key configuration.
+- `f860905ffc8dbce5725b4929c90f3534a7d373f4` and `6808c7f897b8d20835507f3abc58bf2083212fce` — frontend tests updated to assert the new focused page structure and single shared Sponsor navigation.
+
+The existing route IDs and existing operation handlers were preserved. This is an incremental visual/workspace refactor, not a complete page-by-page rebuild of every nested operation form. The shared Owner contract/fee configuration is now collapsed by default except on Deploy & Verify; operators can expand it where necessary.
+
+The frontend CI run before the test expectation update failed because two tests asserted the removed generic Owner heading and duplicate Sponsor tab bar. Those assertions were updated to match the new UI. Verify the latest workflow after these commits before claiming the frontend build passes.
+
+**Still not complete / not safe to release as final acceptance:**
+- KMS signer remains a foundation only and is not wired into Owner confirm or Sponsor submit endpoints. Existing local vault signing remains the active path.
+- KMS keys and Render workload identity have not been provisioned. Keep `TRON_KMS_SIGNING_ENABLED` unset/false.
+- Owner Admin login still requires the independent local vault/device recovery path where the browser device key is absent or an old vault needs one-time migration. Sponsor vault recovery remains separate where needed.
+- All Sponsor operations still use local Sponsor signing and existing Sponsor session semantics; a single Owner login does not magically remove the cryptographic Sponsor key boundary.
+- The Sponsor page-specific content still needs a dedicated design pass beyond its duplicate-tab removal.
+- Owner Withdraw currently contains both native TRX and official USDT subflows; they still need separate focused sub-pages without changing their underlying handlers.
+- Full screenshot-driven desktop/mobile review and browser QA across every route remain outstanding.
+- Production acceptance still requires all latest frontend/API CI, live service deployment checks, read-only Mainnet preflight, database durability/restore acceptance, and independent security review. No Mainnet transaction is to be initiated as a test.
