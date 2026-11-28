@@ -240,3 +240,23 @@ body:has(.trax-admin-shell){background:radial-gradient(ellipse at 70% -18%,rgba(
 .owner-vault-footnote{display:flex!important;align-items:flex-start!important;gap:8px!important;font-size:9px!important}
 .owner-vault-footnote svg{flex:0 0 auto!important;color:#e8ad68!important}
 @media(max-width:560px){.owner-vault-card{width:calc(100vw - 18px)!important;max-height:calc(100dvh - 20px)!important;padding:18px!important;border-radius:16px!important}.owner-vault-heading h2{font-size:21px!important}}
+
+
+/* Mobile navigation: five Owner destinations plus the More drawer control;
+   Sponsor keeps its three primary destinations plus More. */
+@media(max-width:720px){
+  .trax-mobile-nav:not(.trax-mobile-nav-sponsor){
+    grid-template-columns:repeat(6,minmax(0,1fr));
+  }
+  .trax-mobile-nav:not(.trax-mobile-nav-sponsor) button span{
+    max-width:100%;
+    font-size:8px;
+    line-height:1.1;
+    white-space:normal;
+    text-align:center;
+    overflow-wrap:anywhere;
+  }
+  .trax-mobile-nav.trax-mobile-nav-sponsor{
+    grid-template-columns:repeat(4,minmax(0,1fr));
+  }
+}
