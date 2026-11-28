@@ -1,3 +1,4 @@
+import { assertMainnetActionEnabled } from './mainnet-action-controls.mjs'
 import artifacts from './generated/trax-contract-artifacts.js'
 import { TronWeb } from 'tronweb'
 
@@ -57,6 +58,7 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
   pollIntervalMs = 3000,
   readResources = getMainnetAccountResourceSnapshot,
 } = {}) {
+  assertMainnetActionEnabled('resourceClaims')
   const tronWeb = assertMainnetWallet(wallet)
   if (!addressesEqual(tronWeb, wallet.address, ownerAddress)) {
     throw new Error('TEnergy promo claim is restricted to the connected TRӾ owner wallet.')
@@ -225,6 +227,8 @@ export async function claimTenergyPromoForDeployment(wallet, ownerAddress, {
     return { status: 'challenge-unavailable', energyVerified: false, message: 'TEnergy eligibility could not be confirmed. No wallet message was signed.' }
   }
 
+  // Promotional claims use a wallet message signature; honor the same owner signing switch.
+  assertMainnetActionEnabled('walletSigning')
   const signer = wallet?.tronWeb?.trx?.signMessageV2
   if (typeof signer !== 'function') {
     return { status: 'wallet-message-signing-unavailable', energyVerified: false, message: 'This TronLink version does not expose signMessageV2. No claim was submitted.' }
@@ -1395,6 +1399,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   estimateEnergy = estimateMainnetDeploymentEnergy,
   expectedOwnerAddress = '',
 } = {}) {
+  assertMainnetActionEnabled('deploymentExecution')
   // Build the unsigned deployment transaction with the SAME injected
   // TronWeb instance that will sign it. TronLink's provider can use a different
   // TronWeb/protobuf version than the app's pinned verifier; constructing with
@@ -1513,6 +1518,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     safetyMarginBps: 12500,
   })
   assertZeroTrxBurnBudget(resourceBudget)
+  assertMainnetActionEnabled('walletSigning')
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
@@ -1593,6 +1599,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   if (!MAINNET_DEPLOYMENT_BROADCAST_ENABLED) {
     throw new Error('Mainnet deployment broadcasting is disabled. Signature was validated, but the transaction was not broadcast.')
   }
+  assertMainnetActionEnabled('transactionBroadcast')
   let broadcast
   try {
     broadcast = await walletTronWeb.trx.sendRawTransaction(signedTransaction)
@@ -1852,8 +1859,10 @@ export async function sendNativeTrxFromTronLink(wallet, toAddress, amountSun) {
   const amount = BigInt(String(amountSun))
   if (amount <= 0n || amount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Invalid TRX funding amount.')
   const unsigned = await tronWeb.transactionBuilder.sendTrx(toAddress, Number(amount), wallet.address)
+  assertMainnetActionEnabled('walletSigning')
   const signed = await tronWeb.trx.sign(unsigned)
   if (!signed?.signature?.length) throw new Error('TronLink did not sign the native TRX funding transaction.')
+  assertMainnetActionEnabled('transactionBroadcast')
   const broadcast = await tronWeb.trx.sendRawTransaction(signed)
   if (broadcast?.result !== true) throw new Error('TRON Mainnet rejected the TRX funding transfer.')
   const receipt = await waitForSolidifiedReceipt(tronWeb, unsigned.txID)

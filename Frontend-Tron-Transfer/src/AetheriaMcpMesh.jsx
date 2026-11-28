@@ -5,6 +5,7 @@ import {
   ShieldCheck, Terminal, Wallet, Waves, Zap,
 } from 'lucide-react'
 import './aetheria-mcp-mesh.css'
+import { validateMainnetResourceSnapshot } from './mainnet-resource-validation.mjs'
 
 const RESOURCE_API = (import.meta.env.VITE_RESOURCE_API_URL || 'https://tron-transfer-resource-api.onrender.com').replace(/\/$/, '')
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -150,9 +151,10 @@ export default function AetheriaMcpMesh({ wallet, onNavigate }) {
     setRuntime(body)
   }), [invoke])
   const refreshResources = useCallback(() => invoke('resources', '/v1/resources/' + OWNER, body => {
-    const valid = body.network === 'TRON Mainnet' && body.address === OWNER && body.energy && body.bandwidth
-    if (!valid) throw new Error('Mainnet resource response did not match the expected owner/network schema')
+    const validation = validateMainnetResourceSnapshot(body, OWNER)
+    if (validation.state !== 'online') throw new Error(validation.detail)
     setResources(body)
+    return validation
   }), [invoke])
   const refreshPromo = useCallback(() => invoke('tenergy', '/api/tron/tenergy/promo?address=' + encodeURIComponent(OWNER), body => {
     if (!body.success) throw new Error(body.error || 'TEnergy promotion response was unsuccessful')

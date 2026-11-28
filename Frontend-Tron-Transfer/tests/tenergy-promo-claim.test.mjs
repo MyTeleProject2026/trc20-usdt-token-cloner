@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { claimTenergyPromoForDeployment } from '../src/trax-mainnet.mjs'
+import { MAINNET_ACTION_CONTROLS_KEY, MAINNET_ACTION_DEFAULTS } from '../src/mainnet-action-controls.mjs'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const other = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
@@ -90,4 +91,59 @@ test('cached permanent ineligibility prevents repeated provider requests and sig
   assert.equal(second.providerCode, '3038')
   assert.equal(fetchCalls, 2)
   assert.equal(connected.signCalls, 0)
+})
+
+function withActionControls(overrides, callback) {
+  const previous = globalThis.localStorage
+  const values = new Map([[MAINNET_ACTION_CONTROLS_KEY, JSON.stringify({ ...MAINNET_ACTION_DEFAULTS, ...overrides })]])
+  globalThis.localStorage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+  }
+  return Promise.resolve().then(callback).finally(() => {
+    if (previous === undefined) delete globalThis.localStorage
+    else globalThis.localStorage = previous
+  })
+}
+
+test('resource-claim switch blocks direct TEnergy claim calls before provider access', async () => {
+  await withActionControls({ resourceClaims: false }, async () => {
+    const connected = wallet()
+    let fetchCalls = 0
+    await assert.rejects(
+      claimTenergyPromoForDeployment(connected, owner, {
+        fetchImpl: async () => { fetchCalls += 1; return jsonResponse({}) },
+        readResources: async () => ({ energyLimit: '0', energyAvailable: '0' }),
+      }),
+      /disabled in Owner Settings \(resourceClaims\)/,
+    )
+    assert.equal(fetchCalls, 0)
+    assert.equal(connected.signCalls, 0)
+  })
+})
+
+test('wallet-signing switch blocks TEnergy message signatures after eligibility without submitting redemption', async () => {
+  await withActionControls({ walletSigning: false }, async () => {
+    const connected = wallet()
+    let redeemCalls = 0
+    const fetchImpl = async url => {
+      if (String(url).includes('/status?')) {
+        return jsonResponse({ success: true, promo: { state: 'active', grant: { resource: 'energy' } }, redemption: null })
+      }
+      if (String(url).endsWith('/challenge')) {
+        return jsonResponse({ success: true, message: 'TEnergy promotional claim message', nonce: 'nonce-12345678' })
+      }
+      if (String(url).endsWith('/redeem')) redeemCalls += 1
+      throw new Error('Unexpected provider request')
+    }
+    await assert.rejects(
+      claimTenergyPromoForDeployment(connected, owner, {
+        fetchImpl,
+        readResources: async () => ({ energyLimit: '100', energyAvailable: '100' }),
+      }),
+      /disabled in Owner Settings \(walletSigning\)/,
+    )
+    assert.equal(connected.signCalls, 0)
+    assert.equal(redeemCalls, 0)
+  })
 })
